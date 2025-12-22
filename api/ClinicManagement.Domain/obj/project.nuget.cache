@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "dgSpecHash": "PxDx9MTjG8o=",
+  "success": true,
+  "projectFilePath": "C:\\Users\\Oumayma Benkhalifa\\Desktop\\clinic-management\\api\\ClinicManagement.Domain\\ClinicManagement.Domain.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\Oumayma Benkhalifa\\.nuget\\packages\\mediatr.contracts\\2.0.1\\mediatr.contracts.2.0.1.nupkg.sha512"
+  ],
+  "logs": []
+}

@@ -1,0 +1,56 @@
+"use client"
+
+import { useState } from "react"
+import { DashboardHeader } from "@/components/dashboard-header"
+import { DashboardSidebar } from "@/components/dashboard-sidebar"
+import { StockTable } from "@/components/stock-table"
+import { StockItemFormModal } from "@/components/stock-item-form-modal"
+import { Button } from "@/components/ui/button"
+import { Plus } from "lucide-react"
+
+export default function StockPage() {
+  const [modalOpen, setModalOpen] = useState(false)
+  const [editingItem, setEditingItem] = useState<any>(null)
+
+  const handleAddNew = () => {
+    setEditingItem(null)
+    setModalOpen(true)
+  }
+
+  const handleEdit = (item: any) => {
+    setEditingItem(item)
+    setModalOpen(true)
+  }
+
+  return (
+    <div className="flex h-screen bg-background">
+      <DashboardSidebar />
+
+      <div className="flex flex-1 flex-col overflow-hidden">
+        <DashboardHeader />
+
+        <main className="flex-1 overflow-y-auto p-6">
+          <div className="mx-auto max-w-7xl space-y-6">
+            {/* Page Header */}
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="text-3xl font-semibold text-foreground">Stock Management</h1>
+                <p className="mt-1 text-sm text-muted-foreground">Manage medical supplies and inventory</p>
+              </div>
+
+              <Button onClick={handleAddNew} className="gap-2">
+                <Plus className="h-4 w-4" />
+                Add New Item
+              </Button>
+            </div>
+
+            {/* Stock Table */}
+            <StockTable onEdit={handleEdit} />
+          </div>
+        </main>
+      </div>
+
+      <StockItemFormModal open={modalOpen} onOpenChange={setModalOpen} editingItem={editingItem} />
+    </div>
+  )
+}
