@@ -56,3 +56,4 @@ public class GetAppointmentQueryHandler : IRequestHandler<GetAppointmentQuery, R
     }
 }
 
+

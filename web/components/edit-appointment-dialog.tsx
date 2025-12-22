@@ -590,3 +590,4 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
   )
 }
 
+

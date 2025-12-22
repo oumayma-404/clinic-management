@@ -128,3 +128,4 @@ public class GetAppointmentsQueryHandler : IRequestHandler<GetAppointmentsQuery,
     }
 }
 
+

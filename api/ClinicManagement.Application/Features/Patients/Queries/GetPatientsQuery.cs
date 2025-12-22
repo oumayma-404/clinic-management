@@ -76,3 +76,4 @@ public class GetPatientsQueryHandler : IRequestHandler<GetPatientsQuery, Result<
     }
 }
 
+
