@@ -22,6 +22,13 @@ public class AppointmentRepository : IAppointmentRepository
             .FirstOrDefaultAsync(a => a.Id == id, cancellationToken);
     }
 
+    public async Task<IEnumerable<Appointment>> GetAllAsync(CancellationToken cancellationToken = default)
+    {
+        return await _context.Appointments
+            .Include(a => a.Patient)
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<IEnumerable<Appointment>> GetByPatientIdAsync(Guid patientId, CancellationToken cancellationToken = default)
     {
         return await _context.Appointments

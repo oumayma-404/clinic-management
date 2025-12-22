@@ -1,16 +1,17 @@
 "use client"
 
-import { useState, useCallback } from "react"
+import { useState, useCallback, useEffect } from "react"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { DashboardSidebar } from "@/components/dashboard-sidebar"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
-import { Plus } from "lucide-react"
+import { Plus, RefreshCw, Calendar } from "lucide-react"
 import { AppointmentCalendar } from "@/components/appointment-calendar"
 import { CreateAppointmentDialog } from "@/components/create-appointment-dialog"
 import { EditAppointmentDialog } from "@/components/edit-appointment-dialog"
 import type { AppointmentDto } from "@/lib/api/types"
 import { setHours, setMinutes } from "date-fns"
+import { googleCalendarApi } from "@/lib/api/google-calendar"
 
 export default function AppointmentsPage() {
   const [view, setView] = useState<"day" | "week">("day")
@@ -19,6 +20,8 @@ export default function AppointmentsPage() {
   const [selectedAppointment, setSelectedAppointment] = useState<AppointmentDto | null>(null)
   const [selectedDate, setSelectedDate] = useState(new Date())
   const [refreshKey, setRefreshKey] = useState(0)
+  const [isGoogleCalendarAuthorized, setIsGoogleCalendarAuthorized] = useState(false)
+  const [isSyncing, setIsSyncing] = useState(false)
 
   const handleTimeSlotClick = useCallback((date: Date, time: string) => {
     const [hours, minutes] = time.split(':').map(Number)
@@ -40,6 +43,51 @@ export default function AppointmentsPage() {
     setRefreshKey(prev => prev + 1)
   }, [])
 
+  // Check Google Calendar status on mount and after authorization
+  useEffect(() => {
+    const checkGoogleCalendarStatus = async () => {
+      try {
+        const status = await googleCalendarApi.getStatus()
+        setIsGoogleCalendarAuthorized(status.isConfigured && status.tokenValid !== false)
+        
+        // Show message if token is invalid
+        if (status.hasRefreshToken && !status.tokenValid) {
+          console.warn("Google Calendar token is invalid. Please re-authorize.")
+        }
+      } catch (error) {
+        console.error("Failed to check Google Calendar status:", error)
+      }
+    }
+    checkGoogleCalendarStatus()
+
+    // Check if we just came back from authorization
+    const urlParams = new URLSearchParams(window.location.search)
+    if (urlParams.get('googleCalendarAuthorized') === 'true') {
+      alert('Google Calendar authorization successful! Sync is now enabled.')
+      // Remove the query parameter from URL
+      window.history.replaceState({}, '', '/appointments')
+      // Refresh status
+      checkGoogleCalendarStatus()
+    }
+  }, [])
+
+  const handleAuthorizeGoogleCalendar = useCallback(() => {
+    googleCalendarApi.authorize()
+  }, [])
+
+  const handleSyncFromGoogle = useCallback(async () => {
+    setIsSyncing(true)
+    try {
+      await googleCalendarApi.syncFromGoogle()
+      alert("Sync from Google Calendar completed successfully!")
+      setRefreshKey(prev => prev + 1) // Refresh appointments
+    } catch (error) {
+      alert(`Failed to sync: ${error instanceof Error ? error.message : "Unknown error"}`)
+    } finally {
+      setIsSyncing(false)
+    }
+  }, [])
+
   return (
     <div className="flex h-screen bg-background">
       <DashboardSidebar />
@@ -56,10 +104,34 @@ export default function AppointmentsPage() {
                   <TabsTrigger value="day">Day View</TabsTrigger>
                   <TabsTrigger value="week">Week View</TabsTrigger>
                 </TabsList>
-                <Button onClick={() => setDialogOpen(true)} className="gap-2" size="sm">
-                  <Plus className="h-4 w-4" />
-                  New Appointment
-                </Button>
+                <div className="flex items-center gap-2">
+                  {!isGoogleCalendarAuthorized ? (
+                    <Button 
+                      onClick={handleAuthorizeGoogleCalendar} 
+                      variant="outline" 
+                      className="gap-2" 
+                      size="sm"
+                    >
+                      <Calendar className="h-4 w-4" />
+                      Sync to Google Calendar
+                    </Button>
+                  ) : (
+                    <Button 
+                      onClick={handleSyncFromGoogle} 
+                      variant="outline" 
+                      className="gap-2" 
+                      size="sm"
+                      disabled={isSyncing}
+                    >
+                      <RefreshCw className={`h-4 w-4 ${isSyncing ? "animate-spin" : ""}`} />
+                      {isSyncing ? "Syncing..." : "Sync from Google"}
+                    </Button>
+                  )}
+                  <Button onClick={() => setDialogOpen(true)} className="gap-2" size="sm">
+                    <Plus className="h-4 w-4" />
+                    New Appointment
+                  </Button>
+                </div>
               </div>
 
               <TabsContent value="day" className="flex-1 min-h-0 mt-0">

@@ -47,6 +47,10 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<long>("Duration")
                         .HasColumnType("bigint");
 
+                    b.Property<string>("GoogleCalendarEventId")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
                     b.Property<string>("Notes")
                         .HasColumnType("text");
 

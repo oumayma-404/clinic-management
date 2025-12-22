@@ -17,6 +17,7 @@ public class Appointment : AggregateRoot<Guid>
     public Guid? RecurringAppointmentId { get; private set; }
     public string? CancellationReason { get; private set; }
     public DateTime? CancelledAt { get; private set; }
+    public string? GoogleCalendarEventId { get; private set; }
 
     // Navigation property
     public Patient Patient { get; private set; } = null!;
@@ -126,6 +127,12 @@ public class Appointment : AggregateRoot<Guid>
             throw new ArgumentException("Duration must be greater than zero", nameof(duration));
 
         Duration = duration;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    public void SetGoogleCalendarEventId(string? eventId)
+    {
+        GoogleCalendarEventId = eventId;
         UpdatedAt = DateTime.UtcNow;
     }
 

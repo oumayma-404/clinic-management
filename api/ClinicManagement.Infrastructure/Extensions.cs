@@ -52,6 +52,10 @@ public static class Extensions
         // Domain Services
         services.AddScoped<Domain.Services.IPatientSummaryService, PatientSummaryService>();
 
+        // Google Calendar Service
+        services.AddScoped<IGoogleCalendarService, GoogleCalendarService>();
+        services.AddScoped<IGoogleCalendarSyncService, GoogleCalendarSyncService>();
+
         return services;
     }
 }

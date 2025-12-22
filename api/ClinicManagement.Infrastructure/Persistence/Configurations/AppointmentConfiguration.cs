@@ -45,6 +45,9 @@ public class AppointmentConfiguration : IEntityTypeConfiguration<Appointment>
 
         builder.Property(a => a.CancelledAt);
 
+        builder.Property(a => a.GoogleCalendarEventId)
+            .HasMaxLength(500);
+
         builder.Property(a => a.CreatedAt)
             .IsRequired();
 

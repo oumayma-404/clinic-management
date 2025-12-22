@@ -16,22 +16,7 @@ services:
       timeout: 5s
       retries: 5
 
-  api:
-    build:
-      context: ./api
-      dockerfile: Dockerfile
-    container_name: clinic-api
-    environment:
-      - ASPNETCORE_ENVIRONMENT=Development
-      - ASPNETCORE_URLS=http://+:5000
-      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=clinic_management;Username=clinic_user;Password=clinic_password
-    ports:
-      - "5000:5000"
-    depends_on:
-      postgres:
-        condition: service_healthy
-    volumes:
-      - ./api/ClinicManagement.API/Files:/app/Files
+
 
   web:
     build:
@@ -42,9 +27,9 @@ services:
       - NEXT_PUBLIC_API_URL=http://localhost:5000/api
     ports:
       - "3000:3000"
-    depends_on:
-      - api
+
 
 volumes:
   postgres_data:
+
 

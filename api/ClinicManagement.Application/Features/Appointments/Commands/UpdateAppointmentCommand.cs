@@ -22,13 +22,16 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
 {
     private readonly IAppointmentRepository _appointmentRepository;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IGoogleCalendarSyncService _googleCalendarSyncService;
 
     public UpdateAppointmentCommandHandler(
         IAppointmentRepository appointmentRepository,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IGoogleCalendarSyncService googleCalendarSyncService)
     {
         _appointmentRepository = appointmentRepository;
         _unitOfWork = unitOfWork;
+        _googleCalendarSyncService = googleCalendarSyncService;
     }
 
     public async Task<Result<AppointmentDto>> Handle(UpdateAppointmentCommand request, CancellationToken cancellationToken)
@@ -158,6 +161,19 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                     ? appointment.CreatedAt
                     : DateTime.SpecifyKind(appointment.CreatedAt, DateTimeKind.Utc)
             };
+
+            // Sync to Google Calendar (fire and forget)
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await _googleCalendarSyncService.SyncAppointmentToGoogleCalendarAsync(appointment.Id, cancellationToken);
+                }
+                catch
+                {
+                    // Log error but don't fail the appointment update
+                }
+            }, cancellationToken);
 
             return Result<AppointmentDto>.Success(dto);
         }

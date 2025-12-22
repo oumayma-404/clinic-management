@@ -21,15 +21,18 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
     private readonly IAppointmentRepository _appointmentRepository;
     private readonly IPatientRepository _patientRepository;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IGoogleCalendarSyncService _googleCalendarSyncService;
 
     public CreateAppointmentCommandHandler(
         IAppointmentRepository appointmentRepository,
         IPatientRepository patientRepository,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IGoogleCalendarSyncService googleCalendarSyncService)
     {
         _appointmentRepository = appointmentRepository;
         _patientRepository = patientRepository;
         _unitOfWork = unitOfWork;
+        _googleCalendarSyncService = googleCalendarSyncService;
     }
 
     public async Task<Result<AppointmentDto>> Handle(CreateAppointmentCommand request, CancellationToken cancellationToken)
@@ -93,6 +96,25 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
                     ? appointment.CreatedAt 
                     : DateTime.SpecifyKind(appointment.CreatedAt, DateTimeKind.Utc)
             };
+
+            // Sync to Google Calendar (fire and forget)
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await _googleCalendarSyncService.SyncAppointmentToGoogleCalendarAsync(appointment.Id, cancellationToken);
+                }
+                catch (InvalidOperationException ex) when (ex.Message.Contains("not configured"))
+                {
+                    // Silently ignore if Google Calendar is not configured
+                }
+                catch (Exception ex)
+                {
+                    // Log error but don't fail the appointment creation
+                    // Note: We can't use ILogger here as we're in a background task
+                    Console.WriteLine($"Error syncing appointment {appointment.Id} to Google Calendar: {ex.Message}");
+                }
+            }, cancellationToken);
 
             return Result<AppointmentDto>.Success(dto);
         }

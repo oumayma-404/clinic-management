@@ -75,6 +75,11 @@ RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.AISummaryJob>(
     job => job.GenerateSummariesForUpcomingAppointments(),
     Cron.Minutely);
 
+RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.GoogleCalendarSyncJob>(
+    "sync-google-calendar",
+    job => job.SyncFromGoogleCalendar(),
+    Cron.Minutely); // Changed to every minute for testing - change back to Cron.Hourly for production
+
 app.Run();
 
 // Simple authorization filter for Hangfire (in production, use proper authentication)
