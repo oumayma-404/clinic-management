@@ -1,0 +1,25 @@
+namespace ClinicManagement.Application.DTOs;
+
+public class CreateClinicRequest
+{
+    public string Name { get; set; } = string.Empty;
+    public string? Address { get; set; }
+    public string? Phone { get; set; }
+    public string? Email { get; set; }
+    public bool GenerateCode { get; set; } = true;
+    public string Role { get; set; } = "doctor"; // "doctor" or "secretary"
+    public DoctorPersonalInfoDto? DoctorInfo { get; set; } // Required if Role is "doctor"
+    public List<DoctorDto>? Doctors { get; set; } // Legacy: additional doctors (not the creator)
+}
+
+public class DoctorDto
+{
+    public Guid? Id { get; set; }
+    public string Name { get; set; } = string.Empty; // Kept for backward compatibility, maps to FullName
+    public string? FirstName { get; set; } // New field
+    public string? LastName { get; set; } // New field
+    public string Specialty { get; set; } = string.Empty;
+    public string? Phone { get; set; }
+    public string? Email { get; set; }
+}
+

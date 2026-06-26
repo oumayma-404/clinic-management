@@ -23,9 +23,11 @@ public class PatientFileConfiguration : IEntityTypeConfiguration<PatientFile>
             .IsRequired()
             .HasMaxLength(500);
 
-        builder.Property(f => f.FilePath)
+        builder.Property(f => f.StorageKey)
             .IsRequired()
-            .HasMaxLength(1000);
+            .HasMaxLength(500);
+
+        builder.Property(f => f.FolderId);
 
         builder.Property(f => f.ContentType)
             .IsRequired()
@@ -51,6 +53,11 @@ public class PatientFileConfiguration : IEntityTypeConfiguration<PatientFile>
             .WithMany(p => p.Files)
             .HasForeignKey(f => f.PatientId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasOne(f => f.Folder)
+            .WithMany(folder => folder.Files)
+            .HasForeignKey(f => f.FolderId)
+            .OnDelete(DeleteBehavior.SetNull);
     }
 }
 

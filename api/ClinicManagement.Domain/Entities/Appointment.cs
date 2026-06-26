@@ -6,7 +6,9 @@ namespace ClinicManagement.Domain.Entities;
 
 public class Appointment : AggregateRoot<Guid>
 {
-    public Guid PatientId { get; private set; }
+    public Guid ClinicId { get; private set; }
+    public Guid? PatientId { get; private set; }
+    public string? DoctorId { get; private set; }
     public DateTime AppointmentDateTime { get; private set; }
     public TimeSpan Duration { get; private set; }
     public string? DoctorName { get; private set; }
@@ -18,32 +20,50 @@ public class Appointment : AggregateRoot<Guid>
     public string? CancellationReason { get; private set; }
     public DateTime? CancelledAt { get; private set; }
     public string? GoogleCalendarEventId { get; private set; }
+    public Guid? ProcedureTypeId { get; private set; }
+    public int? ProcedureDurationMinutes { get; private set; }
+    public string? ProcedureColorHex { get; private set; }
 
-    // Navigation property
-    public Patient Patient { get; private set; } = null!;
+    // Navigation properties
+    public Clinic Clinic { get; private set; } = null!;
+    public Patient? Patient { get; private set; }
+    public ProcedureType? ProcedureType { get; private set; }
 
     private Appointment() { } // For EF Core
 
     public Appointment(
         Guid id,
-        Guid patientId,
+        Guid clinicId,
+        Guid? patientId,
+        string? doctorId,
         DateTime appointmentDateTime,
         TimeSpan duration,
         string? doctorName = null,
         string? notes = null,
-        Guid? recurringAppointmentId = null)
+        Guid? recurringAppointmentId = null,
+        Guid? procedureTypeId = null,
+        int? procedureDurationMinutes = null,
+        string? procedureColorHex = null)
     {
         Id = id;
+        ClinicId = clinicId;
         PatientId = patientId;
+        DoctorId = doctorId;
         AppointmentDateTime = appointmentDateTime;
         Duration = duration;
         DoctorName = doctorName;
         Notes = notes;
         Status = AppointmentStatus.Scheduled;
         RecurringAppointmentId = recurringAppointmentId;
+        ProcedureTypeId = procedureTypeId;
+        ProcedureDurationMinutes = procedureDurationMinutes;
+        ProcedureColorHex = procedureColorHex;
         CreatedAt = DateTime.UtcNow;
 
-        AddDomainEvent(new AppointmentCreatedEvent(id, patientId, appointmentDateTime));
+        if (patientId.HasValue)
+        {
+            AddDomainEvent(new AppointmentCreatedEvent(id, patientId.Value, appointmentDateTime));
+        }
     }
 
     public void Confirm()
@@ -53,7 +73,10 @@ public class Appointment : AggregateRoot<Guid>
 
         Status = AppointmentStatus.Confirmed;
         UpdatedAt = DateTime.UtcNow;
-        AddDomainEvent(new AppointmentConfirmedEvent(Id, PatientId, AppointmentDateTime));
+        if (PatientId.HasValue)
+        {
+            AddDomainEvent(new AppointmentConfirmedEvent(Id, PatientId.Value, AppointmentDateTime));
+        }
     }
 
     public void Start()
@@ -106,7 +129,10 @@ public class Appointment : AggregateRoot<Guid>
         AppointmentDateTime = newDateTime;
         Status = AppointmentStatus.Scheduled;
         UpdatedAt = DateTime.UtcNow;
-        AddDomainEvent(new AppointmentRescheduledEvent(Id, PatientId, oldDateTime, newDateTime));
+        if (PatientId.HasValue)
+        {
+            AddDomainEvent(new AppointmentRescheduledEvent(Id, PatientId.Value, oldDateTime, newDateTime));
+        }
     }
 
     public void UpdateNotes(string? notes)
@@ -133,6 +159,14 @@ public class Appointment : AggregateRoot<Guid>
     public void SetGoogleCalendarEventId(string? eventId)
     {
         GoogleCalendarEventId = eventId;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    public void SetProcedureType(Guid? procedureTypeId, int? procedureDurationMinutes, string? procedureColorHex)
+    {
+        ProcedureTypeId = procedureTypeId;
+        ProcedureDurationMinutes = procedureDurationMinutes;
+        ProcedureColorHex = procedureColorHex;
         UpdatedAt = DateTime.UtcNow;
     }
 

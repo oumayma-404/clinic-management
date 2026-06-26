@@ -1,0 +1,237 @@
+"use client"
+
+import { useState, useEffect } from "react"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import { Stethoscope, Pencil, Trash2, Clock, Plus, DollarSign } from "lucide-react"
+import { procedureTypesApi } from "@/lib/api/procedure-types"
+import type { ProcedureTypeDto } from "@/lib/api/types"
+import { ApiError } from "@/lib/api/client"
+
+interface ProcedureTypesTableProps {
+  onEdit: (procedure: ProcedureTypeDto) => void
+  onAdd: () => void
+}
+
+export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps) {
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [procedureToDelete, setProcedureToDelete] = useState<ProcedureTypeDto | null>(null)
+  const [procedures, setProcedures] = useState<ProcedureTypeDto[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
+
+  const loadProcedures = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      const data = await procedureTypesApi.list(false) // Only active procedures
+      setProcedures(data)
+    } catch (err) {
+      console.error("Failed to load procedure types:", err)
+      if (err instanceof ApiError) {
+        setError(`Failed to load procedure types: ${err.message}`)
+      } else {
+        setError("Failed to load procedure types. Please try again.")
+      }
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadProcedures()
+  }, [])
+
+  const handleDelete = (procedure: ProcedureTypeDto) => {
+    setProcedureToDelete(procedure)
+    setDeleteDialogOpen(true)
+  }
+
+  const confirmDelete = async () => {
+    if (!procedureToDelete) return
+
+    try {
+      setDeleting(true)
+      await procedureTypesApi.delete(procedureToDelete.id)
+      await loadProcedures() // Reload list
+      setDeleteDialogOpen(false)
+      setProcedureToDelete(null)
+    } catch (err) {
+      console.error("Failed to delete procedure type:", err)
+      if (err instanceof ApiError) {
+        alert(`Failed to delete: ${err.message}`)
+      } else {
+        alert("Failed to delete procedure type. Please try again.")
+      }
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <Card>
+        <CardContent className="p-6">
+          <p className="text-center text-muted-foreground">Loading procedure types...</p>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  return (
+    <>
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2">
+              <Stethoscope className="h-5 w-5" />
+              Procedure Types
+              <Badge variant="secondary" className="ml-2">
+                {procedures.length} {procedures.length === 1 ? "type" : "types"}
+              </Badge>
+            </CardTitle>
+            <Button onClick={onAdd} size="sm" className="gap-2">
+              <Plus className="h-4 w-4" />
+              Add Procedure Type
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {error && (
+            <div className="mb-4 rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-800 dark:bg-red-950 dark:border-red-800 dark:text-red-200">
+              {error}
+            </div>
+          )}
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Color</TableHead>
+                  <TableHead>Procedure Name</TableHead>
+                  <TableHead>Duration</TableHead>
+                  <TableHead>Default Cost</TableHead>
+                  <TableHead>Description</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {procedures.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="h-24 text-center">
+                      <p className="text-muted-foreground">No procedure types defined</p>
+                      <Button onClick={onAdd} variant="outline" size="sm" className="mt-2 gap-2">
+                        <Plus className="h-4 w-4" />
+                        Add Your First Procedure Type
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  procedures.map((procedure) => (
+                    <TableRow key={procedure.id}>
+                      <TableCell>
+                        <div className="flex items-center gap-3">
+                          {/* Color circle indicator */}
+                          <div
+                            className="h-6 w-6 rounded-full border-2 border-border"
+                            style={{ backgroundColor: procedure.colorHex }}
+                            title={procedure.colorHex}
+                          />
+                          {/* Preview badge */}
+                          <Badge
+                            variant="outline"
+                            className="border-2"
+                            style={{
+                              borderColor: procedure.colorHex,
+                              color: procedure.colorHex,
+                              backgroundColor: `${procedure.colorHex}10`,
+                            }}
+                          >
+                            Preview
+                          </Badge>
+                        </div>
+                      </TableCell>
+                      <TableCell className="font-medium text-foreground">{procedure.name}</TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2 text-muted-foreground">
+                          <Clock className="h-4 w-4" />
+                          <span>{procedure.defaultDurationMinutes} min</span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        {procedure.defaultCost != null && procedure.defaultCost > 0 ? (
+                          <div className="flex items-center gap-2 text-muted-foreground">
+                            <DollarSign className="h-4 w-4" />
+                            <span>{procedure.defaultCost.toFixed(2)} DT</span>
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">{procedure.description || "-"}</TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-2">
+                          <Button variant="ghost" size="sm" onClick={() => onEdit(procedure)} className="h-8 gap-1">
+                            <Pencil className="h-3 w-3" />
+                            Edit
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDelete(procedure)}
+                            className="h-8 gap-1 text-destructive hover:text-destructive"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                            Delete
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will {procedureToDelete?.isActive ? "deactivate" : "permanently delete"} the procedure type{" "}
+              <span className="font-semibold">{procedureToDelete?.name}</span>.
+              {procedureToDelete?.isActive && " If it's used by future appointments, it will be soft-deleted instead."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDelete}
+              disabled={deleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  )
+}
+
+

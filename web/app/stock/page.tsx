@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { DashboardSidebar } from "@/components/dashboard-sidebar"
+import { ClinicGuard } from "@/components/clinic-guard"
 import { StockTable } from "@/components/stock-table"
 import { StockItemFormModal } from "@/components/stock-item-form-modal"
 import { Button } from "@/components/ui/button"
@@ -23,34 +24,36 @@ export default function StockPage() {
   }
 
   return (
-    <div className="flex h-screen bg-background">
-      <DashboardSidebar />
+    <ClinicGuard>
+      <div className="flex h-screen bg-background">
+        <DashboardSidebar />
 
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <DashboardHeader />
+        <div className="flex flex-1 flex-col overflow-hidden">
+          <DashboardHeader />
 
-        <main className="flex-1 overflow-y-auto p-6">
-          <div className="mx-auto max-w-7xl space-y-6">
-            {/* Page Header */}
-            <div className="flex items-center justify-between">
-              <div>
-                <h1 className="text-3xl font-semibold text-foreground">Stock Management</h1>
-                <p className="mt-1 text-sm text-muted-foreground">Manage medical supplies and inventory</p>
+          <main className="flex-1 overflow-y-auto p-6">
+            <div className="mx-auto max-w-7xl space-y-6">
+              {/* Page Header */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="text-3xl font-semibold text-foreground">Stock Management</h1>
+                  <p className="mt-1 text-sm text-muted-foreground">Manage medical supplies and inventory</p>
+                </div>
+
+                <Button onClick={handleAddNew} className="gap-2">
+                  <Plus className="h-4 w-4" />
+                  Add New Item
+                </Button>
               </div>
 
-              <Button onClick={handleAddNew} className="gap-2">
-                <Plus className="h-4 w-4" />
-                Add New Item
-              </Button>
+              {/* Stock Table */}
+              <StockTable onEdit={handleEdit} />
             </div>
+          </main>
+        </div>
 
-            {/* Stock Table */}
-            <StockTable onEdit={handleEdit} />
-          </div>
-        </main>
+        <StockItemFormModal open={modalOpen} onOpenChange={setModalOpen} editingItem={editingItem} />
       </div>
-
-      <StockItemFormModal open={modalOpen} onOpenChange={setModalOpen} editingItem={editingItem} />
-    </div>
+    </ClinicGuard>
   )
 }

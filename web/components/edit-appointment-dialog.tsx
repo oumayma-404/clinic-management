@@ -33,8 +33,10 @@ import { format, parseISO } from "date-fns"
 import { CalendarIcon, Clock, User, Stethoscope, FileText, X, Save } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { appointmentsApi } from "@/lib/api/appointments"
-import type { AppointmentDto } from "@/lib/api/types"
+import { procedureTypesApi } from "@/lib/api/procedure-types"
+import type { AppointmentDto, ProcedureTypeDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
+import { useDoctors } from "@/lib/hooks/use-doctors"
 
 interface EditAppointmentDialogProps {
   open: boolean
@@ -58,9 +60,17 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
   // State for all appointment fields
   const [patientName, setPatientName] = useState("")
   const [date, setDate] = useState<Date | undefined>(new Date())
-  const [doctorName, setDoctorName] = useState("")
+  const [selectedDoctorId, setSelectedDoctorId] = useState<string>("")
   const [appointmentType, setAppointmentType] = useState("")
   const [status, setStatus] = useState<string>("scheduled")
+  
+  // Load doctors list
+  const { doctors, currentUserDoctor, isLoading: loadingDoctors } = useDoctors()
+
+  // Procedure type state
+  const [procedureTypes, setProcedureTypes] = useState<ProcedureTypeDto[]>([])
+  const [selectedProcedureTypeId, setSelectedProcedureTypeId] = useState<string | undefined>(undefined)
+  const [loadingProcedureTypes, setLoadingProcedureTypes] = useState(false)
 
   // Time state
   const [startHour, setStartHour] = useState("09")
@@ -95,12 +105,56 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
     return `${mins}m`
   }, [calculatedDuration])
 
+  // Load procedure types when dialog opens
+  useEffect(() => {
+    if (open) {
+      loadProcedureTypes()
+    }
+  }, [open])
+
+  const loadProcedureTypes = async () => {
+    try {
+      setLoadingProcedureTypes(true)
+      const data = await procedureTypesApi.list(false) // Only active procedure types
+      setProcedureTypes(data || [])
+    } catch (err) {
+      console.error("Failed to load procedure types:", err)
+      setProcedureTypes([]) // Ensure it's always an array
+    } finally {
+      setLoadingProcedureTypes(false)
+    }
+  }
+
+  // Handle procedure type selection - update duration when procedure is selected
+  useEffect(() => {
+    if (selectedProcedureTypeId && procedureTypes.length > 0) {
+      const selectedProcedure = procedureTypes.find(p => p.id === selectedProcedureTypeId)
+      if (selectedProcedure && selectedProcedure.defaultDurationMinutes) {
+        setDuration(String(selectedProcedure.defaultDurationMinutes))
+      }
+    }
+  }, [selectedProcedureTypeId, procedureTypes])
+
   // Populate form when appointment changes
   useEffect(() => {
     if (appointment && open) {
       setPatientName(appointment.patientName)
       setStatus(appointment.status.toLowerCase())
-      setDoctorName(appointment.doctorName || "")
+      // Try to find doctor by ID first, then by name as fallback
+      if ((appointment as any).doctorId) {
+        setSelectedDoctorId((appointment as any).doctorId)
+      } else if (appointment.doctorName && doctors.length > 0) {
+        // Try to find doctor by name
+        const doctor = doctors.find(d => d.name === appointment.doctorName)
+        if (doctor) {
+          setSelectedDoctorId(doctor.id || "")
+        } else {
+          setSelectedDoctorId("")
+        }
+      } else {
+        setSelectedDoctorId("")
+      }
+      setSelectedProcedureTypeId(appointment.procedureTypeId || undefined)
 
       // Parse appointment date/time
       const appointmentDate = parseISO(appointment.appointmentDateTime)
@@ -201,9 +255,10 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
       await appointmentsApi.update(appointment.id, {
         appointmentDateTime: appointmentDateTime.toISOString(),
         durationMinutes: calculatedDuration,
-        doctorName: doctorName.trim() || undefined,
+        doctorId: selectedDoctorId || undefined,
         notes: appointmentNotes || undefined,
         status: status,
+        procedureTypeId: selectedProcedureTypeId || null,
       })
 
       onSuccess?.()
@@ -472,33 +527,75 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                   <Label htmlFor="doctor" className="text-sm">
                     Doctor
                   </Label>
-                  <Input
-                    id="doctor"
-                    value={doctorName}
-                    onChange={(e) => setDoctorName(e.target.value)}
-                    className="h-10"
-                    disabled={loading}
-                  />
+                  <Select
+                    value={selectedDoctorId}
+                    onValueChange={setSelectedDoctorId}
+                    disabled={loadingDoctors || loading}
+                  >
+                    <SelectTrigger className="h-10" id="doctor">
+                      <SelectValue placeholder={loadingDoctors ? "Loading doctors..." : doctors.length === 0 ? "No doctors found" : "Choose a doctor..."} />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-[200px]">
+                      {doctors.length === 0 && !loadingDoctors ? (
+                        <div className="px-2 py-1.5 text-sm text-muted-foreground">No doctors available</div>
+                      ) : (
+                        doctors.map((doctor) => (
+                          <SelectItem key={doctor.id || doctor.name} value={doctor.id || ""}>
+                            {doctor.name} {doctor.specialty ? `- ${doctor.specialty}` : ""}
+                          </SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="type" className="text-sm">
-                    Appointment Type
+                  <Label htmlFor="procedureType" className="text-sm">
+                    Procedure Type
                   </Label>
-                  <Select value={appointmentType} onValueChange={setAppointmentType} disabled={loading}>
-                    <SelectTrigger id="type" className="h-10">
-                      <SelectValue placeholder="Select type..." />
+                  <Select 
+                    value={selectedProcedureTypeId} 
+                    onValueChange={setSelectedProcedureTypeId}
+                    disabled={loadingProcedureTypes || loading}
+                  >
+                    <SelectTrigger id="procedureType" className="h-10">
+                      <SelectValue placeholder={loadingProcedureTypes ? "Loading..." : "Select procedure type"} />
                     </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="consultation">Consultation</SelectItem>
-                      <SelectItem value="General Checkup">General Checkup</SelectItem>
-                      <SelectItem value="Follow-up">Follow-up</SelectItem>
-                      <SelectItem value="procedure">Procedure</SelectItem>
-                      <SelectItem value="Lab Results">Lab Results</SelectItem>
-                      <SelectItem value="emergency">Emergency</SelectItem>
-                      <SelectItem value="Surgery Consult">Surgery Consult</SelectItem>
+                    <SelectContent className="max-h-[200px]">
+                      {procedureTypes.length === 0 && !loadingProcedureTypes ? (
+                        <div className="px-2 py-1.5 text-sm text-muted-foreground">No procedure types available</div>
+                      ) : (
+                        procedureTypes.map((procedureType) => (
+                          <SelectItem key={procedureType.id} value={procedureType.id}>
+                            <div className="flex items-center gap-2">
+                              <div 
+                                className="w-3 h-3 rounded-full" 
+                                style={{ backgroundColor: procedureType.colorHex }}
+                              />
+                              {procedureType.name} ({procedureType.defaultDurationMinutes} min)
+                            </div>
+                          </SelectItem>
+                        ))
+                      )}
                     </SelectContent>
                   </Select>
+                  {selectedProcedureTypeId && (
+                    <div className="flex items-center gap-2 mt-1">
+                      <p className="text-xs text-muted-foreground">
+                        Duration set to {procedureTypes.find(p => p.id === selectedProcedureTypeId)?.defaultDurationMinutes} minutes (you can change it)
+                      </p>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-5 px-2 text-xs"
+                        onClick={() => setSelectedProcedureTypeId(undefined)}
+                        disabled={loading}
+                      >
+                        Clear
+                      </Button>
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-2 md:col-span-2">

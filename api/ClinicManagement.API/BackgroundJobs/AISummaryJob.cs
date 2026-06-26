@@ -44,7 +44,14 @@ public class AISummaryJob
         {
             try
             {
-                var patient = await _patientRepository.GetByIdWithAppointmentsAsync(appointment.PatientId);
+                // Skip busy slots (appointments without a patient)
+                if (!appointment.PatientId.HasValue)
+                {
+                    _logger.LogDebug("Skipping AI summary generation for busy slot appointment {AppointmentId}", appointment.Id);
+                    continue;
+                }
+
+                var patient = await _patientRepository.GetByIdWithAppointmentsAsync(appointment.PatientId.Value);
                 if (patient == null)
                 {
                     _logger.LogWarning("Patient not found for appointment {AppointmentId}", appointment.Id);

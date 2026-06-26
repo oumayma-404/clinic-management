@@ -6,6 +6,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common.Interfaces;
 using System.Text.Json;
+using Google;
 
 namespace ClinicManagement.Infrastructure.Services;
 

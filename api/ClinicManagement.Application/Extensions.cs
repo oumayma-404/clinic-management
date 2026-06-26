@@ -3,6 +3,8 @@ using FluentValidation;
 using MediatR;
 using Microsoft.Extensions.DependencyInjection;
 using ClinicManagement.Application.Common.Behaviors;
+using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.Common.Services;
 
 namespace ClinicManagement.Application;
 
@@ -16,6 +18,10 @@ public static class Extensions
 
         services.AddTransient(typeof(IPipelineBehavior<,>), typeof(ValidationBehavior<,>));
         services.AddTransient(typeof(IPipelineBehavior<,>), typeof(LoggingBehavior<,>));
+
+        // Register ClinicContext
+        // Note: IHttpContextAccessor must be registered in the API layer (Program.cs)
+        services.AddScoped<IClinicContext, ClinicContext>();
 
         return services;
     }

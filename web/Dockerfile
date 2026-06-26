@@ -7,7 +7,7 @@ WORKDIR /app
 
 # Install dependencies based on the preferred package manager
 COPY package.json package-lock.json* ./
-RUN npm ci
+RUN npm ci --legacy-peer-deps || npm install --legacy-peer-deps
 
 # Rebuild the source code only when needed
 FROM base AS builder
@@ -17,6 +17,15 @@ COPY . .
 
 # Set environment variable for API URL
 ENV NEXT_PUBLIC_API_URL=http://localhost:5000/api
+
+# Set dummy Auth0 env vars for build (real values loaded at runtime from .env.local)
+# Auth0 v4 uses different variable names
+ENV AUTH0_SECRET=build-time-placeholder-build-time-placeholder-build-time-placeholder-build-time-placeholder
+ENV APP_BASE_URL=http://localhost:3000
+ENV AUTH0_DOMAIN=build-time-placeholder.auth0.com
+ENV AUTH0_CLIENT_ID=build-time-placeholder
+ENV AUTH0_CLIENT_SECRET=build-time-placeholder
+ENV AUTH0_AUDIENCE=https://clinic-management-api
 
 # Disable telemetry during the build
 ENV NEXT_TELEMETRY_DISABLED 1

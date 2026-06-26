@@ -1,6 +1,14 @@
+export interface DashboardStats {
+  todaysAppointments: number;
+  totalPatients: number;
+  upcomingPending: number;
+  thisWeekAppointments: number;
+  urgentPatients: number;
+}
+
 export interface AppointmentDto {
   id: string;
-  patientId: string;
+  patientId: string | null;
   patientName: string;
   appointmentDateTime: string;
   duration: string; // TimeSpan format from backend (e.g., "00:30:00")
@@ -8,6 +16,9 @@ export interface AppointmentDto {
   notes?: string;
   status: string;
   createdAt: string;
+  procedureTypeId?: string;
+  procedureTypeName?: string;
+  procedureColorHex?: string;
 }
 
 export interface PatientDto {
@@ -45,4 +56,94 @@ export interface PatientDto {
   createdAt: string;
 }
 
+export interface PatientMedicalHistoryDto {
+  id: string;
+  patientId: string;
+  description: string;
+  date?: string;
+  notes?: string;
+  createdAt: string;
+}
+
+export interface PatientFamilyHistoryDto {
+  id: string;
+  patientId: string;
+  relationship: string;
+  condition: string;
+  notes?: string;
+  createdAt: string;
+}
+
+export interface ProcedureTypeDto {
+  id: string;
+  name: string;
+  defaultDurationMinutes: number;
+  defaultCost?: number;
+  colorHex: string;
+  description?: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface DentalRecordDto {
+  id: string;
+  patientId: string;
+  interventionDate: string;
+  procedureType: string;
+  cost: number;
+  amountPaid: number;
+  balance: number;
+  notes: string[];
+  importantNotes: string[];
+  isAdultTeeth: boolean;
+  toothNumbers: number[];
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface PatientFileDto {
+  id: string;
+  patientId: string;
+  folderId?: string;
+  fileName: string;
+  contentType: string;
+  fileSize: number;
+  fileType: string;
+  description?: string;
+  uploadedAt: string;
+  uploadedBy?: string;
+}
+
+export interface PatientFolderDto {
+  id: string;
+  patientId: string;
+  parentFolderId?: string;
+  name: string;
+  fileCount: number;
+  subFolderCount: number;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface MedicalDocumentDto {
+  id: string;
+  patientId: string;
+  patientName: string;
+  patientAge?: string;
+  documentType: string;
+  documentDate: string;
+  recipientDoctorName?: string;
+  recipientDoctorSpecialty?: string;
+  contentJson: string;
+  clinicName: string;
+  clinicAddress: string;
+  clinicPhone: string;
+  doctorName: string;
+  doctorSpecialty: string;
+  isDraft: boolean;
+  fileId?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
 

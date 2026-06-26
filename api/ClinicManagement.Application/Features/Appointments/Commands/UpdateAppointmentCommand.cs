@@ -5,6 +5,8 @@ using ClinicManagement.Application.DTOs;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Domain.Enums;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace ClinicManagement.Application.Features.Appointments.Commands;
 
@@ -16,22 +18,29 @@ public class UpdateAppointmentCommand : IRequest<Result<AppointmentDto>>
     public string? DoctorName { get; set; }
     public string? Notes { get; set; }
     public string? Status { get; set; }
+    public Guid? ProcedureTypeId { get; set; }
 }
 
 public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointmentCommand, Result<AppointmentDto>>
 {
     private readonly IAppointmentRepository _appointmentRepository;
+    private readonly IProcedureTypeRepository _procedureTypeRepository;
     private readonly IUnitOfWork _unitOfWork;
-    private readonly IGoogleCalendarSyncService _googleCalendarSyncService;
+    private readonly IServiceScopeFactory _serviceScopeFactory;
+    private readonly ILogger<UpdateAppointmentCommandHandler> _logger;
 
     public UpdateAppointmentCommandHandler(
         IAppointmentRepository appointmentRepository,
+        IProcedureTypeRepository procedureTypeRepository,
         IUnitOfWork unitOfWork,
-        IGoogleCalendarSyncService googleCalendarSyncService)
+        IServiceScopeFactory serviceScopeFactory,
+        ILogger<UpdateAppointmentCommandHandler> logger)
     {
         _appointmentRepository = appointmentRepository;
+        _procedureTypeRepository = procedureTypeRepository;
         _unitOfWork = unitOfWork;
-        _googleCalendarSyncService = googleCalendarSyncService;
+        _serviceScopeFactory = serviceScopeFactory;
+        _logger = logger;
     }
 
     public async Task<Result<AppointmentDto>> Handle(UpdateAppointmentCommand request, CancellationToken cancellationToken)
@@ -85,6 +94,35 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                 appointment.UpdateNotes(request.Notes);
             }
 
+            // Update procedure type - check if it's being changed
+            // If request.ProcedureTypeId is different from current, update it
+            if (request.ProcedureTypeId != appointment.ProcedureTypeId)
+            {
+                if (request.ProcedureTypeId.HasValue)
+                {
+                    var procedureType = await _procedureTypeRepository.GetByIdAsync(request.ProcedureTypeId.Value, cancellationToken);
+                    if (procedureType == null)
+                    {
+                        return Result<AppointmentDto>.Failure("Procedure type not found");
+                    }
+                    
+                    if (!procedureType.IsActive)
+                    {
+                        return Result<AppointmentDto>.Failure("Selected procedure type is not active");
+                    }
+                    
+                    appointment.SetProcedureType(
+                        procedureType.Id,
+                        procedureType.DefaultDurationMinutes,
+                        procedureType.Color.Value);
+                }
+                else
+                {
+                    // Clear procedure type
+                    appointment.SetProcedureType(null, null, null);
+                }
+            }
+
             // Update status if provided and different from current
             if (!string.IsNullOrWhiteSpace(request.Status))
             {
@@ -120,6 +158,8 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                                 if (appointment.Status != AppointmentStatus.Cancelled && 
                                     appointment.Status != AppointmentStatus.Completed)
                                 {
+                                    _logger.LogInformation("Cancelling appointment {AppointmentId}. Current GoogleCalendarEventId: {GoogleEventId}", 
+                                        appointment.Id, appointment.GoogleCalendarEventId ?? "(none)");
                                     appointment.Cancel();
                                 }
                                 break;
@@ -148,8 +188,10 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
             var dto = new AppointmentDto
             {
                 Id = appointment.Id,
+                ClinicId = appointment.ClinicId,
                 PatientId = appointment.PatientId,
-                PatientName = appointment.Patient.GetFullName(),
+                PatientName = appointment.Patient?.GetFullName() ?? "Occupé",
+                DoctorId = appointment.DoctorId,
                 AppointmentDateTime = appointment.AppointmentDateTime.Kind == DateTimeKind.Utc
                     ? appointment.AppointmentDateTime
                     : DateTime.SpecifyKind(appointment.AppointmentDateTime, DateTimeKind.Utc),
@@ -159,21 +201,43 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                 Status = appointment.Status.ToString(),
                 CreatedAt = appointment.CreatedAt.Kind == DateTimeKind.Utc
                     ? appointment.CreatedAt
-                    : DateTime.SpecifyKind(appointment.CreatedAt, DateTimeKind.Utc)
+                    : DateTime.SpecifyKind(appointment.CreatedAt, DateTimeKind.Utc),
+                ProcedureTypeId = appointment.ProcedureTypeId,
+                ProcedureTypeName = appointment.ProcedureType?.Name,
+                // Use current procedure type color if available, otherwise use stored color
+                ProcedureColorHex = appointment.ProcedureType?.Color.Value ?? appointment.ProcedureColorHex
             };
 
-            // Sync to Google Calendar (fire and forget)
+            // Sync to Google Calendar immediately (fire and forget)
+            // This ensures real-time synchronization from our app to Google Calendar.
+            // When an appointment is cancelled or completed, the sync service will delete it from Google Calendar.
+            // We create a new scope for the background task to avoid DbContext disposal issues.
+            var appointmentId = appointment.Id;
             _ = Task.Run(async () =>
             {
+                // Create a new scope for the background task to get fresh services
+                using var scope = _serviceScopeFactory.CreateScope();
+                var syncService = scope.ServiceProvider.GetRequiredService<IGoogleCalendarSyncService>();
+                var logger = scope.ServiceProvider.GetRequiredService<ILogger<UpdateAppointmentCommandHandler>>();
+                
                 try
                 {
-                    await _googleCalendarSyncService.SyncAppointmentToGoogleCalendarAsync(appointment.Id, cancellationToken);
+                    // Use a new cancellation token that won't be cancelled when the request completes
+                    using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+                    await syncService.SyncAppointmentToGoogleCalendarAsync(appointmentId, cts.Token);
+                    logger.LogInformation("Successfully synced appointment {AppointmentId} to Google Calendar", appointmentId);
                 }
-                catch
+                catch (InvalidOperationException ex) when (ex.Message.Contains("not configured"))
+                {
+                    // Silently ignore if Google Calendar is not configured
+                    logger.LogDebug("Google Calendar not configured, skipping sync for appointment {AppointmentId}", appointmentId);
+                }
+                catch (Exception ex)
                 {
                     // Log error but don't fail the appointment update
+                    logger.LogError(ex, "Error syncing appointment {AppointmentId} to Google Calendar", appointmentId);
                 }
-            }, cancellationToken);
+            });
 
             return Result<AppointmentDto>.Success(dto);
         }

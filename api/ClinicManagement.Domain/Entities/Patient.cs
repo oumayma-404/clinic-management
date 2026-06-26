@@ -6,6 +6,7 @@ namespace ClinicManagement.Domain.Entities;
 
 public class Patient : AggregateRoot<Guid>
 {
+    public Guid ClinicId { get; private set; }
     public string FirstName { get; private set; }
     public string LastName { get; private set; }
     public DateTime DateOfBirth { get; private set; }
@@ -22,6 +23,7 @@ public class Patient : AggregateRoot<Guid>
     public DateTime? UpdatedAt { get; private set; }
 
     // Navigation properties
+    public Clinic Clinic { get; private set; } = null!;
     private readonly List<PatientFlag> _flags = new();
     public IReadOnlyCollection<PatientFlag> Flags => _flags.AsReadOnly();
 
@@ -31,10 +33,17 @@ public class Patient : AggregateRoot<Guid>
     private readonly List<Appointment> _appointments = new();
     public IReadOnlyCollection<Appointment> Appointments => _appointments.AsReadOnly();
 
+    private readonly List<PatientMedicalHistory> _medicalHistoryEntries = new();
+    public IReadOnlyCollection<PatientMedicalHistory> MedicalHistoryEntries => _medicalHistoryEntries.AsReadOnly();
+
+    private readonly List<PatientFamilyHistory> _familyHistoryEntries = new();
+    public IReadOnlyCollection<PatientFamilyHistory> FamilyHistoryEntries => _familyHistoryEntries.AsReadOnly();
+
     private Patient() { } // For EF Core
 
     public Patient(
         Guid id,
+        Guid clinicId,
         string firstName,
         string lastName,
         DateTime dateOfBirth,
@@ -45,6 +54,7 @@ public class Patient : AggregateRoot<Guid>
         InsuranceInfo? insuranceInfo = null)
     {
         Id = id;
+        ClinicId = clinicId;
         FirstName = firstName ?? throw new ArgumentNullException(nameof(firstName));
         LastName = lastName ?? throw new ArgumentNullException(nameof(lastName));
         DateOfBirth = dateOfBirth;
@@ -136,6 +146,50 @@ public class Patient : AggregateRoot<Guid>
         if (file != null)
         {
             _files.Remove(file);
+            UpdatedAt = DateTime.UtcNow;
+        }
+    }
+
+    public void AddMedicalHistoryEntry(PatientMedicalHistory entry)
+    {
+        if (entry == null)
+            throw new ArgumentNullException(nameof(entry));
+
+        if (!_medicalHistoryEntries.Contains(entry))
+        {
+            _medicalHistoryEntries.Add(entry);
+            UpdatedAt = DateTime.UtcNow;
+        }
+    }
+
+    public void RemoveMedicalHistoryEntry(Guid entryId)
+    {
+        var entry = _medicalHistoryEntries.FirstOrDefault(e => e.Id == entryId);
+        if (entry != null)
+        {
+            _medicalHistoryEntries.Remove(entry);
+            UpdatedAt = DateTime.UtcNow;
+        }
+    }
+
+    public void AddFamilyHistoryEntry(PatientFamilyHistory entry)
+    {
+        if (entry == null)
+            throw new ArgumentNullException(nameof(entry));
+
+        if (!_familyHistoryEntries.Contains(entry))
+        {
+            _familyHistoryEntries.Add(entry);
+            UpdatedAt = DateTime.UtcNow;
+        }
+    }
+
+    public void RemoveFamilyHistoryEntry(Guid entryId)
+    {
+        var entry = _familyHistoryEntries.FirstOrDefault(e => e.Id == entryId);
+        if (entry != null)
+        {
+            _familyHistoryEntries.Remove(entry);
             UpdatedAt = DateTime.UtcNow;
         }
     }

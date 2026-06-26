@@ -1,7 +1,7 @@
 using MediatR;
 using ClinicManagement.Application.Common.Models;
-using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Domain.ValueObjects;
@@ -12,22 +12,48 @@ public class CreatePatientCommand : IRequest<Result<PatientDto>>
 {
     public string FirstName { get; set; } = string.Empty;
     public string LastName { get; set; } = string.Empty;
-    public DateTime? DateOfBirth { get; set; }
-    public string? Gender { get; set; }
-    public string? Email { get; set; }
-    public string? PhoneNumber { get; set; }
+    public DateTime DateOfBirth { get; set; }
+    public string Gender { get; set; } = string.Empty;
+    public string Email { get; set; } = string.Empty;
+    public string PhoneNumber { get; set; } = string.Empty;
+    public string? MedicalHistory { get; set; }
+    public string? Allergies { get; set; }
     public AddressDto? Address { get; set; }
     public InsuranceInfoDto? InsuranceInfo { get; set; }
+    public List<MedicalHistoryEntryDto>? MedicalHistoryEntries { get; set; }
+    public List<FamilyHistoryEntryDto>? FamilyHistoryEntries { get; set; }
+}
+
+public class MedicalHistoryEntryDto
+{
+    public string Description { get; set; } = string.Empty;
+    public DateTime? Date { get; set; }
+    public string? Notes { get; set; }
+}
+
+public class FamilyHistoryEntryDto
+{
+    public string Relationship { get; set; } = string.Empty;
+    public string Condition { get; set; } = string.Empty;
+    public string? Notes { get; set; }
 }
 
 public class CreatePatientCommandHandler : IRequestHandler<CreatePatientCommand, Result<PatientDto>>
 {
     private readonly IPatientRepository _patientRepository;
+    private readonly IUserRepository _userRepository;
+    private readonly IClinicContext _clinicContext;
     private readonly IUnitOfWork _unitOfWork;
 
-    public CreatePatientCommandHandler(IPatientRepository patientRepository, IUnitOfWork unitOfWork)
+    public CreatePatientCommandHandler(
+        IPatientRepository patientRepository,
+        IUserRepository userRepository,
+        IClinicContext clinicContext,
+        IUnitOfWork unitOfWork)
     {
         _patientRepository = patientRepository;
+        _userRepository = userRepository;
+        _clinicContext = clinicContext;
         _unitOfWork = unitOfWork;
     }
 
@@ -35,46 +61,40 @@ public class CreatePatientCommandHandler : IRequestHandler<CreatePatientCommand,
     {
         try
         {
-            // Validate required fields
-            if (string.IsNullOrWhiteSpace(request.FirstName))
+            // Get user ID from token
+            var userId = _clinicContext.GetUserId();
+            if (string.IsNullOrEmpty(userId))
             {
-                return Result<PatientDto>.Failure("First name is required");
+                return Result<PatientDto>.Failure("User ID not found in token");
             }
 
-            if (string.IsNullOrWhiteSpace(request.LastName))
+            // Get user from database to get clinic ID
+            var user = await _userRepository.GetByAuth0SubAsync(userId, cancellationToken);
+            if (user == null)
             {
-                return Result<PatientDto>.Failure("Last name is required");
+                return Result<PatientDto>.Failure("User not found");
             }
 
-            // Use provided values or defaults
-            var email = !string.IsNullOrWhiteSpace(request.Email) 
-                ? new Email(request.Email) 
-                : new Email("unknown@example.com");
-            
-            var phoneNumber = !string.IsNullOrWhiteSpace(request.PhoneNumber) 
-                ? new PhoneNumber(request.PhoneNumber) 
-                : new PhoneNumber("000-000-0000");
+            var clinicId = user.ClinicId;
 
-            // Use provided date of birth or default to today
-            var dateOfBirth = request.DateOfBirth ?? DateTime.UtcNow;
-            if (dateOfBirth.Kind == DateTimeKind.Unspecified)
-            {
-                dateOfBirth = DateTime.SpecifyKind(dateOfBirth, DateTimeKind.Utc);
-            }
-            else if (dateOfBirth.Kind == DateTimeKind.Local)
-            {
-                dateOfBirth = dateOfBirth.ToUniversalTime();
-            }
+            // Provide default values if email or phone are empty
+            var emailValue = string.IsNullOrWhiteSpace(request.Email) 
+                ? "noemail@example.com" 
+                : request.Email;
+            var phoneValue = string.IsNullOrWhiteSpace(request.PhoneNumber) 
+                ? "0000000000" 
+                : request.PhoneNumber;
 
-            // Use provided gender or default
-            var gender = !string.IsNullOrWhiteSpace(request.Gender) 
-                ? request.Gender 
-                : "Unknown";
+            var email = new Email(emailValue);
+            var phoneNumber = new PhoneNumber(phoneValue);
 
+            // Convert AddressDto to Address value object if provided and valid
             Address? address = null;
-            InsuranceInfo? insuranceInfo = null;
-
-            if (request.Address != null)
+            if (request.Address != null && 
+                !string.IsNullOrWhiteSpace(request.Address.Street) &&
+                !string.IsNullOrWhiteSpace(request.Address.City) &&
+                !string.IsNullOrWhiteSpace(request.Address.State) &&
+                !string.IsNullOrWhiteSpace(request.Address.ZipCode))
             {
                 address = new Address(
                     request.Address.Street,
@@ -84,7 +104,11 @@ public class CreatePatientCommandHandler : IRequestHandler<CreatePatientCommand,
                     request.Address.Country);
             }
 
-            if (request.InsuranceInfo != null)
+            // Convert InsuranceInfoDto to InsuranceInfo value object if provided and valid
+            InsuranceInfo? insuranceInfo = null;
+            if (request.InsuranceInfo != null &&
+                !string.IsNullOrWhiteSpace(request.InsuranceInfo.Provider) &&
+                !string.IsNullOrWhiteSpace(request.InsuranceInfo.PolicyNumber))
             {
                 insuranceInfo = new InsuranceInfo(
                     request.InsuranceInfo.Provider,
@@ -93,8 +117,17 @@ public class CreatePatientCommandHandler : IRequestHandler<CreatePatientCommand,
                     request.InsuranceInfo.ExpiryDate);
             }
 
+            // Provide defaults for required fields if not provided
+            var dateOfBirth = request.DateOfBirth == default(DateTime) 
+                ? DateTime.UtcNow.AddYears(-30) // Default to 30 years ago if not provided
+                : request.DateOfBirth;
+            var gender = string.IsNullOrWhiteSpace(request.Gender) 
+                ? "Unknown" 
+                : request.Gender;
+
             var patient = new Patient(
                 Guid.NewGuid(),
+                clinicId,
                 request.FirstName,
                 request.LastName,
                 dateOfBirth,
@@ -104,22 +137,98 @@ public class CreatePatientCommandHandler : IRequestHandler<CreatePatientCommand,
                 address,
                 insuranceInfo);
 
+            // Set medical history and allergies after creation
+            if (!string.IsNullOrWhiteSpace(request.MedicalHistory) || !string.IsNullOrWhiteSpace(request.Allergies))
+            {
+                patient.UpdateMedicalHistory(request.MedicalHistory, request.Allergies);
+            }
+
             await _patientRepository.AddAsync(patient, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            // Create medical history entries if provided
+            if (request.MedicalHistoryEntries != null && request.MedicalHistoryEntries.Any())
+            {
+                foreach (var entryDto in request.MedicalHistoryEntries)
+                {
+                    if (!string.IsNullOrWhiteSpace(entryDto.Description))
+                    {
+                        var entry = new PatientMedicalHistory(
+                            Guid.NewGuid(),
+                            patient.Id,
+                            entryDto.Description,
+                            entryDto.Date,
+                            entryDto.Notes);
+
+                        patient.AddMedicalHistoryEntry(entry);
+                        await _patientRepository.AddMedicalHistoryEntryAsync(entry, cancellationToken);
+                    }
+                }
+            }
+
+            // Create family history entries if provided
+            if (request.FamilyHistoryEntries != null && request.FamilyHistoryEntries.Any())
+            {
+                foreach (var entryDto in request.FamilyHistoryEntries)
+                {
+                    if (!string.IsNullOrWhiteSpace(entryDto.Relationship) && !string.IsNullOrWhiteSpace(entryDto.Condition))
+                    {
+                        var entry = new PatientFamilyHistory(
+                            Guid.NewGuid(),
+                            patient.Id,
+                            entryDto.Relationship,
+                            entryDto.Condition,
+                            entryDto.Notes);
+
+                        patient.AddFamilyHistoryEntry(entry);
+                        await _patientRepository.AddFamilyHistoryEntryAsync(entry, cancellationToken);
+                    }
+                }
+            }
+
+            // Save all changes including history entries
+            await _patientRepository.UpdateAsync(patient, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             var dto = new PatientDto
             {
                 Id = patient.Id,
+                ClinicId = patient.ClinicId,
                 FirstName = patient.FirstName,
                 LastName = patient.LastName,
                 DateOfBirth = patient.DateOfBirth,
                 Gender = patient.Gender,
                 Email = patient.Email.Value,
                 PhoneNumber = patient.PhoneNumber.Value,
-                Address = request.Address,
-                InsuranceInfo = request.InsuranceInfo,
+                MedicalHistory = patient.MedicalHistory,
+                Allergies = patient.Allergies,
                 CreatedAt = patient.CreatedAt
             };
+
+            // Map address to DTO
+            if (patient.Address != null)
+            {
+                dto.Address = new AddressDto
+                {
+                    Street = patient.Address.Street,
+                    City = patient.Address.City,
+                    State = patient.Address.State,
+                    ZipCode = patient.Address.ZipCode,
+                    Country = patient.Address.Country
+                };
+            }
+
+            // Map insurance info to DTO
+            if (patient.InsuranceInfo != null)
+            {
+                dto.InsuranceInfo = new InsuranceInfoDto
+                {
+                    Provider = patient.InsuranceInfo.Provider,
+                    PolicyNumber = patient.InsuranceInfo.PolicyNumber,
+                    GroupNumber = patient.InsuranceInfo.GroupNumber,
+                    ExpiryDate = patient.InsuranceInfo.ExpiryDate
+                };
+            }
 
             return Result<PatientDto>.Success(dto);
         }
@@ -129,5 +238,3 @@ public class CreatePatientCommandHandler : IRequestHandler<CreatePatientCommand,
         }
     }
 }
-
-

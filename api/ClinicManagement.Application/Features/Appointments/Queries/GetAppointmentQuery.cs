@@ -33,8 +33,10 @@ public class GetAppointmentQueryHandler : IRequestHandler<GetAppointmentQuery, R
             var dto = new AppointmentDto
             {
                 Id = appointment.Id,
+                ClinicId = appointment.ClinicId,
                 PatientId = appointment.PatientId,
-                PatientName = appointment.Patient.GetFullName(),
+                PatientName = appointment.Patient?.GetFullName() ?? "Occupé",
+                DoctorId = appointment.DoctorId,
                 AppointmentDateTime = appointment.AppointmentDateTime.Kind == DateTimeKind.Utc
                     ? appointment.AppointmentDateTime
                     : DateTime.SpecifyKind(appointment.AppointmentDateTime, DateTimeKind.Utc),
@@ -44,7 +46,11 @@ public class GetAppointmentQueryHandler : IRequestHandler<GetAppointmentQuery, R
                 Status = appointment.Status.ToString(),
                 CreatedAt = appointment.CreatedAt.Kind == DateTimeKind.Utc
                     ? appointment.CreatedAt
-                    : DateTime.SpecifyKind(appointment.CreatedAt, DateTimeKind.Utc)
+                    : DateTime.SpecifyKind(appointment.CreatedAt, DateTimeKind.Utc),
+                ProcedureTypeId = appointment.ProcedureTypeId,
+                ProcedureTypeName = appointment.ProcedureType?.Name,
+                // Use current procedure type color if available, otherwise use stored color
+                ProcedureColorHex = appointment.ProcedureType?.Color.Value ?? appointment.ProcedureColorHex
             };
 
             return Result<AppointmentDto>.Success(dto);

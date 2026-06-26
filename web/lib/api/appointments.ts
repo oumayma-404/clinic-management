@@ -16,27 +16,33 @@ export const appointmentsApi = {
   },
 
   create: async (data: {
-    patientId: string;
+    patientId?: string | null;
     appointmentDateTime: string;
     durationMinutes: number;
+    doctorId?: string;
     doctorName?: string;
     notes?: string;
+    procedureTypeId?: string;
   }): Promise<AppointmentDto> => {
     return apiPost<AppointmentDto>('/appointments', {
-      patientId: data.patientId,
+      patientId: data.patientId || null,
       appointmentDateTime: data.appointmentDateTime,
       durationMinutes: data.durationMinutes,
+      doctorId: data.doctorId,
       doctorName: data.doctorName,
       notes: data.notes,
+      procedureTypeId: data.procedureTypeId,
     });
   },
 
   update: async (id: string, data: {
     appointmentDateTime?: string;
     durationMinutes?: number;
+    doctorId?: string;
     doctorName?: string;
     notes?: string;
     status?: string;
+    procedureTypeId?: string | null;
   }): Promise<AppointmentDto> => {
     return apiPut<AppointmentDto>(`/appointments/${id}`, data);
   },

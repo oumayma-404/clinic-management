@@ -3,58 +3,86 @@
 import { useState } from "react"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { DashboardSidebar } from "@/components/dashboard-sidebar"
+import { ClinicGuard } from "@/components/clinic-guard"
 import { PatientsTable } from "@/components/patients-table"
+import { EditPatientDialog } from "@/components/edit-patient-dialog"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-import { Search, Filter } from "lucide-react"
+import { Search, Filter, Plus } from "lucide-react"
+import type { PatientDto } from "@/lib/api/types"
 
 export default function PatientsPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [showFlaggedOnly, setShowFlaggedOnly] = useState(false)
+  const [createDialogOpen, setCreateDialogOpen] = useState(false)
+  const [refreshKey, setRefreshKey] = useState(0)
 
   return (
-    <div className="flex h-screen bg-background">
-      <DashboardSidebar />
+    <ClinicGuard>
+      <div className="flex h-screen bg-background">
+        <DashboardSidebar />
 
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <DashboardHeader />
+        <div className="flex flex-1 flex-col overflow-hidden">
+          <DashboardHeader />
 
-        <main className="flex-1 overflow-y-auto p-6">
-          <div className="mx-auto max-w-7xl space-y-6">
-            {/* Page Header */}
-            <div>
-              <h1 className="text-3xl font-semibold text-foreground">Patients</h1>
-              <p className="mt-1 text-sm text-muted-foreground">Manage and view all patient records</p>
-            </div>
-
-            {/* Search and Filters */}
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="relative flex-1 max-w-md">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  type="text"
-                  placeholder="Search by name or phone..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-9"
-                />
+          <main className="flex-1 overflow-y-auto p-6">
+            <div className="mx-auto max-w-7xl space-y-6">
+              {/* Page Header */}
+              <div>
+                <h1 className="text-3xl font-semibold text-foreground">Patients</h1>
+                <p className="mt-1 text-sm text-muted-foreground">Manage and view all patient records</p>
               </div>
 
-              <Button
-                variant={showFlaggedOnly ? "default" : "outline"}
-                onClick={() => setShowFlaggedOnly(!showFlaggedOnly)}
-                className="gap-2"
-              >
-                <Filter className="h-4 w-4" />
-                {showFlaggedOnly ? "Showing Flagged" : "Show Flagged Only"}
-              </Button>
-            </div>
+              {/* Search and Filters */}
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="relative flex-1 max-w-md">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    type="text"
+                    placeholder="Search by name or phone..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-9"
+                  />
+                </div>
 
-            {/* Patients Table */}
-            <PatientsTable searchQuery={searchQuery} showFlaggedOnly={showFlaggedOnly} />
-          </div>
-        </main>
+                <div className="flex gap-2">
+                  <Button
+                    variant={showFlaggedOnly ? "default" : "outline"}
+                    onClick={() => setShowFlaggedOnly(!showFlaggedOnly)}
+                    className="gap-2"
+                  >
+                    <Filter className="h-4 w-4" />
+                    {showFlaggedOnly ? "Showing Flagged" : "Show Flagged Only"}
+                  </Button>
+                  
+                  <Button
+                    onClick={() => setCreateDialogOpen(true)}
+                    className="gap-2"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Add New Patient
+                  </Button>
+                </div>
+              </div>
+
+              {/* Patients Table */}
+              <PatientsTable key={refreshKey} searchQuery={searchQuery} showFlaggedOnly={showFlaggedOnly} />
+
+              {/* Create Patient Dialog */}
+              <EditPatientDialog
+                open={createDialogOpen}
+                onOpenChange={setCreateDialogOpen}
+                patient={null}
+                onSuccess={() => {
+                  setCreateDialogOpen(false)
+                  setRefreshKey(prev => prev + 1)
+                }}
+              />
+            </div>
+          </main>
+        </div>
       </div>
-    </div>
+    </ClinicGuard>
   )
 }

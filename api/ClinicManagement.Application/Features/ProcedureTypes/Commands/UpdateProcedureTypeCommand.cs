@@ -1,0 +1,187 @@
+using MediatR;
+using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.DTOs;
+using ClinicManagement.Domain.Repositories;
+using ClinicManagement.Domain.ValueObjects;
+using Microsoft.Extensions.Logging;
+
+namespace ClinicManagement.Application.Features.ProcedureTypes.Commands;
+
+public class UpdateProcedureTypeCommand : IRequest<Result<ProcedureTypeDto>>
+{
+    public Guid Id { get; set; }
+    public string? Name { get; set; }
+    public int? DefaultDurationMinutes { get; set; }
+    public decimal? DefaultCost { get; set; }
+    public string? ColorHex { get; set; }
+    public string? Description { get; set; }
+}
+
+public class UpdateProcedureTypeCommandHandler : IRequestHandler<UpdateProcedureTypeCommand, Result<ProcedureTypeDto>>
+{
+    private readonly IProcedureTypeRepository _procedureTypeRepository;
+    private readonly IAppointmentRepository _appointmentRepository;
+    private readonly IUnitOfWork _unitOfWork;
+    private readonly ILogger<UpdateProcedureTypeCommandHandler> _logger;
+
+    public UpdateProcedureTypeCommandHandler(
+        IProcedureTypeRepository procedureTypeRepository,
+        IAppointmentRepository appointmentRepository,
+        IUnitOfWork unitOfWork,
+        ILogger<UpdateProcedureTypeCommandHandler> logger)
+    {
+        _procedureTypeRepository = procedureTypeRepository;
+        _appointmentRepository = appointmentRepository;
+        _unitOfWork = unitOfWork;
+        _logger = logger;
+    }
+
+    public async Task<Result<ProcedureTypeDto>> Handle(UpdateProcedureTypeCommand request, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var procedureType = await _procedureTypeRepository.GetByIdAsync(request.Id, cancellationToken);
+            if (procedureType == null)
+            {
+                return Result<ProcedureTypeDto>.Failure("Procedure type not found");
+            }
+
+            // Update name if provided
+            string? oldName = null;
+            if (request.Name != null)
+            {
+                if (string.IsNullOrWhiteSpace(request.Name))
+                {
+                    return Result<ProcedureTypeDto>.Failure("Name cannot be empty");
+                }
+
+                // Check if name already exists (excluding current)
+                var nameExists = await _procedureTypeRepository.ExistsByNameAsync(request.Name, request.Id, cancellationToken);
+                if (nameExists)
+                {
+                    return Result<ProcedureTypeDto>.Failure($"A procedure type with the name '{request.Name}' already exists");
+                }
+
+                oldName = procedureType.Name;
+                procedureType.UpdateName(request.Name);
+            }
+
+            // Update duration if provided
+            if (request.DefaultDurationMinutes.HasValue)
+            {
+                if (request.DefaultDurationMinutes.Value <= 0)
+                {
+                    return Result<ProcedureTypeDto>.Failure("Default duration must be greater than 0");
+                }
+
+                if (request.DefaultDurationMinutes.Value >= 480)
+                {
+                    return Result<ProcedureTypeDto>.Failure("Default duration must be less than 480 minutes (8 hours)");
+                }
+
+                procedureType.UpdateDefaultDuration(request.DefaultDurationMinutes.Value);
+            }
+
+            // Update color if provided
+            string? oldColorHex = null;
+            if (request.ColorHex != null)
+            {
+                try
+                {
+                    oldColorHex = procedureType.Color.Value;
+                    var color = new ColorHex(request.ColorHex);
+                    procedureType.UpdateColor(color);
+                }
+                catch (ArgumentException ex)
+                {
+                    return Result<ProcedureTypeDto>.Failure(ex.Message);
+                }
+            }
+
+            // Update default cost if provided in request
+            _logger.LogInformation("UpdateProcedureType - DefaultCost in request: HasValue={HasValue}, Value={Value}", 
+                request.DefaultCost.HasValue, request.DefaultCost.HasValue ? request.DefaultCost.Value : (decimal?)null);
+            
+            if (request.DefaultCost.HasValue)
+            {
+                if (request.DefaultCost.Value < 0)
+                {
+                    return Result<ProcedureTypeDto>.Failure("Default cost cannot be negative");
+                }
+                
+                var oldCost = procedureType.DefaultCost;
+                procedureType.UpdateDefaultCost(request.DefaultCost);
+                _logger.LogInformation("UpdateProcedureType - Updated DefaultCost from {OldCost} to {NewCost}", 
+                    oldCost, request.DefaultCost.Value);
+            }
+            else
+            {
+                _logger.LogInformation("UpdateProcedureType - DefaultCost not provided in request (HasValue=false)");
+            }
+
+            // Update description if provided
+            if (request.Description != null)
+            {
+                procedureType.UpdateDescription(request.Description);
+            }
+
+            // Update all appointments that use this procedure type if name or color changed
+            bool needsAppointmentUpdate = (request.Name != null && oldName != request.Name) || 
+                                         (request.ColorHex != null && oldColorHex != request.ColorHex);
+            
+            if (needsAppointmentUpdate)
+            {
+                var appointments = await _appointmentRepository.GetByProcedureTypeIdAsync(procedureType.Id, cancellationToken);
+                var appointmentList = appointments.ToList();
+                
+                if (appointmentList.Any())
+                {
+                    foreach (var appointment in appointmentList)
+                    {
+                        appointment.SetProcedureType(
+                            procedureType.Id,
+                            appointment.ProcedureDurationMinutes,
+                            procedureType.Color.Value);
+                        await _appointmentRepository.UpdateAsync(appointment, cancellationToken);
+                    }
+                    
+                    // Save appointment changes before saving procedure type
+                    await _unitOfWork.SaveChangesAsync(cancellationToken);
+                    
+                    _logger.LogInformation("Updated {Count} appointments using procedure type {ProcedureTypeId} (name: {NameChanged}, color: {ColorChanged})", 
+                        appointmentList.Count, 
+                        procedureType.Id,
+                        request.Name != null && oldName != request.Name,
+                        request.ColorHex != null && oldColorHex != request.ColorHex);
+                }
+            }
+
+            await _procedureTypeRepository.UpdateAsync(procedureType, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            _logger.LogInformation("Updated procedure type {ProcedureTypeId}", procedureType.Id);
+
+            var dto = new ProcedureTypeDto
+            {
+                Id = procedureType.Id,
+                Name = procedureType.Name,
+                DefaultDurationMinutes = procedureType.DefaultDurationMinutes,
+                DefaultCost = procedureType.DefaultCost,
+                ColorHex = procedureType.Color.Value,
+                Description = procedureType.Description,
+                IsActive = procedureType.IsActive,
+                CreatedAt = procedureType.CreatedAt,
+                UpdatedAt = procedureType.UpdatedAt
+            };
+
+            return Result<ProcedureTypeDto>.Success(dto);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating procedure type {ProcedureTypeId}", request.Id);
+            return Result<ProcedureTypeDto>.Failure($"Error updating procedure type: {ex.Message}");
+        }
+    }
+}
+

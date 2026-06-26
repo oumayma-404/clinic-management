@@ -45,18 +45,25 @@ Ce guide vous aidera à configurer la synchronisation bidirectionnelle entre le 
 
 ## Étape 4: Configurer les URI de redirection OAuth 2.0
 
-**IMPORTANT:** Cette étape est obligatoire avant d'utiliser OAuth 2.0 Playground.
+**IMPORTANT:** Cette étape est obligatoire avant d'utiliser l'autorisation OAuth.
 
 1. Allez sur [Google Cloud Console](https://console.cloud.google.com/)
 2. Sélectionnez votre projet
 3. Naviguez vers **APIs & Services** > **Credentials**
-4. Cliquez sur votre **OAuth 2.0 Client ID** (celui créé à l'étape 2)
+4. Cliquez sur votre **OAuth 2.0 Client ID** (celui créé à l'étape 3)
 5. Sous **Authorized redirect URIs**, cliquez sur **ADD URI**
-6. Ajoutez cette URI: `https://developers.google.com/oauthplayground`
+6. Ajoutez les URI suivantes (une par une):
+   - **Pour l'application:** `http://localhost:5000/api/googlecalendar/callback`
+     - Si votre application tourne sur un autre port (comme 5282 ou 7251), ajoutez aussi:
+     - `http://localhost:5282/api/googlecalendar/callback`
+     - `https://localhost:7251/api/googlecalendar/callback`
+   - **Pour OAuth 2.0 Playground (optionnel, pour obtenir le refresh token):** `https://developers.google.com/oauthplayground`
 7. Cliquez sur **SAVE**
 
-**Note:** Si vous ne faites pas cette étape, vous obtiendrez l'erreur:
-> "Vous ne pouvez pas vous connecter à cette appli, car elle ne respecte pas le règlement OAuth 2.0 de Google."
+**Note:** 
+- L'URI de l'application doit correspondre EXACTEMENT au port et au protocole (http/https) sur lequel votre application tourne
+- Si vous obtenez l'erreur `redirect_uri_mismatch`, consultez la section "Dépannage" ci-dessous
+- Pour vérifier l'URI exacte utilisée par votre application, démarrez l'app et allez à: `http://localhost:5000/api/googlecalendar/redirect-uri`
 
 ## Étape 5: Obtenir un Refresh Token
 
@@ -157,6 +164,60 @@ Si vous obtenez l'erreur:
 3. Ajoutez `https://developers.google.com/oauthplayground` dans "Authorized redirect URIs"
 4. Sauvegardez
 5. Réessayez dans OAuth 2.0 Playground
+
+### Erreur 400: redirect_uri_mismatch
+
+Si vous obtenez l'erreur:
+> "Vous ne pouvez pas vous connecter, car cette appli a envoyé une demande non valide. Erreur 400 : redirect_uri_mismatch"
+
+**Causes possibles:**
+- L'URI de redirection dans Google Cloud Console ne correspond pas exactement à celle utilisée par l'application
+- L'application tourne sur un port différent de celui configuré
+- L'application utilise HTTP au lieu de HTTPS (ou vice versa)
+
+**Solution étape par étape:**
+
+1. **Déterminez l'URI de redirection exacte utilisée par votre application:**
+   - Démarrez votre application
+   - Ouvrez votre navigateur et allez à: `http://localhost:5000/api/googlecalendar/redirect-uri` (ou le port sur lequel votre app tourne)
+   - Notez l'URI exacte affichée dans la réponse
+
+2. **Ajoutez l'URI dans Google Cloud Console:**
+   - Allez sur [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
+   - Sélectionnez votre projet
+   - Cliquez sur votre **OAuth 2.0 Client ID**
+   - Sous **Authorized redirect URIs**, cliquez sur **ADD URI**
+   - Ajoutez l'URI exacte que vous avez notée à l'étape 1
+   - **IMPORTANT:** L'URI doit correspondre EXACTEMENT, y compris:
+     - Le protocole (`http://` ou `https://`)
+     - Le port (`:5000`, `:5282`, `:7251`, etc.)
+     - Le chemin complet (`/api/googlecalendar/callback`)
+   - Cliquez sur **SAVE**
+
+3. **Vérifiez votre configuration dans appsettings.json:**
+   - Ouvrez `api/ClinicManagement.API/appsettings.json`
+   - Vérifiez que `RedirectUri` correspond à l'URI que vous avez ajoutée dans Google Cloud Console
+   - Exemple pour HTTP sur port 5000:
+     ```json
+     "RedirectUri": "http://localhost:5000/api/googlecalendar/callback"
+     ```
+   - Exemple pour HTTPS sur port 7251:
+     ```json
+     "RedirectUri": "https://localhost:7251/api/googlecalendar/callback"
+     ```
+
+4. **Si votre application tourne sur plusieurs ports:**
+   - Ajoutez TOUTES les URIs possibles dans Google Cloud Console:
+     - `http://localhost:5000/api/googlecalendar/callback`
+     - `http://localhost:5282/api/googlecalendar/callback`
+     - `https://localhost:7251/api/googlecalendar/callback`
+   - Ou configurez `RedirectUri` dans `appsettings.json` pour forcer un port spécifique
+
+5. **Redémarrez votre application** après avoir modifié `appsettings.json`
+
+6. **Réessayez l'autorisation**
+
+**Note:** Si vous utilisez le profil HTTPS de Visual Studio, l'application peut tourner sur `https://localhost:7251`. Assurez-vous d'ajouter cette URI dans Google Cloud Console.
 
 ### Erreur 403: access_denied - "L'appli n'a pas terminé la procédure de validation"
 

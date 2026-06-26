@@ -53,7 +53,36 @@ async function handleRequest<T>(requestFn: () => Promise<Response>): Promise<T> 
   }
 }
 
-export async function apiGet<T>(endpoint: string, params?: Record<string, any>): Promise<T> {
+// Get Auth0 access token from client-side
+async function getAccessToken(): Promise<string | null> {
+  try {
+    const response = await fetch('/api/auth/token', {
+      credentials: 'include', // Include cookies for session
+    });
+    if (response.ok) {
+      const data = await response.json();
+      return data.accessToken || null;
+    }
+  } catch {
+    // Token endpoint not available or error
+  }
+  return null;
+}
+
+// Create headers with optional auth token
+function createHeaders(accessToken?: string | null): HeadersInit {
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+  };
+  
+  if (accessToken) {
+    headers['Authorization'] = `Bearer ${accessToken}`;
+  }
+  
+  return headers;
+}
+
+export async function apiGet<T>(endpoint: string, params?: Record<string, any>, accessToken?: string | null): Promise<T> {
   const url = new URL(`${API_BASE_URL}${endpoint}`);
   if (params) {
     Object.entries(params).forEach(([key, value]) => {
@@ -63,40 +92,84 @@ export async function apiGet<T>(endpoint: string, params?: Record<string, any>):
     });
   }
 
+  // If no token provided, try to get it automatically
+  const token = accessToken !== undefined ? accessToken : await getAccessToken();
+
   return handleRequest<T>(() => fetch(url.toString(), {
     method: 'GET',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: createHeaders(token),
+    credentials: 'include',
   }));
 }
 
-export async function apiPost<T>(endpoint: string, data: any): Promise<T> {
+export async function apiPost<T>(endpoint: string, data: any, accessToken?: string | null): Promise<T> {
+  // If no token provided, try to get it automatically
+  const token = accessToken !== undefined ? accessToken : await getAccessToken();
+
   return handleRequest<T>(() => fetch(`${API_BASE_URL}${endpoint}`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: createHeaders(token),
     body: JSON.stringify(data),
+    credentials: 'include',
   }));
 }
 
-export async function apiPut<T>(endpoint: string, data: any): Promise<T> {
+export async function apiPut<T>(endpoint: string, data: any, accessToken?: string | null): Promise<T> {
+  // If no token provided, try to get it automatically
+  const token = accessToken !== undefined ? accessToken : await getAccessToken();
+
   return handleRequest<T>(() => fetch(`${API_BASE_URL}${endpoint}`, {
     method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: createHeaders(token),
     body: JSON.stringify(data),
+    credentials: 'include',
   }));
 }
 
-export async function apiDelete<T>(endpoint: string): Promise<T> {
+export async function apiDelete<T>(endpoint: string, accessToken?: string | null): Promise<T> {
+  // If no token provided, try to get it automatically
+  const token = accessToken !== undefined ? accessToken : await getAccessToken();
+
   return handleRequest<T>(() => fetch(`${API_BASE_URL}${endpoint}`, {
     method: 'DELETE',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: createHeaders(token),
+    credentials: 'include',
+  }));
+}
+
+export async function apiPostFormData<T>(endpoint: string, formData: FormData, accessToken?: string | null): Promise<T> {
+  // If no token provided, try to get it automatically
+  const token = accessToken !== undefined ? accessToken : await getAccessToken();
+
+  const headers: HeadersInit = {};
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  // Don't set Content-Type for FormData, browser will set it with boundary
+
+  return handleRequest<T>(() => fetch(`${API_BASE_URL}${endpoint}`, {
+    method: 'POST',
+    headers,
+    body: formData,
+    credentials: 'include',
+  }));
+}
+
+export async function apiPutFormData<T>(endpoint: string, formData: FormData, accessToken?: string | null): Promise<T> {
+  // If no token provided, try to get it automatically
+  const token = accessToken !== undefined ? accessToken : await getAccessToken();
+
+  const headers: HeadersInit = {};
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  // Don't set Content-Type for FormData, browser will set it with boundary
+
+  return handleRequest<T>(() => fetch(`${API_BASE_URL}${endpoint}`, {
+    method: 'PUT',
+    headers,
+    body: formData,
+    credentials: 'include',
   }));
 }
 

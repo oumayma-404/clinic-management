@@ -16,8 +16,7 @@ public class AppointmentConfiguration : IEntityTypeConfiguration<Appointment>
         builder.Property(a => a.Id)
             .ValueGeneratedNever();
 
-        builder.Property(a => a.PatientId)
-            .IsRequired();
+        builder.Property(a => a.PatientId);
 
         builder.Property(a => a.AppointmentDateTime)
             .IsRequired();
@@ -48,6 +47,13 @@ public class AppointmentConfiguration : IEntityTypeConfiguration<Appointment>
         builder.Property(a => a.GoogleCalendarEventId)
             .HasMaxLength(500);
 
+        builder.Property(a => a.ProcedureTypeId);
+
+        builder.Property(a => a.ProcedureDurationMinutes);
+
+        builder.Property(a => a.ProcedureColorHex)
+            .HasMaxLength(7);
+
         builder.Property(a => a.CreatedAt)
             .IsRequired();
 
@@ -56,7 +62,13 @@ public class AppointmentConfiguration : IEntityTypeConfiguration<Appointment>
         builder.HasOne(a => a.Patient)
             .WithMany(p => p.Appointments)
             .HasForeignKey(a => a.PatientId)
-            .OnDelete(DeleteBehavior.Restrict);
+            .IsRequired(false)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        builder.HasOne(a => a.ProcedureType)
+            .WithMany(pt => pt.Appointments)
+            .HasForeignKey(a => a.ProcedureTypeId)
+            .OnDelete(DeleteBehavior.SetNull);
     }
 }
 

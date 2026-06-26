@@ -27,3 +27,12 @@ COPY --from=publish /app/publish .
 ENTRYPOINT ["dotnet", "ClinicManagement.API.dll"]
 
 
+
+
+
+
+
+
+
+
+

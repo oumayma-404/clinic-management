@@ -1,7 +1,7 @@
 using MediatR;
 using ClinicManagement.Application.Common.Models;
-using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 
@@ -9,73 +9,112 @@ namespace ClinicManagement.Application.Features.Appointments.Commands;
 
 public class CreateAppointmentCommand : IRequest<Result<AppointmentDto>>
 {
-    public Guid PatientId { get; set; }
+    public Guid? PatientId { get; set; }
+    public string? DoctorId { get; set; }
     public DateTime AppointmentDateTime { get; set; }
     public int DurationMinutes { get; set; }
     public string? DoctorName { get; set; }
     public string? Notes { get; set; }
+    public Guid? ProcedureTypeId { get; set; }
 }
 
 public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointmentCommand, Result<AppointmentDto>>
 {
     private readonly IAppointmentRepository _appointmentRepository;
     private readonly IPatientRepository _patientRepository;
+    private readonly IProcedureTypeRepository _procedureTypeRepository;
+    private readonly IUserRepository _userRepository;
+    private readonly IClinicContext _clinicContext;
     private readonly IUnitOfWork _unitOfWork;
-    private readonly IGoogleCalendarSyncService _googleCalendarSyncService;
 
     public CreateAppointmentCommandHandler(
         IAppointmentRepository appointmentRepository,
         IPatientRepository patientRepository,
-        IUnitOfWork unitOfWork,
-        IGoogleCalendarSyncService googleCalendarSyncService)
+        IProcedureTypeRepository procedureTypeRepository,
+        IUserRepository userRepository,
+        IClinicContext clinicContext,
+        IUnitOfWork unitOfWork)
     {
         _appointmentRepository = appointmentRepository;
         _patientRepository = patientRepository;
+        _procedureTypeRepository = procedureTypeRepository;
+        _userRepository = userRepository;
+        _clinicContext = clinicContext;
         _unitOfWork = unitOfWork;
-        _googleCalendarSyncService = googleCalendarSyncService;
     }
 
     public async Task<Result<AppointmentDto>> Handle(CreateAppointmentCommand request, CancellationToken cancellationToken)
     {
         try
         {
-            // Validate required fields
-            if (request.PatientId == Guid.Empty)
+            // Get user ID from token
+            var userId = _clinicContext.GetUserId();
+            if (string.IsNullOrEmpty(userId))
             {
-                return Result<AppointmentDto>.Failure("Patient ID is required");
+                return Result<AppointmentDto>.Failure("User ID not found in token");
             }
 
-            if (request.DurationMinutes <= 0)
+            // Get user from database to get clinic ID
+            var user = await _userRepository.GetByAuth0SubAsync(userId, cancellationToken);
+            if (user == null)
             {
-                return Result<AppointmentDto>.Failure("Duration must be greater than 0");
+                return Result<AppointmentDto>.Failure("User not found");
             }
 
-            // Normalize AppointmentDateTime to UTC
-            var appointmentDateTime = request.AppointmentDateTime;
-            if (appointmentDateTime.Kind == DateTimeKind.Unspecified)
+            var clinicId = user.ClinicId;
+
+            // If patient is provided, verify it exists
+            Patient? patient = null;
+            if (request.PatientId.HasValue)
             {
-                appointmentDateTime = DateTime.SpecifyKind(appointmentDateTime, DateTimeKind.Utc);
-            }
-            else if (appointmentDateTime.Kind == DateTimeKind.Local)
-            {
-                appointmentDateTime = appointmentDateTime.ToUniversalTime();
+                patient = await _patientRepository.GetByIdAsync(request.PatientId.Value, cancellationToken);
+                if (patient == null)
+                {
+                    return Result<AppointmentDto>.Failure("Patient not found");
+                }
             }
 
-            var patient = await _patientRepository.GetByIdAsync(request.PatientId, cancellationToken);
-            if (patient == null)
+            // Get procedure type if specified
+            Guid? procedureTypeId = request.ProcedureTypeId;
+            int? procedureDurationMinutes = null;
+            string? procedureColorHex = null;
+            string? procedureTypeName = null;
+
+            if (procedureTypeId.HasValue)
             {
-                return Result<AppointmentDto>.Failure("Patient not found");
+                var procedureType = await _procedureTypeRepository.GetByIdAsync(procedureTypeId.Value, cancellationToken);
+                if (procedureType == null)
+                {
+                    return Result<AppointmentDto>.Failure("Procedure type not found");
+                }
+                if (!procedureType.IsActive)
+                {
+                    return Result<AppointmentDto>.Failure("Selected procedure type is not active");
+                }
+                procedureDurationMinutes = procedureType.DefaultDurationMinutes;
+                procedureColorHex = procedureType.Color.Value;
+                procedureTypeName = procedureType.Name;
+                // Use procedure duration if not specified
+                if (request.DurationMinutes == 0)
+                {
+                    request.DurationMinutes = procedureType.DefaultDurationMinutes;
+                }
             }
 
             var duration = TimeSpan.FromMinutes(request.DurationMinutes);
-
             var appointment = new Appointment(
                 Guid.NewGuid(),
+                clinicId,
                 request.PatientId,
-                appointmentDateTime,
+                request.DoctorId,
+                request.AppointmentDateTime,
                 duration,
                 request.DoctorName,
-                request.Notes);
+                request.Notes,
+                null, // recurringAppointmentId
+                procedureTypeId,
+                procedureDurationMinutes,
+                procedureColorHex);
 
             await _appointmentRepository.AddAsync(appointment, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -83,38 +122,20 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
             var dto = new AppointmentDto
             {
                 Id = appointment.Id,
+                ClinicId = appointment.ClinicId,
                 PatientId = appointment.PatientId,
-                PatientName = patient.GetFullName(),
-                AppointmentDateTime = appointment.AppointmentDateTime.Kind == DateTimeKind.Utc 
-                    ? appointment.AppointmentDateTime 
-                    : DateTime.SpecifyKind(appointment.AppointmentDateTime, DateTimeKind.Utc),
-                Duration = appointment.Duration,
+                PatientName = patient?.GetFullName() ?? "Occupé",
+                DoctorId = appointment.DoctorId,
                 DoctorName = appointment.DoctorName,
+                AppointmentDateTime = appointment.AppointmentDateTime,
+                Duration = appointment.Duration,
                 Notes = appointment.Notes,
                 Status = appointment.Status.ToString(),
-                CreatedAt = appointment.CreatedAt.Kind == DateTimeKind.Utc 
-                    ? appointment.CreatedAt 
-                    : DateTime.SpecifyKind(appointment.CreatedAt, DateTimeKind.Utc)
+                ProcedureTypeId = appointment.ProcedureTypeId,
+                ProcedureTypeName = procedureTypeName,
+                ProcedureColorHex = appointment.ProcedureColorHex,
+                CreatedAt = appointment.CreatedAt
             };
-
-            // Sync to Google Calendar (fire and forget)
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    await _googleCalendarSyncService.SyncAppointmentToGoogleCalendarAsync(appointment.Id, cancellationToken);
-                }
-                catch (InvalidOperationException ex) when (ex.Message.Contains("not configured"))
-                {
-                    // Silently ignore if Google Calendar is not configured
-                }
-                catch (Exception ex)
-                {
-                    // Log error but don't fail the appointment creation
-                    // Note: We can't use ILogger here as we're in a background task
-                    Console.WriteLine($"Error syncing appointment {appointment.Id} to Google Calendar: {ex.Message}");
-                }
-            }, cancellationToken);
 
             return Result<AppointmentDto>.Success(dto);
         }
@@ -124,5 +145,3 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
         }
     }
 }
-
-

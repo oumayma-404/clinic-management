@@ -1,51 +1,58 @@
 using MediatR;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Domain.Repositories;
+using Microsoft.EntityFrameworkCore;
 
 namespace ClinicManagement.Application.Features.Patients.Queries;
 
 public class GetPatientsQuery : IRequest<Result<IEnumerable<PatientDto>>>
 {
-    public string? SearchTerm { get; set; }
-    public int? Limit { get; set; }
 }
 
 public class GetPatientsQueryHandler : IRequestHandler<GetPatientsQuery, Result<IEnumerable<PatientDto>>>
 {
     private readonly IPatientRepository _patientRepository;
+    private readonly IUserRepository _userRepository;
+    private readonly IClinicContext _clinicContext;
 
-    public GetPatientsQueryHandler(IPatientRepository patientRepository)
+    public GetPatientsQueryHandler(
+        IPatientRepository patientRepository,
+        IUserRepository userRepository,
+        IClinicContext clinicContext)
     {
         _patientRepository = patientRepository;
+        _userRepository = userRepository;
+        _clinicContext = clinicContext;
     }
 
     public async Task<Result<IEnumerable<PatientDto>>> Handle(GetPatientsQuery request, CancellationToken cancellationToken)
     {
         try
         {
-            var patients = await _patientRepository.GetAllAsync(cancellationToken);
-
-            // Apply search filter if provided
-            if (!string.IsNullOrWhiteSpace(request.SearchTerm))
+            // Get user ID from token
+            var userId = _clinicContext.GetUserId();
+            if (string.IsNullOrEmpty(userId))
             {
-                var searchTerm = request.SearchTerm.ToLowerInvariant();
-                patients = patients.Where(p =>
-                    p.FirstName.ToLowerInvariant().Contains(searchTerm) ||
-                    p.LastName.ToLowerInvariant().Contains(searchTerm) ||
-                    p.Email.Value.ToLowerInvariant().Contains(searchTerm) ||
-                    p.PhoneNumber.Value.Contains(searchTerm));
+                return Result<IEnumerable<PatientDto>>.Failure("User ID not found in token");
             }
 
-            // Apply limit if provided
-            if (request.Limit.HasValue && request.Limit.Value > 0)
+            // Get user from database to get clinic ID
+            var user = await _userRepository.GetByAuth0SubAsync(userId, cancellationToken);
+            if (user == null)
             {
-                patients = patients.Take(request.Limit.Value);
+                return Result<IEnumerable<PatientDto>>.Failure("User not found");
             }
+
+            var clinicId = user.ClinicId;
+
+            var patients = await _patientRepository.GetByClinicIdAsync(clinicId, cancellationToken);
 
             var dtos = patients.Select(p => new PatientDto
             {
                 Id = p.Id,
+                ClinicId = p.ClinicId,
                 FirstName = p.FirstName,
                 LastName = p.LastName,
                 DateOfBirth = p.DateOfBirth,
@@ -54,18 +61,8 @@ public class GetPatientsQueryHandler : IRequestHandler<GetPatientsQuery, Result<
                 PhoneNumber = p.PhoneNumber.Value,
                 MedicalHistory = p.MedicalHistory,
                 Allergies = p.Allergies,
-                EmergencyContactName = p.EmergencyContactName,
-                EmergencyContactPhone = p.EmergencyContactPhone?.Value,
-                Flags = p.Flags.Select(f => new PatientFlagDto
-                {
-                    Id = f.Id,
-                    FlagType = f.FlagType.ToString(),
-                    Description = f.Description,
-                    Notes = f.Notes,
-                    IsActive = f.IsActive
-                }).ToList(),
                 CreatedAt = p.CreatedAt
-            }).OrderBy(p => p.LastName).ThenBy(p => p.FirstName);
+            });
 
             return Result<IEnumerable<PatientDto>>.Success(dtos);
         }
@@ -75,5 +72,3 @@ public class GetPatientsQueryHandler : IRequestHandler<GetPatientsQuery, Result<
         }
     }
 }
-
-
