@@ -1,3 +1,19 @@
+export interface StockItemDto {
+  id: string;
+  name: string;
+  description?: string | null;
+  category: string;
+  unit: string;
+  currentStock: number;
+  minimumStockLevel: number;
+  maximumStockLevel: number;
+  unitPrice?: number | null;
+  supplier?: string | null;
+  isLowStock: boolean;
+  createdAt: string;
+  updatedAt?: string;
+}
+
 export interface DashboardStats {
   todaysAppointments: number;
   totalPatients: number;

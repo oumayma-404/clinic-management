@@ -8,17 +8,19 @@ import { StockTable } from "@/components/stock-table"
 import { StockItemFormModal } from "@/components/stock-item-form-modal"
 import { Button } from "@/components/ui/button"
 import { Plus } from "lucide-react"
+import type { StockItemDto } from "@/lib/api/types"
 
 export default function StockPage() {
   const [modalOpen, setModalOpen] = useState(false)
-  const [editingItem, setEditingItem] = useState<any>(null)
+  const [editingItem, setEditingItem] = useState<StockItemDto | null>(null)
+  const [refreshKey, setRefreshKey] = useState(0)
 
   const handleAddNew = () => {
     setEditingItem(null)
     setModalOpen(true)
   }
 
-  const handleEdit = (item: any) => {
+  const handleEdit = (item: StockItemDto) => {
     setEditingItem(item)
     setModalOpen(true)
   }
@@ -47,12 +49,17 @@ export default function StockPage() {
               </div>
 
               {/* Stock Table */}
-              <StockTable onEdit={handleEdit} />
+              <StockTable refreshKey={refreshKey} onEdit={handleEdit} />
             </div>
           </main>
         </div>
 
-        <StockItemFormModal open={modalOpen} onOpenChange={setModalOpen} editingItem={editingItem} />
+        <StockItemFormModal
+          open={modalOpen}
+          onOpenChange={setModalOpen}
+          editingItem={editingItem}
+          onSaved={() => setRefreshKey((k) => k + 1)}
+        />
       </div>
     </ClinicGuard>
   )

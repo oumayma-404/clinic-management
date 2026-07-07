@@ -4,6 +4,7 @@ namespace ClinicManagement.Domain.Entities;
 
 public class StockItem : AggregateRoot<Guid>
 {
+    public Guid ClinicId { get; private set; }
     public string Name { get; private set; }
     public string? Description { get; private set; }
     public string Category { get; private set; } // e.g., "Medicine", "Consumable"
@@ -22,6 +23,7 @@ public class StockItem : AggregateRoot<Guid>
 
     public StockItem(
         Guid id,
+        Guid clinicId,
         string name,
         string category,
         string unit,
@@ -32,6 +34,7 @@ public class StockItem : AggregateRoot<Guid>
         string? supplier = null)
     {
         Id = id;
+        ClinicId = clinicId;
         Name = name ?? throw new ArgumentNullException(nameof(name));
         Category = category ?? throw new ArgumentNullException(nameof(category));
         Unit = unit ?? throw new ArgumentNullException(nameof(unit));
@@ -91,13 +94,23 @@ public class StockItem : AggregateRoot<Guid>
         return CurrentStock == 0;
     }
 
-    public void UpdateInfo(string name, string? description, string category, decimal? unitPrice, string? supplier)
+    public void UpdateInfo(string name, string? description, string category, string unit, decimal? unitPrice, string? supplier)
     {
-        Name = name;
+        Name = name ?? throw new ArgumentNullException(nameof(name));
         Description = description;
-        Category = category;
+        Category = category ?? throw new ArgumentNullException(nameof(category));
+        Unit = unit ?? throw new ArgumentNullException(nameof(unit));
         UnitPrice = unitPrice;
         Supplier = supplier;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    public void SetCurrentStock(int quantity)
+    {
+        if (quantity < 0)
+            throw new ArgumentException("Stock quantity cannot be negative", nameof(quantity));
+
+        CurrentStock = quantity;
         UpdatedAt = DateTime.UtcNow;
     }
 }

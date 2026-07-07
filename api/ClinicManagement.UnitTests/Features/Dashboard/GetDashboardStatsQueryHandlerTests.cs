@@ -67,11 +67,11 @@ public class GetDashboardStatsQueryHandlerTests
         var result = await CreateHandler().Handle(CreateQuery(), CancellationToken.None);
 
         Assert.True(result.IsSuccess);
-        Assert.Equal(3, result.Value.TodaysAppointments);
-        Assert.Equal(42, result.Value.TotalPatients);
-        Assert.Equal(5, result.Value.UpcomingPending);
-        Assert.Equal(10, result.Value.ThisWeekAppointments);
-        Assert.Equal(2, result.Value.UrgentPatients);
+        Assert.Equal(3, result.Value!.TodaysAppointments);
+        Assert.Equal(42, result.Value!.TotalPatients);
+        Assert.Equal(5, result.Value!.UpcomingPending);
+        Assert.Equal(10, result.Value!.ThisWeekAppointments);
+        Assert.Equal(2, result.Value!.UrgentPatients);
     }
 
     // [AC-2] "Pending" counts upcoming appointments in the Scheduled (awaiting-confirmation) state.

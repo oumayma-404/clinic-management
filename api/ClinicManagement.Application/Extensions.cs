@@ -22,6 +22,7 @@ public static class Extensions
         // Register ClinicContext
         // Note: IHttpContextAccessor must be registered in the API layer (Program.cs)
         services.AddScoped<IClinicContext, ClinicContext>();
+        services.AddScoped<ICurrentClinicResolver, CurrentClinicResolver>();
 
         return services;
     }
