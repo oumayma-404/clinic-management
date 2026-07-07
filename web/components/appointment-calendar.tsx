@@ -3,7 +3,9 @@
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { ChevronLeft, ChevronRight, Calendar } from "lucide-react"
+import { Switch } from "@/components/ui/switch"
+import { Label } from "@/components/ui/label"
+import { ChevronLeft, ChevronRight, Calendar, Filter } from "lucide-react"
 import { format, addDays, startOfWeek, addWeeks, subWeeks, subDays, startOfDay, endOfDay, setHours, setMinutes, isToday, isSameDay } from "date-fns"
 import { useMemo, useRef, useEffect, useState } from "react"
 import { useAppointments } from "@/lib/hooks/use-appointments"
@@ -37,9 +39,13 @@ interface AppointmentCalendarProps {
   onDateChange: (date: Date) => void
   onTimeSlotClick?: (date: Date, time: string) => void
   onAppointmentClick?: (appointment: AppointmentDto) => void
+  showCancelled?: boolean
+  showCompleted?: boolean
+  onShowCancelledChange?: (show: boolean) => void
+  onShowCompletedChange?: (show: boolean) => void
 }
 
-export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSlotClick, onAppointmentClick }: AppointmentCalendarProps) {
+export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSlotClick, onAppointmentClick, showCancelled = false, showCompleted = false, onShowCancelledChange, onShowCompletedChange }: AppointmentCalendarProps) {
   // Memoized date range for API calls
   const startDate = useMemo(() => {
     return view === "day"
@@ -53,7 +59,22 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
       : endOfDay(addDays(startOfWeek(selectedDate, { weekStartsOn: 1 }), 6)) // 7 days (0-6)
   }, [view, selectedDate])
 
-  const { appointments, loading } = useAppointments(startDate, endDate)
+  const { appointments: allAppointments, loading } = useAppointments(startDate, endDate)
+
+  // Filter appointments based on status filters
+  const appointments = useMemo(() => {
+    return allAppointments.filter(apt => {
+      const status = apt.status.toLowerCase()
+      if (status === 'cancelled') {
+        return showCancelled
+      }
+      if (status === 'completed') {
+        return showCompleted
+      }
+      // By default, show scheduled, confirmed, inprogress, noshow
+      return true
+    })
+  }, [allAppointments, showCancelled, showCompleted])
 
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const [currentTime, setCurrentTime] = useState(new Date())
@@ -188,18 +209,67 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
     return time
   }
 
-  const getStatusColor = (status: string) => {
-    const statusLower = status.toLowerCase()
+  const getStatusColor = (appointment: AppointmentDto) => {
+    // Busy slots (no patient) - use distinct styling
+    if (!appointment.patientId || appointment.patientName === "Occupé") {
+      return {
+        className: "bg-amber-100 text-amber-800 border-l-4 border-amber-500 dark:bg-amber-500/20 dark:text-amber-400 font-semibold",
+        style: {}
+      }
+    }
+    
+    // If appointment has a procedure color, use it
+    if (appointment.procedureColorHex) {
+      try {
+        // Create a lighter version of the procedure color for background
+        const hex = appointment.procedureColorHex.replace('#', '')
+        if (hex.length === 6) {
+          const r = parseInt(hex.substring(0, 2), 16)
+          const g = parseInt(hex.substring(2, 4), 16)
+          const b = parseInt(hex.substring(4, 6), 16)
+          const bgColor = `rgba(${r}, ${g}, ${b}, 0.15)`
+          const textColor = appointment.procedureColorHex
+          const borderColor = appointment.procedureColorHex
+          
+          return {
+            className: "border-l-4 shadow-sm",
+            style: {
+              backgroundColor: bgColor,
+              color: textColor,
+              borderLeftColor: borderColor,
+            }
+          }
+        }
+      } catch (e) {
+        // If color parsing fails, fall through to status-based colors
+        console.warn('Failed to parse procedure color:', appointment.procedureColorHex, e)
+      }
+    }
+    
+    // Otherwise, use status-based colors
+    const statusLower = appointment.status.toLowerCase()
     if (statusLower === 'scheduled' || statusLower === 'confirmed') {
-      return "bg-blue-100 text-blue-700 border-l-4 border-blue-500 dark:bg-blue-500/20 dark:text-blue-400"
+      return {
+        className: "bg-blue-100 text-blue-700 border-l-4 border-blue-500 dark:bg-blue-500/20 dark:text-blue-400",
+        style: {}
+      }
     }
     if (statusLower === 'completed') {
-      return "bg-green-100 text-green-700 border-l-4 border-green-500 dark:bg-green-500/20 dark:text-green-400"
+      return {
+        className: "bg-green-100 text-green-700 border-l-4 border-green-500 dark:bg-green-500/20 dark:text-green-400",
+        style: {}
+      }
     }
     if (statusLower === 'cancelled') {
-      return "bg-gray-100 text-gray-500 border-l-4 border-gray-400 opacity-60 dark:bg-gray-800 dark:text-gray-400"
+      return {
+        className: "bg-gray-100 text-gray-500 border-l-4 border-gray-400 opacity-60 dark:bg-gray-800 dark:text-gray-400",
+        style: {}
+      }
     }
-    return "bg-blue-100 text-blue-700 border-l-4 border-blue-500 dark:bg-blue-500/20 dark:text-blue-400"
+    return {
+      className: "bg-blue-100 text-blue-700 border-l-4 border-blue-500 dark:bg-blue-500/20 dark:text-blue-400",
+      style: {}
+    }
   }
 
   const handlePrevious = () => {
@@ -226,7 +296,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
 
   return (
     <div className="flex h-full flex-col">
-      <div className="mb-3 flex items-center justify-between">
+      <div className="mb-3 flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1">
             <Button variant="outline" size="icon" className="h-9 w-9 bg-transparent" onClick={handlePrevious}>
@@ -247,18 +317,55 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
           </div>
         </div>
 
-        <div className="flex items-center gap-4 text-sm">
-          <div className="flex items-center gap-2">
-            <div className="h-3 w-3 rounded bg-blue-500" />
-            <span className="text-muted-foreground">Scheduled</span>
+        <div className="flex items-center gap-4 flex-wrap">
+          {/* Status Legend */}
+          <div className="flex items-center gap-4 text-sm">
+            <div className="flex items-center gap-2">
+              <div className="h-3 w-3 rounded bg-blue-500" />
+              <span className="text-muted-foreground">Scheduled</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="h-3 w-3 rounded bg-green-500" />
+              <span className="text-muted-foreground">Completed</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="h-3 w-3 rounded bg-gray-400" />
+              <span className="text-muted-foreground">Cancelled</span>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="h-3 w-3 rounded bg-green-500" />
-            <span className="text-muted-foreground">Completed</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="h-3 w-3 rounded bg-gray-400" />
-            <span className="text-muted-foreground">Cancelled</span>
+
+          {/* Filters */}
+          <div className="flex items-center gap-4 pl-4 border-l">
+            <div className="flex items-center gap-2">
+              <Filter className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm font-medium text-muted-foreground">Show:</span>
+            </div>
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <Switch
+                  id="show-completed"
+                  checked={showCompleted}
+                  onCheckedChange={(checked) => {
+                    onShowCompletedChange?.(checked)
+                  }}
+                />
+                <Label htmlFor="show-completed" className="text-sm cursor-pointer">
+                  Completed
+                </Label>
+              </div>
+              <div className="flex items-center gap-2">
+                <Switch
+                  id="show-cancelled"
+                  checked={showCancelled}
+                  onCheckedChange={(checked) => {
+                    onShowCancelledChange?.(checked)
+                  }}
+                />
+                <Label htmlFor="show-cancelled" className="text-sm cursor-pointer">
+                  Cancelled
+                </Label>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -379,15 +486,16 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                                     const heightPercent = parseFloat(style.height?.replace('%', '') || '100')
                                     const isVerySmall = heightPercent < 40
                                     const isSmall = heightPercent < 60
+                                    const colorStyle = getStatusColor(appointment)
                                     return (
                                       <div
                                         key={appointment.id}
                                         className={cn(
-                                          "absolute left-0.5 right-0.5 rounded border-l-4 shadow-sm transition-shadow hover:shadow-md overflow-hidden flex flex-col cursor-pointer",
-                                          getStatusColor(appointment.status),
+                                          "absolute left-0.5 right-0.5 rounded transition-shadow hover:shadow-md overflow-hidden flex flex-col cursor-pointer",
+                                          colorStyle.className,
                                           isVerySmall ? "p-0.5" : isSmall ? "p-1" : "p-1.5",
                                         )}
-                                        style={style}
+                                        style={{ ...style, ...colorStyle.style }}
                                         onClick={(e) => {
                                           e.stopPropagation()
                                           onAppointmentClick?.(appointment)
@@ -435,33 +543,46 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                                     const heightPercent = parseFloat(style.height?.replace('%', '') || '100')
                                     const isVerySmall = heightPercent < 40
                                     const isSmall = heightPercent < 60
+                                    const colorStyle = getStatusColor(appointment)
                                     return (
                                       <div
                                         key={appointment.id}
                                         className={cn(
-                                          "absolute left-1 right-1 rounded border-l-4 shadow-sm transition-shadow hover:shadow-md overflow-hidden flex flex-col cursor-pointer",
-                                          getStatusColor(appointment.status),
+                                          "absolute left-1 right-1 rounded transition-shadow hover:shadow-md overflow-hidden flex flex-col cursor-pointer",
+                                          colorStyle.className,
                                           isVerySmall ? "p-0.5" : isSmall ? "p-1" : "p-2",
                                         )}
-                                        style={style}
+                                        style={{ ...style, ...colorStyle.style }}
                                         onClick={(e) => {
                                           e.stopPropagation()
                                           onAppointmentClick?.(appointment)
                                         }}
                                       >
+                                        {/* Patient name with labels on the right (day view only) */}
                                         <div className={cn(
-                                          "truncate font-semibold flex-shrink-0",
+                                          "flex items-center gap-2 flex-shrink-0",
                                           isVerySmall ? "text-[10px] leading-[1.1]" : isSmall ? "text-xs leading-[1.2]" : "text-sm leading-[1.3]"
                                         )}>
-                                          {appointment.patientName}
+                                          <span className={cn(
+                                            "font-semibold truncate flex-1 min-w-0",
+                                          )}>
+                                            {appointment.patientName}
+                                          </span>
+                                          {view === "day" && !isVerySmall && (
+                                            <div className="flex items-center gap-1.5 flex-shrink-0">
+                                              <Badge variant="secondary" className="border-0 bg-white/50 dark:bg-background/50 text-[10px] h-4 leading-none px-1.5">
+                                                {durationMinutes}m
+                                              </Badge>
+                                              {appointment.procedureTypeName && (
+                                                <Badge variant="secondary" className="border-0 bg-white/50 dark:bg-background/50 text-[10px] h-4 leading-none px-1.5">
+                                                  {appointment.procedureTypeName}
+                                                </Badge>
+                                              )}
+                                            </div>
+                                          )}
                                         </div>
                                         {appointment.notes && !isVerySmall && !isSmall && (
                                           <div className="mt-0.5 truncate text-xs opacity-75 leading-tight flex-shrink-0">{appointment.notes}</div>
-                                        )}
-                                        {!isVerySmall && !isSmall && (
-                                          <Badge variant="secondary" className="mt-1 border-0 bg-white/50 dark:bg-background/50 text-[10px] h-4 leading-none flex-shrink-0">
-                                            {durationMinutes}m
-                                          </Badge>
                                         )}
                                       </div>
                                     )

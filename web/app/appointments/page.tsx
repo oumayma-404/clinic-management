@@ -9,6 +9,7 @@ import { Plus, RefreshCw, Calendar } from "lucide-react"
 import { AppointmentCalendar } from "@/components/appointment-calendar"
 import { CreateAppointmentDialog } from "@/components/create-appointment-dialog"
 import { EditAppointmentDialog } from "@/components/edit-appointment-dialog"
+import { ClinicGuard } from "@/components/clinic-guard"
 import type { AppointmentDto } from "@/lib/api/types"
 import { setHours, setMinutes } from "date-fns"
 import { googleCalendarApi } from "@/lib/api/google-calendar"
@@ -22,6 +23,8 @@ export default function AppointmentsPage() {
   const [refreshKey, setRefreshKey] = useState(0)
   const [isGoogleCalendarAuthorized, setIsGoogleCalendarAuthorized] = useState(false)
   const [isSyncing, setIsSyncing] = useState(false)
+  const [showCancelled, setShowCancelled] = useState(false)
+  const [showCompleted, setShowCompleted] = useState(false)
 
   const handleTimeSlotClick = useCallback((date: Date, time: string) => {
     const [hours, minutes] = time.split(':').map(Number)
@@ -89,7 +92,8 @@ export default function AppointmentsPage() {
   }, [])
 
   return (
-    <div className="flex h-screen bg-background">
+    <ClinicGuard>
+      <div className="flex h-screen bg-background">
       <DashboardSidebar />
 
       <div className="flex flex-1 flex-col overflow-hidden">
@@ -142,6 +146,10 @@ export default function AppointmentsPage() {
                   onDateChange={setSelectedDate}
                   onTimeSlotClick={handleTimeSlotClick}
                   onAppointmentClick={handleAppointmentClick}
+                  showCancelled={showCancelled}
+                  showCompleted={showCompleted}
+                  onShowCancelledChange={setShowCancelled}
+                  onShowCompletedChange={setShowCompleted}
                 />
               </TabsContent>
 
@@ -153,6 +161,10 @@ export default function AppointmentsPage() {
                   onDateChange={setSelectedDate}
                   onTimeSlotClick={handleTimeSlotClick}
                   onAppointmentClick={handleAppointmentClick}
+                  showCancelled={showCancelled}
+                  showCompleted={showCompleted}
+                  onShowCancelledChange={setShowCancelled}
+                  onShowCompletedChange={setShowCompleted}
                 />
               </TabsContent>
             </Tabs>
@@ -174,6 +186,7 @@ export default function AppointmentsPage() {
         appointment={selectedAppointment}
         onSuccess={handleAppointmentUpdated}
       />
-    </div>
+      </div>
+    </ClinicGuard>
   )
 }

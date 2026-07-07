@@ -1,0 +1,106 @@
+using MediatR;
+using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.DTOs;
+using ClinicManagement.Domain.Entities;
+using ClinicManagement.Domain.Repositories;
+
+namespace ClinicManagement.Application.Features.Files.Commands;
+
+public class CreatePatientFolderCommand : IRequest<Result<PatientFolderDto>>
+{
+    public Guid PatientId { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public Guid? ParentFolderId { get; set; }
+}
+
+public class CreatePatientFolderCommandHandler : IRequestHandler<CreatePatientFolderCommand, Result<PatientFolderDto>>
+{
+    private readonly IPatientRepository _patientRepository;
+    private readonly IPatientFolderRepository _folderRepository;
+    private readonly IUnitOfWork _unitOfWork;
+
+    public CreatePatientFolderCommandHandler(
+        IPatientRepository patientRepository,
+        IPatientFolderRepository folderRepository,
+        IUnitOfWork unitOfWork)
+    {
+        _patientRepository = patientRepository;
+        _folderRepository = folderRepository;
+        _unitOfWork = unitOfWork;
+    }
+
+    public async Task<Result<PatientFolderDto>> Handle(CreatePatientFolderCommand request, CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(request.Name))
+            {
+                return Result<PatientFolderDto>.Failure("Folder name is required");
+            }
+
+            var patient = await _patientRepository.GetByIdAsync(request.PatientId, cancellationToken);
+            if (patient == null)
+            {
+                return Result<PatientFolderDto>.Failure("Patient not found");
+            }
+
+            // Validate parent folder if provided
+            if (request.ParentFolderId.HasValue)
+            {
+                var parentFolder = await _folderRepository.GetByIdAsync(request.ParentFolderId.Value, cancellationToken);
+                if (parentFolder == null || parentFolder.PatientId != request.PatientId)
+                {
+                    return Result<PatientFolderDto>.Failure("Parent folder not found or does not belong to the patient");
+                }
+            }
+
+            // Check if folder with same name already exists in the same location
+            var existingFolders = await _folderRepository.GetByPatientIdAsync(request.PatientId, cancellationToken);
+            var folderExists = existingFolders.Any(f => 
+                f.Name.Equals(request.Name.Trim(), StringComparison.OrdinalIgnoreCase) && 
+                f.ParentFolderId == request.ParentFolderId);
+            
+            if (folderExists)
+            {
+                return Result<PatientFolderDto>.Failure("A folder with this name already exists in this location");
+            }
+
+            var folder = new PatientFolder(
+                Guid.NewGuid(),
+                request.PatientId,
+                request.Name.Trim(),
+                request.ParentFolderId);
+
+            await _folderRepository.AddAsync(folder, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            var dto = new PatientFolderDto
+            {
+                Id = folder.Id,
+                PatientId = folder.PatientId,
+                ParentFolderId = folder.ParentFolderId,
+                Name = folder.Name,
+                FileCount = folder.Files.Count,
+                SubFolderCount = folder.SubFolders.Count,
+                CreatedAt = folder.CreatedAt,
+                UpdatedAt = folder.UpdatedAt
+            };
+
+            return Result<PatientFolderDto>.Success(dto);
+        }
+        catch (Exception ex)
+        {
+            return Result<PatientFolderDto>.Failure($"Error creating folder: {ex.Message}");
+        }
+    }
+}
+
+
+
+
+
+
+
+
+

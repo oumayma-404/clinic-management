@@ -2,6 +2,10 @@ import type React from "react"
 import type { Metadata } from "next"
 import { Geist, Geist_Mono } from "next/font/google"
 import { Analytics } from "@vercel/analytics/next"
+import { Auth0Provider } from '@auth0/nextjs-auth0/client'
+import { SidebarProvider } from "@/contexts/sidebar-context"
+import { Toaster } from "sonner"
+import { AIChat } from "@/components/ai-chat"
 import "./globals.css"
 
 const _geist = Geist({ subsets: ["latin"] })
@@ -38,7 +42,20 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`font-sans antialiased`}>
-        {children}
+        <Auth0Provider>
+          <SidebarProvider>
+            {children}
+          </SidebarProvider>
+        </Auth0Provider>
+        <Toaster 
+          position="top-right"
+          richColors
+          closeButton
+          duration={3000}
+          expand={true}
+          visibleToasts={5}
+        />
+        <AIChat />
         <Analytics />
       </body>
     </html>

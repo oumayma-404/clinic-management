@@ -45,26 +45,63 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
             }
             
             _logger.LogDebug("Appointment found: Patient={PatientName}, DateTime={DateTime}, Status={Status}, GoogleEventId={GoogleEventId}",
-                appointment.Patient.GetFullName(), appointment.AppointmentDateTime, appointment.Status, appointment.GoogleCalendarEventId);
+                appointment.Patient?.GetFullName() ?? "Occupé", appointment.AppointmentDateTime, appointment.Status, appointment.GoogleCalendarEventId);
 
-            // Skip cancelled and completed appointments
+            // Handle cancelled and completed appointments - delete from Google Calendar
             if (appointment.Status == AppointmentStatus.Cancelled || appointment.Status == AppointmentStatus.Completed)
             {
+                _logger.LogInformation("Appointment {AppointmentId} is {Status}. Checking if it needs to be deleted from Google Calendar. GoogleEventId: {GoogleEventId}", 
+                    appointmentId, appointment.Status, appointment.GoogleCalendarEventId ?? "(none)");
+                
                 // Delete from Google Calendar if it exists
                 if (!string.IsNullOrEmpty(appointment.GoogleCalendarEventId))
                 {
                     try
                     {
+                        _logger.LogInformation("Deleting Google Calendar event {EventId} for {Status} appointment {AppointmentId}", 
+                            appointment.GoogleCalendarEventId, appointment.Status, appointmentId);
+                        
                         await _googleCalendarService.DeleteEventAsync(appointment.GoogleCalendarEventId, cancellationToken);
+                        
+                        _logger.LogInformation("Successfully deleted Google Calendar event {EventId} for appointment {AppointmentId}", 
+                            appointment.GoogleCalendarEventId, appointmentId);
+                        
+                        // Clear the Google Calendar event ID from the appointment
+                        appointment.SetGoogleCalendarEventId(null);
+                        await _appointmentRepository.UpdateAsync(appointment, cancellationToken);
+                        await _unitOfWork.SaveChangesAsync(cancellationToken);
+                        
+                        _logger.LogInformation("Cleared GoogleCalendarEventId from appointment {AppointmentId}", appointmentId);
+                    }
+                    catch (Google.GoogleApiException gex) when (gex.HttpStatusCode == System.Net.HttpStatusCode.NotFound)
+                    {
+                        // Event doesn't exist in Google Calendar (might have been deleted manually)
+                        _logger.LogWarning("Google Calendar event {EventId} not found (may have been deleted manually). Clearing reference from appointment {AppointmentId}", 
+                            appointment.GoogleCalendarEventId, appointmentId);
+                        
                         appointment.SetGoogleCalendarEventId(null);
                         await _appointmentRepository.UpdateAsync(appointment, cancellationToken);
                         await _unitOfWork.SaveChangesAsync(cancellationToken);
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "Error deleting Google Calendar event for appointment {AppointmentId}", appointmentId);
+                        _logger.LogError(ex, "Error deleting Google Calendar event {EventId} for appointment {AppointmentId}. Error: {ErrorMessage}", 
+                            appointment.GoogleCalendarEventId, appointmentId, ex.Message);
+                        // Don't throw - we don't want to fail the appointment cancellation if Google Calendar sync fails
                     }
                 }
+                else
+                {
+                    _logger.LogDebug("Appointment {AppointmentId} is {Status} but has no GoogleCalendarEventId. Nothing to delete from Google Calendar.", 
+                        appointmentId, appointment.Status);
+                }
+                return;
+            }
+
+            // Skip Google Calendar sync for busy slots (appointments without a patient)
+            if (!appointment.PatientId.HasValue)
+            {
+                _logger.LogInformation("Skipping Google Calendar sync for busy slot appointment {AppointmentId} (no patient assigned)", appointmentId);
                 return;
             }
 
@@ -73,7 +110,7 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
             if (patient == null)
             {
                 _logger.LogWarning("Patient not loaded for appointment {AppointmentId}. Loading patient...", appointmentId);
-                var patientFromDb = await _patientRepository.GetByIdAsync(appointment.PatientId, cancellationToken);
+                var patientFromDb = await _patientRepository.GetByIdAsync(appointment.PatientId.Value, cancellationToken);
                 if (patientFromDb == null)
                 {
                     _logger.LogError("Patient {PatientId} not found for appointment {AppointmentId}", appointment.PatientId, appointmentId);
@@ -230,6 +267,8 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                     
                     var matchingAppointment = allAppointments
                         .FirstOrDefault(a => 
+                            a.PatientId.HasValue &&
+                            a.Patient != null &&
                             a.Patient.GetFullName().Equals(patientName, StringComparison.OrdinalIgnoreCase) &&
                             Math.Abs((a.AppointmentDateTime - googleEvent.StartDateTime).TotalMinutes) < 30);
 
@@ -291,7 +330,14 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
         }
 
         parts.Add($"Status: {appointment.Status}");
-        parts.Add($"Patient ID: {appointment.PatientId}");
+        if (appointment.PatientId.HasValue)
+        {
+            parts.Add($"Patient ID: {appointment.PatientId.Value}");
+        }
+        else
+        {
+            parts.Add("Busy Slot - No Patient");
+        }
 
         return string.Join("\n", parts);
     }
@@ -523,8 +569,19 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                     dateOfBirth = DateTime.SpecifyKind(dateOfBirth, DateTimeKind.Utc);
                 }
                 
+                // Get clinic ID from first existing patient, or skip if no patients exist
+                var existingPatients = await _patientRepository.GetAllAsync(cancellationToken);
+                var firstPatient = existingPatients.FirstOrDefault();
+                if (firstPatient == null)
+                {
+                    _logger.LogWarning("Cannot create patient from Google Calendar sync: No existing patients found to determine clinic ID");
+                    return false;
+                }
+                var clinicId = firstPatient.ClinicId;
+                
                 var newPatient = new Patient(
                     Guid.NewGuid(),
+                    clinicId,
                     firstName,
                     lastName,
                     dateOfBirth,
@@ -565,7 +622,9 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
 
             var appointment = new Appointment(
                 Guid.NewGuid(),
+                patient.ClinicId,
                 patient.Id,
+                null, // doctorId - extract from event if available
                 appointmentDateTime,
                 duration,
                 ExtractDoctorNameFromLocation(googleEvent.Location),

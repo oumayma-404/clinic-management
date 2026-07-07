@@ -54,6 +54,35 @@ public class GoogleCalendarController : ControllerBase
     }
 
     /// <summary>
+    /// Get the redirect URI that should be configured in Google Cloud Console
+    /// </summary>
+    [HttpGet("redirect-uri")]
+    public IActionResult GetRedirectUri()
+    {
+        var configuredRedirectUri = _configuration["GoogleCalendar:RedirectUri"];
+        var redirectUri = !string.IsNullOrEmpty(configuredRedirectUri)
+            ? configuredRedirectUri
+            : $"{Request.Scheme}://{Request.Host}/api/googlecalendar/callback";
+        
+        return Ok(new
+        {
+            redirectUri = redirectUri,
+            configuredUri = configuredRedirectUri,
+            requestScheme = Request.Scheme,
+            requestHost = Request.Host.ToString(),
+            instructions = new
+            {
+                step1 = "Go to https://console.cloud.google.com/apis/credentials",
+                step2 = "Select your OAuth 2.0 Client ID",
+                step3 = "Under 'Authorized redirect URIs', click 'ADD URI'",
+                step4 = $"Add this exact URI: {redirectUri}",
+                step5 = "Click 'SAVE'",
+                note = "The URI must match EXACTLY (including http/https, port number, and path)"
+            }
+        });
+    }
+
+    /// <summary>
     /// Get sync status and diagnostic information
     /// </summary>
     [HttpGet("status")]
@@ -168,8 +197,16 @@ public class GoogleCalendarController : ControllerBase
             $"prompt=consent&" +
             $"state={Uri.EscapeDataString(state)}";
         
-        _logger.LogInformation("Initiating Google Calendar OAuth flow. Redirect URI: {RedirectUri}. " +
-            "Make sure this exact URI is added to Google Cloud Console > Credentials > Authorized redirect URIs", redirectUri);
+        _logger.LogWarning("=== GOOGLE OAUTH REDIRECT URI DEBUG ===");
+        _logger.LogWarning("Configured RedirectUri from appsettings.json: {ConfiguredUri}", configuredRedirectUri ?? "(not set)");
+        _logger.LogWarning("Request Scheme: {Scheme}", Request.Scheme);
+        _logger.LogWarning("Request Host: {Host}", Request.Host);
+        _logger.LogWarning("Final Redirect URI being used: {RedirectUri}", redirectUri);
+        _logger.LogWarning("=== IMPORTANT: Add this EXACT URI to Google Cloud Console ===");
+        _logger.LogWarning("Go to: https://console.cloud.google.com/apis/credentials");
+        _logger.LogWarning("Select your OAuth 2.0 Client ID");
+        _logger.LogWarning("Under 'Authorized redirect URIs', add: {RedirectUri}", redirectUri);
+        _logger.LogWarning("=========================================");
 
         return Redirect(authUrl);
     }
@@ -203,7 +240,8 @@ public class GoogleCalendarController : ControllerBase
                 ? configuredRedirectUri
                 : $"{Request.Scheme}://{Request.Host}/api/googlecalendar/callback";
             
-            _logger.LogInformation("Using redirect URI for token exchange: {RedirectUri}", redirectUri);
+            _logger.LogWarning("Using redirect URI for token exchange: {RedirectUri}", redirectUri);
+            _logger.LogWarning("If you get redirect_uri_mismatch error, ensure this URI is in Google Cloud Console");
 
             if (string.IsNullOrEmpty(clientId) || string.IsNullOrEmpty(clientSecret))
             {

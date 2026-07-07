@@ -1,79 +1,18 @@
 "use client"
 
-import { useMemo } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Users, Flag } from "lucide-react"
-
-// Sample patient data
-const patientsData = [
-  {
-    id: "1",
-    name: "John Anderson",
-    dateOfBirth: "1985-03-15",
-    phone: "(555) 123-4567",
-    flagged: true,
-    nextAppointment: "2024-01-25 09:00 AM",
-  },
-  {
-    id: "2",
-    name: "Emily Roberts",
-    dateOfBirth: "1992-07-22",
-    phone: "(555) 234-5678",
-    flagged: false,
-    nextAppointment: "2024-01-26 10:00 AM",
-  },
-  {
-    id: "3",
-    name: "Michael Chen",
-    dateOfBirth: "1978-11-08",
-    phone: "(555) 345-6789",
-    flagged: true,
-    nextAppointment: "2024-01-25 11:00 AM",
-  },
-  {
-    id: "4",
-    name: "Sarah Williams",
-    dateOfBirth: "1990-05-30",
-    phone: "(555) 456-7890",
-    flagged: false,
-    nextAppointment: "2024-01-27 02:00 PM",
-  },
-  {
-    id: "5",
-    name: "David Brown",
-    dateOfBirth: "1983-09-12",
-    phone: "(555) 567-8901",
-    flagged: false,
-    nextAppointment: "2024-01-28 03:30 PM",
-  },
-  {
-    id: "6",
-    name: "Jennifer Martinez",
-    dateOfBirth: "1995-02-18",
-    phone: "(555) 678-9012",
-    flagged: true,
-    nextAppointment: "2024-01-29 09:00 AM",
-  },
-  {
-    id: "7",
-    name: "Robert Taylor",
-    dateOfBirth: "1970-12-25",
-    phone: "(555) 789-0123",
-    flagged: false,
-    nextAppointment: "2024-01-30 10:30 AM",
-  },
-  {
-    id: "8",
-    name: "Lisa Johnson",
-    dateOfBirth: "1988-06-14",
-    phone: "(555) 890-1234",
-    flagged: true,
-    nextAppointment: "2024-01-25 01:00 PM",
-  },
-]
+import { Users, Flag, FileText, Folder } from "lucide-react"
+import { patientsApi } from "@/lib/api/patients"
+import { dentalRecordsApi } from "@/lib/api/dental-records"
+import type { PatientDto, DentalRecordDto } from "@/lib/api/types"
+import { ApiError } from "@/lib/api/client"
+import { EditPatientDialog } from "@/components/edit-patient-dialog"
+import { PatientSummaryModal } from "@/components/patient-summary-modal"
 
 interface PatientsTableProps {
   searchQuery: string
@@ -82,39 +21,118 @@ interface PatientsTableProps {
 
 export function PatientsTable({ searchQuery, showFlaggedOnly }: PatientsTableProps) {
   const router = useRouter()
+  const [patients, setPatients] = useState<PatientDto[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [editDialogOpen, setEditDialogOpen] = useState(false)
+  const [selectedPatient, setSelectedPatient] = useState<PatientDto | null>(null)
+  const [summaryModalOpen, setSummaryModalOpen] = useState(false)
+  const [summaryPatient, setSummaryPatient] = useState<PatientDto | null>(null)
+  const [summaryDentalRecords, setSummaryDentalRecords] = useState<DentalRecordDto[]>([])
 
-  // Filter patients based on search and flagged status
+  // Load patients from API
+  useEffect(() => {
+    const loadPatients = async () => {
+      try {
+        setLoading(true)
+        setError(null)
+        const data = await patientsApi.list()
+        setPatients(data)
+      } catch (err) {
+        console.error("Failed to load patients:", err)
+        setError(err instanceof ApiError ? err.message : "Failed to load patients")
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    loadPatients()
+  }, [searchQuery]) // Reload when search query changes
+
+  // Filter patients based on flagged status (search is handled by API)
   const filteredPatients = useMemo(() => {
-    return patientsData.filter((patient) => {
-      const matchesSearch =
-        patient.name.toLowerCase().includes(searchQuery.toLowerCase()) || patient.phone.includes(searchQuery)
-
-      const matchesFlagged = !showFlaggedOnly || patient.flagged
-
-      return matchesSearch && matchesFlagged
-    })
-  }, [searchQuery, showFlaggedOnly])
+    if (showFlaggedOnly) {
+      return patients.filter((patient) => {
+        const hasActiveFlags = patient.flags && patient.flags.some(flag => flag.isActive)
+        return hasActiveFlags
+      })
+    }
+    return patients
+  }, [patients, showFlaggedOnly])
 
   // Format date of birth
-  const formatDateOfBirth = (dob: string) => {
-    const date = new Date(dob)
-    return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+  const formatDateOfBirth = (dob: string | undefined) => {
+    if (!dob) return "N/A"
+    try {
+      const date = new Date(dob)
+      return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+    } catch {
+      return "N/A"
+    }
   }
 
   // Calculate age from date of birth
-  const calculateAge = (dob: string) => {
-    const birthDate = new Date(dob)
-    const today = new Date()
-    let age = today.getFullYear() - birthDate.getFullYear()
-    const monthDiff = today.getMonth() - birthDate.getMonth()
-    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
-      age--
+  const calculateAge = (dob: string | undefined) => {
+    if (!dob) return null
+    try {
+      const birthDate = new Date(dob)
+      const today = new Date()
+      let age = today.getFullYear() - birthDate.getFullYear()
+      const monthDiff = today.getMonth() - birthDate.getMonth()
+      if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+        age--
+      }
+      return age
+    } catch {
+      return null
     }
-    return age
   }
 
-  const handleRowClick = (patientId: string) => {
-    router.push(`/patients/${patientId}`)
+  const handleRowClick = (patient: PatientDto, e: React.MouseEvent) => {
+    // Check if click was on a link or button (let those handle navigation)
+    const target = e.target as HTMLElement
+    if (target.closest('a') || target.closest('button')) {
+      return
+    }
+    
+    // Navigate to patient details page on row click
+    router.push(`/patients/${patient.id}`)
+  }
+
+  const handleEditSuccess = () => {
+    // Reload patients after successful edit
+    const loadPatients = async () => {
+      try {
+        const data = await patientsApi.list()
+        setPatients(data)
+      } catch (err) {
+        console.error("Failed to reload patients:", err)
+      }
+    }
+    loadPatients()
+  }
+
+  const handleOpenSummary = async (patient: PatientDto) => {
+    setSummaryPatient(patient)
+    try {
+      // Load dental records for the patient
+      const records = await dentalRecordsApi.list(patient.id)
+      setSummaryDentalRecords(records)
+      setSummaryModalOpen(true)
+    } catch (err) {
+      console.error("Failed to load dental records:", err)
+      // Still open modal even if records fail to load
+      setSummaryDentalRecords([])
+      setSummaryModalOpen(true)
+    }
+  }
+
+  const getPatientName = (patient: PatientDto) => {
+    return `${patient.firstName} ${patient.lastName}`.trim()
+  }
+
+  const hasActiveFlags = (patient: PatientDto) => {
+    return patient.flags && patient.flags.some(flag => flag.isActive)
   }
 
   return (
@@ -129,51 +147,127 @@ export function PatientsTable({ searchQuery, showFlaggedOnly }: PatientsTablePro
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Date of Birth</TableHead>
-              <TableHead>Phone</TableHead>
-              <TableHead>Flags</TableHead>
-              <TableHead>Next Appointment</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {filteredPatients.length === 0 ? (
+        {error && (
+          <div className="mb-4 rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-800 dark:bg-red-950 dark:border-red-800 dark:text-red-200">
+            {error}
+          </div>
+        )}
+        {loading ? (
+          <div className="h-24 flex items-center justify-center">
+            <p className="text-muted-foreground">Loading patients...</p>
+          </div>
+        ) : (
+          <Table>
+            <TableHeader>
               <TableRow>
-                <TableCell colSpan={5} className="h-24 text-center">
-                  <p className="text-muted-foreground">No patients found</p>
-                </TableCell>
+                <TableHead>Name</TableHead>
+                <TableHead>Date of Birth</TableHead>
+                <TableHead>Phone</TableHead>
+                <TableHead>Email</TableHead>
+                <TableHead>Flags</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
               </TableRow>
-            ) : (
-              filteredPatients.map((patient) => (
-                <TableRow key={patient.id} onClick={() => handleRowClick(patient.id)} className="cursor-pointer">
-                  <TableCell className="font-medium">
-                    <div>
-                      <p className="text-foreground">{patient.name}</p>
-                      <p className="text-xs text-muted-foreground">{calculateAge(patient.dateOfBirth)} years old</p>
-                    </div>
+            </TableHeader>
+            <TableBody>
+              {filteredPatients.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="h-24 text-center">
+                    <p className="text-muted-foreground">
+                      {showFlaggedOnly ? "No flagged patients found" : searchQuery ? "No patients found matching your search" : "No patients found"}
+                    </p>
                   </TableCell>
-                  <TableCell className="text-muted-foreground">{formatDateOfBirth(patient.dateOfBirth)}</TableCell>
-                  <TableCell className="text-muted-foreground">{patient.phone}</TableCell>
-                  <TableCell>
-                    {patient.flagged ? (
-                      <Badge variant="destructive" className="gap-1">
-                        <Flag className="h-3 w-3" />
-                        Flagged
-                      </Badge>
-                    ) : (
-                      <span className="text-muted-foreground">-</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">{patient.nextAppointment}</TableCell>
                 </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
+              ) : (
+                filteredPatients.map((patient) => {
+                  const age = calculateAge(patient.dateOfBirth)
+                  const hasFlags = hasActiveFlags(patient)
+                  return (
+                    <TableRow 
+                      key={patient.id} 
+                      onClick={(e) => handleRowClick(patient, e)} 
+                      className="cursor-pointer hover:bg-muted/50"
+                    >
+                      <TableCell className="font-medium">
+                        <div>
+                          <p className="text-foreground">{getPatientName(patient)}</p>
+                          {age !== null && (
+                            <p className="text-xs text-muted-foreground">{age} years old</p>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {formatDateOfBirth(patient.dateOfBirth)}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {patient.phoneNumber || "N/A"}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {patient.email || "N/A"}
+                      </TableCell>
+                      <TableCell>
+                        {hasFlags ? (
+                          <div className="flex flex-wrap gap-1">
+                            {patient.flags?.filter(flag => flag.isActive).map((flag) => (
+                              <Badge key={flag.id} variant="destructive" className="gap-1">
+                                <Flag className="h-3 w-3" />
+                                {flag.flagType}
+                              </Badge>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 p-0"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleOpenSummary(patient)
+                            }}
+                            title="View patient summary"
+                          >
+                            <FileText className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 p-0"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              router.push(`/patients/${patient.id}/files`)
+                            }}
+                            title="View patient files"
+                          >
+                            <Folder className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })
+              )}
+            </TableBody>
+          </Table>
+        )}
       </CardContent>
+
+      <EditPatientDialog
+        open={editDialogOpen}
+        onOpenChange={setEditDialogOpen}
+        patient={selectedPatient}
+        onSuccess={handleEditSuccess}
+      />
+
+      <PatientSummaryModal
+        open={summaryModalOpen}
+        onOpenChange={setSummaryModalOpen}
+        patient={summaryPatient}
+        dentalRecords={summaryDentalRecords}
+      />
     </Card>
   )
 }

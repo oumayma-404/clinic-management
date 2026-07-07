@@ -8,3 +8,13 @@ public interface IFileStorageService
     Task<bool> FileExistsAsync(string filePath, CancellationToken cancellationToken = default);
 }
 
+
+
+
+
+
+
+
+
+
+

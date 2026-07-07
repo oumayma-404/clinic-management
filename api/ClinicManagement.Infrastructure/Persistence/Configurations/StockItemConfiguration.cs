@@ -15,6 +15,16 @@ public class StockItemConfiguration : IEntityTypeConfiguration<StockItem>
         builder.Property(s => s.Id)
             .ValueGeneratedNever();
 
+        builder.Property(s => s.ClinicId)
+            .IsRequired();
+
+        builder.HasOne<Clinic>()
+            .WithMany()
+            .HasForeignKey(s => s.ClinicId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasIndex(s => s.ClinicId);
+
         builder.Property(s => s.Name)
             .IsRequired()
             .HasMaxLength(200);

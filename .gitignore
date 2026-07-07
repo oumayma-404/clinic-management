@@ -1,0 +1,20 @@
+# Node / Next.js
+node_modules/
+.next/
+out/
+
+# .NET build output
+[Bb]in/
+[Oo]bj/
+
+# .NET / Rider / VS
+*.user
+.vs/
+
+# Logs
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db

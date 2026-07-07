@@ -17,6 +17,31 @@ export const patientsApi = {
     gender?: string;
     email?: string;
     phoneNumber?: string;
+    medicalHistory?: string;
+    allergies?: string;
+    address?: {
+      street: string;
+      city: string;
+      state: string;
+      zipCode: string;
+      country?: string;
+    };
+    insuranceInfo?: {
+      provider: string;
+      policyNumber: string;
+      groupNumber?: string;
+      expiryDate?: string;
+    };
+    medicalHistoryEntries?: Array<{
+      description: string;
+      date?: string;
+      notes?: string;
+    }>;
+    familyHistoryEntries?: Array<{
+      relationship: string;
+      condition: string;
+      notes?: string;
+    }>;
   }): Promise<PatientDto> => {
     return apiPost<PatientDto>('/patients', data);
   },
@@ -25,4 +50,12 @@ export const patientsApi = {
     return apiPut<PatientDto>(`/patients/${id}`, data);
   },
 };
+
+
+
+
+
+
+
+
 

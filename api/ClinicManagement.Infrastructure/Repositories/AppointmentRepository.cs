@@ -19,6 +19,7 @@ public class AppointmentRepository : IAppointmentRepository
     {
         return await _context.Appointments
             .Include(a => a.Patient)
+            .Include(a => a.ProcedureType)
             .FirstOrDefaultAsync(a => a.Id == id, cancellationToken);
     }
 
@@ -26,12 +27,74 @@ public class AppointmentRepository : IAppointmentRepository
     {
         return await _context.Appointments
             .Include(a => a.Patient)
+            .Include(a => a.ProcedureType)
             .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IEnumerable<Appointment>> GetByClinicIdAsync(
+        Guid clinicId, 
+        DateTime? startDate = null, 
+        DateTime? endDate = null, 
+        CancellationToken cancellationToken = default)
+    {
+        var query = _context.Appointments
+            .Include(a => a.Patient)
+            .Include(a => a.ProcedureType)
+            .Where(a => a.ClinicId == clinicId);
+
+        if (startDate.HasValue)
+        {
+            query = query.Where(a => a.AppointmentDateTime >= startDate.Value);
+        }
+
+        if (endDate.HasValue)
+        {
+            query = query.Where(a => a.AppointmentDateTime <= endDate.Value);
+        }
+
+        return await query
+            .OrderBy(a => a.AppointmentDateTime)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<int> CountByClinicIdAsync(
+        Guid clinicId,
+        DateTime? startDate = null,
+        DateTime? endDate = null,
+        AppointmentStatus? status = null,
+        IReadOnlyCollection<AppointmentStatus>? excludeStatuses = null,
+        CancellationToken cancellationToken = default)
+    {
+        var query = _context.Appointments.Where(a => a.ClinicId == clinicId);
+
+        if (startDate.HasValue)
+        {
+            query = query.Where(a => a.AppointmentDateTime >= startDate.Value);
+        }
+
+        if (endDate.HasValue)
+        {
+            query = query.Where(a => a.AppointmentDateTime <= endDate.Value);
+        }
+
+        if (status.HasValue)
+        {
+            query = query.Where(a => a.Status == status.Value);
+        }
+
+        if (excludeStatuses is { Count: > 0 })
+        {
+            query = query.Where(a => !excludeStatuses.Contains(a.Status));
+        }
+
+        return await query.CountAsync(cancellationToken);
     }
 
     public async Task<IEnumerable<Appointment>> GetByPatientIdAsync(Guid patientId, CancellationToken cancellationToken = default)
     {
         return await _context.Appointments
+            .Include(a => a.Patient)
+            .Include(a => a.ProcedureType)
             .Where(a => a.PatientId == patientId)
             .OrderByDescending(a => a.AppointmentDateTime)
             .ToListAsync(cancellationToken);
@@ -41,6 +104,7 @@ public class AppointmentRepository : IAppointmentRepository
     {
         return await _context.Appointments
             .Include(a => a.Patient)
+            .Include(a => a.ProcedureType)
             .Where(a => a.AppointmentDateTime >= fromDate &&
                        (a.Status == AppointmentStatus.Scheduled || a.Status == AppointmentStatus.Confirmed))
             .OrderBy(a => a.AppointmentDateTime)
@@ -54,8 +118,18 @@ public class AppointmentRepository : IAppointmentRepository
 
         return await _context.Appointments
             .Include(a => a.Patient)
+            .Include(a => a.ProcedureType)
             .Where(a => a.AppointmentDateTime >= startOfDay && a.AppointmentDateTime < endOfDay)
             .OrderBy(a => a.AppointmentDateTime)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IEnumerable<Appointment>> GetByProcedureTypeIdAsync(Guid procedureTypeId, CancellationToken cancellationToken = default)
+    {
+        return await _context.Appointments
+            .Include(a => a.Patient)
+            .Include(a => a.ProcedureType)
+            .Where(a => a.ProcedureTypeId == procedureTypeId)
             .ToListAsync(cancellationToken);
     }
 

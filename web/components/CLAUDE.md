@@ -1,0 +1,47 @@
+# web/components/ — Feature Components & UI Primitives
+
+Feature/screen components for the clinic frontend. `components/ui/` holds shadcn/ui primitives. All feature components are client components.
+
+## Feature Components
+
+| File | What it renders / does |
+|------|------------------------|
+| `dashboard-sidebar.tsx` | Left nav (Dashboard, Appointments, Patients, Procedure Types, Records, Documents, Files, Stock, Settings). Collapsible via `useSidebar()`; persists collapse state. |
+| `dashboard-header.tsx` | Top bar with user avatar/menu (Auth0 `useUser`), logout. Shared across all app pages. |
+| `clinic-guard.tsx` | Route gate. Uses `useClinicAccess`; renders children only if user belongs to a clinic, else `unauthorized-page` / redirect. Wraps every protected page. |
+| `unauthorized-page.tsx` | "Access Restricted" screen shown when user has no clinic. |
+| `stats-card.tsx` | Small KPI card (title, value, icon, description, `default`/`urgent` variant). Used on dashboard. |
+| `appointment-list.tsx` | Dashboard appointment list — **static sample data**. |
+| `notifications-list.tsx` | Dashboard notifications list — **static sample data**. |
+| `appointment-calendar.tsx` | Day/week calendar grid (24h hourly slots); renders appointments, handles slot/appointment clicks. Core of `/appointments`. |
+| `create-appointment-dialog.tsx` | Dialog to create an appointment (patient, procedure type, doctor, date/time, duration). |
+| `edit-appointment-dialog.tsx` | Dialog to edit/cancel/delete an appointment (with confirm AlertDialog). |
+| `patients-table.tsx` | Patients list table; filters by `searchQuery` and `showFlaggedOnly`; fetches via `patientsApi`. |
+| `edit-patient-dialog.tsx` | Create/edit patient dialog (demographics, address, insurance, medical/family history). |
+| `patient-record-modal.tsx` | Patient dental-record entry modal (uses `dental-chart`). |
+| `patient-summary-modal.tsx` | Read-only patient summary (info + dental records). Used on `/records`. |
+| `patient-files-manager.tsx` | Per-patient folder/file browser: list, create folder, upload, download, delete (`patientFilesApi`). |
+| `dental-chart.tsx` | Interactive teeth chart (adult/child), per-tooth procedures/notes; emits selection. Read-only mode supported. |
+| `procedure-types-table.tsx` | Procedure types CRUD table with delete confirm. |
+| `procedure-type-form-modal.tsx` | Create/edit procedure type (name, duration, cost, color, description). |
+| `stock-table.tsx` | Inventory table with delete confirm — **sample data, not API-backed**. |
+| `stock-item-form-modal.tsx` | Create/edit stock item modal — local state only. |
+| `clinic-settings.tsx` | Clinic profile + doctors management (name, address, logo upload, add/remove doctors) via `clinicsApi`. |
+| `setup-wizard.tsx` | First-run clinic creation wizard (FR; Tunisian governorates). Calls `clinicsApi.create`. |
+| `join-wizard.tsx` | Join-clinic-by-code wizard (role, specialty). Calls `clinicsApi.join`. |
+| `document-editor-content.tsx` | Editor for medical documents (ordonnance, lettre de liaison, etc.); generates/exports PDF via `medicalDocumentsApi`. Rendered by `/documents/[type]`. |
+| `ai-chat.tsx` | Floating AI assistant widget (mounted globally in `layout.tsx`). Calls `aiChatApi.chat`. |
+
+## components/ui/ — shadcn/ui primitives
+
+Standard shadcn/ui (new-york style) wrappers over Radix UI + CVA + `cn()`. Do not document individually; treat as the design-system layer. Present:
+
+`alert-dialog`, `avatar`, `badge`, `button`, `calendar`, `card`, `checkbox`, `command`, `dialog`, `dropdown-menu`, `input`, `label`, `popover`, `select`, `separator`, `switch`, `table`, `tabs`, `textarea`, `tooltip`.
+
+Add new primitives with the shadcn CLI (config in `web/components.json`, base color neutral, CSS vars enabled, icons = lucide).
+
+## Conventions
+
+- Dialogs/modals are controlled (`open` + `onOpenChange` props) and report success via callbacks so parent pages bump a `refreshKey` to refetch.
+- Components fetch through `lib/api/*` modules and surface errors with `sonner` `toast`.
+- Confirm-destructive flows use `ui/alert-dialog`.

@@ -1,6 +1,7 @@
 using MediatR;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Domain.Repositories;
 
 namespace ClinicManagement.Application.Features.Appointments.Queries;
@@ -9,115 +10,67 @@ public class GetAppointmentsQuery : IRequest<Result<IEnumerable<AppointmentDto>>
 {
     public DateTime? StartDate { get; set; }
     public DateTime? EndDate { get; set; }
-    public Guid? PatientId { get; set; }
-    public string? DoctorName { get; set; }
 }
 
 public class GetAppointmentsQueryHandler : IRequestHandler<GetAppointmentsQuery, Result<IEnumerable<AppointmentDto>>>
 {
     private readonly IAppointmentRepository _appointmentRepository;
+    private readonly IUserRepository _userRepository;
+    private readonly IClinicContext _clinicContext;
 
-    public GetAppointmentsQueryHandler(IAppointmentRepository appointmentRepository)
+    public GetAppointmentsQueryHandler(
+        IAppointmentRepository appointmentRepository,
+        IUserRepository userRepository,
+        IClinicContext clinicContext)
     {
         _appointmentRepository = appointmentRepository;
+        _userRepository = userRepository;
+        _clinicContext = clinicContext;
     }
 
     public async Task<Result<IEnumerable<AppointmentDto>>> Handle(GetAppointmentsQuery request, CancellationToken cancellationToken)
     {
         try
         {
-            DateTime? normalizedStartDate = null;
-            if (request.StartDate.HasValue)
+            // Get user ID from token
+            var userId = _clinicContext.GetUserId();
+            if (string.IsNullOrEmpty(userId))
             {
-                var startDate = request.StartDate.Value;
-                if (startDate.Kind == DateTimeKind.Unspecified)
-                {
-                    normalizedStartDate = DateTime.SpecifyKind(startDate, DateTimeKind.Utc);
-                }
-                else if (startDate.Kind == DateTimeKind.Local)
-                {
-                    normalizedStartDate = startDate.ToUniversalTime();
-                }
-                else
-                {
-                    normalizedStartDate = startDate;
-                }
+                return Result<IEnumerable<AppointmentDto>>.Failure("User ID not found in token");
             }
 
-            DateTime? normalizedEndDate = null;
-            if (request.EndDate.HasValue)
+            // Get user from database to get clinic ID
+            var user = await _userRepository.GetByAuth0SubAsync(userId, cancellationToken);
+            if (user == null)
             {
-                var endDate = request.EndDate.Value;
-                if (endDate.Kind == DateTimeKind.Unspecified)
-                {
-                    normalizedEndDate = DateTime.SpecifyKind(endDate, DateTimeKind.Utc);
-                }
-                else if (endDate.Kind == DateTimeKind.Local)
-                {
-                    normalizedEndDate = endDate.ToUniversalTime();
-                }
-                else
-                {
-                    normalizedEndDate = endDate;
-                }
+                return Result<IEnumerable<AppointmentDto>>.Failure("User not found");
             }
 
-            IEnumerable<Domain.Entities.Appointment> appointments;
+            var clinicId = user.ClinicId;
 
-            if (request.PatientId.HasValue)
-            {
-                appointments = await _appointmentRepository.GetByPatientIdAsync(request.PatientId.Value, cancellationToken);
-            }
-            else if (normalizedStartDate.HasValue && normalizedEndDate.HasValue)
-            {
-                var allAppointments = new List<Domain.Entities.Appointment>();
-                var currentDate = normalizedStartDate.Value.Date;
-                var endDateOnly = normalizedEndDate.Value.Date;
-
-                while (currentDate <= endDateOnly)
-                {
-                    var dayAppointments = await _appointmentRepository.GetAppointmentsForDateAsync(currentDate, cancellationToken);
-                    allAppointments.AddRange(dayAppointments);
-                    currentDate = currentDate.AddDays(1);
-                }
-
-                appointments = allAppointments
-                    .Where(a => a.AppointmentDateTime >= normalizedStartDate.Value &&
-                               a.AppointmentDateTime <= normalizedEndDate.Value);
-            }
-            else if (normalizedStartDate.HasValue)
-            {
-                appointments = await _appointmentRepository.GetUpcomingAppointmentsAsync(normalizedStartDate.Value, cancellationToken);
-            }
-            else
-            {
-                appointments = await _appointmentRepository.GetUpcomingAppointmentsAsync(DateTime.UtcNow, cancellationToken);
-            }
-
-            // Filter by doctor name if provided
-            if (!string.IsNullOrWhiteSpace(request.DoctorName))
-            {
-                appointments = appointments.Where(a => 
-                    !string.IsNullOrWhiteSpace(a.DoctorName) && 
-                    a.DoctorName.Contains(request.DoctorName!, StringComparison.OrdinalIgnoreCase));
-            }
+            var appointments = await _appointmentRepository.GetByClinicIdAsync(
+                clinicId,
+                request.StartDate,
+                request.EndDate,
+                cancellationToken);
 
             var dtos = appointments.Select(a => new AppointmentDto
             {
                 Id = a.Id,
+                ClinicId = a.ClinicId,
                 PatientId = a.PatientId,
-                PatientName = a.Patient.GetFullName(),
-                AppointmentDateTime = a.AppointmentDateTime.Kind == DateTimeKind.Utc 
-                    ? a.AppointmentDateTime 
-                    : DateTime.SpecifyKind(a.AppointmentDateTime, DateTimeKind.Utc),
-                Duration = a.Duration,
+                PatientName = a.Patient?.GetFullName() ?? "Occupé",
+                DoctorId = a.DoctorId,
                 DoctorName = a.DoctorName,
+                AppointmentDateTime = a.AppointmentDateTime,
+                Duration = a.Duration,
                 Notes = a.Notes,
                 Status = a.Status.ToString(),
-                CreatedAt = a.CreatedAt.Kind == DateTimeKind.Utc 
-                    ? a.CreatedAt 
-                    : DateTime.SpecifyKind(a.CreatedAt, DateTimeKind.Utc)
-            }).OrderBy(a => a.AppointmentDateTime);
+                ProcedureTypeId = a.ProcedureTypeId,
+                ProcedureTypeName = a.ProcedureType?.Name,
+                ProcedureColorHex = a.ProcedureColorHex,
+                CreatedAt = a.CreatedAt
+            });
 
             return Result<IEnumerable<AppointmentDto>>.Success(dtos);
         }
@@ -127,4 +80,3 @@ public class GetAppointmentsQueryHandler : IRequestHandler<GetAppointmentsQuery,
         }
     }
 }
-

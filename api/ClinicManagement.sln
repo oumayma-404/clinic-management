@@ -11,6 +11,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ClinicManagement.Infrastruc
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ClinicManagement.API", "ClinicManagement.API\ClinicManagement.API.csproj", "{789A16E5-6EFF-4F64-B8E6-3922800E9F50}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ClinicManagement.UnitTests", "ClinicManagement.UnitTests\ClinicManagement.UnitTests.csproj", "{24B83BB1-8D27-4EE5-B106-A1970C197D22}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -69,6 +71,18 @@ Global
 		{789A16E5-6EFF-4F64-B8E6-3922800E9F50}.Release|x64.Build.0 = Release|Any CPU
 		{789A16E5-6EFF-4F64-B8E6-3922800E9F50}.Release|x86.ActiveCfg = Release|Any CPU
 		{789A16E5-6EFF-4F64-B8E6-3922800E9F50}.Release|x86.Build.0 = Release|Any CPU
+		{24B83BB1-8D27-4EE5-B106-A1970C197D22}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{24B83BB1-8D27-4EE5-B106-A1970C197D22}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{24B83BB1-8D27-4EE5-B106-A1970C197D22}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{24B83BB1-8D27-4EE5-B106-A1970C197D22}.Debug|x64.Build.0 = Debug|Any CPU
+		{24B83BB1-8D27-4EE5-B106-A1970C197D22}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{24B83BB1-8D27-4EE5-B106-A1970C197D22}.Debug|x86.Build.0 = Debug|Any CPU
+		{24B83BB1-8D27-4EE5-B106-A1970C197D22}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{24B83BB1-8D27-4EE5-B106-A1970C197D22}.Release|Any CPU.Build.0 = Release|Any CPU
+		{24B83BB1-8D27-4EE5-B106-A1970C197D22}.Release|x64.ActiveCfg = Release|Any CPU
+		{24B83BB1-8D27-4EE5-B106-A1970C197D22}.Release|x64.Build.0 = Release|Any CPU
+		{24B83BB1-8D27-4EE5-B106-A1970C197D22}.Release|x86.ActiveCfg = Release|Any CPU
+		{24B83BB1-8D27-4EE5-B106-A1970C197D22}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

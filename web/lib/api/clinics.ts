@@ -1,0 +1,184 @@
+import { apiGet, apiPost, apiPostFormData, apiPut, apiPutFormData } from './client';
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
+
+// Get Auth0 access token from client-side
+async function getAccessToken(): Promise<string | null> {
+  try {
+    const response = await fetch('/api/auth/token', {
+      credentials: 'include',
+    });
+    if (response.ok) {
+      const data = await response.json();
+      return data.accessToken || null;
+    }
+  } catch {
+    // Token endpoint not available or error
+  }
+  return null;
+}
+
+export interface DoctorDto {
+  id?: string;
+  name: string;
+  specialty: string;
+  phone?: string;
+  email?: string;
+}
+
+export interface UserStatusDto {
+  hasClinic: boolean;
+  clinicId?: string;
+  clinicName?: string;
+  role?: string;
+  user?: {
+    id: string;
+    clinicId: string;
+    role: string;
+    email?: string;
+    fullName?: string;
+    createdAt: string;
+  };
+  clinic?: ClinicDto;
+  doctors?: DoctorDto[];
+}
+
+export interface ClinicDto {
+  id: string;
+  name: string;
+  address?: string;
+  phone?: string;
+  email?: string;
+  code?: string;
+  logoUrl?: string;
+  createdAt: string;
+}
+
+export interface DoctorPersonalInfo {
+  firstName: string;
+  lastName: string;
+  specialty: string;
+  phone?: string;
+}
+
+export interface CreateClinicRequest {
+  name: string;
+  address?: string;
+  phone?: string;
+  email?: string;
+  generateCode?: boolean;
+  role: "doctor" | "secretary";
+  doctorInfo?: DoctorPersonalInfo; // Required if role is "doctor"
+  doctors?: Array<{
+    name: string;
+    specialty: string;
+    phone?: string;
+    email?: string;
+  }>; // Legacy: additional doctors (not the creator)
+}
+
+export interface JoinClinicRequest {
+  code: string;
+  role: "doctor" | "secretary";
+  doctorInfo?: DoctorPersonalInfo; // Required if role is "doctor"
+}
+
+interface Result<T> {
+  isSuccess: boolean;
+  value: T | null;
+  error: string | null;
+}
+
+export const clinicsApi = {
+  getUserStatus: async (): Promise<UserStatusDto> => {
+    // Add cache-busting parameter to ensure fresh data
+    const timestamp = Date.now();
+    const result = await apiGet<Result<UserStatusDto>>('/clinics/user-status', { _t: timestamp });
+    if (!result.isSuccess || !result.value) {
+      throw new Error(result.error || 'Failed to get user status');
+    }
+    return result.value;
+  },
+
+  create: async (data: CreateClinicRequest & { logoFile?: File }): Promise<ClinicDto> => {
+    // If logo is provided, use FormData, otherwise use JSON
+    if (data.logoFile) {
+      const formData = new FormData();
+      formData.append('name', data.name);
+      if (data.address) formData.append('address', data.address);
+      if (data.phone) formData.append('phone', data.phone);
+      if (data.email) formData.append('email', data.email);
+      formData.append('generateCode', data.generateCode?.toString() || 'true');
+      formData.append('role', data.role);
+      if (data.logoFile) formData.append('logo', data.logoFile);
+      if (data.doctorInfo) {
+        formData.append('doctorInfoJson', JSON.stringify(data.doctorInfo));
+      }
+
+      const result = await apiPostFormData<Result<ClinicDto>>('/clinics', formData);
+      if (!result.isSuccess || !result.value) {
+        throw new Error(result.error || 'Failed to create clinic');
+      }
+      return result.value;
+    } else {
+      const result = await apiPost<Result<ClinicDto>>('/clinics', data);
+      if (!result.isSuccess || !result.value) {
+        throw new Error(result.error || 'Failed to create clinic');
+      }
+      return result.value;
+    }
+  },
+
+  join: async (data: JoinClinicRequest): Promise<ClinicDto> => {
+    const result = await apiPost<Result<ClinicDto>>('/clinics/join', data);
+    if (!result.isSuccess || !result.value) {
+      throw new Error(result.error || 'Failed to join clinic');
+    }
+    return result.value;
+  },
+
+  updateDoctors: async (doctors: DoctorDto[]): Promise<DoctorDto[]> => {
+    // Send doctors array directly, backend expects UpdateDoctorsRequest with Doctors property
+    const result = await apiPut<Result<DoctorDto[]>>('/clinics/doctors', { doctors: doctors });
+    if (!result.isSuccess || !result.value) {
+      throw new Error(result.error || 'Failed to update doctors');
+    }
+    return result.value;
+  },
+
+  update: async (data: { name: string; address?: string; phone?: string; email?: string; logoFile?: File }): Promise<ClinicDto> => {
+    const formData = new FormData();
+    formData.append('name', data.name);
+    if (data.address) formData.append('address', data.address);
+    if (data.phone) formData.append('phone', data.phone);
+    if (data.email) formData.append('email', data.email);
+    if (data.logoFile) formData.append('logo', data.logoFile);
+
+    const result = await apiPutFormData<Result<ClinicDto>>('/clinics', formData);
+    if (!result.isSuccess || !result.value) {
+      throw new Error(result.error || 'Failed to update clinic');
+    }
+    return result.value;
+  },
+
+  getLogo: async (): Promise<Blob> => {
+    const token = await getAccessToken();
+    const headers: HeadersInit = {};
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const response = await fetch(`${API_BASE_URL}/clinics/logo`, {
+      method: 'GET',
+      headers,
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to get clinic logo');
+    }
+
+    return response.blob();
+  },
+};
+

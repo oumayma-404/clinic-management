@@ -24,8 +24,10 @@ import { CalendarIcon, Clock, User, Stethoscope, FileText } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { appointmentsApi } from "@/lib/api/appointments"
 import { patientsApi } from "@/lib/api/patients"
-import type { PatientDto } from "@/lib/api/types"
+import { procedureTypesApi } from "@/lib/api/procedure-types"
+import type { PatientDto, ProcedureTypeDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
+import { useDoctors } from "@/lib/hooks/use-doctors"
 
 interface CreateAppointmentDialogProps {
   open: boolean
@@ -43,6 +45,7 @@ export function CreateAppointmentDialog({
   onSuccess,
 }: CreateAppointmentDialogProps) {
   // Patient state
+  const [isBusySlot, setIsBusySlot] = useState(false)
   const [isNewPatient, setIsNewPatient] = useState(false)
   const [selectedPatientId, setSelectedPatientId] = useState("")
   const [newPatientFirstName, setNewPatientFirstName] = useState("")
@@ -50,14 +53,47 @@ export function CreateAppointmentDialog({
   const [patients, setPatients] = useState<PatientDto[]>([])
   const [loadingPatients, setLoadingPatients] = useState(false)
 
+  // Procedure type state
+  const [procedureTypes, setProcedureTypes] = useState<ProcedureTypeDto[]>([])
+  const [selectedProcedureTypeId, setSelectedProcedureTypeId] = useState<string | undefined>(undefined)
+  const [loadingProcedureTypes, setLoadingProcedureTypes] = useState(false)
+
   // Appointment details
   const [date, setDate] = useState<Date | undefined>(defaultDate || new Date())
-  const [doctorName, setDoctorName] = useState("")
+  const [selectedDoctorId, setSelectedDoctorId] = useState<string>("")
   const [appointmentType, setAppointmentType] = useState("")
+  
+  // Load doctors list
+  const { doctors, currentUserDoctor, isLoading: loadingDoctors } = useDoctors()
+  
+  // Auto-select current user's doctor if they are a doctor
+  useEffect(() => {
+    if (open && currentUserDoctor && !selectedDoctorId) {
+      setSelectedDoctorId(currentUserDoctor.id || "")
+    }
+  }, [open, currentUserDoctor, selectedDoctorId])
 
-  // Time state
-  const [startHour, setStartHour] = useState(defaultTime ? defaultTime.split(":")[0] : "09")
-  const [startMinute, setStartMinute] = useState(defaultTime ? defaultTime.split(":")[1] || "00" : "00")
+  // Time state - extract from defaultDate if available, otherwise use defaultTime
+  const getInitialTime = () => {
+    if (defaultDate) {
+      return {
+        hour: String(defaultDate.getHours()).padStart(2, "0"),
+        minute: String(defaultDate.getMinutes()).padStart(2, "0")
+      }
+    }
+    if (defaultTime) {
+      const [hour, minute] = defaultTime.split(":")
+      return {
+        hour: hour || "09",
+        minute: minute || "00"
+      }
+    }
+    return { hour: "09", minute: "00" }
+  }
+
+  const initialTime = getInitialTime()
+  const [startHour, setStartHour] = useState(initialTime.hour)
+  const [startMinute, setStartMinute] = useState(initialTime.minute)
   const [useEndTime, setUseEndTime] = useState(false)
   const [endHour, setEndHour] = useState("10")
   const [endMinute, setEndMinute] = useState("00")
@@ -67,12 +103,32 @@ export function CreateAppointmentDialog({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Load patients when dialog opens
+  // Load patients and procedure types when dialog opens
   useEffect(() => {
     if (open) {
       loadPatients()
+      loadProcedureTypes()
     }
   }, [open])
+
+  // Update date and time when defaultDate or defaultTime changes (when dialog is open)
+  useEffect(() => {
+    if (open && (defaultDate || defaultTime)) {
+      if (defaultDate) {
+        // Set date (without time for the date picker)
+        const dateOnly = new Date(defaultDate)
+        dateOnly.setHours(0, 0, 0, 0)
+        setDate(dateOnly)
+        // Set time from defaultDate
+        setStartHour(String(defaultDate.getHours()).padStart(2, "0"))
+        setStartMinute(String(defaultDate.getMinutes()).padStart(2, "0"))
+      } else if (defaultTime) {
+        const [hour, minute] = defaultTime.split(":")
+        setStartHour(hour || "09")
+        setStartMinute(minute || "00")
+      }
+    }
+  }, [open, defaultDate, defaultTime])
 
   // Reset form when dialog closes
   useEffect(() => {
@@ -81,23 +137,27 @@ export function CreateAppointmentDialog({
       setSelectedPatientId("")
       setNewPatientFirstName("")
       setNewPatientLastName("")
-      setDoctorName("")
+      setSelectedDoctorId("")
       setAppointmentType("")
-      setStartHour(defaultTime ? defaultTime.split(":")[0] : "09")
-      setStartMinute(defaultTime ? defaultTime.split(":")[1] || "00" : "00")
+      setSelectedProcedureTypeId(undefined)
+      const initialTime = getInitialTime()
+      setStartHour(initialTime.hour)
+      setStartMinute(initialTime.minute)
       setUseEndTime(false)
       setEndHour("10")
       setEndMinute("00")
       setDuration("30")
       setNotes("")
       setError(null)
+      // Reset date to defaultDate or new Date
+      setDate(defaultDate || new Date())
     }
-  }, [open, defaultTime])
+  }, [open])
 
   const loadPatients = async () => {
     try {
       setLoadingPatients(true)
-      const data = await patientsApi.list({ limit: 100 })
+      const data = await patientsApi.list()
       setPatients(data)
     } catch (err) {
       console.error("Failed to load patients:", err)
@@ -110,6 +170,30 @@ export function CreateAppointmentDialog({
       setLoadingPatients(false)
     }
   }
+
+  const loadProcedureTypes = async () => {
+    try {
+      setLoadingProcedureTypes(true)
+      const data = await procedureTypesApi.list(false) // Only active procedure types
+      setProcedureTypes(data || [])
+    } catch (err) {
+      console.error("Failed to load procedure types:", err)
+      // Don't show error to user, just log it - procedure types are optional
+      setProcedureTypes([]) // Ensure it's always an array
+    } finally {
+      setLoadingProcedureTypes(false)
+    }
+  }
+
+  // Handle procedure type selection - update duration when procedure is selected
+  useEffect(() => {
+    if (selectedProcedureTypeId && procedureTypes.length > 0) {
+      const selectedProcedure = procedureTypes.find(p => p.id === selectedProcedureTypeId)
+      if (selectedProcedure && selectedProcedure.defaultDurationMinutes) {
+        setDuration(String(selectedProcedure.defaultDurationMinutes))
+      }
+    }
+  }, [selectedProcedureTypeId, procedureTypes])
 
   // Calculate duration from end time
   const calculatedDuration = useMemo(() => {
@@ -137,17 +221,19 @@ export function CreateAppointmentDialog({
     setLoading(true)
 
     try {
-      // Validate patient
-      if (isNewPatient) {
-        if (!newPatientFirstName.trim() || !newPatientLastName.trim()) {
-          setError("Please enter both first name and last name for the new patient")
+      // Validate patient (only if not a busy slot)
+      if (!isBusySlot) {
+        if (isNewPatient) {
+          if (!newPatientFirstName.trim() || !newPatientLastName.trim()) {
+            setError("Please enter both first name and last name for the new patient")
+            setLoading(false)
+            return
+          }
+        } else if (!selectedPatientId) {
+          setError("Please select a patient")
           setLoading(false)
           return
         }
-      } else if (!selectedPatientId) {
-        setError("Please select a patient")
-        setLoading(false)
-        return
       }
 
       // Validate date
@@ -174,24 +260,27 @@ export function CreateAppointmentDialog({
         return
       }
 
-      let patientId = selectedPatientId
+      let patientId: string | null = null
 
-      // Create new patient if needed
-      if (isNewPatient) {
-        try {
-          const newPatient = await patientsApi.create({
-            firstName: newPatientFirstName.trim(),
-            lastName: newPatientLastName.trim(),
-          })
-          patientId = newPatient.id
-        } catch (err) {
-          if (err instanceof ApiError) {
-            setError(`Failed to create patient: ${err.message}`)
-          } else {
-            setError("Failed to create patient")
+      // Create new patient if needed (only if not a busy slot)
+      if (!isBusySlot) {
+        patientId = selectedPatientId
+        if (isNewPatient) {
+          try {
+            const newPatient = await patientsApi.create({
+              firstName: newPatientFirstName.trim(),
+              lastName: newPatientLastName.trim(),
+            })
+            patientId = newPatient.id
+          } catch (err) {
+            if (err instanceof ApiError) {
+              setError(`Failed to create patient: ${err.message}`)
+            } else {
+              setError("Failed to create patient")
+            }
+            setLoading(false)
+            return
           }
-          setLoading(false)
-          return
         }
       }
 
@@ -212,8 +301,9 @@ export function CreateAppointmentDialog({
         patientId,
         appointmentDateTime: appointmentDateTime.toISOString(),
         durationMinutes: calculatedDuration,
-        doctorName: doctorName.trim() || undefined,
+        doctorId: selectedDoctorId || undefined,
         notes: appointmentNotes || undefined,
+        procedureTypeId: isBusySlot ? undefined : selectedProcedureTypeId,
       })
 
       onSuccess?.()
@@ -248,80 +338,107 @@ export function CreateAppointmentDialog({
                 <h3 className="font-semibold">Patient</h3>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-sm text-muted-foreground">New patient</span>
+                <span className="text-sm text-muted-foreground">Créneau occupé</span>
                 <Switch
-                  checked={isNewPatient}
+                  checked={isBusySlot}
                   onCheckedChange={(checked) => {
-                    setIsNewPatient(checked)
+                    setIsBusySlot(checked)
                     if (checked) {
+                      setIsNewPatient(false)
                       setSelectedPatientId("")
-                    } else {
                       setNewPatientFirstName("")
                       setNewPatientLastName("")
+                      setSelectedProcedureTypeId(undefined)
                     }
                   }}
                 />
               </div>
             </div>
 
-            {isNewPatient ? (
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-2">
-                  <Label htmlFor="firstName" className="text-sm">
-                    First Name *
-                  </Label>
-                  <Input
-                    id="firstName"
-                    placeholder="John"
-                    value={newPatientFirstName}
-                    onChange={(e) => setNewPatientFirstName(e.target.value)}
-                    className="h-10"
-                    required
+            {!isBusySlot ? (
+              <>
+                <div className="flex items-center justify-end gap-2">
+                  <span className="text-sm text-muted-foreground">Nouveau patient</span>
+                  <Switch
+                    checked={isNewPatient}
+                    onCheckedChange={(checked) => {
+                      setIsNewPatient(checked)
+                      if (checked) {
+                        setSelectedPatientId("")
+                      } else {
+                        setNewPatientFirstName("")
+                        setNewPatientLastName("")
+                      }
+                    }}
                   />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="lastName" className="text-sm">
-                    Last Name *
-                  </Label>
-                  <Input
-                    id="lastName"
-                    placeholder="Doe"
-                    value={newPatientLastName}
-                    onChange={(e) => setNewPatientLastName(e.target.value)}
-                    className="h-10"
-                    required
-                  />
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <Label htmlFor="patient" className="text-sm">
-                  Select Patient *
-                </Label>
-                <Select 
-                  value={selectedPatientId} 
-                  onValueChange={setSelectedPatientId}
-                  disabled={loadingPatients || loading}
-                  required
-                >
-                  <SelectTrigger id="patient" className="h-10">
-                    <SelectValue placeholder={loadingPatients ? "Loading patients..." : patients.length === 0 ? "No patients found" : "Choose a patient..."} />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-[200px]">
-                    {patients.length === 0 && !loadingPatients ? (
-                      <div className="px-2 py-1.5 text-sm text-muted-foreground">No patients available</div>
-                    ) : (
-                      patients.map((patient) => (
-                        <SelectItem key={patient.id} value={patient.id}>
-                          {patient.firstName} {patient.lastName}
-                        </SelectItem>
-                      ))
+
+                {isNewPatient ? (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-2">
+                      <Label htmlFor="firstName" className="text-sm">
+                        First Name *
+                      </Label>
+                      <Input
+                        id="firstName"
+                        placeholder="John"
+                        value={newPatientFirstName}
+                        onChange={(e) => setNewPatientFirstName(e.target.value)}
+                        className="h-10"
+                        required
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="lastName" className="text-sm">
+                        Last Name *
+                      </Label>
+                      <Input
+                        id="lastName"
+                        placeholder="Doe"
+                        value={newPatientLastName}
+                        onChange={(e) => setNewPatientLastName(e.target.value)}
+                        className="h-10"
+                        required
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Label htmlFor="patient" className="text-sm">
+                      Select Patient *
+                    </Label>
+                    <Select 
+                      value={selectedPatientId} 
+                      onValueChange={setSelectedPatientId}
+                      disabled={loadingPatients || loading}
+                      required
+                    >
+                      <SelectTrigger id="patient" className="h-10">
+                        <SelectValue placeholder={loadingPatients ? "Loading patients..." : patients.length === 0 ? "No patients found" : "Choose a patient..."} />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-[200px]">
+                        {patients.length === 0 && !loadingPatients ? (
+                          <div className="px-2 py-1.5 text-sm text-muted-foreground">No patients available</div>
+                        ) : (
+                          patients.map((patient) => (
+                            <SelectItem key={patient.id} value={patient.id}>
+                              {patient.firstName} {patient.lastName}
+                            </SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                    {patients.length === 0 && !loadingPatients && (
+                      <p className="text-xs text-muted-foreground">Create a new patient using the toggle above</p>
                     )}
-                  </SelectContent>
-                </Select>
-                {patients.length === 0 && !loadingPatients && (
-                  <p className="text-xs text-muted-foreground">Create a new patient using the toggle above</p>
+                  </div>
                 )}
+              </>
+            ) : (
+              <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800">
+                <p className="text-sm text-amber-800 dark:text-amber-200">
+                  Ce créneau sera marqué comme occupé. Aucun patient ne pourra être assigné à cette période.
+                </p>
               </div>
             )}
           </div>
@@ -490,38 +607,87 @@ export function CreateAppointmentDialog({
               <h3 className="font-semibold">Details</h3>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className={`grid gap-4 ${!isBusySlot ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1'}`}>
               <div className="space-y-2">
                 <Label htmlFor="doctor" className="text-sm">
                   Doctor
                 </Label>
-                <Input
-                  id="doctor"
-                  placeholder="Dr. Smith"
-                  value={doctorName}
-                  onChange={(e) => setDoctorName(e.target.value)}
-                  className="h-10"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="type" className="text-sm">
-                  Appointment Type
-                </Label>
-                <Select value={appointmentType} onValueChange={setAppointmentType}>
-                  <SelectTrigger id="type" className="h-10">
-                    <SelectValue placeholder="Select type..." />
+                <Select
+                  value={selectedDoctorId}
+                  onValueChange={setSelectedDoctorId}
+                  disabled={loadingDoctors || loading}
+                >
+                  <SelectTrigger className="h-10" id="doctor">
+                    <SelectValue placeholder={loadingDoctors ? "Loading doctors..." : doctors.length === 0 ? "No doctors found" : "Choose a doctor..."} />
                   </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="consultation">Consultation</SelectItem>
-                    <SelectItem value="checkup">General Checkup</SelectItem>
-                    <SelectItem value="followup">Follow-up</SelectItem>
-                    <SelectItem value="procedure">Procedure</SelectItem>
-                    <SelectItem value="lab">Lab Results</SelectItem>
-                    <SelectItem value="emergency">Emergency</SelectItem>
+                  <SelectContent className="max-h-[200px]">
+                    {doctors.length === 0 && !loadingDoctors ? (
+                      <div className="px-2 py-1.5 text-sm text-muted-foreground">No doctors available</div>
+                    ) : (
+                      doctors.map((doctor) => (
+                        <SelectItem key={doctor.id || doctor.name} value={doctor.id || ""}>
+                          {doctor.name} {doctor.specialty ? `- ${doctor.specialty}` : ""}
+                        </SelectItem>
+                      ))
+                    )}
                   </SelectContent>
                 </Select>
               </div>
+
+              {!isBusySlot && (
+                <div className="space-y-2">
+                  <Label htmlFor="procedureType" className="text-sm">
+                    Procedure Type
+                  </Label>
+                  <Select 
+                    value={selectedProcedureTypeId} 
+                    onValueChange={setSelectedProcedureTypeId}
+                    disabled={loadingProcedureTypes}
+                  >
+                    <SelectTrigger id="procedureType" className="h-10">
+                      <SelectValue placeholder={loadingProcedureTypes ? "Loading..." : "Select procedure type"} />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-[200px]">
+                      {procedureTypes.length === 0 && !loadingProcedureTypes ? (
+                        <div className="px-2 py-1.5 text-sm text-muted-foreground">No procedure types available</div>
+                      ) : (
+                        procedureTypes.map((procedureType) => (
+                          <SelectItem key={procedureType.id} value={procedureType.id}>
+                            <div className="flex items-center gap-2">
+                              <div 
+                                className="w-3 h-3 rounded-full" 
+                                style={{ backgroundColor: procedureType.colorHex }}
+                              />
+                              {procedureType.name} ({procedureType.defaultDurationMinutes} min)
+                            </div>
+                          </SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
+                  {selectedProcedureTypeId && (
+                    <div className="flex items-center gap-2 mt-1">
+                      <p className="text-xs text-muted-foreground">
+                        Duration set to {procedureTypes.find(p => p.id === selectedProcedureTypeId)?.defaultDurationMinutes} minutes (you can change it)
+                      </p>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-5 px-2 text-xs"
+                        onClick={() => setSelectedProcedureTypeId(undefined)}
+                      >
+                        Clear
+                      </Button>
+                    </div>
+                  )}
+                  {selectedProcedureTypeId && (
+                    <p className="text-xs text-muted-foreground">
+                      Duration set to {procedureTypes.find(p => p.id === selectedProcedureTypeId)?.defaultDurationMinutes} minutes (you can change it)
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 

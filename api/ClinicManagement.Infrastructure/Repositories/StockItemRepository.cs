@@ -27,6 +27,21 @@ public class StockItemRepository : IStockItemRepository
             .ToListAsync(cancellationToken);
     }
 
+
+    public async Task<IEnumerable<StockItem>> GetByClinicIdAsync(Guid clinicId, bool lowStockOnly = false, CancellationToken cancellationToken = default)
+    {
+        var query = _context.StockItems.Where(s => s.ClinicId == clinicId);
+
+        if (lowStockOnly)
+        {
+            query = query.Where(s => s.CurrentStock <= s.MinimumStockLevel);
+        }
+
+        return await query
+            .OrderBy(s => s.Name)
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<IEnumerable<StockItem>> GetLowStockItemsAsync(CancellationToken cancellationToken = default)
     {
         return await _context.StockItems
