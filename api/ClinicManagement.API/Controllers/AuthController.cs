@@ -1,8 +1,10 @@
+using System.Net;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Configuration;
 using MediatR;
 using ClinicManagement.Application.Features.Auth.Commands;
+using ClinicManagement.Application.Features.Clinics.Commands;
 using ClinicManagement.API.Models;
 using ClinicManagement.Infrastructure.Auth;
 
@@ -59,5 +61,62 @@ public class AuthController : ControllerBase
         }
 
         return Ok(result);
+    }
+
+    /// <summary>
+    /// Local-mode first-run setup: creates the clinic + first admin (email+password).
+    /// Reachable only from the server machine (localhost) and only until the first admin
+    /// exists — AC-1.2a. Does not exist in Cloud mode.
+    /// </summary>
+    [AllowAnonymous]
+    [HttpPost("setup")]
+    public async Task<IActionResult> Setup([FromBody] SetupRequest request)
+    {
+        if (!LocalAuthConfig.IsLocalMode(_configuration))
+        {
+            return NotFound();
+        }
+
+        if (!IsLocalRequest(HttpContext))
+        {
+            return StatusCode(403, new { error = "First-run setup is only available on the server machine." });
+        }
+
+        var command = new CreateClinicCommand
+        {
+            Name = request.ClinicName,
+            Email = request.Email,
+            Password = request.Password,
+            FullName = request.FullName,
+            Phone = request.Phone,
+            Address = request.Address,
+            Role = "admin",
+            GenerateCode = true
+        };
+
+        var result = await _mediator.Send(command);
+
+        if (!result.IsSuccess)
+        {
+            return BadRequest(result);
+        }
+
+        return Ok(result);
+    }
+
+    /// <summary>True when the request originates from the server machine itself (loopback).</summary>
+    private static bool IsLocalRequest(HttpContext context)
+    {
+        var connection = context.Connection;
+        var remoteIp = connection.RemoteIpAddress;
+        if (remoteIp is null)
+        {
+            return true; // in-process / no remote info
+        }
+        if (connection.LocalIpAddress is not null)
+        {
+            return remoteIp.Equals(connection.LocalIpAddress) || IPAddress.IsLoopback(remoteIp);
+        }
+        return IPAddress.IsLoopback(remoteIp);
     }
 }

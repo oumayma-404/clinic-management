@@ -53,6 +53,11 @@ public class UserRepository : IUserRepository
                 cancellationToken);
     }
 
+    public async Task<bool> AnyUserExistsAsync(CancellationToken cancellationToken = default)
+    {
+        return await _context.Users.AnyAsync(cancellationToken);
+    }
+
     public async Task AddAsync(User entity, CancellationToken cancellationToken = default)
     {
         await _context.Users.AddAsync(entity, cancellationToken);

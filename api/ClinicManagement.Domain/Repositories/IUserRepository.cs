@@ -10,6 +10,8 @@ public interface IUserRepository
     Task<User?> GetByAuth0SubAsync(string auth0Sub, CancellationToken cancellationToken = default);
     /// <summary>Looks up a local (password-backed) account by email. Used for Local-mode login.</summary>
     Task<User?> GetByEmailAsync(string email, CancellationToken cancellationToken = default);
+    /// <summary>True if any user exists. Used to close first-run setup once the first admin is created.</summary>
+    Task<bool> AnyUserExistsAsync(CancellationToken cancellationToken = default);
     Task AddAsync(User entity, CancellationToken cancellationToken = default);
     void Update(User entity);
     void Remove(User entity);

@@ -19,6 +19,11 @@ public class CreateClinicCommand : IRequest<Result<ClinicDto>>
     public List<DoctorDto>? Doctors { get; set; } // Legacy: additional doctors (not the creator)
     public Stream? LogoFile { get; set; } // Logo file stream
     public string? LogoContentType { get; set; } // Logo content type
+
+    // Local (offline) first-run only. When Password is set, the handler creates the clinic +
+    // first admin from email+password (no Auth0). Never populated in Cloud mode.
+    public string? Password { get; set; }
+    public string? FullName { get; set; } // Admin's full name (Local first-run)
 }
 
 public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, Result<ClinicDto>>
@@ -29,6 +34,7 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
     private readonly IClinicContext _clinicContext;
     private readonly IAuth0ManagementService _auth0ManagementService;
     private readonly IFileStorage _fileStorage;
+    private readonly ILocalAuthService _localAuthService;
     private readonly IUnitOfWork _unitOfWork;
 
     public CreateClinicCommandHandler(
@@ -38,6 +44,7 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
         IClinicContext clinicContext,
         IAuth0ManagementService auth0ManagementService,
         IFileStorage fileStorage,
+        ILocalAuthService localAuthService,
         IUnitOfWork unitOfWork)
     {
         _clinicRepository = clinicRepository;
@@ -46,6 +53,7 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
         _clinicContext = clinicContext;
         _auth0ManagementService = auth0ManagementService;
         _fileStorage = fileStorage;
+        _localAuthService = localAuthService;
         _unitOfWork = unitOfWork;
     }
 
@@ -53,6 +61,14 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
     {
         try
         {
+            // Local (offline) first-run: create the clinic + first admin from email+password.
+            // No authenticated user exists yet (this is the bootstrap), so this path never
+            // reads the JWT/clinic context. Cloud mode continues below, unchanged.
+            if (!string.IsNullOrEmpty(request.Password))
+            {
+                return await CreateLocalFirstRunAsync(request, cancellationToken);
+            }
+
             var userId = _clinicContext.GetUserId();
             if (string.IsNullOrEmpty(userId))
             {
@@ -228,6 +244,67 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
         {
             return Result<ClinicDto>.Failure($"Error creating clinic: {ex.Message}");
         }
+    }
+
+    private async Task<Result<ClinicDto>> CreateLocalFirstRunAsync(CreateClinicCommand request, CancellationToken cancellationToken)
+    {
+        // AC-1.2a: setup is a one-time bootstrap — closed once any user exists.
+        if (await _userRepository.AnyUserExistsAsync(cancellationToken))
+        {
+            return Result<ClinicDto>.Failure("Setup has already been completed for this installation.");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Name))
+        {
+            return Result<ClinicDto>.Failure("Clinic name is required.");
+        }
+        if (string.IsNullOrWhiteSpace(request.Email))
+        {
+            return Result<ClinicDto>.Failure("Email is required.");
+        }
+        if (string.IsNullOrWhiteSpace(request.FullName))
+        {
+            return Result<ClinicDto>.Failure("Full name is required.");
+        }
+        // FR-B2: password policy — minimum 8 characters (enforced at the API).
+        if (request.Password!.Length < 8)
+        {
+            return Result<ClinicDto>.Failure("Password must be at least 8 characters.");
+        }
+
+        // Generate a unique clinic code for later staff self-registration.
+        var code = GenerateClinicCode();
+        while (await _clinicRepository.CodeExistsAsync(code, cancellationToken))
+        {
+            code = GenerateClinicCode();
+        }
+
+        var clinic = new Clinic(
+            Guid.NewGuid(),
+            request.Name,
+            request.Address,
+            request.Phone,
+            request.Email,
+            code);
+        await _clinicRepository.AddAsync(clinic, cancellationToken);
+
+        var passwordHash = _localAuthService.HashPassword(request.Password);
+        var admin = User.CreateLocalUser(clinic.Id, "admin", request.Email, passwordHash, request.FullName);
+        await _userRepository.AddAsync(admin, cancellationToken);
+
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return Result<ClinicDto>.Success(new ClinicDto
+        {
+            Id = clinic.Id,
+            Name = clinic.Name,
+            Address = clinic.Address,
+            Phone = clinic.Phone,
+            Email = clinic.Email,
+            Code = clinic.Code,
+            LogoUrl = clinic.LogoUrl,
+            CreatedAt = clinic.CreatedAt
+        });
     }
 
     private string GenerateClinicCode()

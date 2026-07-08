@@ -8,8 +8,8 @@
 
 | Story | Layer | Name | Status |
 |-------|-------|------|--------|
-| 1 | BE | Local auth mode + login API | reviewed |
-| 2 | BE | First-run clinic + admin creation | not-started |
+| 1 | BE | Local auth mode + login API | done |
+| 2 | BE | First-run clinic + admin creation | implemented |
 | 3 | FE | Local login + first-run setup UI | not-started |
 | 4 | BE | Staff self-registration API | not-started |
 | 5 | FE | Staff registration UI | not-started |
@@ -19,6 +19,11 @@
 
 ## Working tree note (start of session)
 - `web/components/document-editor-content.tsx` — pre-existing modified file, **unrelated** to this backend story. Excluded from this story's commits (staged by explicit path only).
+
+## Story 1 — Per-story test execution (all auto-skipped → done)
+- `/story-e2e` — ⊘ skipped (Layer: BE, no user-facing flow)
+- `/story-api-tests` — ⊘ skipped (Postman/Newman never run per user preference)
+- `/story-integration-tests` — ⊘ skipped (no `test-plan-integration.md` APPROVED in this phase)
 
 ## Story 1 — Steps
 
@@ -36,6 +41,19 @@
 - **JWT issue→validate round-trip** (offline scratchpad, real `LocalAuthService` + the `JsonWebTokenHandler` ASP.NET Core 8 uses): hash/verify OK; token validated; claim contract (`sub`,`role`,`clinic_id`,`email`) resolves correctly; forged-key token rejected.
 - **Deferred to manual (no Docker/Postgres this session, per plan's manual testing strategy):** fresh Local DB → first-run → login from a second machine; migration applied to a live DB. Migration inspected: all additive + defaulted + filtered index → safe for existing Cloud DBs.
 
+## Story 2 — Steps
+- [x] 1. `CreateClinicCommand` Local first-run branch: accept `Password`+`FullName`, hash via `LocalAuthService`, role=admin, `local|{guid}` id. Discriminated by `Password` present; Cloud path untouched.
+- [x] 2. First-run gate: `POST /api/auth/setup` (anonymous) — Local-mode-only (404 in Cloud) + localhost-only (`IsLocalRequest`, 403 otherwise); "no admin exists yet" gate in the handler (AC-1.2a).
+- [x] 3. Clinic `Code` generated + persisted for later staff self-registration.
+- [x] 4. Cloud-mode `CreateClinicCommand` unchanged (Password null → existing Auth0 flow).
+
+## Story 2 — Verification
+- **Build:** 0 errors (58 pre-existing warnings, 0 in changed files).
+- **Unit tests:** 37/37 (5 new in `CreateClinicLocalSetupTests`: create admin, setup-closed gate, short-password (FR-B2), missing email/full-name).
+- **FR-B2** (password ≥8) now enforced at the API in the first-run path — the deferral noted in Story 1 is resolved here.
+- **No migration** — reuses the User/Clinic schema + Story 1 columns.
+- **Deferred to manual (no Docker this session):** fresh DB → setup from localhost → login from a LAN client; non-localhost → 403.
+
 ## Structural notes / decisions
 - **JWT package location:** the plan assumed `JwtSecurityTokenHandler` was transitively available in Infrastructure via JwtBearer, but JwtBearer is only referenced by the API project. Since the plan places `LocalAuthService` in Infrastructure, adding `System.IdentityModel.Tokens.Jwt` to the Infrastructure project (alongside the planned `Microsoft.Extensions.Identity.Core`). Consistent with the plan's intent.
 - **Per-install signing key:** read from `Auth:Local:SigningKey` (config); if absent, generate a 512-bit key and persist to a gitignored file under the content root, then reuse. Never committed / never in `appsettings.json`.
@@ -47,6 +65,9 @@
 | Login failure → controller returns `401 Unauthorized` (not `400`) | Trivial | Internal to `AuthController`; correct HTTP semantics for auth. No contract elsewhere depends on it (new endpoint). |
 | Local emails normalized to lowercase in `User.CreateLocalUser` | Trivial | Makes the filtered unique email index + login lookup case-insensitive per install. Internal; Cloud rows untouched. |
 | Included lockout fields + basic lockout in this story | Trivial | Story step 5 says "reject inactive/locked"; plan lists lockout fields as part of this migration. Fields additive/defaulted; login rejects locked accounts (AC-3.4 groundwork). |
+| (Story 2) First-run via a dedicated anonymous `POST /api/auth/setup` | Trivial | Plan explicitly allowed "a dedicated setup endpoint". First-run has no authenticated user, so an anonymous, localhost+no-admin-gated endpoint is required (not the `[Authorize]` `POST /api/clinics`). |
+| (Story 2) Local first-run discriminated by `Password` present on `CreateClinicCommand` | Trivial | Internal handler branch; the setup endpoint is the only caller that sets `Password`, only in Local mode. Cloud path (Password null) unchanged. |
+| (Story 2) `IsLocalRequest` as a private controller helper | Trivial | Plan said "small helper to detect localhost"; loopback check via `IPAddress.IsLoopback` + local==remote. |
 
 ## Significant Deviations
 (none)
