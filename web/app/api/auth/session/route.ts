@@ -21,10 +21,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid session' }, { status: 401 });
   }
 
-  return NextResponse.json({ user: { email: claims.email, role: claims.role } });
+  return NextResponse.json({ user: { name: claims.name, email: claims.email, role: claims.role } });
 }
 
-function decodeJwtPayload(token: string): { email?: string; role?: string } | null {
+function decodeJwtPayload(token: string): { name?: string; email?: string; role?: string } | null {
   try {
     const payload = token.split('.')[1];
     if (!payload) return null;

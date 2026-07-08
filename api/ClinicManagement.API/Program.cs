@@ -191,6 +191,13 @@ try
     app.UseAuthentication();
     app.UseAuthorization();
 
+    // Local mode: the app-issued JWT is stateless, so enforce account state per request —
+    // revoke deactivated accounts and gate users with a pending forced password change.
+    if (isLocalAuthMode)
+    {
+        app.UseMiddleware<ClinicManagement.API.Middleware.LocalAuthEnforcementMiddleware>();
+    }
+
     app.MapControllers();
 
     // Hangfire Dashboard

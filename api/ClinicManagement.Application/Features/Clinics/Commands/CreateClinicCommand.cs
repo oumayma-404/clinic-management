@@ -1,4 +1,5 @@
 using MediatR;
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Common.Interfaces;
@@ -119,11 +120,11 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
             string? clinicCode = null;
             if (request.GenerateCode)
             {
-                clinicCode = GenerateClinicCode();
+                clinicCode = ClinicCodeGenerator.Generate();
                 // Ensure code is unique
                 while (await _clinicRepository.CodeExistsAsync(clinicCode, cancellationToken))
                 {
-                    clinicCode = GenerateClinicCode();
+                    clinicCode = ClinicCodeGenerator.Generate();
                 }
             }
 
@@ -266,17 +267,17 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
         {
             return Result<ClinicDto>.Failure("Full name is required.");
         }
-        // FR-B2: password policy — minimum 8 characters (enforced at the API).
-        if (request.Password!.Length < 8)
+        // FR-B2: password policy — minimum length (enforced at the API).
+        if (request.Password!.Length < PasswordPolicy.MinLength)
         {
-            return Result<ClinicDto>.Failure("Password must be at least 8 characters.");
+            return Result<ClinicDto>.Failure($"Password must be at least {PasswordPolicy.MinLength} characters.");
         }
 
         // Generate a unique clinic code for later staff self-registration.
-        var code = GenerateClinicCode();
+        var code = ClinicCodeGenerator.Generate();
         while (await _clinicRepository.CodeExistsAsync(code, cancellationToken))
         {
-            code = GenerateClinicCode();
+            code = ClinicCodeGenerator.Generate();
         }
 
         var clinic = new Clinic(
@@ -305,15 +306,6 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
             LogoUrl = clinic.LogoUrl,
             CreatedAt = clinic.CreatedAt
         });
-    }
-
-    private string GenerateClinicCode()
-    {
-        // Generate a 6-character alphanumeric code
-        const string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-        var random = new Random();
-        return new string(Enumerable.Repeat(chars, 6)
-            .Select(s => s[random.Next(s.Length)]).ToArray());
     }
 }
 

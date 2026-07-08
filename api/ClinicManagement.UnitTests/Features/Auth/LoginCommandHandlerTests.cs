@@ -64,18 +64,40 @@ public class LoginCommandHandlerTests
         _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
-    // [AC-5.3] A deactivated account cannot log in; the password is never even checked.
+    // [AC-5.3] A deactivated account cannot log in. The deactivated state is disclosed only after a
+    // correct password (so it can't be used to enumerate accounts); no token is issued.
     [Fact]
-    public async Task Handle_Should_Reject_Inactive_User()
+    public async Task Handle_Should_Reject_Inactive_User_After_Password_Check()
     {
         var user = LocalUser();
         user.Deactivate();
         _users.Setup(r => r.GetByEmailAsync("doc@clinic.com", It.IsAny<CancellationToken>())).ReturnsAsync(user);
+        _auth.Setup(a => a.VerifyPassword("STORED-HASH", "s3cret!!")).Returns(PasswordVerificationOutcome.Success);
 
         var result = await Handler().Handle(Command(), CancellationToken.None);
 
         Assert.True(result.IsFailure);
-        _auth.Verify(a => a.VerifyPassword(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        _auth.Verify(a => a.VerifyPassword("STORED-HASH", "s3cret!!"), Times.Once);
+        _auth.Verify(a => a.GenerateToken(It.IsAny<User>()), Times.Never);
+    }
+
+    // The stored hash used an outdated format: on a correct password it is upgraded in place and a
+    // token is still issued.
+    [Fact]
+    public async Task Handle_Should_Upgrade_Hash_When_Outdated_And_Issue_Token()
+    {
+        var user = LocalUser();
+        _users.Setup(r => r.GetByEmailAsync("doc@clinic.com", It.IsAny<CancellationToken>())).ReturnsAsync(user);
+        _auth.Setup(a => a.VerifyPassword("STORED-HASH", "s3cret!!")).Returns(PasswordVerificationOutcome.SuccessNeedsRehash);
+        _auth.Setup(a => a.HashPassword("s3cret!!")).Returns("UPGRADED-HASH");
+        _auth.Setup(a => a.GenerateToken(user)).Returns(new LocalAuthToken("jwt-token", DateTime.UtcNow.AddHours(12)));
+        SaveSucceeds();
+
+        var result = await Handler().Handle(Command(), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("UPGRADED-HASH", user.PasswordHash);
+        _auth.Verify(a => a.HashPassword("s3cret!!"), Times.Once);
     }
 
     // [AC-3.4] A locked-out account is rejected without checking the password.

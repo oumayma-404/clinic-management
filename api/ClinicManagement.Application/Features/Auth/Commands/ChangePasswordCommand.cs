@@ -1,4 +1,5 @@
 using MediatR;
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Domain.Repositories;
@@ -18,9 +19,6 @@ public class ChangePasswordCommand : IRequest<Result>
 
 public class ChangePasswordCommandHandler : IRequestHandler<ChangePasswordCommand, Result>
 {
-    // Minimum password length policy (FR-B2), consistent with first-run and registration.
-    private const int MinPasswordLength = 8;
-
     private readonly IUserRepository _userRepository;
     private readonly IClinicContext _clinicContext;
     private readonly ILocalAuthService _localAuthService;
@@ -54,9 +52,9 @@ public class ChangePasswordCommandHandler : IRequestHandler<ChangePasswordComman
                 return Result.Failure("User not found");
             }
 
-            if (string.IsNullOrEmpty(request.NewPassword) || request.NewPassword.Length < MinPasswordLength)
+            if (string.IsNullOrEmpty(request.NewPassword) || request.NewPassword.Length < PasswordPolicy.MinLength)
             {
-                return Result.Failure($"Password must be at least {MinPasswordLength} characters.");
+                return Result.Failure($"Password must be at least {PasswordPolicy.MinLength} characters.");
             }
 
             var outcome = _localAuthService.VerifyPassword(user.PasswordHash!, request.CurrentPassword);
@@ -73,9 +71,10 @@ public class ChangePasswordCommandHandler : IRequestHandler<ChangePasswordComman
 
             return Result.Success();
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            return Result.Failure($"Error changing password: {ex.Message}");
+            // Authenticated endpoint, but still avoid echoing internal exception details to the caller.
+            return Result.Failure("An unexpected error occurred while changing the password. Please try again.");
         }
     }
 }

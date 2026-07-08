@@ -23,41 +23,47 @@ export default function JoinClinicPage() {
   const [showWizard, setShowWizard] = useState(false)
 
   useEffect(() => {
-    checkUserStatus()
-  }, [user, userLoading, accessToken, authLoading])
+    let cancelled = false
 
-  const checkUserStatus = async () => {
-    // Local self-registration is open (no session yet) — the clinic code is the gate.
-    if (mode === "local") {
-      setIsChecking(false)
-      return
-    }
-
-    // Wait for auth to load
-    if (userLoading || authLoading) {
-      return
-    }
-
-    // If not authenticated, redirect to Auth0 login (Cloud only — Local returned above).
-    if (!user || !accessToken) {
-      window.location.href = "/auth/login?returnTo=/join"
-      return
-    }
-
-    try {
-      const status = await clinicsApi.getUserStatus()
-      if (status.hasClinic) {
-        // User has clinic, redirect to app
-        window.location.href = "/"
+    const checkUserStatus = async () => {
+      // Local self-registration is open (no session yet) — the clinic code is the gate.
+      if (mode === "local") {
+        if (!cancelled) setIsChecking(false)
         return
       }
-      // User doesn't have clinic, show join form
-      setIsChecking(false)
-    } catch (err) {
-      console.error("Error checking user status:", err)
-      setIsChecking(false)
+
+      // Wait for auth to load
+      if (userLoading || authLoading) {
+        return
+      }
+
+      // If not authenticated, redirect to Auth0 login (Cloud only — Local returned above).
+      if (!user || !accessToken) {
+        window.location.href = "/auth/login?returnTo=/join"
+        return
+      }
+
+      try {
+        const status = await clinicsApi.getUserStatus()
+        if (cancelled) return
+        if (status.hasClinic) {
+          // User has clinic, redirect to app
+          window.location.href = "/"
+          return
+        }
+        // User doesn't have clinic, show join form
+        setIsChecking(false)
+      } catch (err) {
+        console.error("Error checking user status:", err)
+        if (!cancelled) setIsChecking(false)
+      }
     }
-  }
+
+    checkUserStatus()
+    return () => {
+      cancelled = true
+    }
+  }, [user, userLoading, accessToken, authLoading, mode])
 
   const handleCodeSubmit = async (e: React.FormEvent) => {
     e.preventDefault()

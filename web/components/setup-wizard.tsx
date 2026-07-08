@@ -157,6 +157,11 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
   }
 
   const isStep1Valid = () => {
+    // Local first-run: the admin account email (step 2) is the clinic's contact email, so a separate
+    // clinic email isn't collected here (it would otherwise be dropped on submit).
+    if (isLocalMode) {
+      return clinicName.trim() !== "" && governorate !== "" && phone.trim() !== ""
+    }
     return clinicName.trim() !== "" && governorate !== "" && phone.trim() !== "" && email.trim() !== ""
   }
 
@@ -367,19 +372,23 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                     />
                   </div>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="email" className="text-sm font-medium">
-                      Professional Email <span className="text-destructive">*</span>
-                    </Label>
-                    <Input
-                      id="email"
-                      type="email"
-                      placeholder="clinic@example.com"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      required
-                    />
-                  </div>
+                  {/* In Local mode the admin account email (step 2) doubles as the clinic contact,
+                      so this separate field is hidden to avoid collecting data that is dropped. */}
+                  {!isLocalMode && (
+                    <div className="space-y-2">
+                      <Label htmlFor="email" className="text-sm font-medium">
+                        Professional Email <span className="text-destructive">*</span>
+                      </Label>
+                      <Input
+                        id="email"
+                        type="email"
+                        placeholder="clinic@example.com"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        required
+                      />
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-2">

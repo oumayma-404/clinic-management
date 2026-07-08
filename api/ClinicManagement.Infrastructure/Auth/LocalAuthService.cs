@@ -67,6 +67,11 @@ public class LocalAuthService : ILocalAuthService
             claims.Add(new Claim("email", user.Email));
         }
 
+        if (!string.IsNullOrWhiteSpace(user.FullName))
+        {
+            claims.Add(new Claim("name", user.FullName));
+        }
+
         var credentials = new SigningCredentials(
             LocalAuthConfig.SecurityKey(_configuration),
             SecurityAlgorithms.HmacSha256);

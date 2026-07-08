@@ -77,8 +77,12 @@ function LocalLoginForm() {
         return
       }
       // Full navigation so the session cookie is picked up by middleware + providers.
+      // Only allow same-origin absolute paths — reject protocol-relative ("//host") and
+      // backslash ("/\\host") forms that browsers treat as off-site redirects.
       const returnTo = new URLSearchParams(window.location.search).get('returnTo')
-      window.location.href = returnTo && returnTo.startsWith('/') ? returnTo : '/'
+      const isSafeReturnTo =
+        !!returnTo && returnTo.startsWith('/') && !returnTo.startsWith('//') && !returnTo.startsWith('/\\')
+      window.location.href = isSafeReturnTo ? returnTo! : '/'
     } catch {
       setError('Cannot reach the clinic server. Please try again.')
       setIsSubmitting(false)

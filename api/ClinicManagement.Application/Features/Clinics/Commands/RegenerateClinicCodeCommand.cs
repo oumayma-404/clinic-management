@@ -61,10 +61,10 @@ public class RegenerateClinicCodeCommandHandler : IRequestHandler<RegenerateClin
                 return Result<ClinicDto>.Failure("Clinic not found");
             }
 
-            var code = GenerateClinicCode();
+            var code = ClinicCodeGenerator.Generate();
             while (await _clinicRepository.CodeExistsAsync(code, cancellationToken))
             {
-                code = GenerateClinicCode();
+                code = ClinicCodeGenerator.Generate();
             }
 
             clinic.SetCode(code);
@@ -87,14 +87,5 @@ public class RegenerateClinicCodeCommandHandler : IRequestHandler<RegenerateClin
         {
             return Result<ClinicDto>.Failure($"Error regenerating clinic code: {ex.Message}");
         }
-    }
-
-    private static string GenerateClinicCode()
-    {
-        // 6-character alphanumeric code (matches the format minted at clinic creation).
-        const string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-        var random = new Random();
-        return new string(Enumerable.Repeat(chars, 6)
-            .Select(s => s[random.Next(s.Length)]).ToArray());
     }
 }

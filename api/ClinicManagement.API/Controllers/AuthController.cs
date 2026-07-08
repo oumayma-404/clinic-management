@@ -47,6 +47,12 @@ public class AuthController : ControllerBase
     [HttpPost("login")]
     public async Task<IActionResult> Login([FromBody] LoginRequest request)
     {
+        // Local-mode only — Cloud login is owned by Auth0 (mirrors Setup/Register).
+        if (!LocalAuthConfig.IsLocalMode(_configuration))
+        {
+            return NotFound();
+        }
+
         var command = new LoginCommand
         {
             Email = request.Email,
@@ -79,7 +85,7 @@ public class AuthController : ControllerBase
 
         if (!IsLocalRequest(HttpContext))
         {
-            return StatusCode(403, new { error = "First-run setup is only available on the server machine." });
+            return StatusCode((int)HttpStatusCode.Forbidden, new { error = "First-run setup is only available on the server machine." });
         }
 
         var command = new CreateClinicCommand

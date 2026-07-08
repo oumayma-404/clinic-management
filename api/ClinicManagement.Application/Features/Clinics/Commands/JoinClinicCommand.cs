@@ -1,4 +1,5 @@
 using MediatR;
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Common.Interfaces;
@@ -190,10 +191,10 @@ public class JoinClinicCommandHandler : IRequestHandler<JoinClinicCommand, Resul
         {
             return Result<ClinicDto>.Failure("Full name is required.");
         }
-        // FR-B2: password policy — minimum 8 characters.
-        if (request.Password!.Length < 8)
+        // FR-B2: password policy — minimum length.
+        if (request.Password!.Length < PasswordPolicy.MinLength)
         {
-            return Result<ClinicDto>.Failure("Password must be at least 8 characters.");
+            return Result<ClinicDto>.Failure($"Password must be at least {PasswordPolicy.MinLength} characters.");
         }
 
         if (role == "doctor")
@@ -234,7 +235,7 @@ public class JoinClinicCommandHandler : IRequestHandler<JoinClinicCommand, Resul
                 request.DoctorInfo.LastName,
                 request.DoctorInfo.Specialty,
                 request.DoctorInfo.Phone,
-                request.Email);
+                user.Email); // normalized email, consistent with the account (matches User.CreateLocalUser)
             doctor.LinkToUser(user.Id);
             await _doctorRepository.AddAsync(doctor, cancellationToken);
         }

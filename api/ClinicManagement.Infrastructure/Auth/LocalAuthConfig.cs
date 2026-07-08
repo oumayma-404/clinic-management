@@ -21,6 +21,10 @@ public static class LocalAuthConfig
 
     private static readonly object KeyFileLock = new();
 
+    // The signing key is per-install and immutable at runtime; resolve it once (it is read on
+    // every token issuance) instead of hitting the disk each time.
+    private static byte[]? _cachedSigningKey;
+
     /// <summary>True when the server is configured for Local (offline email+password) auth.</summary>
     public static bool IsLocalMode(IConfiguration configuration) =>
         string.Equals(configuration["Auth:Mode"], LocalMode, StringComparison.OrdinalIgnoreCase);
@@ -46,6 +50,20 @@ public static class LocalAuthConfig
     /// </summary>
     public static byte[] ResolveSigningKey(IConfiguration configuration)
     {
+        if (_cachedSigningKey is not null)
+        {
+            return _cachedSigningKey;
+        }
+
+        lock (KeyFileLock)
+        {
+            _cachedSigningKey ??= LoadSigningKey(configuration);
+            return _cachedSigningKey;
+        }
+    }
+
+    private static byte[] LoadSigningKey(IConfiguration configuration)
+    {
         var configured = configuration["Auth:Local:SigningKey"];
         if (!string.IsNullOrWhiteSpace(configured))
         {
@@ -70,25 +88,31 @@ public static class LocalAuthConfig
         var path = configuration["Auth:Local:SigningKeyPath"]
                    ?? Path.Combine(Directory.GetCurrentDirectory(), ".local", "signing-key");
 
-        lock (KeyFileLock)
+        if (File.Exists(path))
         {
-            if (File.Exists(path))
+            var existing = File.ReadAllText(path).Trim();
+            if (!string.IsNullOrWhiteSpace(existing))
             {
-                var existing = File.ReadAllText(path).Trim();
-                if (!string.IsNullOrWhiteSpace(existing))
+                try
                 {
                     return Convert.FromBase64String(existing);
                 }
+                catch (FormatException)
+                {
+                    throw new InvalidOperationException(
+                        $"The local signing key file at '{path}' is corrupted (not valid base64). " +
+                        "Delete it to regenerate a new key, or restore it from a backup.");
+                }
             }
-
-            var key = RandomNumberGenerator.GetBytes(64);
-            var directory = Path.GetDirectoryName(path);
-            if (!string.IsNullOrEmpty(directory))
-            {
-                Directory.CreateDirectory(directory);
-            }
-            File.WriteAllText(path, Convert.ToBase64String(key));
-            return key;
         }
+
+        var key = RandomNumberGenerator.GetBytes(64);
+        var directory = Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+        File.WriteAllText(path, Convert.ToBase64String(key));
+        return key;
     }
 }

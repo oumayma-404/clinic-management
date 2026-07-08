@@ -98,6 +98,19 @@ public class User : AggregateRoot<string> // Using Auth0 sub as ID (Cloud) or "l
         UpdatedAt = DateTime.UtcNow;
     }
 
+    /// <summary>
+    /// Re-stores the password under an upgraded hash format after a successful verification,
+    /// without altering the forced-change flag or lockout state (unlike <see cref="SetPassword"/>).
+    /// </summary>
+    public void UpgradePasswordHash(string passwordHash)
+    {
+        if (string.IsNullOrWhiteSpace(passwordHash))
+            throw new ArgumentException("Password hash is required.", nameof(passwordHash));
+
+        PasswordHash = passwordHash;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
     /// <summary>Records a successful login: clears lockout state and stamps the login time.</summary>
     public void RecordSuccessfulLogin()
     {

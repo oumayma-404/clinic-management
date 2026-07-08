@@ -52,11 +52,10 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
                 return Result<LoginResultDto>.Failure(InvalidCredentialsError);
             }
 
-            if (!user.IsActive)
-            {
-                return Result<LoginResultDto>.Failure("This account has been deactivated. Please contact your clinic administrator.");
-            }
-
+            // Lockout is checked before the password so a brute-force attempt is actually
+            // stopped (AC-3.4) — this necessarily discloses the locked state, an accepted
+            // trade-off. The deactivated state, by contrast, is disclosed only after a correct
+            // password (below) so it can't be used to enumerate accounts.
             if (user.IsLockedOut())
             {
                 return Result<LoginResultDto>.Failure("This account is temporarily locked due to repeated failed logins. Please try again later.");
@@ -69,6 +68,18 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
                 _userRepository.Update(user);
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
                 return Result<LoginResultDto>.Failure(InvalidCredentialsError);
+            }
+
+            // Disclosed only to a caller who supplied the correct password (the account owner).
+            if (!user.IsActive)
+            {
+                return Result<LoginResultDto>.Failure("This account has been deactivated. Please contact your clinic administrator.");
+            }
+
+            // The stored hash used an outdated format — upgrade it now that we have the plaintext.
+            if (outcome == PasswordVerificationOutcome.SuccessNeedsRehash)
+            {
+                user.UpgradePasswordHash(_localAuthService.HashPassword(request.Password));
             }
 
             user.RecordSuccessfulLogin();

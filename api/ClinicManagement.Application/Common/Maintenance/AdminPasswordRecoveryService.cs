@@ -76,8 +76,10 @@ public class AdminPasswordRecoveryService
 
         var temporaryPassword = _localAuth.GenerateTemporaryPassword();
         var hash = _localAuth.HashPassword(temporaryPassword);
-        // SetPassword also zeroes failed-attempt count and clears any active lockout — exactly what a
-        // locked-out admin needs to get back in.
+        // Recovery must be a complete path back in: reactivate the admin (a peer admin may have
+        // deactivated them) so login isn't still blocked, then reset the password. SetPassword also
+        // zeroes the failed-attempt count and clears any active lockout.
+        admin.Activate();
         admin.SetPassword(hash, mustChangePassword: true);
 
         _users.Update(admin);

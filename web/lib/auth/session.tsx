@@ -2,7 +2,7 @@
 
 import type React from "react"
 import { Auth0Provider, useUser } from "@auth0/nextjs-auth0/client"
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react"
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
 
 export type AuthMode = "cloud" | "local"
 
@@ -45,16 +45,23 @@ export function useSession(): SessionState {
 function CloudBridge({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useUser()
 
-  const value: SessionState = {
-    user: user
-      ? { name: user.name ?? undefined, email: user.email ?? undefined, picture: user.picture ?? undefined }
-      : null,
-    isLoading: Boolean(isLoading),
-    mode: "cloud",
-    logout: () => {
-      window.location.href = "/auth/logout"
-    },
-  }
+  // Memoize so the context value (and the mapped user object) keep a stable identity across
+  // re-renders; otherwise every CloudBridge render hands consumers a new `user`, needlessly
+  // retriggering effects like useAuthToken's token fetch. Note: `role` is intentionally left
+  // unset in Cloud mode — Auth0 roles aren't surfaced here, so role-gated UI is Local-only.
+  const value = useMemo<SessionState>(
+    () => ({
+      user: user
+        ? { name: user.name ?? undefined, email: user.email ?? undefined, picture: user.picture ?? undefined }
+        : null,
+      isLoading: Boolean(isLoading),
+      mode: "cloud",
+      logout: () => {
+        window.location.href = "/auth/logout"
+      },
+    }),
+    [user?.name, user?.email, user?.picture, isLoading],
+  )
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>
 }
@@ -89,7 +96,15 @@ export function LocalSessionProvider({ children }: { children: React.ReactNode }
   useEffect(() => {
     let active = true
     fetch("/api/auth/session", { credentials: "include" })
-      .then((res) => (res.ok ? res.json() : null))
+      .then((res) => {
+        if (res.status === 401) {
+          // Stale/expired session cookie — clear it so the API client stops attaching an
+          // expired bearer token (which would otherwise 401 every call with no recovery).
+          fetch("/api/auth/local-logout", { method: "POST" }).catch(() => {})
+          return null
+        }
+        return res.ok ? res.json() : null
+      })
       .then((data) => {
         if (active) setUser(data?.user ?? null)
       })

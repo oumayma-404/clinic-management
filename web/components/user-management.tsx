@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -50,7 +50,16 @@ export function UserManagement() {
   const [tempPassword, setTempPassword] = useState<{ email?: string; password: string } | null>(null)
   const [copied, setCopied] = useState(false)
 
-  const loadData = async () => {
+  // Guards against setState after unmount (the admin can navigate away mid-load or mid-refresh).
+  const mountedRef = useRef(true)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
+
+  const loadData = useCallback(async () => {
     try {
       setLoading(true)
       setError(null)
@@ -58,19 +67,21 @@ export function UserManagement() {
         usersApi.list(),
         clinicsApi.getUserStatus(),
       ])
+      if (!mountedRef.current) return
       setUsers(userList)
       setClinicCode(status.clinic?.code || "")
     } catch (err) {
+      if (!mountedRef.current) return
       const message = err instanceof ApiError ? err.message : "Failed to load users."
       setError(message)
     } finally {
-      setLoading(false)
+      if (mountedRef.current) setLoading(false)
     }
-  }
+  }, [])
 
   useEffect(() => {
     loadData()
-  }, [])
+  }, [loadData])
 
   const confirmAction = async () => {
     if (!pending) return
