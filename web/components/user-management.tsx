@@ -29,6 +29,7 @@ import { Users, KeyRound, UserX, UserCheck, RefreshCw, Copy, Check } from "lucid
 import { usersApi, type ClinicUserDto } from "@/lib/api/users"
 import { clinicsApi } from "@/lib/api/clinics"
 import { ApiError } from "@/lib/api/client"
+import { useSession } from "@/lib/auth/session"
 
 type PendingAction =
   | { type: "reset"; user: ClinicUserDto }
@@ -36,6 +37,7 @@ type PendingAction =
   | { type: "regenerate" }
 
 export function UserManagement() {
+  const { user: currentUser } = useSession()
   const [users, setUsers] = useState<ClinicUserDto[]>([])
   const [clinicCode, setClinicCode] = useState<string>("")
   const [loading, setLoading] = useState(true)
@@ -199,7 +201,11 @@ export function UserManagement() {
                         </TableCell>
                       </TableRow>
                     ) : (
-                      users.map((user) => (
+                      users.map((user) => {
+                        // Backend forbids self-deactivation (would be an unrecoverable lockout);
+                        // mirror that here so the action isn't offered as a dead end.
+                        const isSelf = !!user.email && user.email === currentUser?.email
+                        return (
                         <TableRow key={user.id}>
                           <TableCell className="font-medium text-foreground">{user.fullName || "-"}</TableCell>
                           <TableCell className="text-muted-foreground">{user.email || "-"}</TableCell>
@@ -236,6 +242,8 @@ export function UserManagement() {
                                   size="sm"
                                   className="h-8 gap-1 text-destructive hover:text-destructive"
                                   onClick={() => setPending({ type: "status", user })}
+                                  disabled={isSelf}
+                                  title={isSelf ? "You can't deactivate your own account" : undefined}
                                 >
                                   <UserX className="h-3 w-3" />
                                   Deactivate
@@ -254,7 +262,8 @@ export function UserManagement() {
                             </div>
                           </TableCell>
                         </TableRow>
-                      ))
+                        )
+                      })
                     )}
                   </TableBody>
                 </Table>

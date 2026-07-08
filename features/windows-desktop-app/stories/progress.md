@@ -14,7 +14,7 @@
 | 4 | BE | Staff self-registration API | done (review skipped by user) |
 | 5 | FE | Staff registration UI | done (review skipped by user) |
 | 6 | BE | Admin user-management API | done (review skipped by user) |
-| 7 | FE | Admin user-management UI | implemented |
+| 7 | FE | Admin user-management UI | reviewed |
 | 8 | BE | Admin lockout-recovery utility | not-started |
 
 ## Working tree note (start of session)
@@ -163,7 +163,7 @@
 - **Deferred to manual (no dev server/API this session):** admin lists → reset → temp shown → target forced to change at next login; deactivate → login rejected → reactivate → login OK; non-admin cannot see/reach `/users`; regenerate invalidates the old code.
 
 ## Story 7 — Review / test execution
-- `/review-story` — **skipped by user request** (`/next skip review`, 2026-07-08).
+- `/review-story` — **done** (2026-07-08). Score **100/100**. Report: [../reviews/story-7.md](../reviews/story-7.md). 1 Minor finding fixed: self-deactivation dead-end (own-row Deactivate now disabled, mirroring the backend guard). Typecheck + build re-verified clean.
 - `/story-e2e` — ⊘ auto-skipped (no `test-plan-e2e.md` APPROVED).
 - `/story-api-tests` / `/story-integration-tests` — ⊘ auto-skipped (Layer: FE).
 

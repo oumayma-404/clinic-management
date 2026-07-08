@@ -35,7 +35,7 @@ graph TD
 | 4 | BE | Staff self-registration API (clinic code) | done (review skipped) | 1 |
 | 5 | FE | Staff registration UI | implemented | 3, 4 |
 | 6 | BE | Admin user-management API | implemented | 1 |
-| 7 | FE | Admin user-management UI | implemented | 3, 6 |
+| 7 | FE | Admin user-management UI | reviewed | 3, 6 |
 | 8 | BE | Admin lockout-recovery utility | not-started | 1 |
 
 ## Cross-cutting constraint (every story)
