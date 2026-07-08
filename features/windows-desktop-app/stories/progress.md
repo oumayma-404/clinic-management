@@ -238,3 +238,11 @@
 **Status:** done
 **Date:** 2026-07-08
 **Files:** root `CLAUDE.md` + `api/{Domain,Application,Infrastructure,API}/CLAUDE.md` + `web/{,lib,components}/CLAUDE.md` (8 files) updated with the pluggable-auth / local-accounts architecture. Learnings captured in `features/LEARNINGS.md`; retrospective in `../retrospective.md`.
+
+## Pull Request
+
+**Status:** opened
+**Date:** 2026-07-08
+**Branch:** `feature/windows-desktop-app` -> `main` (repo has no `develop` branch; `main` is the PR base)
+**Pre-PR checks:** frontend `tsc --noEmit` clean; `dotnet build ClinicManagement.sln` 0 errors (58 pre-existing warnings); unit tests 69/69 pass.
+**Created by:** Claude
