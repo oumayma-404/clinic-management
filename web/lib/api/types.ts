@@ -35,6 +35,8 @@ export interface AppointmentDto {
   procedureTypeId?: string;
   procedureTypeName?: string;
   procedureColorHex?: string;
+  /** True when the appointment is reflected in Google Calendar (derived server-side from the event id). */
+  isSyncedToGoogle: boolean;
 }
 
 export interface PatientDto {

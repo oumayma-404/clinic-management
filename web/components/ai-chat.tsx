@@ -9,7 +9,9 @@ import { Send, Bot, User, Loader2, X, Minimize2, Maximize2, Mic, MicOff } from "
 import { aiChatApi, type ChatMessage } from "@/lib/api/ai-chat"
 import { patientsApi } from "@/lib/api/patients"
 import type { PatientDto } from "@/lib/api/types"
+import { ApiError } from "@/lib/api/client"
 import { useDoctors } from "@/lib/hooks/use-doctors"
+import { useConnectivity } from "@/lib/connectivity/connectivity"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 
@@ -32,6 +34,9 @@ export function AIChat({ className }: AIChatProps) {
   const [isSpeaking, setIsSpeaking] = useState(false)
   const [patients, setPatients] = useState<PatientDto[]>([])
   const { currentUserDoctor } = useDoctors()
+  // AI chat calls HuggingFace via the server, so it needs internet. In Local mode when the server has
+  // no internet, the widget degrades gracefully (AC-6.2); Cloud always reports online (R-3).
+  const { internetReachable } = useConnectivity()
   const scrollAreaRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const recognitionRef = useRef<SpeechRecognition | null>(null)
@@ -167,6 +172,14 @@ export function AIChat({ className }: AIChatProps) {
   const handleSend = async () => {
     if (!input.trim() || isLoading) return
 
+    // Short-circuit when the server has no internet — the request would only fail (AC-6.2).
+    if (!internetReachable) {
+      toast.warning("Assistant IA indisponible", {
+        description: "Une connexion internet est requise. L'assistant se réactivera automatiquement au retour de la connexion.",
+      })
+      return
+    }
+
     // Apply autocorrect before sending (final check)
     const correctedInput = autocorrectPatientNames(input.trim())
     const finalInput = correctedInput !== input.trim() ? correctedInput : input.trim()
@@ -203,9 +216,17 @@ export function AIChat({ className }: AIChatProps) {
       }
     } catch (error) {
       console.error("Failed to get AI response:", error)
-      toast.error("Failed to get AI response", {
-        description: "Please try again later",
-      })
+      // A mid-request connectivity loss surfaces as ApiError(status === 0) from client.ts — give a
+      // clear, retryable message instead of the generic failure toast (AC-6.5).
+      if (error instanceof ApiError && error.status === 0) {
+        toast.error("Connexion perdue", {
+          description: "La connexion a été interrompue pendant l'envoi. Réessayez une fois la connexion rétablie.",
+        })
+      } else {
+        toast.error("Failed to get AI response", {
+          description: "Please try again later",
+        })
+      }
       // Remove the user message on error
       setMessages(messages)
     } finally {
@@ -647,11 +668,17 @@ export function AIChat({ className }: AIChatProps) {
 
       {/* Input */}
       <div className="p-4 border-t">
+        {!internetReachable && (
+          <div className="mb-2 flex items-center gap-2 rounded-md bg-amber-50 dark:bg-amber-500/10 px-2 py-1.5 text-xs text-amber-700 dark:text-amber-400">
+            <MicOff className="h-3.5 w-3.5" />
+            Connexion internet requise — l'assistant IA est temporairement indisponible.
+          </div>
+        )}
         <div className="flex gap-2">
           {isSpeechSupported && (
             <Button
               onClick={handleToggleListening}
-              disabled={isLoading}
+              disabled={isLoading || !internetReachable}
               size="icon"
               variant={isListening ? "destructive" : "outline"}
               className={cn(
@@ -671,14 +698,14 @@ export function AIChat({ className }: AIChatProps) {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={isListening ? "Listening..." : "Type your message..."}
-            disabled={isLoading || isListening}
+            placeholder={!internetReachable ? "Connexion internet requise..." : isListening ? "Listening..." : "Type your message..."}
+            disabled={isLoading || isListening || !internetReachable}
             className="flex-1 min-h-[40px] max-h-[120px] resize-none"
             rows={1}
           />
           <Button
             onClick={handleSend}
-            disabled={!input.trim() || isLoading || isListening}
+            disabled={!input.trim() || isLoading || isListening || !internetReachable}
             size="icon"
             className="bg-primary hover:bg-primary/90"
           >

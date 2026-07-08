@@ -134,7 +134,8 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
                 ProcedureTypeId = appointment.ProcedureTypeId,
                 ProcedureTypeName = procedureTypeName,
                 ProcedureColorHex = appointment.ProcedureColorHex,
-                CreatedAt = appointment.CreatedAt
+                CreatedAt = appointment.CreatedAt,
+                IsSyncedToGoogle = appointment.GoogleCalendarEventId != null
             };
 
             return Result<AppointmentDto>.Success(dto);

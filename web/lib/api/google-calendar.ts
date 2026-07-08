@@ -1,4 +1,4 @@
-import { apiGet } from './client';
+import { apiGet, apiPost } from './client';
 
 export interface GoogleCalendarStatus {
   isConfigured: boolean;
@@ -34,43 +34,20 @@ export const googleCalendarApi = {
   },
 
   /**
-   * Sync from Google Calendar to clinic appointments
+   * Sync from Google Calendar to clinic appointments.
+   * Routed through the shared client.ts wrapper so a mid-request connectivity loss surfaces as
+   * ApiError(status === 0) — unifying calendar failure handling with the AI path (AC-6.5, R-7).
    */
   syncFromGoogle: async (): Promise<{ message: string; timestamp: string }> => {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
-    const response = await fetch(`${apiUrl}/googlecalendar/sync-from-google`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    });
-
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Failed to sync from Google Calendar');
-    }
-
-    return response.json();
+    return apiPost<{ message: string; timestamp: string }>('/googlecalendar/sync-from-google', {});
   },
 
   /**
-   * Sync a specific appointment to Google Calendar
+   * Sync a specific appointment to Google Calendar (manual "Push to Google").
+   * Routed through client.ts for the same ApiError(status === 0) offline signal (AC-6.5, R-7).
    */
   syncAppointment: async (appointmentId: string): Promise<{ message: string }> => {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
-    const response = await fetch(`${apiUrl}/googlecalendar/sync-appointment/${appointmentId}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    });
-
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Failed to sync appointment to Google Calendar');
-    }
-
-    return response.json();
+    return apiPost<{ message: string }>(`/googlecalendar/sync-appointment/${appointmentId}`, {});
   },
 };
 

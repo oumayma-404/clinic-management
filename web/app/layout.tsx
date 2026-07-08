@@ -4,6 +4,7 @@ import { Geist, Geist_Mono } from "next/font/google"
 import { Analytics } from "@vercel/analytics/next"
 import { resolveAuthMode } from "@/lib/auth/local-auth"
 import { CloudSessionProvider, LocalSessionProvider } from "@/lib/auth/session"
+import { ConnectivityProvider } from "@/lib/connectivity/connectivity"
 import { SidebarProvider } from "@/contexts/sidebar-context"
 import { Toaster } from "sonner"
 import { AIChat } from "@/components/ai-chat"
@@ -48,9 +49,13 @@ export default function RootLayout({
     <html lang="en">
       <body className={`font-sans antialiased`}>
         <SessionProvider>
-          <SidebarProvider>
-            {children}
-          </SidebarProvider>
+          <ConnectivityProvider>
+            <SidebarProvider>
+              {children}
+            </SidebarProvider>
+            {/* Inside ConnectivityProvider so it can gate on internet reachability (Local mode). */}
+            <AIChat />
+          </ConnectivityProvider>
         </SessionProvider>
         <Toaster
           position="top-right"
@@ -60,7 +65,6 @@ export default function RootLayout({
           expand={true}
           visibleToasts={5}
         />
-        <AIChat />
         <Analytics />
       </body>
     </html>

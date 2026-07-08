@@ -42,6 +42,12 @@ public static class Extensions
         // HttpClient for Auth0 Management API
         services.AddHttpClient();
 
+        // Connectivity probe (Local-mode offline UX). Registered unconditionally — harmless in Cloud
+        // (the ConnectivityController 404s there and the frontend never polls). Singleton + shared
+        // IMemoryCache so N polling clients collapse to one outbound probe per TTL window (R-1).
+        services.AddMemoryCache();
+        services.AddSingleton<IInternetProbe, InternetProbe>();
+
         // File storage base path (used by the Local-mode disk backend below).
         var fileStoragePath = configuration["FileStorage:BasePath"] ?? Path.Combine(Directory.GetCurrentDirectory(), "Files");
 

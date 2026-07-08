@@ -5,10 +5,14 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
-import { ChevronLeft, ChevronRight, Calendar, Filter } from "lucide-react"
+import { ChevronLeft, ChevronRight, Calendar, Filter, CloudOff, UploadCloud } from "lucide-react"
 import { format, addDays, startOfWeek, addWeeks, subWeeks, subDays, startOfDay, endOfDay, setHours, setMinutes, isToday, isSameDay } from "date-fns"
 import { useMemo, useRef, useEffect, useState } from "react"
+import { toast } from "sonner"
 import { useAppointments } from "@/lib/hooks/use-appointments"
+import { googleCalendarApi } from "@/lib/api/google-calendar"
+import { ApiError } from "@/lib/api/client"
+import { useConnectivity } from "@/lib/connectivity/connectivity"
 import type { AppointmentDto } from "@/lib/api/types"
 import { cn } from "@/lib/utils"
 
@@ -43,9 +47,65 @@ interface AppointmentCalendarProps {
   showCompleted?: boolean
   onShowCancelledChange?: (show: boolean) => void
   onShowCompletedChange?: (show: boolean) => void
+  /** Called after a per-card "Push to Google" succeeds so the parent can refetch (clears the badge). */
+  onChanged?: () => void
 }
 
-export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSlotClick, onAppointmentClick, showCancelled = false, showCompleted = false, onShowCancelledChange, onShowCompletedChange }: AppointmentCalendarProps) {
+export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSlotClick, onAppointmentClick, showCancelled = false, showCompleted = false, onShowCancelledChange, onShowCompletedChange, onChanged }: AppointmentCalendarProps) {
+  const { internetReachable } = useConnectivity()
+  const [pushingId, setPushingId] = useState<string | null>(null)
+
+  const handlePushToGoogle = async (appointment: AppointmentDto) => {
+    if (!internetReachable || pushingId) return
+    setPushingId(appointment.id)
+    try {
+      await googleCalendarApi.syncAppointment(appointment.id)
+      toast.success("Rendez-vous synchronisé avec Google Agenda")
+      onChanged?.()
+    } catch (error) {
+      // Mid-request connectivity loss ⇒ ApiError(status === 0) (google client now routes via client.ts).
+      if (error instanceof ApiError && error.status === 0) {
+        toast.error("Connexion perdue", {
+          description: "La connexion a été interrompue. Réessayez une fois la connexion rétablie.",
+        })
+      } else {
+        toast.error("Échec de la synchronisation", {
+          description: error instanceof Error ? error.message : undefined,
+        })
+      }
+    } finally {
+      setPushingId(null)
+    }
+  }
+
+  // "non synchronisé" badge + manual "Push to Google" for real appointments not yet in Google Calendar
+  // (AC-6.6, FR-D4). Skips busy slots (no patient — never synced) and already-synced appointments.
+  const renderSyncControls = (appointment: AppointmentDto) => {
+    if (appointment.isSyncedToGoogle) return null
+    if (!appointment.patientId || appointment.patientName === "Occupé") return null
+
+    return (
+      <div className="mt-0.5 flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+        <Badge
+          variant="secondary"
+          className="border-0 bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-400 h-4 gap-0.5 px-1 text-[9px] leading-none"
+        >
+          <CloudOff className="h-2.5 w-2.5" />
+          non synchronisé
+        </Badge>
+        <button
+          type="button"
+          onClick={() => handlePushToGoogle(appointment)}
+          disabled={!internetReachable || pushingId === appointment.id}
+          title={internetReachable ? "Envoyer vers Google Agenda" : "Connexion internet requise"}
+          className="inline-flex h-4 items-center gap-0.5 rounded bg-white/60 px-1 text-[9px] leading-none hover:bg-white disabled:cursor-not-allowed disabled:opacity-50 dark:bg-background/60"
+        >
+          <UploadCloud className="h-2.5 w-2.5" />
+          {pushingId === appointment.id ? "..." : "Push"}
+        </button>
+      </div>
+    )
+  }
   // Memoized date range for API calls
   const startDate = useMemo(() => {
     return view === "day"
@@ -518,6 +578,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                                             {durationMinutes}m
                                           </Badge>
                                         )}
+                                        {!isVerySmall && renderSyncControls(appointment)}
                                       </div>
                                     )
                                   })
@@ -584,6 +645,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                                         {appointment.notes && !isVerySmall && !isSmall && (
                                           <div className="mt-0.5 truncate text-xs opacity-75 leading-tight flex-shrink-0">{appointment.notes}</div>
                                         )}
+                                        {!isVerySmall && renderSyncControls(appointment)}
                                       </div>
                                     )
                                   })

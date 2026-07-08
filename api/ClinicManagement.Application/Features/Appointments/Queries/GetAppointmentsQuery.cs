@@ -69,7 +69,8 @@ public class GetAppointmentsQueryHandler : IRequestHandler<GetAppointmentsQuery,
                 ProcedureTypeId = a.ProcedureTypeId,
                 ProcedureTypeName = a.ProcedureType?.Name,
                 ProcedureColorHex = a.ProcedureColorHex,
-                CreatedAt = a.CreatedAt
+                CreatedAt = a.CreatedAt,
+                IsSyncedToGoogle = a.GoogleCalendarEventId != null
             });
 
             return Result<IEnumerable<AppointmentDto>>.Success(dtos);
