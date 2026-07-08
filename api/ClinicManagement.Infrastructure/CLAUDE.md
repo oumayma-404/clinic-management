@@ -60,6 +60,10 @@ Note: `PatientRepository.UpdateAsync` is careful with tracked vs detached entiti
 - **`AIActionService`** (`IAIActionService`) — agentic layer: asks the AI to classify intent + extract params (JSON), with regex fallback, then dispatches to MediatR commands/repos for `create_appointment`, `search_patient`, `view_patient`, `list_appointments`, `cancel_appointment`. Scopes everything to the current user's clinic via `IClinicContext` + `IUserRepository`.
 - **`PatientSummaryService`** (`Domain.Services.IPatientSummaryService`) — generates a textual patient/appointment summary. **Placeholder** (string template, no real AI call yet; `// TODO` to integrate OpenAI/Azure).
 
+### Connectivity (Phase 3, Local mode) — `Services/`
+- **`InternetProbe`** (`IInternetProbe`) — judges whether the **server** has internet egress (the LAN clients can't, so the server is the source of truth). Registered as a **Singleton** over a shared `IMemoryCache`: a `SemaphoreSlim` double-checked lock collapses a herd of pollers to **one probe per TTL**. Sends a `GET` to `Connectivity:ProbeUrl` with a linked timeout token; a 2xx/3xx ⇒ reachable, any request failure ⇒ not. Uses `IHttpClientFactory` (safe in a singleton). Backs `GetConnectivityStatusQuery`.
+- **`ConnectivityConfig`** — parallel static-accessor helper (mirrors `LocalAuthConfig`'s idiom) resolving `Connectivity:ProbeUrl` (default `https://www.google.com/generate_204`), `ProbeTimeoutSeconds` (3), `ProbeCacheSeconds` (5). Kept separate from auth config on purpose.
+
 ### Notifications
 - **`NotificationService`** (`INotificationService`) — email + SMS dispatch. **Placeholder/stub**: logs instead of actually sending (commented MailKit/HTTP examples). Returns false when SMTP/SMS config absent. Constructed with explicit config args in `Extensions.cs`.
 
@@ -84,8 +88,9 @@ The single storage seam is `IFileStorage`; the concrete backend is chosen by `Au
 - `IFileStorage` (**scoped**) is **mode-branched** on `Auth:Mode`: **Local** → `LocalDiskFileStorage` (base path `FileStorage:BasePath`, no MinIO); **Cloud** → `MinioFileStorage` if `MinIO:Endpoint/AccessKey/SecretKey` present (with `IMinioClient` singleton), otherwise a stub that throws on use.
 - `INotificationService` → `NotificationService` (scoped, config injected explicitly).
 - `IPatientSummaryService`, `IGoogleCalendarService`, `IGoogleCalendarSyncService`, `IPdfGenerationService`, `IHuggingFaceAIService`, `IAIActionService` — all scoped.
+- `IInternetProbe` → `InternetProbe` (**singleton**) + `AddMemoryCache()` (idempotent) — connectivity awareness (Phase 3).
 - **Auth-mode-branched** (`Auth:Mode`): Local → `ILocalAuthService` → `LocalAuthService` and `IAuth0ManagementService` → `NoOpAuth0ManagementService`; Cloud → the real `Auth0ManagementService`.
 - **Not registered here:** `GoogleAIService` (dead/optional). `AdminPasswordRecoveryService` is intentionally left out (console-only, no injectable reset path).
 
 ## Config keys consumed (names only)
-`ConnectionStrings:DefaultConnection`, `FileStorage:BasePath`, `MinIO:{Endpoint,AccessKey,SecretKey,BucketName,UseSSL}`, `Notification:Smtp:{Server,Port,Username,Password}`, `Notification:Sms:{ApiKey,ApiUrl}`, `GoogleCalendar:{ClientId,ClientSecret,RefreshToken,CalendarId,RedirectUri}`, `HuggingFace:{ApiKey,Model}`, `GoogleAI:{ApiKey,Model,ApiVersion}`, `Auth0:{Domain,ManagementApi:ClientId,ManagementApi:ClientSecret}`, `Auth:Mode` (`Cloud`|`Local`), `Auth:Local:SigningKey` (optional; else generated `.local/signing-key`).
+`ConnectionStrings:DefaultConnection`, `FileStorage:BasePath`, `MinIO:{Endpoint,AccessKey,SecretKey,BucketName,UseSSL}`, `Notification:Smtp:{Server,Port,Username,Password}`, `Notification:Sms:{ApiKey,ApiUrl}`, `GoogleCalendar:{ClientId,ClientSecret,RefreshToken,CalendarId,RedirectUri}`, `HuggingFace:{ApiKey,Model}`, `GoogleAI:{ApiKey,Model,ApiVersion}`, `Auth0:{Domain,ManagementApi:ClientId,ManagementApi:ClientSecret}`, `Auth:Mode` (`Cloud`|`Local`), `Auth:Local:SigningKey` (optional; else generated `.local/signing-key`), `Connectivity:{ProbeUrl,ProbeTimeoutSeconds,ProbeCacheSeconds}` (all optional; defaults `https://www.google.com/generate_204` / 3 / 5).

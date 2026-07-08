@@ -42,6 +42,7 @@ Each command/query file typically contains **both** the request class (`IRequest
 | **Users** | `ResetUserPasswordCommand`, `SetUserActiveCommand` (admin-only) | `ListUsersQuery` (admin-only; users + status) | — |
 | **Auth** (Local mode) | `LoginCommand` (email+password → JWT; rejects inactive/locked; generic `InvalidCredentialsError`), `ChangePasswordCommand` (clears `MustChangePassword`) | — | — |
 | **AI** | `ChatCommand` (+ `ChatCommandHandler.cs` as a separate handler file) | — | — |
+| **Connectivity** (Local mode) | — | `GetConnectivityStatusQuery` (probes internet egress via `IInternetProbe`; returns `ConnectivityStatusDto`; swallows probe errors into `internetReachable=false` — never a 500 for a poll) | — |
 
 ### Event handlers
 Domain events (`IDomainEvent : INotification`) are handled here via `INotificationHandler<TEvent>`. Example: **`Features/Appointments/EventHandlers/AppointmentCreatedEventHandler.cs`** creates a 24h-before reminder `Notification`. (Events are dispatched by Infrastructure/EF when `SaveChanges` runs.)
@@ -65,9 +66,10 @@ Domain events (`IDomainEvent : INotification`) are handled here via `INotificati
 | `ILocalAuthService` | Local-mode auth (Phase 1): `HashPassword`/`VerifyPassword` (ASP.NET `PasswordHasher`, PBKDF2), `GenerateToken` (HS256 JWT via the per-install key), `GenerateTemporaryPassword` (CSPRNG). Impl in Infrastructure. |
 | `IAIActionService` | Decide & execute AI-driven actions (defines `AIActionRequest`/`AIActionResult`). |
 | `IGoogleAIService` / `IHuggingFaceAIService` | Chat completions for the AI feature; define message/response/token DTOs. |
+| `IInternetProbe` | Connectivity awareness (Phase 3): `IsInternetReachableAsync()` — does the **server** have working internet egress. Impl in Infrastructure (Singleton, cached). Backs the Local-only `GET /api/connectivity` used to gate AI + Google Calendar offline. |
 
 ## DTOs — `DTOs/`
-Plain request/response records used by handlers & controllers: `PatientDto`, `AppointmentDto`, `ClinicDto`, `DoctorPersonalInfoDto`, `UserDto`, `UserStatusDto`, `AddressDto`, `InsuranceInfoDto`, `PatientFlagDto`, `PatientMedicalHistoryDto`, `PatientFamilyHistoryDto`, `DentalRecordDto`, `PatientFileDto`, `MedicalDocumentDto`, `ProcedureTypeDto`, plus request shapes `CreateClinicRequest`, `JoinClinicRequest`, `UpdateDoctorsRequest`. `Common/Models/MedicalDocumentPdfData.cs` is the PDF-generation model.
+Plain request/response records used by handlers & controllers: `PatientDto`, `AppointmentDto` (includes `IsSyncedToGoogle`, derived from `GoogleCalendarEventId != null` — mapped in all four Create/Update/Get/GetAll handlers; drives the "not synced to Google" badge), `ConnectivityStatusDto` (`InternetReachable`), `ClinicDto`, `DoctorPersonalInfoDto`, `UserDto`, `UserStatusDto`, `AddressDto`, `InsuranceInfoDto`, `PatientFlagDto`, `PatientMedicalHistoryDto`, `PatientFamilyHistoryDto`, `DentalRecordDto`, `PatientFileDto`, `MedicalDocumentDto`, `ProcedureTypeDto`, plus request shapes `CreateClinicRequest`, `JoinClinicRequest`, `UpdateDoctorsRequest`. `Common/Models/MedicalDocumentPdfData.cs` is the PDF-generation model.
 
 ## Cross-cutting — `Common/`
 - **Maintenance** (`Common/Maintenance/`): `AdminPasswordRecoveryService` — the testable core of the offline admin-lockout recovery utility (find admin → temp password → `SetPassword` → persist). Deliberately **not** DI-registered (no HTTP-reachable reset path); driven only by the `reset-admin-password` CLI wrapper in the API project. Lives here because `UnitTests` references only Application.

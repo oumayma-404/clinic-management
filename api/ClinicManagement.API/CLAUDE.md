@@ -20,6 +20,7 @@ All are thin: inject `IMediator`, send a command/query, map `Result.IsFailure` �
 | `api/patients/{patientId}/family-history` | `PatientFamilyHistoryController` | Patient family history entries | `[Authorize]` |
 | `api/patients/{patientId}/files` | `PatientFilesController` | Patient file upload/download (storage-backed) | `[Authorize]` |
 | `api/medical-documents` | `MedicalDocumentsController` | Medical document CRUD + PDF generation | **none** (anonymous) |
+| `api/connectivity` | `ConnectivityController` | **Local mode only** (404s in Cloud). `GET` → `{ internetReachable }` — server-side internet-egress probe (`IInternetProbe`) polled by the frontend to gate AI + Google Calendar offline (Phase 3) | `[AllowAnonymous]` |
 
 Supporting: `Models/` (request DTOs: `UploadFileRequest`, `CreateClinicRequest`, `UpdateClinicRequest`, `CreateMedicalDocumentRequest`), `Swagger/` (`FileUploadOperationFilter`, `FileUploadParameterFilter`, `FileUploadDocumentFilter` — make `IFormFile` upload work in Swagger UI).
 
@@ -56,6 +57,7 @@ On startup it runs `context.Database.Migrate()` (auto-applies EF migrations), th
 ## Key configuration keys (`appsettings.json` / `appsettings.Development.json`) — names only
 - `ConnectionStrings:DefaultConnection` (PostgreSQL; also Hangfire storage)
 - `Auth:Mode` (`Cloud`|`Local`), `Auth:Local:SigningKey` (optional per-install HS256 key; else generated `.local/signing-key`)
+- `Connectivity:{ProbeUrl,ProbeTimeoutSeconds,ProbeCacheSeconds}` (Local-mode internet-egress probe; all optional)
 - `Auth0:{Domain,Audience}`, `Auth0:ManagementApi:{ClientId,ClientSecret}`
 - `GoogleCalendar:{ClientId,ClientSecret,RedirectUri,RefreshToken,CalendarId}`
 - `HuggingFace:{ApiKey,Model}` (and optional `GoogleAI:*`)

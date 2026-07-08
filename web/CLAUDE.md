@@ -43,7 +43,7 @@ Dockerized via `web/Dockerfile`.
   - **local**: gates protected routes on the `local_session` HttpOnly cookie (redirect to `/login`), skips Auth0 entirely, and forces users with the `local_must_change_password` cookie onto `/change-password`.
 - **The session seam** (`lib/auth/session.tsx`): a single `useSession()` context — `{ user, mode, isLoading, logout }` — backed by `CloudSessionProvider` (bridges Auth0 `useUser`) or `LocalSessionProvider` (reads `/api/auth/session` from the cookie; 30-min inactivity auto-logout). All ~5 former `useUser` consumers read this instead. SSR-tolerant (returns a loading default when no provider is in scope).
 - **Clinic-membership** is enforced client-side, not in middleware: pages wrap content in **`<ClinicGuard>`** (`components/clinic-guard.tsx`), which uses `useClinicAccess` to verify the user belongs to a clinic (else shows `unauthorized-page` / redirects to `/setup`).
-- `app/layout.tsx` (a server component) reads `AUTH_MODE` and mounts either `CloudSessionProvider` (with `Auth0Provider` inside) or `LocalSessionProvider`, plus `SidebarProvider`, the global `<Toaster>`, and the floating `<AIChat>` widget.
+- `app/layout.tsx` (a server component) reads `AUTH_MODE` and mounts either `CloudSessionProvider` (with `Auth0Provider` inside) or `LocalSessionProvider`, plus the `ConnectivityProvider` (Phase 3 — polls `/api/connectivity` in Local mode, static online default in Cloud), `SidebarProvider`, the global `<Toaster>`, and the floating `<AIChat>` widget (inside the providers so it can read connectivity).
 
 ## Folder Structure
 
@@ -71,7 +71,7 @@ All app pages are client components (`"use client"`) that render `DashboardSideb
 | Route | File | Renders |
 |-------|------|---------|
 | `/` | `app/page.tsx` | Dashboard: stats cards, appointment list, notifications (currently **static placeholder data**) |
-| `/appointments` | `app/appointments/page.tsx` | Day/week calendar, create/edit appointment dialogs, Google Calendar sync controls |
+| `/appointments` | `app/appointments/page.tsx` | Day/week calendar, create/edit appointment dialogs, Google Calendar sync controls (Local: gated on internet reachability + per-appointment "not synced"/Push-to-Google via `useConnectivity()`) |
 | `/patients` | `app/patients/page.tsx` | Patients table + search/flag filter, create patient dialog |
 | `/patients/[id]` | `app/patients/[id]/page.tsx` | Patient detail: info, dental records, history, AI summary, documents |
 | `/patients/[id]/files` | `app/patients/[id]/files/page.tsx` | Per-patient file/folder manager |

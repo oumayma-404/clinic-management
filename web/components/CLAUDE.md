@@ -7,13 +7,14 @@ Feature/screen components for the clinic frontend. `components/ui/` holds shadcn
 | File | What it renders / does |
 |------|------------------------|
 | `dashboard-sidebar.tsx` | Left nav (Dashboard, Appointments, Patients, Procedure Types, Records, Documents, Files, Stock, Settings). Adds an admin-only **Users** entry in local mode (`mode==='local' && role==='admin'`). Collapsible via `useSidebar()`; persists collapse state. |
-| `dashboard-header.tsx` | Top bar with user avatar/menu + logout, via the unified `useSession()` (not Auth0 `useUser` directly). Local mode adds a **Change password** menu item; **Settings** navigates to `/settings`. |
+| `dashboard-header.tsx` | Top bar with user avatar/menu + logout, via the unified `useSession()` (not Auth0 `useUser` directly). Local mode adds a **Change password** menu item; **Settings** navigates to `/settings`. Hosts `<ConnectivityIndicator/>` (Local only). |
+| `connectivity-indicator.tsx` | **Local mode only** (Phase 3). 3-state badge in the header driven by `useConnectivity()`: server-unreachable ("Serveur injoignable") vs internet-unreachable vs online. Renders nothing in Cloud. |
 | `clinic-guard.tsx` | Route gate. Uses `useClinicAccess`; renders children only if user belongs to a clinic, else `unauthorized-page` / redirect. Wraps every protected page. |
 | `unauthorized-page.tsx` | "Access Restricted" screen shown when user has no clinic. |
 | `stats-card.tsx` | Small KPI card (title, value, icon, description, `default`/`urgent` variant). Used on dashboard. |
 | `appointment-list.tsx` | Dashboard appointment list — **static sample data**. |
 | `notifications-list.tsx` | Dashboard notifications list — **static sample data**. |
-| `appointment-calendar.tsx` | Day/week calendar grid (24h hourly slots); renders appointments, handles slot/appointment clicks. Core of `/appointments`. |
+| `appointment-calendar.tsx` | Day/week calendar grid (24h hourly slots); renders appointments, handles slot/appointment clicks. Core of `/appointments`. Phase 3: a shared `renderSyncControls(appointment)` helper adds a "non synchronisé" badge + per-card "Push to Google" in both week/day views (gated on `useConnectivity().internetReachable`; hidden on synced/cancelled/completed and very-short cards); push success calls `onChanged` so the page refetches and the badge clears. |
 | `create-appointment-dialog.tsx` | Dialog to create an appointment (patient, procedure type, doctor, date/time, duration). |
 | `edit-appointment-dialog.tsx` | Dialog to edit/cancel/delete an appointment (with confirm AlertDialog). |
 | `patients-table.tsx` | Patients list table; filters by `searchQuery` and `showFlaggedOnly`; fetches via `patientsApi`. |
@@ -32,7 +33,7 @@ Feature/screen components for the clinic frontend. `components/ui/` holds shadcn
 | `user-management.tsx` | **Local, admin-only** (`/users`): users table (status + must-change badge + last login) with reset-password (temp shown once in a dialog) and deactivate/reactivate, each behind a confirm dialog; clinic-code display + Regenerate. Own row's Deactivate disabled (mirrors backend self-deactivation guard). |
 | `change-password-form.tsx` | **Local** (`/change-password`): current/temp + new + confirm; posts to `/api/auth/change-password` (clears the forced-change cookie on success). |
 | `document-editor-content.tsx` | Editor for medical documents (ordonnance, lettre de liaison, etc.); generates/exports PDF via `medicalDocumentsApi`. Rendered by `/documents/[type]`. |
-| `ai-chat.tsx` | Floating AI assistant widget (mounted globally in `layout.tsx`). Calls `aiChatApi.chat`. |
+| `ai-chat.tsx` | Floating AI assistant widget (mounted globally in `layout.tsx`, inside the session/connectivity providers). Calls `aiChatApi.chat`. Phase 3: consumes `useConnectivity()` — disables mic/textarea/send + shows a "connexion internet requise" banner when offline, and maps `ApiError.status===0` (mid-request drop) to a retryable "connexion perdue" toast; auto re-enables when internet returns. |
 
 ## components/ui/ — shadcn/ui primitives
 

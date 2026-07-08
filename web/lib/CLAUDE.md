@@ -12,7 +12,7 @@ The data-access layer: a thin `fetch` wrapper, per-resource API modules, shared 
 - FormData helpers omit `Content-Type` so the browser sets the multipart boundary.
 
 ### `types.ts` — shared DTOs (mirror backend)
-`AppointmentDto`, `PatientDto`, `PatientMedicalHistoryDto`, `PatientFamilyHistoryDto`, `ProcedureTypeDto`, `DentalRecordDto`, `PatientFileDto`, `PatientFolderDto`, `MedicalDocumentDto`. (Note: `duration` on `AppointmentDto` is a TimeSpan string like `"00:30:00"`.)
+`AppointmentDto` (includes `isSyncedToGoogle`), `PatientDto`, `PatientMedicalHistoryDto`, `PatientFamilyHistoryDto`, `ProcedureTypeDto`, `DentalRecordDto`, `PatientFileDto`, `PatientFolderDto`, `MedicalDocumentDto`. (Note: `duration` on `AppointmentDto` is a TimeSpan string like `"00:30:00"`.)
 
 ### Per-resource modules
 Each exports a `<name>Api` object of async methods built on `client.ts`. Endpoints are relative to the API base.
@@ -29,7 +29,7 @@ Each exports a `<name>Api` object of async methods built on `client.ts`. Endpoin
 | `medical-documents.ts` | `medicalDocumentsApi` | `/medical-documents` CRUD; `generatePdf` (job) and `generatePdfForDownload` (returns Blob). FormData when a PDF file is attached. |
 | `clinics.ts` | `clinicsApi` | `/clinics`: `getUserStatus`, `create`, `join`, `updateDoctors`, `update`, `getLogo` (Blob), `regenerateCode` (admin, local). Also `register` → `/auth/register` (local self-registration). Backend wraps responses in a `Result<T>` (`isSuccess`/`value`/`error`) which this module unwraps. Exports `DoctorDto`, `UserStatusDto`, `ClinicDto`, request types. |
 | `users.ts` | `usersApi` | **Local, admin**: `list` (`GET /users`), `resetPassword` (`POST /users/{id}/reset-password` → temp password once), `setStatus` (`PUT /users/{id}/status`). Values returned unwrapped. |
-| `google-calendar.ts` | `googleCalendarApi` | `/googlecalendar`: `getStatus`, `authorize` (browser redirect to OAuth), `syncFromGoogle`, `syncAppointment`. Some calls use raw `fetch` (no auth header). |
+| `google-calendar.ts` | `googleCalendarApi` | `/googlecalendar`: `getStatus`, `authorize` (browser redirect to OAuth), `syncFromGoogle`, `syncAppointment`. `syncFromGoogle`/`syncAppointment` are routed through `client.ts` (Phase 3) so a mid-request connection drop surfaces as `ApiError(status:0)` — the shared offline signal (see `connectivity/`). |
 | `ai-chat.ts` | `aiChatApi` | `/ai/chat` — POST chat messages + optional context. |
 | `auth-client.ts` | `useAuthenticatedApi()` | Hook returning `get/post/put/delete` pre-bound with the Auth0 token from `useAuthToken` (alternative to client.ts auto-fetch). |
 
@@ -47,6 +47,7 @@ Each exports a `<name>Api` object of async methods built on `client.ts`. Endpoin
 - `auth0.ts` — server-side `Auth0Client` (used by `middleware.ts` and the token route in cloud mode). Sets scope `openid profile email`, `prompt: 'login'`, conditional `audience`.
 - `auth/session.tsx` — the `useSession()` seam + `CloudSessionProvider`/`LocalSessionProvider` (see `web/CLAUDE.md` → Auth & route protection). Every user-identity read goes through here, not Auth0 directly.
 - `auth/local-auth.ts` — server-side `resolveAuthMode()` (`AUTH_MODE`) + cookie-name constants (`SESSION_COOKIE` = `local_session`, `MUST_CHANGE_COOKIE` = `local_must_change_password`). Used by middleware and the `/api/auth/*` routes.
+- `connectivity/connectivity.tsx` — the `ConnectivityProvider` + `useConnectivity()` seam (Phase 3, Local mode). Polls `GET /api/connectivity` every 15s **only** when `useSession().mode==='local'`; in Cloud supplies a static "everything online" default so consumers behave exactly as before. Exposes `{ serverReachable, internetReachable }` (server up = poll got any HTTP response; internet up = the body bit), debounces transitions, toasts on change. Mounted in `app/layout.tsx`; consumed by `ai-chat` and the appointments page/calendar to disable internet-dependent controls offline.
 - `utils.ts` — `cn(...)` (clsx + tailwind-merge) classname helper used everywhere.
 
 ## Conventions

@@ -93,3 +93,17 @@ Documented for a later live pass (matches Phases 1 & 2):
   quality gate is `tsc --noEmit` + `npm run build`. (Consistent across Phases 1–3.)
 - Google-calendar client calls historically used raw `fetch` (plain `Error`); routing them through
   `client.ts` is the seam that unifies offline (`ApiError(status:0)`) handling with the AI path.
+
+## Memory Updated
+
+**Status:** done
+**Date:** 2026-07-08
+
+CLAUDE.md files updated for the Phase 3 connectivity-awareness feature:
+- `CLAUDE.md` (root) — phase status bumped to "Phases 1–3 complete"; added Phase 2 storage + Phase 3 connectivity architectural notes.
+- `api/ClinicManagement.Application/CLAUDE.md` — Connectivity query area, `IInternetProbe` interface, `ConnectivityStatusDto`, `AppointmentDto.IsSyncedToGoogle`.
+- `api/ClinicManagement.Infrastructure/CLAUDE.md` — `InternetProbe`/`ConnectivityConfig`, DI (singleton + `AddMemoryCache`), `Connectivity:*` config keys.
+- `api/ClinicManagement.API/CLAUDE.md` — `ConnectivityController` (Local-only, 404 in Cloud) + config keys.
+- `web/CLAUDE.md` — `ConnectivityProvider` in `layout.tsx`; appointments-page gating note.
+- `web/lib/CLAUDE.md` — `connectivity/connectivity.tsx` seam, `isSyncedToGoogle` type, google-calendar routing through `client.ts`.
+- `web/components/CLAUDE.md` — `connectivity-indicator.tsx`, offline gating in `ai-chat.tsx` + `appointment-calendar.tsx`.
