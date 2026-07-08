@@ -125,6 +125,12 @@ function LocalLoginForm() {
               {isSubmitting ? 'Signing in...' : 'Sign In'}
             </Button>
             <p className="text-center text-sm text-muted-foreground">
+              Have a clinic code?{' '}
+              <a href="/join" className="text-primary hover:underline">
+                Create an account
+              </a>
+            </p>
+            <p className="text-center text-sm text-muted-foreground">
               First time setting up this clinic?{' '}
               <a href="/setup" className="text-primary hover:underline">
                 Set up the clinic

@@ -27,14 +27,20 @@ export default function JoinClinicPage() {
   }, [user, userLoading, accessToken, authLoading])
 
   const checkUserStatus = async () => {
+    // Local self-registration is open (no session yet) — the clinic code is the gate.
+    if (mode === "local") {
+      setIsChecking(false)
+      return
+    }
+
     // Wait for auth to load
     if (userLoading || authLoading) {
       return
     }
 
-    // If not authenticated, redirect to the mode-appropriate login.
+    // If not authenticated, redirect to Auth0 login (Cloud only — Local returned above).
     if (!user || !accessToken) {
-      window.location.href = mode === "local" ? "/login?returnTo=/join" : "/auth/login?returnTo=/join"
+      window.location.href = "/auth/login?returnTo=/join"
       return
     }
 

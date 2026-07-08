@@ -147,6 +147,23 @@ export const clinicsApi = {
     return result.value;
   },
 
+  // Local (offline) staff self-registration: join a clinic by code with credentials.
+  // Anonymous (no session yet) — the clinic code is the gate. `null` token skips auth.
+  register: async (data: {
+    code: string;
+    email: string;
+    password: string;
+    fullName: string;
+    role: "doctor" | "secretary";
+    doctorInfo?: DoctorPersonalInfo;
+  }): Promise<ClinicDto> => {
+    const result = await apiPost<Result<ClinicDto>>('/auth/register', data, null);
+    if (!result.isSuccess || !result.value) {
+      throw new Error(result.error || 'Failed to register');
+    }
+    return result.value;
+  },
+
   join: async (data: JoinClinicRequest): Promise<ClinicDto> => {
     const result = await apiPost<Result<ClinicDto>>('/clinics/join', data);
     if (!result.isSuccess || !result.value) {

@@ -11,8 +11,8 @@
 | 1 | BE | Local auth mode + login API | done |
 | 2 | BE | First-run clinic + admin creation | done (review skipped by user) |
 | 3 | FE | Local login + first-run setup UI | done (review skipped by user) |
-| 4 | BE | Staff self-registration API | implemented |
-| 5 | FE | Staff registration UI | not-started |
+| 4 | BE | Staff self-registration API | done (review skipped by user) |
+| 5 | FE | Staff registration UI | implemented |
 | 6 | BE | Admin user-management API | not-started |
 | 7 | FE | Admin user-management UI | not-started |
 | 8 | BE | Admin lockout-recovery utility | not-started |
@@ -91,6 +91,24 @@
 - **Unit tests:** 44/44 (7 new in `JoinClinicLocalRegisterTests`: create account, reject admin role, invalid code, duplicate email, short password, doctor→linked Doctor, doctor requires info).
 - **No migration** — reuses the User/Doctor/Clinic schema.
 - **Deferred to manual (no Docker this session):** valid code + new email → account created → login; Cloud-mode join unchanged.
+
+## Story 4 — Review / test execution
+- `/review-story` — **skipped by user request** (`/next skip review`, 2026-07-08).
+- `/story-e2e` — ⊘ auto-skipped (Layer: BE).
+- `/story-api-tests` / `/story-integration-tests` — ⊘ auto-skipped (Postman never run / no integration test plan).
+
+## Story 5 — Steps (FE: Staff registration UI)
+- [x] 1. `join-wizard.tsx`: Local-mode account fields (full name, email, password + confirm) in step 1 + role; validation gates on them; calls `clinicsApi.register` → `/auth/register`. Cloud join path unchanged.
+- [x] 2. Registration reachable from the local login screen ("Have a clinic code? Create an account" → `/join`).
+- [x] 3. `app/join/page.tsx`: Local mode skips the session gate (self-registration is open; clinic code is the gate) and shows the code form directly. On success → `/login`.
+- [x] 4. API errors (invalid code / duplicate email) surface via the wizard's existing inline error banner.
+
+## Story 5 — Verification
+- **Typecheck:** `npx tsc --noEmit` clean (caught + fixed a now-dead `mode === "local"` ternary in the join page narrowed to `"cloud"` by the new Local guard).
+- **Build:** `npm run build` succeeds (all routes compile).
+- **No FE unit-test runner**; E2E deferred.
+- **Cloud parity:** Cloud join flow (auth-gated, `clinicsApi.join`) unchanged.
+- **Deferred to manual:** Local register with valid code → account → login; invalid code / duplicate email errors.
 
 ## Structural notes / decisions
 - **JWT package location:** the plan assumed `JwtSecurityTokenHandler` was transitively available in Infrastructure via JwtBearer, but JwtBearer is only referenced by the API project. Since the plan places `LocalAuthService` in Infrastructure, adding `System.IdentityModel.Tokens.Jwt` to the Infrastructure project (alongside the planned `Microsoft.Extensions.Identity.Core`). Consistent with the plan's intent.

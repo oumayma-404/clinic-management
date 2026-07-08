@@ -1,6 +1,6 @@
 # Story 5 (FE): Staff registration UI
 
-**Status:** APPROVED
+**Status:** implemented
 **Layer:** FE
 **Depends On:** 3, 4
 

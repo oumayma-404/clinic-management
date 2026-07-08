@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Building2, ChevronRight, CheckCircle2, AlertCircle } from "lucide-react"
 import { clinicsApi, type JoinClinicRequest } from "@/lib/api/clinics"
+import { useSession } from "@/lib/auth/session"
 
 const specialties = [
   "Dentist",
@@ -30,6 +31,14 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
   const [currentStep, setCurrentStep] = useState(1)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const { mode } = useSession()
+  const isLocalMode = mode === "local"
+
+  // Local (offline) self-registration account fields.
+  const [regFullName, setRegFullName] = useState("")
+  const [regEmail, setRegEmail] = useState("")
+  const [regPassword, setRegPassword] = useState("")
+  const [regPasswordConfirm, setRegPasswordConfirm] = useState("")
 
   // Role and Personal Info State
   const [role, setRole] = useState<"doctor" | "secretary">("doctor")
@@ -39,7 +48,18 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
   const [personalPhone, setPersonalPhone] = useState("")
 
   const isStep1Valid = () => {
-    return role === "doctor" || role === "secretary"
+    const roleOk = role === "doctor" || role === "secretary"
+    if (isLocalMode) {
+      // Local self-registration collects the account (name + email + password) in step 1.
+      return (
+        roleOk &&
+        regFullName.trim() !== "" &&
+        /\S+@\S+\.\S+/.test(regEmail) &&
+        regPassword.length >= 8 &&
+        regPassword === regPasswordConfirm
+      )
+    }
+    return roleOk
   }
 
   const isStep2Valid = () => {
@@ -55,20 +75,36 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
     setError(null)
 
     try {
+      const doctorInfo = role === "doctor" ? {
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        specialty: specialty.trim(),
+        phone: personalPhone.trim() || undefined,
+      } : undefined
+
+      // Local (offline) self-registration: create the account, then go to the login screen.
+      if (isLocalMode) {
+        await clinicsApi.register({
+          code: clinicCode,
+          email: regEmail.trim(),
+          password: regPassword,
+          fullName: regFullName.trim(),
+          role,
+          doctorInfo,
+        })
+        window.location.href = "/login"
+        return
+      }
+
       const joinData: JoinClinicRequest = {
         code: clinicCode,
         role: role,
-        doctorInfo: role === "doctor" ? {
-          firstName: firstName.trim(),
-          lastName: lastName.trim(),
-          specialty: specialty.trim(),
-          phone: personalPhone.trim() || undefined,
-        } : undefined,
+        doctorInfo,
       }
 
       await clinicsApi.join(joinData)
       console.log("Joined clinic successfully")
-      
+
       // Redirect to app after successful join
       window.location.href = "/"
     } catch (err: any) {
@@ -150,6 +186,69 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
                 </div>
 
                 <div className="space-y-4">
+                  {isLocalMode && (
+                    <div className="space-y-4 pb-4 border-b">
+                      <div className="space-y-2">
+                        <Label htmlFor="reg-full-name" className="text-sm font-medium">
+                          Full Name <span className="text-destructive">*</span>
+                        </Label>
+                        <Input
+                          id="reg-full-name"
+                          placeholder="Your full name"
+                          value={regFullName}
+                          onChange={(e) => setRegFullName(e.target.value)}
+                          required
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="reg-email" className="text-sm font-medium">
+                          Email <span className="text-destructive">*</span>
+                        </Label>
+                        <Input
+                          id="reg-email"
+                          type="email"
+                          placeholder="you@clinic.com"
+                          value={regEmail}
+                          onChange={(e) => setRegEmail(e.target.value)}
+                          required
+                        />
+                      </div>
+                      <div className="grid md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="reg-password" className="text-sm font-medium">
+                            Password <span className="text-destructive">*</span>
+                          </Label>
+                          <Input
+                            id="reg-password"
+                            type="password"
+                            placeholder="At least 8 characters"
+                            value={regPassword}
+                            onChange={(e) => setRegPassword(e.target.value)}
+                            required
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="reg-password-confirm" className="text-sm font-medium">
+                            Confirm Password <span className="text-destructive">*</span>
+                          </Label>
+                          <Input
+                            id="reg-password-confirm"
+                            type="password"
+                            placeholder="Re-enter password"
+                            value={regPasswordConfirm}
+                            onChange={(e) => setRegPasswordConfirm(e.target.value)}
+                            required
+                          />
+                        </div>
+                      </div>
+                      {regPassword.length > 0 && regPassword.length < 8 && (
+                        <p className="text-xs text-destructive">Password must be at least 8 characters.</p>
+                      )}
+                      {regPasswordConfirm.length > 0 && regPassword !== regPasswordConfirm && (
+                        <p className="text-xs text-destructive">Passwords do not match.</p>
+                      )}
+                    </div>
+                  )}
                   <div className="space-y-2">
                     <Label htmlFor="role" className="text-sm font-medium">
                       Your Role <span className="text-destructive">*</span>
