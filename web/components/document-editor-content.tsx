@@ -717,8 +717,22 @@ export function DocumentEditorContent() {
           new Paragraph({
             text: "Détail des services:",
             heading: HeadingLevel.HEADING_2,
-          }),
-          new Paragraph({ text: formFields.procedures || "—" }),
+          })
+        );
+
+        if (Array.isArray(formFields.procedures) && formFields.procedures.length > 0) {
+          formFields.procedures.forEach((proc) => {
+            paragraphs.push(
+              new Paragraph({
+                text: `${proc.name || "Procédure sans nom"} — ${proc.cost?.toFixed(2) || "0,00"} €`,
+              })
+            );
+          });
+        } else {
+          paragraphs.push(new Paragraph({ text: "Aucune procédure ajoutée" }));
+        }
+
+        paragraphs.push(
           new Paragraph({ text: "" }),
           new Paragraph({ text: `Montant total: ${formFields.totalCost || "0,00 €"}` })
         );
