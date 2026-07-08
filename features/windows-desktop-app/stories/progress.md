@@ -15,7 +15,7 @@
 | 5 | FE | Staff registration UI | done (review skipped by user) |
 | 6 | BE | Admin user-management API | done (review skipped by user) |
 | 7 | FE | Admin user-management UI | reviewed |
-| 8 | BE | Admin lockout-recovery utility | implemented |
+| 8 | BE | Admin lockout-recovery utility | done (review skipped by user) |
 
 ## Working tree note (start of session)
 - `web/components/document-editor-content.tsx` — pre-existing modified file, **unrelated** to this backend story. Excluded from this story's commits (staged by explicit path only).

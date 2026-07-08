@@ -1,6 +1,6 @@
 # Story 8 (BE): Admin lockout-recovery utility
 
-**Status:** implemented
+**Status:** done (review skipped by user)
 **Layer:** BE
 **Depends On:** 1
 
