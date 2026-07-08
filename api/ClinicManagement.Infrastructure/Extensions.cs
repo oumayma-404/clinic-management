@@ -3,6 +3,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Infrastructure.Auth;
 using ClinicManagement.Infrastructure.Persistence;
 using ClinicManagement.Infrastructure.Repositories;
 using ClinicManagement.Infrastructure.Services;
@@ -49,8 +50,18 @@ public static class Extensions
             return new LocalFileStorageService(fileStoragePath, logger);
         });
 
-        // Auth0 Management Service
-        services.AddScoped<IAuth0ManagementService, Auth0ManagementService>();
+        // Local (offline) authentication service. Harmless in Cloud mode (only used by /api/auth/login).
+        services.AddScoped<ILocalAuthService, LocalAuthService>();
+
+        // Auth0 Management Service — real in Cloud mode, no-op in Local mode (no Auth0 tenant).
+        if (LocalAuthConfig.IsLocalMode(configuration))
+        {
+            services.AddScoped<IAuth0ManagementService, NoOpAuth0ManagementService>();
+        }
+        else
+        {
+            services.AddScoped<IAuth0ManagementService, Auth0ManagementService>();
+        }
 
         // MinIO File Storage
         var minioEndpoint = configuration["MinIO:Endpoint"];

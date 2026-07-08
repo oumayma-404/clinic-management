@@ -43,6 +43,16 @@ public class UserRepository : IUserRepository
             .FirstOrDefaultAsync(u => u.Id == auth0Sub, cancellationToken);
     }
 
+    public async Task<User?> GetByEmailAsync(string email, CancellationToken cancellationToken = default)
+    {
+        var normalized = email.Trim().ToLowerInvariant();
+        return await _context.Users
+            .Include(u => u.Clinic)
+            .FirstOrDefaultAsync(
+                u => u.PasswordHash != null && u.Email != null && u.Email.ToLower() == normalized,
+                cancellationToken);
+    }
+
     public async Task AddAsync(User entity, CancellationToken cancellationToken = default)
     {
         await _context.Users.AddAsync(entity, cancellationToken);

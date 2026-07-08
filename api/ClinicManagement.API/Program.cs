@@ -68,11 +68,39 @@ try
         c.OperationFilter<ClinicManagement.API.Swagger.FileUploadOperationFilter>();
     });
 
-    // Add Auth0 JWT Authentication
+    // JWT Authentication — mode-branched (Auth:Mode = Cloud | Local, default Cloud).
+    // Cloud: validate Auth0-issued tokens (unchanged). Local: validate app-issued tokens
+    // signed with the per-install key. Authorization policies are the same in both modes.
+    var isLocalAuthMode = ClinicManagement.Infrastructure.Auth.LocalAuthConfig.IsLocalMode(builder.Configuration);
     var auth0Domain = builder.Configuration["Auth0:Domain"];
     var auth0Audience = builder.Configuration["Auth0:Audience"];
-    
-    if (!string.IsNullOrEmpty(auth0Domain) && !string.IsNullOrEmpty(auth0Audience))
+
+    var authConfigured = false;
+
+    if (isLocalAuthMode)
+    {
+        builder.Services.AddAuthentication(options =>
+        {
+            options.DefaultAuthenticateScheme = Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerDefaults.AuthenticationScheme;
+            options.DefaultChallengeScheme = Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerDefaults.AuthenticationScheme;
+        })
+        .AddJwtBearer(options =>
+        {
+            options.TokenValidationParameters = new Microsoft.IdentityModel.Tokens.TokenValidationParameters
+            {
+                ValidateIssuer = true,
+                ValidIssuer = ClinicManagement.Infrastructure.Auth.LocalAuthConfig.Issuer(builder.Configuration),
+                ValidateAudience = true,
+                ValidAudience = ClinicManagement.Infrastructure.Auth.LocalAuthConfig.Audience(builder.Configuration),
+                ValidateLifetime = true,
+                ValidateIssuerSigningKey = true,
+                IssuerSigningKey = ClinicManagement.Infrastructure.Auth.LocalAuthConfig.SecurityKey(builder.Configuration),
+                ClockSkew = TimeSpan.Zero
+            };
+        });
+        authConfigured = true;
+    }
+    else if (!string.IsNullOrEmpty(auth0Domain) && !string.IsNullOrEmpty(auth0Audience))
     {
         builder.Services.AddAuthentication(options =>
         {
@@ -92,12 +120,16 @@ try
                 ClockSkew = TimeSpan.Zero
             };
         });
+        authConfigured = true;
+    }
 
+    if (authConfigured)
+    {
         builder.Services.AddAuthorization(options =>
         {
             AuthorizationPolicies.ConfigurePolicies(options);
         });
-        
+
         // Register authorization handlers
         builder.Services.AddScoped<Microsoft.AspNetCore.Authorization.IAuthorizationHandler, ClinicManagement.Application.Common.Authorization.Handlers.RoleAuthorizationHandler>();
     }

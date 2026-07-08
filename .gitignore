@@ -18,3 +18,7 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+
+# Local (offline) mode per-install secrets — generated at first run, never committed
+.local/
+**/signing-key
