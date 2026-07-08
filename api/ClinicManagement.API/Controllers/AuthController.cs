@@ -138,6 +138,30 @@ public class AuthController : ControllerBase
         return Ok(result);
     }
 
+    /// <summary>
+    /// Authenticated: the current user sets a new password (verifying the current one). Used
+    /// for the forced change after an admin reset and for voluntary changes (AC-5.2).
+    /// </summary>
+    [Authorize]
+    [HttpPost("change-password")]
+    public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequest request)
+    {
+        var command = new ChangePasswordCommand
+        {
+            CurrentPassword = request.CurrentPassword,
+            NewPassword = request.NewPassword
+        };
+
+        var result = await _mediator.Send(command);
+
+        if (!result.IsSuccess)
+        {
+            return BadRequest(result);
+        }
+
+        return Ok(result);
+    }
+
     /// <summary>True when the request originates from the server machine itself (loopback).</summary>
     private static bool IsLocalRequest(HttpContext context)
     {

@@ -34,7 +34,7 @@ graph TD
 | 3 | FE | Local login + first-run setup UI | done (review skipped) | 1, 2 |
 | 4 | BE | Staff self-registration API (clinic code) | done (review skipped) | 1 |
 | 5 | FE | Staff registration UI | implemented | 3, 4 |
-| 6 | BE | Admin user-management API | not-started | 1 |
+| 6 | BE | Admin user-management API | implemented | 1 |
 | 7 | FE | Admin user-management UI | not-started | 3, 6 |
 | 8 | BE | Admin lockout-recovery utility | not-started | 1 |
 

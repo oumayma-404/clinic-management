@@ -4,6 +4,7 @@ using MediatR;
 using ClinicManagement.Application.Features.Clinics.Commands;
 using ClinicManagement.Application.Features.Clinics.Queries;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Common.Authorization;
 using ClinicManagement.API.Models;
 using System.Text.Json;
 
@@ -201,6 +202,24 @@ public class ClinicsController : ControllerBase
             return BadRequest(result);
         }
         
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Regenerate the clinic's self-registration code (admin-only, AC-4.5). Invalidates the
+    /// old code for future staff registrations.
+    /// </summary>
+    [HttpPost("regenerate-code")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<IActionResult> RegenerateCode()
+    {
+        var result = await _mediator.Send(new RegenerateClinicCodeCommand());
+
+        if (!result.IsSuccess)
+        {
+            return BadRequest(result);
+        }
+
         return Ok(result);
     }
 

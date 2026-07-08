@@ -12,8 +12,8 @@
 | 2 | BE | First-run clinic + admin creation | done (review skipped by user) |
 | 3 | FE | Local login + first-run setup UI | done (review skipped by user) |
 | 4 | BE | Staff self-registration API | done (review skipped by user) |
-| 5 | FE | Staff registration UI | implemented |
-| 6 | BE | Admin user-management API | not-started |
+| 5 | FE | Staff registration UI | done (review skipped by user) |
+| 6 | BE | Admin user-management API | implemented |
 | 7 | FE | Admin user-management UI | not-started |
 | 8 | BE | Admin lockout-recovery utility | not-started |
 
@@ -110,6 +110,38 @@
 - **Cloud parity:** Cloud join flow (auth-gated, `clinicsApi.join`) unchanged.
 - **Deferred to manual:** Local register with valid code → account → login; invalid code / duplicate email errors.
 
+## Story 5 — Review / test execution
+- `/review-story` — **skipped by user request** (`/next skip review`, 2026-07-08).
+- `/story-e2e` — ⊘ auto-skipped (Layer: FE, no `test-plan-e2e.md` APPROVED).
+- `/story-api-tests` — ⊘ auto-skipped (Postman never run per user preference).
+- `/story-integration-tests` — ⊘ auto-skipped (Layer: FE).
+
+## Story 6 — Steps (BE: Admin user-management API)
+- [x] 1. `ListUsersQuery` (admin-only) → clinic users with status (name, email, role, `IsActive`, `MustChangePassword`, `LastLoginAt`). **Replaced** the near-identical `GetUsersQuery` (only referenced by `UsersController`) to avoid duplicate list queries.
+- [x] 2. `ResetUserPasswordCommand` (admin-only) → `ILocalAuthService.GenerateTemporaryPassword()` (crypto-random, 12 chars, unambiguous alphabet), hashes it, `SetPassword(hash, mustChangePassword: true)`; returns the temp password once (`ResetPasswordResultDto`).
+- [x] 3. `SetUserActiveCommand` (admin-only) → `Activate()`/`Deactivate()`; `LoginCommand` already rejects inactive users (Story 1). Records retained (no delete).
+- [x] 4. `ChangePasswordCommand` (any authenticated user) → verifies current password, enforces ≥8 (FR-B2), `SetPassword(hash, mustChangePassword: false)` clears the forced-change flag. `RegenerateClinicCodeCommand` (admin-only) added for AC-4.5.
+- [x] 5. Admin-only enforced two ways: `[Authorize(Policy = AdminOnly)]` on the endpoints (→ 403 for non-admin, AC-5.4) **and** an inline `currentUser.IsAdmin()` check in each handler (DB-sourced role; testable without HTTP).
+
+## Story 6 — Endpoints
+- `GET /api/users` (AdminOnly) — list users + status.
+- `POST /api/users/{id}/reset-password` (AdminOnly) — temp password returned once.
+- `PUT /api/users/{id}/status` (AdminOnly) — `{ isActive }` deactivate/reactivate.
+- `POST /api/auth/change-password` (`[Authorize]`) — current + new password.
+- `POST /api/clinics/regenerate-code` (AdminOnly) — new clinic code (AC-4.5).
+
+## Story 6 — Verification
+- **Build:** `dotnet build ClinicManagement.sln` → 0 errors, 58 warnings (all pre-existing; 0 in changed files).
+- **Unused usings:** IDE0005 analyzer (temp `Directory.Build.props` with `GenerateDocumentationFile`) → clean across the solution.
+- **Unit tests:** 60/60 (16 new: `ListUsersQueryHandlerTests` ×2, `ResetUserPasswordCommandHandlerTests` ×4, `SetUserActiveCommandHandlerTests` ×5, `ChangePasswordCommandHandlerTests` ×3, `RegenerateClinicCodeCommandHandlerTests` ×2; 44 pre-existing). Cover: admin happy paths, non-admin rejection (AC-5.4), cross-clinic isolation, non-local-account rejection, self-deactivation guard, wrong/short password.
+- **No migration** — reuses Story 1's User credential columns.
+- **Deferred to manual (no Docker this session):** admin lists → reset → target forced to change at next login; deactivate → login rejected → reactivate → login OK; non-admin → 403; regenerate code invalidates the old one.
+
+## Story 6 — Review / test execution
+- `/review-story` — **skipped by user request** (`/next skip review`, 2026-07-08).
+- `/story-e2e` — ⊘ auto-skipped (Layer: BE).
+- `/story-api-tests` / `/story-integration-tests` — ⊘ auto-skipped (Postman never run / no integration test plan APPROVED).
+
 ## Structural notes / decisions
 - **JWT package location:** the plan assumed `JwtSecurityTokenHandler` was transitively available in Infrastructure via JwtBearer, but JwtBearer is only referenced by the API project. Since the plan places `LocalAuthService` in Infrastructure, adding `System.IdentityModel.Tokens.Jwt` to the Infrastructure project (alongside the planned `Microsoft.Extensions.Identity.Core`). Consistent with the plan's intent.
 - **Per-install signing key:** read from `Auth:Local:SigningKey` (config); if absent, generate a 512-bit key and persist to a gitignored file under the content root, then reuse. Never committed / never in `appsettings.json`.
@@ -130,6 +162,10 @@
 | (Story 3) Logout is a button calling `session.logout()` (not a hardcoded `<a href="/auth/logout">`) | Trivial | Needed for mode-aware logout; Cloud still navigates to `/auth/logout`, Local clears the cookie. |
 | (Story 4) Self-registration via a dedicated anonymous `POST /api/auth/register` | Trivial | Plan step: "expose join for Local mode (unauthenticated pre-account)". Self-registration has no session yet, so an anonymous endpoint is required (not the `[Authorize]` `POST /api/clinics/join`). Gated by clinic code, not localhost. |
 | (Story 4) Local self-registration discriminated by `Password` present on `JoinClinicCommand` | Trivial | Mirrors Story 2's `CreateClinicCommand` pattern; the register endpoint is the only caller that sets `Password`. Cloud join path (Password null) unchanged. |
+| (Story 6) `ListUsersQuery` **replaces** `GetUsersQuery` (deleted the latter) | Trivial (planned intent + Scout rule) | Plan/story explicitly name `ListUsersQuery`. `GetUsersQuery` returned `UserDto` (no status) and was referenced only by `UsersController` (no frontend consumer — `web/lib` has no users API client yet; Story 7 builds it). Replacing it avoids two near-identical list queries. `GET /api/users` now returns `ClinicUserDto` (adds `IsActive`/`MustChangePassword`/`LastLoginAt`); still admin-only (was enforced inline before, now also by policy). |
+| (Story 6) `ILocalAuthService.GenerateTemporaryPassword()` new interface method | Trivial | Reset needs a secure temp password; the auth service is its natural home (alongside hashing/JWT). Crypto-random (`RandomNumberGenerator`), 12 chars, unambiguous alphabet. Both impls are ours; additive. |
+| (Story 6) `SetUserActiveCommand` rejects an admin deactivating **their own** account | Defensive (uncertain→documented) | Not in spec, but a self-deactivation would be an unrecoverable lockout in Phase 1 (the recovery utility, Story 8, resets a password, not the active flag). A one-line guard prevents a footgun; all other (de)activations behave exactly as AC-5.3 specifies. |
+| (Story 6) Admin-only enforced by BOTH `[Authorize(Policy = AdminOnly)]` (endpoints) and inline `IsAdmin()` (handlers) | Trivial (plan-directed) | Plan step 5: "enforce admin-only via role check on these endpoints." Policy gives the correct 403 (AC-5.4); the inline DB-sourced check is defense-in-depth and unit-testable without HTTP. |
 
 ## Significant Deviations
 (none)

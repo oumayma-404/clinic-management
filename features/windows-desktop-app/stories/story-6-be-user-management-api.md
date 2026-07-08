@@ -1,6 +1,6 @@
 # Story 6 (BE): Admin user-management API
 
-**Status:** APPROVED
+**Status:** implemented
 **Layer:** BE
 **Depends On:** 1
 

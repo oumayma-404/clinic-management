@@ -35,11 +35,12 @@ Each command/query file typically contains **both** the request class (`IRequest
 |------|----------|---------|----------------|
 | **Appointments** | `CreateAppointmentCommand`, `UpdateAppointmentCommand` | `GetAppointmentQuery`, `GetAppointmentsQuery` | `AppointmentCreatedEventHandler` |
 | **Patients** | Create/Update `PatientCommand`; medical & family history Create/Update/Delete; dental record Create/Update/Delete | `GetPatientQuery`, `GetPatientsQuery`, `GetPatient{Medical,Family}HistoryQuery`, `GetDentalRecordsQuery` | — |
-| **Clinics** | `CreateClinicCommand`, `UpdateClinicCommand`, `JoinClinicCommand`, `UpdateDoctorsCommand` | `GetUserStatusQuery`, `GetClinicLogoQuery` | — |
+| **Clinics** | `CreateClinicCommand`, `UpdateClinicCommand`, `JoinClinicCommand`, `UpdateDoctorsCommand`, `RegenerateClinicCodeCommand` (admin-only) | `GetUserStatusQuery`, `GetClinicLogoQuery` | — |
 | **ProcedureTypes** | Create/Update/Delete | `GetProcedureTypeQuery`, `GetProcedureTypesQuery` | — |
 | **Files** | `CreatePatientFolderCommand`, `DeletePatientFolderCommand`, `UploadPatientFileCommand`, `DeletePatientFileCommand`, `InitializeDefaultFoldersCommand` | `GetPatientFoldersQuery`, `GetPatientFilesQuery`, `DownloadPatientFileQuery` | — |
 | **Documents** | Create/Update/Delete `MedicalDocumentCommand` | `GetMedicalDocumentQuery`, `GetMedicalDocumentsQuery` | — |
-| **Users** | — | `GetUsersQuery` | — |
+| **Users** | `ResetUserPasswordCommand`, `SetUserActiveCommand` (admin-only) | `ListUsersQuery` (admin-only; users + status) | — |
+| **Auth** | `LoginCommand`, `ChangePasswordCommand` | — | — |
 | **AI** | `ChatCommand` (+ `ChatCommandHandler.cs` as a separate handler file) | — | — |
 
 ### Event handlers

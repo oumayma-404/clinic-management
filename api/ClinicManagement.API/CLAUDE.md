@@ -11,7 +11,7 @@ All are thin: inject `IMediator`, send a command/query, map `Result.IsFailure` â
 | `api/patients` | `PatientsController` | GET (list), GET/{id}, POST (create), PUT/{id} | `[Authorize]` |
 | `api/googlecalendar` | `GoogleCalendarController` | OAuth flow + manual sync: `authorize`, `callback` (codeâ†’refresh token, **writes token back into appsettings.json**), `sync-from-google`, `sync-appointment/{id}`, `status`, `redirect-uri` | **none** (anonymous) |
 | `api/clinics` | `ClinicsController` | Clinic CRUD / settings | `[Authorize]` |
-| `api/users` | `UsersController` | User management (clinic membership, roles) | `[Authorize]` |
+| `api/users` | `UsersController` | Admin user management: list users + status, `{id}/reset-password`, `{id}/status` (deactivate/reactivate) | `[Authorize(AdminOnly)]` |
 | `api/ai` | `AIController` | AI chat + agentic actions (`IAIActionService`) | `[Authorize]` |
 | `api/procedure-types` | `ProcedureTypesController` | Procedure type CRUD | `[Authorize]` |
 | `api/patients/{patientId}/dental-records` | `DentalRecordsController` | Dental charting | `[Authorize]` |

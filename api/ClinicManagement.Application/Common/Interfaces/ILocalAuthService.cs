@@ -31,4 +31,11 @@ public interface ILocalAuthService
     /// <c>clinic_id</c> claims that <see cref="IClinicContext"/> and the role handlers expect.
     /// </summary>
     LocalAuthToken GenerateToken(User user);
+
+    /// <summary>
+    /// Generates a readable, cryptographically-random temporary password for an admin-driven
+    /// reset. Always satisfies the minimum-length policy; the admin relays it to the user, who
+    /// is forced to change it at next login.
+    /// </summary>
+    string GenerateTemporaryPassword();
 }

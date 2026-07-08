@@ -1,5 +1,6 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Domain.Entities;
 using Microsoft.AspNetCore.Identity;
@@ -80,5 +81,21 @@ public class LocalAuthService : ILocalAuthService
 
         var accessToken = new JwtSecurityTokenHandler().WriteToken(token);
         return new LocalAuthToken(accessToken, expiresAt);
+    }
+
+    // 12 chars from an unambiguous alphabet (no 0/O/1/I/l) — comfortably above the 8-char
+    // minimum and easy for an admin to read aloud to the user.
+    private const string TemporaryPasswordAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
+    private const int TemporaryPasswordLength = 12;
+
+    public string GenerateTemporaryPassword()
+    {
+        var chars = new char[TemporaryPasswordLength];
+        for (var i = 0; i < chars.Length; i++)
+        {
+            var index = RandomNumberGenerator.GetInt32(TemporaryPasswordAlphabet.Length);
+            chars[i] = TemporaryPasswordAlphabet[index];
+        }
+        return new string(chars);
     }
 }

@@ -1,0 +1,100 @@
+using MediatR;
+using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Domain.Repositories;
+
+namespace ClinicManagement.Application.Features.Clinics.Commands;
+
+/// <summary>
+/// Admin-only: regenerates the clinic's self-registration code (AC-4.5), invalidating the
+/// old code for future staff registrations. Returns the clinic with its new code.
+/// </summary>
+public class RegenerateClinicCodeCommand : IRequest<Result<ClinicDto>>
+{
+}
+
+public class RegenerateClinicCodeCommandHandler : IRequestHandler<RegenerateClinicCodeCommand, Result<ClinicDto>>
+{
+    private readonly IClinicRepository _clinicRepository;
+    private readonly IUserRepository _userRepository;
+    private readonly IClinicContext _clinicContext;
+    private readonly IUnitOfWork _unitOfWork;
+
+    public RegenerateClinicCodeCommandHandler(
+        IClinicRepository clinicRepository,
+        IUserRepository userRepository,
+        IClinicContext clinicContext,
+        IUnitOfWork unitOfWork)
+    {
+        _clinicRepository = clinicRepository;
+        _userRepository = userRepository;
+        _clinicContext = clinicContext;
+        _unitOfWork = unitOfWork;
+    }
+
+    public async Task<Result<ClinicDto>> Handle(RegenerateClinicCodeCommand request, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var callerId = _clinicContext.GetUserId();
+            if (string.IsNullOrEmpty(callerId))
+            {
+                return Result<ClinicDto>.Failure("User ID not found in token");
+            }
+
+            var admin = await _userRepository.GetByAuth0SubAsync(callerId, cancellationToken);
+            if (admin == null)
+            {
+                return Result<ClinicDto>.Failure("User not found");
+            }
+
+            // AC-5.4 / AC-4.5: only an admin can regenerate the clinic code.
+            if (!admin.IsAdmin())
+            {
+                return Result<ClinicDto>.Failure("Only admins can regenerate the clinic code");
+            }
+
+            var clinic = await _clinicRepository.GetByIdAsync(admin.ClinicId, cancellationToken);
+            if (clinic == null)
+            {
+                return Result<ClinicDto>.Failure("Clinic not found");
+            }
+
+            var code = GenerateClinicCode();
+            while (await _clinicRepository.CodeExistsAsync(code, cancellationToken))
+            {
+                code = GenerateClinicCode();
+            }
+
+            clinic.SetCode(code);
+            await _clinicRepository.UpdateAsync(clinic, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            return Result<ClinicDto>.Success(new ClinicDto
+            {
+                Id = clinic.Id,
+                Name = clinic.Name,
+                Address = clinic.Address,
+                Phone = clinic.Phone,
+                Email = clinic.Email,
+                Code = clinic.Code,
+                LogoUrl = clinic.LogoUrl,
+                CreatedAt = clinic.CreatedAt
+            });
+        }
+        catch (Exception ex)
+        {
+            return Result<ClinicDto>.Failure($"Error regenerating clinic code: {ex.Message}");
+        }
+    }
+
+    private static string GenerateClinicCode()
+    {
+        // 6-character alphanumeric code (matches the format minted at clinic creation).
+        const string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        var random = new Random();
+        return new string(Enumerable.Repeat(chars, 6)
+            .Select(s => s[random.Next(s.Length)]).ToArray());
+    }
+}
