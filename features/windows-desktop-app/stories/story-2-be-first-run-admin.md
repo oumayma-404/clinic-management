@@ -1,6 +1,6 @@
 # Story 2 (BE): First-run clinic + admin creation (localhost-only)
 
-**Status:** implemented
+**Status:** done (review skipped by user request)
 **Layer:** BE
 **Depends On:** 1
 

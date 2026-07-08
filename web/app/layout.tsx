@@ -2,7 +2,8 @@ import type React from "react"
 import type { Metadata } from "next"
 import { Geist, Geist_Mono } from "next/font/google"
 import { Analytics } from "@vercel/analytics/next"
-import { Auth0Provider } from '@auth0/nextjs-auth0/client'
+import { resolveAuthMode } from "@/lib/auth/local-auth"
+import { CloudSessionProvider, LocalSessionProvider } from "@/lib/auth/session"
 import { SidebarProvider } from "@/contexts/sidebar-context"
 import { Toaster } from "sonner"
 import { AIChat } from "@/components/ai-chat"
@@ -39,15 +40,19 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode
 }>) {
+  // Mount the session provider that matches the configured auth mode.
+  // Cloud mounts Auth0Provider; Local mounts a lightweight cookie-backed context.
+  const SessionProvider = resolveAuthMode() === "local" ? LocalSessionProvider : CloudSessionProvider
+
   return (
     <html lang="en">
       <body className={`font-sans antialiased`}>
-        <Auth0Provider>
+        <SessionProvider>
           <SidebarProvider>
             {children}
           </SidebarProvider>
-        </Auth0Provider>
-        <Toaster 
+        </SessionProvider>
+        <Toaster
           position="top-right"
           richColors
           closeButton

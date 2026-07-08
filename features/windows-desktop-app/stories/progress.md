@@ -9,8 +9,8 @@
 | Story | Layer | Name | Status |
 |-------|-------|------|--------|
 | 1 | BE | Local auth mode + login API | done |
-| 2 | BE | First-run clinic + admin creation | implemented |
-| 3 | FE | Local login + first-run setup UI | not-started |
+| 2 | BE | First-run clinic + admin creation | done (review skipped by user) |
+| 3 | FE | Local login + first-run setup UI | implemented |
 | 4 | BE | Staff self-registration API | not-started |
 | 5 | FE | Staff registration UI | not-started |
 | 6 | BE | Admin user-management API | not-started |
@@ -54,6 +54,27 @@
 - **No migration** — reuses the User/Clinic schema + Story 1 columns.
 - **Deferred to manual (no Docker this session):** fresh DB → setup from localhost → login from a LAN client; non-localhost → 403.
 
+## Story 2 — Review / test execution
+- `/review-story` — **skipped by user request** (`/next ... skip review move to next step`, 2026-07-08).
+- `/story-e2e` — ⊘ auto-skipped (Layer: BE).
+- `/story-api-tests` — ⊘ auto-skipped (Postman never run).
+- `/story-integration-tests` — ⊘ auto-skipped (no `test-plan-integration.md` APPROVED).
+
+## Story 3 — Steps (FE: Local login + first-run setup UI)
+- [x] 1. Mode plumbing: server reads `AUTH_MODE` (`lib/auth/local-auth.ts`); `layout.tsx` mounts `CloudSessionProvider` (Auth0) or `LocalSessionProvider` (cookie) accordingly. Mode reaches the browser via `useSession().mode` (SSR-provided) — no bootstrap fetch needed.
+- [x] 2. Local-login route handler `POST /api/auth/local-login` → calls .NET `/auth/login` → sets HttpOnly `local_session` cookie. `POST /api/auth/local-logout` clears it.
+- [x] 3. `app/api/auth/token/route.ts` (Local): returns the JWT from the cookie; Cloud path unchanged.
+- [x] 4. `middleware.ts` (Local): gates protected routes on the cookie, redirects to `/login`; skips Auth0. Cloud path unchanged.
+- [x] 5. `layout.tsx`: `Auth0Provider` only in Cloud (inside `CloudSessionProvider`); `LocalSessionProvider` in Local. Unified `useSession()` seam replaces all 5 direct `useUser` consumers.
+- [x] 6. Local login screen (`/login` email+password form); setup wizard admin-account fields (Local) → `POST /auth/setup`; inactivity auto-logout (30 min) + logout (preserves server address) in `LocalSessionProvider`.
+
+## Story 3 — Verification
+- **Typecheck:** `npx tsc --noEmit` clean.
+- **Build:** `npm run build` succeeds; all 16 routes + 4 new `/api/auth/*` handlers compile. Only warning is the pre-existing Auth0 edge-runtime `crypto` notice (unchanged from before).
+- **No frontend unit-test runner** in the repo (no vitest); E2E deferred (`/story-e2e` auto-skips — no `test-plan-e2e.md`).
+- **Cloud parity:** every Cloud path (middleware, token route, layout provider, header, login, setup, join, setup-wizard) preserved behaviorally; Local behavior is additive and gated on `AUTH_MODE`.
+- **Deferred to manual (no dev server/API this session):** `AUTH_MODE=Local` end-to-end — setup (localhost) → login from a client → dashboard with Bearer token; inactivity logout; Cloud `AUTH_MODE` unchanged.
+
 ## Structural notes / decisions
 - **JWT package location:** the plan assumed `JwtSecurityTokenHandler` was transitively available in Infrastructure via JwtBearer, but JwtBearer is only referenced by the API project. Since the plan places `LocalAuthService` in Infrastructure, adding `System.IdentityModel.Tokens.Jwt` to the Infrastructure project (alongside the planned `Microsoft.Extensions.Identity.Core`). Consistent with the plan's intent.
 - **Per-install signing key:** read from `Auth:Local:SigningKey` (config); if absent, generate a 512-bit key and persist to a gitignored file under the content root, then reuse. Never committed / never in `appsettings.json`.
@@ -68,6 +89,10 @@
 | (Story 2) First-run via a dedicated anonymous `POST /api/auth/setup` | Trivial | Plan explicitly allowed "a dedicated setup endpoint". First-run has no authenticated user, so an anonymous, localhost+no-admin-gated endpoint is required (not the `[Authorize]` `POST /api/clinics`). |
 | (Story 2) Local first-run discriminated by `Password` present on `CreateClinicCommand` | Trivial | Internal handler branch; the setup endpoint is the only caller that sets `Password`, only in Local mode. Cloud path (Password null) unchanged. |
 | (Story 2) `IsLocalRequest` as a private controller helper | Trivial | Plan said "small helper to detect localhost"; loopback check via `IPAddress.IsLoopback` + local==remote. |
+| (Story 3) Unified `useSession()` context replacing 5 direct `useUser` consumers | Plan-directed | Plan step 5 mandates "Auth0Provider only in Cloud; local auth context in Local." Consumers can't call Auth0 `useUser` when the provider is absent (Local), so they read the unified context (Cloud bridges `useUser`; Local reads the cookie). Cloud behavior preserved. |
+| (Story 3) Auth mode delivered to the browser via SSR (`useSession().mode`) instead of a bootstrap `GET /api/auth/mode` fetch | Trivial | Layout is a server component and reads `AUTH_MODE`; passing the mode down avoids a round-trip and matches the existing `/api/auth/token` same-origin pattern. The .NET `/api/auth/mode` endpoint remains for other consumers. |
+| (Story 3) `useSession()` returns a loading default instead of throwing when no provider is in scope | Trivial | Mirrors Auth0 `useUser`'s SSR-tolerant behavior; prevents static-prerender crashes for globally-mounted components. Provider is always mounted at runtime. |
+| (Story 3) Logout is a button calling `session.logout()` (not a hardcoded `<a href="/auth/logout">`) | Trivial | Needed for mode-aware logout; Cloud still navigates to `/auth/logout`, Local clears the cookie. |
 
 ## Significant Deviations
 (none)

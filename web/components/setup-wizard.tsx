@@ -14,6 +14,7 @@ import Image from "next/image"
 import { useRouter } from "next/navigation"
 import { clinicsApi, type CreateClinicRequest } from "@/lib/api/clinics"
 import { useAuthToken } from "@/lib/hooks/use-auth-token"
+import { useSession } from "@/lib/auth/session"
 
 const tunisianGovernorates = [
   "Tunis",
@@ -76,6 +77,14 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const { accessToken } = useAuthToken()
+  const { mode } = useSession()
+  const isLocalMode = mode === "local"
+
+  // Local (offline) first-run: the first user is the clinic admin (email + password).
+  const [adminFullName, setAdminFullName] = useState("")
+  const [adminEmail, setAdminEmail] = useState("")
+  const [adminPassword, setAdminPassword] = useState("")
+  const [adminPasswordConfirm, setAdminPasswordConfirm] = useState("")
 
   // Clinic Information State
   const [clinicName, setClinicName] = useState("")
@@ -152,6 +161,15 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
   }
 
   const isStep2Valid = () => {
+    if (isLocalMode) {
+      // Local first-run: admin account (full name + email + password ≥ 8, confirmed).
+      return (
+        adminFullName.trim() !== "" &&
+        /\S+@\S+\.\S+/.test(adminEmail) &&
+        adminPassword.length >= 8 &&
+        adminPassword === adminPasswordConfirm
+      )
+    }
     if (role === "secretary") {
       return true // Secretary doesn't need personal info
     }
@@ -167,6 +185,20 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
     try {
       // Combine address and governorate
       const fullAddress = address ? `${address}, ${governorate}` : governorate
+
+      // Local (offline) first-run: create clinic + admin, then go to the login screen.
+      if (isLocalMode) {
+        await clinicsApi.setup({
+          clinicName: clinicName,
+          email: adminEmail.trim(),
+          password: adminPassword,
+          fullName: adminFullName.trim(),
+          phone: phone || undefined,
+          address: fullAddress || undefined,
+        })
+        window.location.href = "/login"
+        return
+      }
 
       const clinicData: CreateClinicRequest & { logoFile?: File } = {
         name: clinicName,
@@ -387,10 +419,75 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
             {currentStep === 2 && (
               <div className="space-y-6">
                 <div>
-                  <h2 className="text-2xl font-semibold text-blue-900 dark:text-blue-100 mb-2">Your Role & Information</h2>
-                  <p className="text-muted-foreground">Tell us about yourself</p>
+                  <h2 className="text-2xl font-semibold text-blue-900 dark:text-blue-100 mb-2">{isLocalMode ? "Admin Account" : "Your Role & Information"}</h2>
+                  <p className="text-muted-foreground">{isLocalMode ? "Create the clinic administrator account" : "Tell us about yourself"}</p>
                 </div>
 
+                {isLocalMode && (
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="admin-full-name" className="text-sm font-medium">
+                        Full Name <span className="text-destructive">*</span>
+                      </Label>
+                      <Input
+                        id="admin-full-name"
+                        placeholder="Dr Jane Doe"
+                        value={adminFullName}
+                        onChange={(e) => setAdminFullName(e.target.value)}
+                        required
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="admin-email" className="text-sm font-medium">
+                        Email <span className="text-destructive">*</span>
+                      </Label>
+                      <Input
+                        id="admin-email"
+                        type="email"
+                        placeholder="admin@clinic.com"
+                        value={adminEmail}
+                        onChange={(e) => setAdminEmail(e.target.value)}
+                        required
+                      />
+                    </div>
+                    <div className="grid md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="admin-password" className="text-sm font-medium">
+                          Password <span className="text-destructive">*</span>
+                        </Label>
+                        <Input
+                          id="admin-password"
+                          type="password"
+                          placeholder="At least 8 characters"
+                          value={adminPassword}
+                          onChange={(e) => setAdminPassword(e.target.value)}
+                          required
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="admin-password-confirm" className="text-sm font-medium">
+                          Confirm Password <span className="text-destructive">*</span>
+                        </Label>
+                        <Input
+                          id="admin-password-confirm"
+                          type="password"
+                          placeholder="Re-enter password"
+                          value={adminPasswordConfirm}
+                          onChange={(e) => setAdminPasswordConfirm(e.target.value)}
+                          required
+                        />
+                      </div>
+                    </div>
+                    {adminPassword.length > 0 && adminPassword.length < 8 && (
+                      <p className="text-xs text-destructive">Password must be at least 8 characters.</p>
+                    )}
+                    {adminPasswordConfirm.length > 0 && adminPassword !== adminPasswordConfirm && (
+                      <p className="text-xs text-destructive">Passwords do not match.</p>
+                    )}
+                  </div>
+                )}
+
+                {!isLocalMode && (
                 <div className="space-y-4">
                   <div className="space-y-2">
                     <Label htmlFor="role" className="text-sm font-medium">
@@ -479,6 +576,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                     </div>
                   )}
                 </div>
+                )}
               </div>
             )}
 

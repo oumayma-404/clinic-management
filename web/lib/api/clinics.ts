@@ -129,6 +129,24 @@ export const clinicsApi = {
     }
   },
 
+  // Local (offline) first-run: create the clinic + first admin (email+password).
+  // Anonymous + must hit the .NET API directly from the browser so the server's
+  // localhost gate (AC-1.2a) sees the real client IP. `null` token skips auth.
+  setup: async (data: {
+    clinicName: string;
+    email: string;
+    password: string;
+    fullName: string;
+    phone?: string;
+    address?: string;
+  }): Promise<ClinicDto> => {
+    const result = await apiPost<Result<ClinicDto>>('/auth/setup', data, null);
+    if (!result.isSuccess || !result.value) {
+      throw new Error(result.error || 'Failed to complete setup');
+    }
+    return result.value;
+  },
+
   join: async (data: JoinClinicRequest): Promise<ClinicDto> => {
     const result = await apiPost<Result<ClinicDto>>('/clinics/join', data);
     if (!result.isSuccess || !result.value) {

@@ -1,6 +1,6 @@
 "use client"
 
-import { useUser } from '@auth0/nextjs-auth0/client'
+import { useSession } from '@/lib/auth/session'
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -14,7 +14,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Bell, Search, LogOut } from "lucide-react"
 
 export function DashboardHeader() {
-  const { user, isLoading } = useUser()
+  const { user, isLoading, logout } = useSession()
 
   const getInitials = (name?: string) => {
     if (!name) return "U"
@@ -71,11 +71,12 @@ export function DashboardHeader() {
               <DropdownMenuItem>Profile</DropdownMenuItem>
               <DropdownMenuItem>Settings</DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem asChild>
-                <a href="/auth/logout" className="flex items-center text-destructive">
-                  <LogOut className="mr-2 h-4 w-4" />
-                  Log out
-                </a>
+              <DropdownMenuItem
+                onClick={logout}
+                className="flex items-center text-destructive cursor-pointer"
+              >
+                <LogOut className="mr-2 h-4 w-4" />
+                Log out
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

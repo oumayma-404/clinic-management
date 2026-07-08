@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
-import { useUser } from "@auth0/nextjs-auth0/client"
+import { useSession } from "@/lib/auth/session"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -14,7 +14,7 @@ import JoinWizard from "@/components/join-wizard"
 
 export default function JoinClinicPage() {
   const router = useRouter()
-  const { user, isLoading: userLoading } = useUser()
+  const { user, isLoading: userLoading, mode } = useSession()
   const { accessToken, isLoading: authLoading } = useAuthToken()
   const [clinicCode, setClinicCode] = useState("")
   const [isLoading, setIsLoading] = useState(false)
@@ -32,9 +32,9 @@ export default function JoinClinicPage() {
       return
     }
 
-    // If not authenticated, redirect to login
+    // If not authenticated, redirect to the mode-appropriate login.
     if (!user || !accessToken) {
-      window.location.href = "/auth/login?returnTo=/join"
+      window.location.href = mode === "local" ? "/login?returnTo=/join" : "/auth/login?returnTo=/join"
       return
     }
 

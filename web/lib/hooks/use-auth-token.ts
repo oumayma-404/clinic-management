@@ -1,10 +1,10 @@
 'use client'
 
-import { useUser } from '@auth0/nextjs-auth0/client'
 import { useEffect, useState } from 'react'
+import { useSession } from '@/lib/auth/session'
 
 export function useAuthToken() {
-  const { user, isLoading } = useUser()
+  const { user, isLoading } = useSession()
   const [accessToken, setAccessToken] = useState<string | null>(null)
   const [tokenLoading, setTokenLoading] = useState(true)
 
