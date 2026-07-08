@@ -104,6 +104,40 @@ public class AuthController : ControllerBase
         return Ok(result);
     }
 
+    /// <summary>
+    /// Local-mode staff self-registration: join a clinic by code with email+password.
+    /// Reachable from any LAN client (the clinic code is the gate — not localhost). Does not
+    /// exist in Cloud mode. Admin is never self-assignable (enforced in the handler).
+    /// </summary>
+    [AllowAnonymous]
+    [HttpPost("register")]
+    public async Task<IActionResult> Register([FromBody] RegisterRequest request)
+    {
+        if (!LocalAuthConfig.IsLocalMode(_configuration))
+        {
+            return NotFound();
+        }
+
+        var command = new JoinClinicCommand
+        {
+            Code = request.Code,
+            Role = request.Role,
+            DoctorInfo = request.DoctorInfo,
+            Email = request.Email,
+            Password = request.Password,
+            FullName = request.FullName,
+        };
+
+        var result = await _mediator.Send(command);
+
+        if (!result.IsSuccess)
+        {
+            return BadRequest(result);
+        }
+
+        return Ok(result);
+    }
+
     /// <summary>True when the request originates from the server machine itself (loopback).</summary>
     private static bool IsLocalRequest(HttpContext context)
     {

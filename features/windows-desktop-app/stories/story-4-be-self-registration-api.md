@@ -1,6 +1,6 @@
 # Story 4 (BE): Staff self-registration API (clinic code)
 
-**Status:** APPROVED
+**Status:** implemented
 **Layer:** BE
 **Depends On:** 1
 

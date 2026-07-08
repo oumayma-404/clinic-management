@@ -31,8 +31,8 @@ graph TD
 |-------|-------|------|--------|------------|
 | 1 | BE | Local auth mode + login API | done | - |
 | 2 | BE | First-run clinic + admin creation (localhost-only) | done (review skipped) | 1 |
-| 3 | FE | Local login + first-run setup UI | implemented | 1, 2 |
-| 4 | BE | Staff self-registration API (clinic code) | not-started | 1 |
+| 3 | FE | Local login + first-run setup UI | done (review skipped) | 1, 2 |
+| 4 | BE | Staff self-registration API (clinic code) | implemented | 1 |
 | 5 | FE | Staff registration UI | not-started | 3, 4 |
 | 6 | BE | Admin user-management API | not-started | 1 |
 | 7 | FE | Admin user-management UI | not-started | 3, 6 |

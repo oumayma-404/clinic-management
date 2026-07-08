@@ -10,8 +10,8 @@
 |-------|-------|------|--------|
 | 1 | BE | Local auth mode + login API | done |
 | 2 | BE | First-run clinic + admin creation | done (review skipped by user) |
-| 3 | FE | Local login + first-run setup UI | implemented |
-| 4 | BE | Staff self-registration API | not-started |
+| 3 | FE | Local login + first-run setup UI | done (review skipped by user) |
+| 4 | BE | Staff self-registration API | implemented |
 | 5 | FE | Staff registration UI | not-started |
 | 6 | BE | Admin user-management API | not-started |
 | 7 | FE | Admin user-management UI | not-started |
@@ -75,6 +75,23 @@
 - **Cloud parity:** every Cloud path (middleware, token route, layout provider, header, login, setup, join, setup-wizard) preserved behaviorally; Local behavior is additive and gated on `AUTH_MODE`.
 - **Deferred to manual (no dev server/API this session):** `AUTH_MODE=Local` end-to-end — setup (localhost) → login from a client → dashboard with Bearer token; inactivity logout; Cloud `AUTH_MODE` unchanged.
 
+## Story 3 — Review / test execution
+- `/review-story` — **skipped by user request** (`/next ... move to story 4`, 2026-07-08).
+- `/story-e2e` — ⊘ auto-skipped (no `test-plan-e2e.md` APPROVED).
+- `/story-api-tests` / `/story-integration-tests` — ⊘ auto-skipped (Layer: FE).
+
+## Story 4 — Steps (BE: Staff self-registration API)
+- [x] 1. `JoinClinicCommand` Local branch (discriminated by `Password`): email + password + full name + role + optional doctor info + clinic code. Cloud path unchanged.
+- [x] 2. Validations: valid clinic code (else reject), email unique per install (`GetByEmailAsync`), role ∈ {doctor, secretary} — **admin rejected**; doctor requires doctor info.
+- [x] 3. Creates local `User` (hashed pw, `local|{guid}`, active) + linked `Doctor` when role=doctor.
+- [x] 4. `POST /api/auth/register` (anonymous, Local-mode-only → 404 in Cloud). **Not** localhost-gated — the clinic code is the gate (any LAN client can self-register, AC-4).
+
+## Story 4 — Verification
+- **Build:** 0 errors (58 pre-existing warnings, 0 in changed files).
+- **Unit tests:** 44/44 (7 new in `JoinClinicLocalRegisterTests`: create account, reject admin role, invalid code, duplicate email, short password, doctor→linked Doctor, doctor requires info).
+- **No migration** — reuses the User/Doctor/Clinic schema.
+- **Deferred to manual (no Docker this session):** valid code + new email → account created → login; Cloud-mode join unchanged.
+
 ## Structural notes / decisions
 - **JWT package location:** the plan assumed `JwtSecurityTokenHandler` was transitively available in Infrastructure via JwtBearer, but JwtBearer is only referenced by the API project. Since the plan places `LocalAuthService` in Infrastructure, adding `System.IdentityModel.Tokens.Jwt` to the Infrastructure project (alongside the planned `Microsoft.Extensions.Identity.Core`). Consistent with the plan's intent.
 - **Per-install signing key:** read from `Auth:Local:SigningKey` (config); if absent, generate a 512-bit key and persist to a gitignored file under the content root, then reuse. Never committed / never in `appsettings.json`.
@@ -93,6 +110,8 @@
 | (Story 3) Auth mode delivered to the browser via SSR (`useSession().mode`) instead of a bootstrap `GET /api/auth/mode` fetch | Trivial | Layout is a server component and reads `AUTH_MODE`; passing the mode down avoids a round-trip and matches the existing `/api/auth/token` same-origin pattern. The .NET `/api/auth/mode` endpoint remains for other consumers. |
 | (Story 3) `useSession()` returns a loading default instead of throwing when no provider is in scope | Trivial | Mirrors Auth0 `useUser`'s SSR-tolerant behavior; prevents static-prerender crashes for globally-mounted components. Provider is always mounted at runtime. |
 | (Story 3) Logout is a button calling `session.logout()` (not a hardcoded `<a href="/auth/logout">`) | Trivial | Needed for mode-aware logout; Cloud still navigates to `/auth/logout`, Local clears the cookie. |
+| (Story 4) Self-registration via a dedicated anonymous `POST /api/auth/register` | Trivial | Plan step: "expose join for Local mode (unauthenticated pre-account)". Self-registration has no session yet, so an anonymous endpoint is required (not the `[Authorize]` `POST /api/clinics/join`). Gated by clinic code, not localhost. |
+| (Story 4) Local self-registration discriminated by `Password` present on `JoinClinicCommand` | Trivial | Mirrors Story 2's `CreateClinicCommand` pattern; the register endpoint is the only caller that sets `Password`. Cloud join path (Password null) unchanged. |
 
 ## Significant Deviations
 (none)

@@ -1,6 +1,6 @@
 # Story 3 (FE): Local login + first-run setup UI
 
-**Status:** implemented
+**Status:** done (review skipped by user request)
 **Layer:** FE
 **Depends On:** 1, 2
 

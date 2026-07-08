@@ -12,6 +12,12 @@ public class JoinClinicCommand : IRequest<Result<ClinicDto>>
     public string Code { get; set; } = string.Empty;
     public string Role { get; set; } = "secretary"; // "doctor" or "secretary"
     public DoctorPersonalInfoDto? DoctorInfo { get; set; } // Required if Role is "doctor"
+
+    // Local (offline) self-registration only. When Password is set, the handler creates a
+    // local account from email+password using the clinic code. Never populated in Cloud mode.
+    public string? Email { get; set; }
+    public string? Password { get; set; }
+    public string? FullName { get; set; }
 }
 
 public class JoinClinicCommandHandler : IRequestHandler<JoinClinicCommand, Result<ClinicDto>>
@@ -21,6 +27,7 @@ public class JoinClinicCommandHandler : IRequestHandler<JoinClinicCommand, Resul
     private readonly IDoctorRepository _doctorRepository;
     private readonly IClinicContext _clinicContext;
     private readonly IAuth0ManagementService _auth0ManagementService;
+    private readonly ILocalAuthService _localAuthService;
     private readonly IUnitOfWork _unitOfWork;
 
     public JoinClinicCommandHandler(
@@ -29,6 +36,7 @@ public class JoinClinicCommandHandler : IRequestHandler<JoinClinicCommand, Resul
         IDoctorRepository doctorRepository,
         IClinicContext clinicContext,
         IAuth0ManagementService auth0ManagementService,
+        ILocalAuthService localAuthService,
         IUnitOfWork unitOfWork)
     {
         _clinicRepository = clinicRepository;
@@ -36,6 +44,7 @@ public class JoinClinicCommandHandler : IRequestHandler<JoinClinicCommand, Resul
         _doctorRepository = doctorRepository;
         _clinicContext = clinicContext;
         _auth0ManagementService = auth0ManagementService;
+        _localAuthService = localAuthService;
         _unitOfWork = unitOfWork;
     }
 
@@ -43,6 +52,13 @@ public class JoinClinicCommandHandler : IRequestHandler<JoinClinicCommand, Resul
     {
         try
         {
+            // Local (offline) self-registration: create a local account from email+password
+            // using the clinic code. No authenticated user exists yet. Cloud path continues below.
+            if (!string.IsNullOrEmpty(request.Password))
+            {
+                return await RegisterLocalUserAsync(request, cancellationToken);
+            }
+
             var userId = _clinicContext.GetUserId();
             if (string.IsNullOrEmpty(userId))
             {
@@ -157,6 +173,86 @@ public class JoinClinicCommandHandler : IRequestHandler<JoinClinicCommand, Resul
         }
     }
 
+    private async Task<Result<ClinicDto>> RegisterLocalUserAsync(JoinClinicCommand request, CancellationToken cancellationToken)
+    {
+        // Role: doctor/secretary only — admin is never self-assignable (AC-4.4).
+        var role = request.Role.ToLowerInvariant();
+        if (role != "doctor" && role != "secretary")
+        {
+            return Result<ClinicDto>.Failure("Invalid role. Must be 'doctor' or 'secretary'.");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Email))
+        {
+            return Result<ClinicDto>.Failure("Email is required.");
+        }
+        if (string.IsNullOrWhiteSpace(request.FullName))
+        {
+            return Result<ClinicDto>.Failure("Full name is required.");
+        }
+        // FR-B2: password policy — minimum 8 characters.
+        if (request.Password!.Length < 8)
+        {
+            return Result<ClinicDto>.Failure("Password must be at least 8 characters.");
+        }
+
+        if (role == "doctor")
+        {
+            if (request.DoctorInfo == null ||
+                string.IsNullOrWhiteSpace(request.DoctorInfo.FirstName) ||
+                string.IsNullOrWhiteSpace(request.DoctorInfo.LastName) ||
+                string.IsNullOrWhiteSpace(request.DoctorInfo.Specialty))
+            {
+                return Result<ClinicDto>.Failure("First name, last name, and specialty are required for doctors.");
+            }
+        }
+
+        // AC-4.2: a valid clinic code is required.
+        var clinic = await _clinicRepository.GetByCodeAsync(request.Code, cancellationToken);
+        if (clinic == null)
+        {
+            return Result<ClinicDto>.Failure("Invalid clinic code.");
+        }
+
+        // AC-4.3: email must be unique per install.
+        var existing = await _userRepository.GetByEmailAsync(request.Email, cancellationToken);
+        if (existing != null)
+        {
+            return Result<ClinicDto>.Failure("An account with this email already exists.");
+        }
+
+        var passwordHash = _localAuthService.HashPassword(request.Password);
+        var user = User.CreateLocalUser(clinic.Id, role, request.Email, passwordHash, request.FullName);
+        await _userRepository.AddAsync(user, cancellationToken);
+
+        if (role == "doctor" && request.DoctorInfo != null)
+        {
+            var doctor = new Doctor(
+                Guid.NewGuid(),
+                clinic.Id,
+                request.DoctorInfo.FirstName,
+                request.DoctorInfo.LastName,
+                request.DoctorInfo.Specialty,
+                request.DoctorInfo.Phone,
+                request.Email);
+            doctor.LinkToUser(user.Id);
+            await _doctorRepository.AddAsync(doctor, cancellationToken);
+        }
+
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return Result<ClinicDto>.Success(new ClinicDto
+        {
+            Id = clinic.Id,
+            Name = clinic.Name,
+            Address = clinic.Address,
+            Phone = clinic.Phone,
+            Email = clinic.Email,
+            Code = clinic.Code,
+            LogoUrl = clinic.LogoUrl,
+            CreatedAt = clinic.CreatedAt
+        });
+    }
 }
 
 
