@@ -232,3 +232,9 @@
 ## Learnings
 - **.NET 8 default token handler:** ASP.NET Core 8 `JwtBearer` validates with `JsonWebTokenHandler` by default (`UseSecurityTokenValidators = false`). The legacy `JwtSecurityTokenHandler` in Microsoft.IdentityModel 7.1.2 fails to read its *own* `iss` claim on re-parse (returns empty), which surfaced during offline verification. Production is unaffected because it uses the modern handler. **Constraint for Phase 4 security hardening:** do NOT set `JwtBearerOptions.UseSecurityTokenValidators = true`, or local-token issuer validation would break. Verified the issue→validate contract works with `JsonWebTokenHandler`.
 - **Per-install signing key** resolves via `LocalAuthConfig` (shared by issuer + validator so they can never drift): explicit `Auth:Local:SigningKey`, else a generated key file at `.local/signing-key` (gitignored). Never committed / never in appsettings.
+
+## Memory Updated
+
+**Status:** done
+**Date:** 2026-07-08
+**Files:** root `CLAUDE.md` + `api/{Domain,Application,Infrastructure,API}/CLAUDE.md` + `web/{,lib,components}/CLAUDE.md` (8 files) updated with the pluggable-auth / local-accounts architecture. Learnings captured in `features/LEARNINGS.md`; retrospective in `../retrospective.md`.

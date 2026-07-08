@@ -12,7 +12,7 @@ Full-stack **dental/medical clinic management** system (Tunisia-targeted: French
 | Backend API | .NET 8, Clean Architecture, ASP.NET Core, MediatR (CQRS), Hangfire | `api/` |
 | Database | PostgreSQL 16 (EF Core) | docker-compose `postgres` |
 | Object storage | MinIO (S3-compatible) | docker-compose `minio` |
-| Auth | Auth0 (JWT bearer; clinic membership resolved server-side) | both |
+| Auth | **Pluggable** by `Auth:Mode`: **Cloud** = Auth0 (JWT bearer); **Local** = self-issued email+password accounts for offline LAN installs. Clinic membership resolved server-side. | both |
 | External | Google Calendar (two-way sync), HuggingFace (AI chat) | `api/...Infrastructure/Services` |
 
 ## Layout
@@ -58,6 +58,7 @@ Frontend talks to the API via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
 ## Key architectural notes (verified, may surprise you)
 
 - **Multi-tenancy**: every request is scoped to a clinic. The clinic is resolved per-request (`IClinicContext` → DB lookup of the Auth0 `sub`), not purely from the JWT claim.
+- **Pluggable auth (`Auth:Mode` = `Cloud` | `Local`)**: Cloud is the original Auth0 path; **Local** (for offline Windows/LAN installs) issues its own HS256 JWTs against local email+password accounts. Backend seam: `ILocalAuthService`/`LocalAuthService` (+ per-install signing key via `LocalAuthConfig`), a mode-branched JWT setup in `Program.cs`, and `AuthController` (`login`/`setup`/`register`/`mode`/`change-password`). `CreateClinicCommand`/`JoinClinicCommand` branch to a Local path when a `Password` is present. Frontend seam: a single `useSession()` context (`web/lib/auth/session.tsx`) backed by either `CloudSessionProvider` (Auth0) or `LocalSessionProvider` (HttpOnly cookie), gated on `AUTH_MODE`. All Local behavior is additive; the Cloud path is unchanged. Offline admin lockout recovery is a console command (`dotnet run -- reset-admin-password`), not a web endpoint. *Phase 1 of a 5-phase repackaging — see `features/windows-desktop-app/`.*
 - **Google Calendar sync is asymmetric**: App→Google runs inline on appointment create/update. Google→App is implemented but **disabled** (recurring job removed in `Program.cs`); only runs via the manual `GoogleCalendarController` endpoint.
 - **Background jobs mostly idle**: Hangfire is wired but `NotificationJob`/`AISummaryJob`/calendar-sync recurring registrations are commented out. Only on-demand `PdfGenerationJob` fires in practice.
 - **Stubs/placeholders**: `NotificationService` logs instead of sending email/SMS; `PatientSummaryService` is a string template (no AI call); `GoogleAIService` exists but isn't registered (HuggingFace is the wired AI backend).

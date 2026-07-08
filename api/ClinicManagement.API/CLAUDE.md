@@ -10,7 +10,8 @@ All are thin: inject `IMediator`, send a command/query, map `Result.IsFailure` �
 | `api/appointments` | `AppointmentsController` | GET (list, date filter), POST (create), PUT/{id} (update; cancel via status="Cancelled") | `[Authorize]` |
 | `api/patients` | `PatientsController` | GET (list), GET/{id}, POST (create), PUT/{id} | `[Authorize]` |
 | `api/googlecalendar` | `GoogleCalendarController` | OAuth flow + manual sync: `authorize`, `callback` (code→refresh token, **writes token back into appsettings.json**), `sync-from-google`, `sync-appointment/{id}`, `status`, `redirect-uri` | **none** (anonymous) |
-| `api/clinics` | `ClinicsController` | Clinic CRUD / settings | `[Authorize]` |
+| `api/auth` | `AuthController` | **Local mode only** (each action 404s in Cloud, except `mode`). `login` (email+password → JWT), `mode` (which auth mode), `setup` (first-run clinic+admin — **localhost-gated** + "no admin yet"), `register` (staff self-registration, gated by clinic code), `change-password` (`[Authorize]`) | mostly `[AllowAnonymous]` |
+| `api/clinics` | `ClinicsController` | Clinic CRUD / settings; `regenerate-code` (AdminOnly, Local) | `[Authorize]` |
 | `api/users` | `UsersController` | Admin user management: list users + status, `{id}/reset-password`, `{id}/status` (deactivate/reactivate) | `[Authorize(AdminOnly)]` |
 | `api/ai` | `AIController` | AI chat + agentic actions (`IAIActionService`) | `[Authorize]` |
 | `api/procedure-types` | `ProcedureTypesController` | Procedure type CRUD | `[Authorize]` |
@@ -39,7 +40,7 @@ Service registration order:
 1. **Serilog** configured first (console + daily rolling file `logs/clinic-management-.log`, 7-day retention); `builder.Host.UseSerilog()`.
 2. `AddControllers()` with camelCase + case-insensitive JSON.
 3. Swagger (`AddSwaggerGen`) — maps `IFormFile`→binary, registers the file-upload param/operation filters.
-4. **Auth0 JWT bearer** — only if `Auth0:Domain` + `Auth0:Audience` set. Authority `https://{domain}`, validates issuer/audience/lifetime/signing key, `ClockSkew = Zero`. Adds authorization policies (`AuthorizationPolicies.ConfigurePolicies`) + scoped `RoleAuthorizationHandler`.
+4. **JWT bearer — mode-branched on `Auth:Mode`.** Cloud: Auth0 (authority `https://{domain}`, validates issuer/audience/lifetime/signing key) — only if `Auth0:Domain`+`Auth0:Audience` set. Local: symmetric HS256 validation against the per-install key from `LocalAuthConfig` (issuer/audience/lifetime/signature all validated; **do not** set `UseSecurityTokenValidators = true` — the modern `JsonWebTokenHandler` is required). Both add the same authorization policies (`AuthorizationPolicies.ConfigurePolicies`) + scoped `RoleAuthorizationHandler`. `ClockSkew = Zero`.
 5. `AddHttpContextAccessor()` (needed by `ClinicContext`).
 6. `AddApplication()` then `AddInfrastructure(builder.Configuration)`.
 7. **Hangfire** + Hangfire server (PostgreSQL storage).
@@ -50,8 +51,11 @@ Middleware order (after `builder.Build()`):
 
 On startup it runs `context.Database.Migrate()` (auto-applies EF migrations), then the recurring-job (de)registration described above. Whole thing wrapped in try/catch with `Log.Fatal` + `Log.CloseAndFlush()`.
 
+**CLI branch (before the web host boots):** `Program.cs` returns `int` and intercepts `reset-admin-password [email]` at the top — the offline admin lockout-recovery utility (`Maintenance/AdminPasswordResetCommand.cs`, wrapping the Application-layer `AdminPasswordRecoveryService`). Local-mode-only, direct-DB, one-shot with an exit code; no web endpoint. Usage: `dotnet run --project ClinicManagement.API -- reset-admin-password [admin-email]`. See `features/windows-desktop-app/ADMIN_RECOVERY.md`.
+
 ## Key configuration keys (`appsettings.json` / `appsettings.Development.json`) — names only
 - `ConnectionStrings:DefaultConnection` (PostgreSQL; also Hangfire storage)
+- `Auth:Mode` (`Cloud`|`Local`), `Auth:Local:SigningKey` (optional per-install HS256 key; else generated `.local/signing-key`)
 - `Auth0:{Domain,Audience}`, `Auth0:ManagementApi:{ClientId,ClientSecret}`
 - `GoogleCalendar:{ClientId,ClientSecret,RedirectUri,RefreshToken,CalendarId}`
 - `HuggingFace:{ApiKey,Model}` (and optional `GoogleAI:*`)

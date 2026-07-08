@@ -6,8 +6,8 @@ Feature/screen components for the clinic frontend. `components/ui/` holds shadcn
 
 | File | What it renders / does |
 |------|------------------------|
-| `dashboard-sidebar.tsx` | Left nav (Dashboard, Appointments, Patients, Procedure Types, Records, Documents, Files, Stock, Settings). Collapsible via `useSidebar()`; persists collapse state. |
-| `dashboard-header.tsx` | Top bar with user avatar/menu (Auth0 `useUser`), logout. Shared across all app pages. |
+| `dashboard-sidebar.tsx` | Left nav (Dashboard, Appointments, Patients, Procedure Types, Records, Documents, Files, Stock, Settings). Adds an admin-only **Users** entry in local mode (`mode==='local' && role==='admin'`). Collapsible via `useSidebar()`; persists collapse state. |
+| `dashboard-header.tsx` | Top bar with user avatar/menu + logout, via the unified `useSession()` (not Auth0 `useUser` directly). Local mode adds a **Change password** menu item; **Settings** navigates to `/settings`. |
 | `clinic-guard.tsx` | Route gate. Uses `useClinicAccess`; renders children only if user belongs to a clinic, else `unauthorized-page` / redirect. Wraps every protected page. |
 | `unauthorized-page.tsx` | "Access Restricted" screen shown when user has no clinic. |
 | `stats-card.tsx` | Small KPI card (title, value, icon, description, `default`/`urgent` variant). Used on dashboard. |
@@ -27,8 +27,10 @@ Feature/screen components for the clinic frontend. `components/ui/` holds shadcn
 | `stock-table.tsx` | Inventory table with delete confirm — **sample data, not API-backed**. |
 | `stock-item-form-modal.tsx` | Create/edit stock item modal — local state only. |
 | `clinic-settings.tsx` | Clinic profile + doctors management (name, address, logo upload, add/remove doctors) via `clinicsApi`. |
-| `setup-wizard.tsx` | First-run clinic creation wizard (FR; Tunisian governorates). Calls `clinicsApi.create`. |
-| `join-wizard.tsx` | Join-clinic-by-code wizard (role, specialty). Calls `clinicsApi.join`. |
+| `setup-wizard.tsx` | First-run clinic creation wizard (FR; Tunisian governorates). Calls `clinicsApi.create`; in local mode also collects the admin account (full name, email, password) → `/auth/setup`. |
+| `join-wizard.tsx` | Join-clinic-by-code wizard (role, specialty). Calls `clinicsApi.join`; in local mode collects account fields (name/email/password) and self-registers via `clinicsApi.register` → `/auth/register`. |
+| `user-management.tsx` | **Local, admin-only** (`/users`): users table (status + must-change badge + last login) with reset-password (temp shown once in a dialog) and deactivate/reactivate, each behind a confirm dialog; clinic-code display + Regenerate. Own row's Deactivate disabled (mirrors backend self-deactivation guard). |
+| `change-password-form.tsx` | **Local** (`/change-password`): current/temp + new + confirm; posts to `/api/auth/change-password` (clears the forced-change cookie on success). |
 | `document-editor-content.tsx` | Editor for medical documents (ordonnance, lettre de liaison, etc.); generates/exports PDF via `medicalDocumentsApi`. Rendered by `/documents/[type]`. |
 | `ai-chat.tsx` | Floating AI assistant widget (mounted globally in `layout.tsx`). Calls `aiChatApi.chat`. |
 

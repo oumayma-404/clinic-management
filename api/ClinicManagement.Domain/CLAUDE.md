@@ -36,7 +36,7 @@
 | `Appointment` | `Entities/Appointment.cs` | State machine over `AppointmentStatus` via `Confirm/Start/Complete/Cancel/MarkAsNoShow/Reschedule`. Optional `PatientId`, free-text `DoctorId`/`DoctorName`, optional `ProcedureTypeId` (+ snapshot duration/color). Holds `GoogleCalendarEventId` for sync. **Raises `AppointmentCreatedEvent`** (ctor, if patient set), **`AppointmentConfirmedEvent`** (`Confirm`), **`AppointmentRescheduledEvent`** (`Reschedule`). |
 | `Clinic` | `Entities/Clinic.cs` | Tenant root. `Name`, contact info, unique join `Code`, `LogoUrl` (MinIO key). Owns `Users`, `Patients`, `Appointments`. |
 | `Doctor` | `Entities/Doctor.cs` | Doctor profile in a clinic; `LinkToUser(userId)` ties it to an Auth0 `User`. `FullName` computed. |
-| `User` | `Entities/User.cs` | **`AggregateRoot<string>`** — Id is the **Auth0 `sub`**. `Role` string ("doctor"/"secretary"/"admin") with `IsDoctor/IsSecretary/IsAdmin` helpers. Belongs to a `Clinic`. |
+| `User` | `Entities/User.cs` | **`AggregateRoot<string>`** — Id is the **Auth0 `sub`** (Cloud) or `local\|{guid}` (Local mode). `Role` string ("doctor"/"secretary"/"admin") with `IsDoctor/IsSecretary/IsAdmin` helpers. Belongs to a `Clinic`. **Local-auth fields (Phase 1):** nullable `PasswordHash`, `MustChangePassword`, `IsActive`, plus lockout state (`FailedLoginAttempts`, `LockoutEnd`). Factory `CreateLocalUser(...)` (trims + lowercases the email); `SetPassword(hash, mustChangePassword)` also clears lockout/failed-attempt state; `Activate()`/`Deactivate()`; failed-login + lockout methods. Cloud users leave `PasswordHash` null. |
 | `ProcedureType` | `Entities/ProcedureType.cs` | Catalog of procedures: `Name`, `DefaultDurationMinutes` (1–479), `DefaultCost`, `Color` (`ColorHex` VO), active flag. `IsUsedByFutureAppointments(...)` guards deletion. |
 | `StockItem` | `Entities/StockItem.cs` | Inventory item. `AddStock/RemoveStock` (with guards), `UpdateStockLevels`, `IsLowStock()/IsOutOfStock()`. |
 
@@ -95,7 +95,7 @@ Async, `CancellationToken`-aware contracts implemented in the Infrastructure lay
 | `IPatientRepository` | `GetByIdWithAppointmentsAsync`, `GetByClinicIdAsync`, `GetFlaggedPatientsAsync`, `AddMedical/FamilyHistoryEntryAsync` |
 | `IAppointmentRepository` | `GetByClinicIdAsync(date range)`, `GetUpcomingAppointmentsAsync`, `GetAppointmentsForDateAsync`, `GetByProcedureTypeIdAsync` |
 | `IClinicRepository` | `GetByCodeAsync`, `GetByNameAsync`, `CodeExistsAsync` |
-| `IUserRepository` | `GetByAuth0SubAsync`, clinic scoping; sync `Update`/`Remove` |
+| `IUserRepository` | `GetByAuth0SubAsync`, `GetByEmailAsync` (Local login; filters `PasswordHash IS NOT NULL`), clinic scoping; sync `Update`/`Remove` |
 | `IDoctorRepository` | `GetByClinicIdAsync`, `GetByUserIdAsync` |
 | `IProcedureTypeRepository` | `GetActiveAsync`, `GetByNameAsync`, `ExistsByNameAsync` |
 | `IDentalRecordRepository` | `GetByPatientIdAsync` |
@@ -110,7 +110,7 @@ Async, `CancellationToken`-aware contracts implemented in the Infrastructure lay
 - **`IPatientSummaryService`** (`Services/IPatientSummaryService.cs`) — `GenerateSummaryAsync(Patient, Appointment, ...)`; produces an AI summary (implemented in Infrastructure).
 
 ## Gotchas
-- `User` is keyed by **string** (Auth0 sub), unlike all other `Guid`-keyed types.
+- `User` is keyed by **string** — the Auth0 `sub` in Cloud mode, or `local|{guid}` in Local mode — unlike all other `Guid`-keyed types.
 - `Appointment.PatientId` and `DoctorId` are optional — appointments can be "blocked"/occupied slots without a patient; events only fire when a patient is present.
 - `Appointment` keeps **denormalized snapshots** of procedure duration/color; `MedicalDocument` snapshots patient/clinic/doctor data — these are intentional, not normalized FKs.
 - `ColorHex` palette must stay in sync with the frontend `COLOR_PALETTE`.

@@ -40,7 +40,7 @@ Each command/query file typically contains **both** the request class (`IRequest
 | **Files** | `CreatePatientFolderCommand`, `DeletePatientFolderCommand`, `UploadPatientFileCommand`, `DeletePatientFileCommand`, `InitializeDefaultFoldersCommand` | `GetPatientFoldersQuery`, `GetPatientFilesQuery`, `DownloadPatientFileQuery` | — |
 | **Documents** | Create/Update/Delete `MedicalDocumentCommand` | `GetMedicalDocumentQuery`, `GetMedicalDocumentsQuery` | — |
 | **Users** | `ResetUserPasswordCommand`, `SetUserActiveCommand` (admin-only) | `ListUsersQuery` (admin-only; users + status) | — |
-| **Auth** | `LoginCommand`, `ChangePasswordCommand` | — | — |
+| **Auth** (Local mode) | `LoginCommand` (email+password → JWT; rejects inactive/locked; generic `InvalidCredentialsError`), `ChangePasswordCommand` (clears `MustChangePassword`) | — | — |
 | **AI** | `ChatCommand` (+ `ChatCommandHandler.cs` as a separate handler file) | — | — |
 
 ### Event handlers
@@ -62,7 +62,8 @@ Domain events (`IDomainEvent : INotification`) are handled here via `INotificati
 | `IGoogleCalendarService` | Low-level Google Calendar CRUD; exposes `GoogleCalendarEvent`. |
 | `IGoogleCalendarSyncService` | Two-way sync of appointments ↔ Google Calendar. |
 | `IPdfGenerationService` | Generate PDF from `MedicalDocumentPdfData`. |
-| `IAuth0ManagementService` | Push `clinic_id`/`role` into Auth0 `app_metadata`. |
+| `IAuth0ManagementService` | Push `clinic_id`/`role` into Auth0 `app_metadata`. Local mode wires a no-op impl. |
+| `ILocalAuthService` | Local-mode auth (Phase 1): `HashPassword`/`VerifyPassword` (ASP.NET `PasswordHasher`, PBKDF2), `GenerateToken` (HS256 JWT via the per-install key), `GenerateTemporaryPassword` (CSPRNG). Impl in Infrastructure. |
 | `IAIActionService` | Decide & execute AI-driven actions (defines `AIActionRequest`/`AIActionResult`). |
 | `IGoogleAIService` / `IHuggingFaceAIService` | Chat completions for the AI feature; define message/response/token DTOs. |
 
@@ -70,6 +71,7 @@ Domain events (`IDomainEvent : INotification`) are handled here via `INotificati
 Plain request/response records used by handlers & controllers: `PatientDto`, `AppointmentDto`, `ClinicDto`, `DoctorPersonalInfoDto`, `UserDto`, `UserStatusDto`, `AddressDto`, `InsuranceInfoDto`, `PatientFlagDto`, `PatientMedicalHistoryDto`, `PatientFamilyHistoryDto`, `DentalRecordDto`, `PatientFileDto`, `MedicalDocumentDto`, `ProcedureTypeDto`, plus request shapes `CreateClinicRequest`, `JoinClinicRequest`, `UpdateDoctorsRequest`. `Common/Models/MedicalDocumentPdfData.cs` is the PDF-generation model.
 
 ## Cross-cutting — `Common/`
+- **Maintenance** (`Common/Maintenance/`): `AdminPasswordRecoveryService` — the testable core of the offline admin-lockout recovery utility (find admin → temp password → `SetPassword` → persist). Deliberately **not** DI-registered (no HTTP-reachable reset path); driven only by the `reset-admin-password` CLI wrapper in the API project. Lives here because `UnitTests` references only Application.
 - **Exceptions** (`Common/Exceptions/`): `NotFoundException`, `ForbiddenAccessException`, and **`ExceptionMiddleware`** (ASP.NET middleware mapping these to 404/403, everything else → 500 with a generic JSON body).
 - **Authorization** (`Common/Authorization/`): policy-based.
   - `AuthorizationPolicies.cs` — policy names `DoctorOrSecretary`, `DoctorOnly`, `SecretaryOnly`, `AdminOnly` + `ConfigurePolicies(...)`.
@@ -80,4 +82,5 @@ Plain request/response records used by handlers & controllers: `PatientDto`, `Ap
 - **No FluentValidation validators are defined yet** — `ValidationBehavior` runs but finds none; validation is inline in handlers via `Result.Failure`.
 - Clinic scoping is resolved per-request from the DB (`User.ClinicId`), not just from the JWT `clinic_id` claim.
 - Some handlers swallow non-critical failures (e.g. Auth0 metadata update in `CreateClinicCommand`) so the core use case still succeeds.
+- **`CreateClinicCommand` / `JoinClinicCommand` are dual-path**: a non-null `Password` on the request switches them into the Local first-run / self-registration branch (creates a password-backed `User`); a null `Password` keeps the original Cloud/Auth0 flow. Only the Local-mode `AuthController` endpoints (`setup`/`register`) ever set `Password`.
 - Two parallel file-storage interfaces exist (`IFileStorage`, `IFileStorageService`) and two AI chat providers (`IGoogleAIService`, `IHuggingFaceAIService`) — check which the relevant handler injects.

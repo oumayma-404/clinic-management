@@ -1,6 +1,6 @@
 # web/ — Clinic Management Frontend
 
-Next.js 15 (App Router) frontend for the dental/medical clinic management system. Talks to a separate .NET API. Auth via Auth0.
+Next.js 15 (App Router) frontend for the dental/medical clinic management system. Talks to a separate .NET API. **Auth is pluggable** (`AUTH_MODE`): **cloud** = Auth0; **local** = email+password backed by an HttpOnly session cookie (offline LAN installs). Consumers read a unified `useSession()` seam, not Auth0 directly.
 
 ## Tech Stack
 
@@ -26,7 +26,8 @@ Dockerized via `web/Dockerfile`.
 | Var | Purpose |
 |-----|---------|
 | `NEXT_PUBLIC_API_URL` | Base URL of the .NET API (default fallback `http://localhost:5000/api`). Read in `lib/api/client.ts`. |
-| `AUTH0_SECRET`, `AUTH0_DOMAIN`, `AUTH0_ISSUER_BASE_URL`, `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET`, `AUTH0_AUDIENCE`, `AUTH0_BASE_URL`, `APP_BASE_URL` | Auth0 config (server-side). `AUTH0_AUDIENCE` enables API access tokens. |
+| `AUTH_MODE` | `cloud` (default) or `local`. Read server-side (`lib/auth/local-auth.ts`); selects the session provider and gates the Local-only `/api/auth/*` routes and middleware behavior. Delivered to the browser via SSR (`useSession().mode`). |
+| `AUTH0_SECRET`, `AUTH0_DOMAIN`, `AUTH0_ISSUER_BASE_URL`, `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET`, `AUTH0_AUDIENCE`, `AUTH0_BASE_URL`, `APP_BASE_URL` | Auth0 config (server-side, cloud mode). `AUTH0_AUDIENCE` enables API access tokens. |
 
 ## How the frontend talks to the .NET API
 
@@ -37,19 +38,24 @@ Dockerized via `web/Dockerfile`.
 
 ## Auth & route protection
 
-- **`middleware.ts`**: routes `/auth/*` to Auth0; allows public routes `/login`, `/setup`, `/join`; otherwise requires an Auth0 session or redirects to `/auth/login?returnTo=...`.
+- **`middleware.ts`** is mode-branched (`resolveAuthMode()`):
+  - **cloud**: routes `/auth/*` to Auth0; allows public `/login`, `/setup`, `/join`; else requires an Auth0 session or redirects to `/auth/login?returnTo=...`.
+  - **local**: gates protected routes on the `local_session` HttpOnly cookie (redirect to `/login`), skips Auth0 entirely, and forces users with the `local_must_change_password` cookie onto `/change-password`.
+- **The session seam** (`lib/auth/session.tsx`): a single `useSession()` context — `{ user, mode, isLoading, logout }` — backed by `CloudSessionProvider` (bridges Auth0 `useUser`) or `LocalSessionProvider` (reads `/api/auth/session` from the cookie; 30-min inactivity auto-logout). All ~5 former `useUser` consumers read this instead. SSR-tolerant (returns a loading default when no provider is in scope).
 - **Clinic-membership** is enforced client-side, not in middleware: pages wrap content in **`<ClinicGuard>`** (`components/clinic-guard.tsx`), which uses `useClinicAccess` to verify the user belongs to a clinic (else shows `unauthorized-page` / redirects to `/setup`).
-- `app/layout.tsx` wraps the app in `Auth0Provider` + `SidebarProvider`, mounts the global `<Toaster>` and the floating `<AIChat>` widget.
+- `app/layout.tsx` (a server component) reads `AUTH_MODE` and mounts either `CloudSessionProvider` (with `Auth0Provider` inside) or `LocalSessionProvider`, plus `SidebarProvider`, the global `<Toaster>`, and the floating `<AIChat>` widget.
 
 ## Folder Structure
 
 ```
 web/
   app/                 App Router pages, layouts, route handlers
-    api/auth/token/    Route handler exposing Auth0 access token to the client
+    api/auth/          token/ (mode-aware JWT for the client), session/ (decode local cookie → {email,role}),
+                       local-login/ + local-logout/ (set/clear session + must-change cookies), change-password/ (proxy)
   components/          Feature components (+ components/ui = shadcn primitives)  -> see components/CLAUDE.md
   lib/
     api/               fetch wrapper (client.ts) + per-resource API modules + types.ts
+    auth/              session.tsx (useSession seam + Cloud/Local providers), local-auth.ts (AUTH_MODE + cookie names)
     hooks/             data-fetching / auth hooks
     auth0.ts           Auth0Client (server) config
     utils.ts           cn() classname helper
@@ -76,9 +82,11 @@ All app pages are client components (`"use client"`) that render `DashboardSideb
 | `/files` | `app/files/page.tsx` | Global file browser across patients (folders, upload, preview, download) |
 | `/stock` | `app/stock/page.tsx` | Stock/inventory table + item form modal (**sample data, no API yet**) |
 | `/settings` | `app/settings/page.tsx` | Clinic settings (`ClinicSettings`) |
-| `/login` | `app/login/page.tsx` | Auth0 sign-in landing (redirects authed users to `/setup`) |
-| `/setup` | `app/setup/page.tsx` | First-run wizard: create a clinic (`SetupWizard`) |
-| `/join` | `app/join/page.tsx` | Join existing clinic via code (`JoinWizard`) |
+| `/login` | `app/login/page.tsx` | Mode-aware: Auth0 sign-in landing (cloud) **or** a local email+password form (local) |
+| `/setup` | `app/setup/page.tsx` | First-run wizard: create a clinic (`SetupWizard`); local mode also collects the admin account |
+| `/join` | `app/join/page.tsx` | Join existing clinic via code (`JoinWizard`); local mode skips the session gate (self-registration) |
+| `/users` | `app/users/page.tsx` | **Local, admin-only**: user management + clinic-code regenerate (`UserManagement`) |
+| `/change-password` | `app/change-password/page.tsx` | **Local**: forced/voluntary password change (`ChangePasswordForm`) |
 
 ## Conventions
 

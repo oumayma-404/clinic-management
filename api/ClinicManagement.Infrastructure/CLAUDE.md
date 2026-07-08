@@ -24,6 +24,7 @@ Migrations exist and are applied automatically at startup (`context.Database.Mig
 - `AddMedicalDocuments` / `AddMedicalDocumentsFiles` — `MedicalDocument` table + PDF/file fields.
 - `MakeAppointmentPatientIdNullable` — patient-less "busy slot" appointments.
 - `addclinics`, `addUsers`, `addDoctors`, `addLogoUrl`, `updateDoctorConfig` — multi-tenant clinic/user/doctor model (Clinic, User, Doctor entities; logo URL).
+- `AddLocalAuthUserFields` — Local-auth `User` columns (`PasswordHash`, `MustChangePassword`, `IsActive`, lockout fields) + a **partial unique index on lowercased email** (filtered to `PasswordHash IS NOT NULL`, so Cloud rows are unaffected). Additive + defaulted → safe for existing Cloud DBs.
 
 ## Repositories (`Repositories/`)
 Concrete EF Core implementations of Domain repo interfaces. Pattern: ctor-inject `ApplicationDbContext`, `GetById*` uses `.Include(...)` for needed graphs, mutations (`AddAsync`/`UpdateAsync`/`DeleteAsync`) only stage changes (no `SaveChanges` — UoW commits).
@@ -70,6 +71,11 @@ Note: `PatientRepository.UpdateAsync` is careful with tracked vs detached entiti
 - **`PdfGenerationService`** (`IPdfGenerationService`) — QuestPDF (Community license). Renders French medical documents: `prescription` (ORDONNANCE), `liaison`, `honoraires`, `certificat`. Parses `MedicalDocumentPdfData.Content` (handles both JSON-array and legacy string formats).
 - **`Auth0ManagementService`** (`IAuth0ManagementService`) — calls Auth0 Management API to set user `app_metadata` (`clinic_id`, `role`). Non-critical: failures are logged and swallowed (user already exists in DB).
 
+### Local auth (`Auth/`) — Phase 1, Local mode only
+- **`LocalAuthService`** (`ILocalAuthService`) — password hash/verify via ASP.NET `PasswordHasher<User>` (PBKDF2-HMAC-SHA256, per-user salt, constant-time verify), HS256 JWT issuance (claims `sub`/`clinic_id`/`role`/`email`/`jti`, 12h default lifetime), and CSPRNG temp-password generation (`RandomNumberGenerator`, unambiguous alphabet).
+- **`LocalAuthConfig`** — resolves the per-install signing key: explicit `Auth:Local:SigningKey`, else a generated 512-bit key persisted to a gitignored `.local/signing-key`. The **same** path is used by issuer and validator (in API `Program.cs`) so they can't drift. Also `IsLocalMode(config)`. (Signing key is never committed / never in `appsettings.json`.)
+- **`NoOpAuth0ManagementService`** — the `IAuth0ManagementService` wired in Local mode (no Auth0 tenant to update).
+
 ## DI Registration (`Extensions.cs` — `AddInfrastructure(services, configuration)`)
 - `ApplicationDbContext` via `UseNpgsql("DefaultConnection")`; `IUnitOfWork` scoped.
 - All repositories scoped (table above).
@@ -77,8 +83,9 @@ Note: `PatientRepository.UpdateAsync` is careful with tracked vs detached entiti
 - `IFileStorageService` → `LocalFileStorageService` (**singleton**, base path `FileStorage:BasePath`).
 - `IFileStorage` → `MinioFileStorage` (**scoped**) only if `MinIO:Endpoint/AccessKey/SecretKey` present; otherwise a stub that throws on use. `IMinioClient` registered as singleton when configured.
 - `INotificationService` → `NotificationService` (scoped, config injected explicitly).
-- `IPatientSummaryService`, `IGoogleCalendarService`, `IGoogleCalendarSyncService`, `IPdfGenerationService`, `IHuggingFaceAIService`, `IAIActionService`, `IAuth0ManagementService` — all scoped.
-- **Not registered here:** `GoogleAIService` (dead/optional).
+- `IPatientSummaryService`, `IGoogleCalendarService`, `IGoogleCalendarSyncService`, `IPdfGenerationService`, `IHuggingFaceAIService`, `IAIActionService` — all scoped.
+- **Auth-mode-branched** (`Auth:Mode`): Local → `ILocalAuthService` → `LocalAuthService` and `IAuth0ManagementService` → `NoOpAuth0ManagementService`; Cloud → the real `Auth0ManagementService`.
+- **Not registered here:** `GoogleAIService` (dead/optional). `AdminPasswordRecoveryService` is intentionally left out (console-only, no injectable reset path).
 
 ## Config keys consumed (names only)
-`ConnectionStrings:DefaultConnection`, `FileStorage:BasePath`, `MinIO:{Endpoint,AccessKey,SecretKey,BucketName,UseSSL}`, `Notification:Smtp:{Server,Port,Username,Password}`, `Notification:Sms:{ApiKey,ApiUrl}`, `GoogleCalendar:{ClientId,ClientSecret,RefreshToken,CalendarId,RedirectUri}`, `HuggingFace:{ApiKey,Model}`, `GoogleAI:{ApiKey,Model,ApiVersion}`, `Auth0:{Domain,ManagementApi:ClientId,ManagementApi:ClientSecret}`.
+`ConnectionStrings:DefaultConnection`, `FileStorage:BasePath`, `MinIO:{Endpoint,AccessKey,SecretKey,BucketName,UseSSL}`, `Notification:Smtp:{Server,Port,Username,Password}`, `Notification:Sms:{ApiKey,ApiUrl}`, `GoogleCalendar:{ClientId,ClientSecret,RefreshToken,CalendarId,RedirectUri}`, `HuggingFace:{ApiKey,Model}`, `GoogleAI:{ApiKey,Model,ApiVersion}`, `Auth0:{Domain,ManagementApi:ClientId,ManagementApi:ClientSecret}`, `Auth:Mode` (`Cloud`|`Local`), `Auth:Local:SigningKey` (optional; else generated `.local/signing-key`).
