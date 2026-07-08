@@ -83,6 +83,11 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
   const renderSyncControls = (appointment: AppointmentDto) => {
     if (appointment.isSyncedToGoogle) return null
     if (!appointment.patientId || appointment.patientName === "Occupé") return null
+    // Cancelled/completed appointments intentionally carry no Google event (the sync service deletes
+    // it); don't advertise "push to Google" for them — the badge is for appointments not yet synced
+    // (e.g. created offline), per AC-6.6.
+    const status = appointment.status.toLowerCase()
+    if (status === "cancelled" || status === "completed") return null
 
     return (
       <div className="mt-0.5 flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>

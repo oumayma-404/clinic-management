@@ -7,7 +7,9 @@
 
 | Story | Layer | Name | Status | Depends On |
 |-------|-------|------|--------|------------|
-| 1 | Full | Connectivity awareness & offline UX | implemented | - |
+| 1 | Full | Connectivity awareness & offline UX | reviewed | - |
+
+> **Reviewed 2026-07-08** — score 100/100. See [../reviews/story-1.md](../reviews/story-1.md). 1 Minor finding fixed during review (sync badge/push hidden on cancelled/completed appointments); quality gate re-verified clean.
 
 ## Test Plan Coverage
 
