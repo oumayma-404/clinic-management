@@ -172,6 +172,15 @@ export const clinicsApi = {
     return result.value;
   },
 
+  // AC-4.5: regenerate the clinic's self-registration code (admin-only), invalidating the old one.
+  regenerateCode: async (): Promise<ClinicDto> => {
+    const result = await apiPost<Result<ClinicDto>>('/clinics/regenerate-code', {});
+    if (!result.isSuccess || !result.value) {
+      throw new Error(result.error || 'Failed to regenerate clinic code');
+    }
+    return result.value;
+  },
+
   updateDoctors: async (doctors: DoctorDto[]): Promise<DoctorDto[]> => {
     // Send doctors array directly, backend expects UpdateDoctorsRequest with Doctors property
     const result = await apiPut<Result<DoctorDto[]>>('/clinics/doctors', { doctors: doctors });

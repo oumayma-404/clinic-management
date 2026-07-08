@@ -1,9 +1,10 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { auth0 } from './lib/auth0';
-import { SESSION_COOKIE, resolveAuthMode } from './lib/auth/local-auth';
+import { SESSION_COOKIE, MUST_CHANGE_COOKIE, resolveAuthMode } from './lib/auth/local-auth';
 
 const PUBLIC_ROUTES = ['/login', '/setup', '/join'];
+const CHANGE_PASSWORD_ROUTE = '/change-password';
 
 // Dual-mode middleware: Local (offline cookie session) or Cloud (Auth0), by AUTH_MODE.
 export async function middleware(request: NextRequest) {
@@ -25,6 +26,14 @@ export async function middleware(request: NextRequest) {
       loginUrl.searchParams.set('returnTo', pathname);
       return NextResponse.redirect(loginUrl);
     }
+
+    // AC-5.2: a user whose password was reset must change it before using the app. While the
+    // flag cookie is set, force them onto /change-password (the route clears it on success).
+    const mustChange = request.cookies.get(MUST_CHANGE_COOKIE)?.value === '1';
+    if (mustChange && pathname !== CHANGE_PASSWORD_ROUTE) {
+      return NextResponse.redirect(new URL(CHANGE_PASSWORD_ROUTE, request.url));
+    }
+
     return NextResponse.next();
   }
 

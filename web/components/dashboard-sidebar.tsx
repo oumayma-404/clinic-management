@@ -3,8 +3,9 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
-import { Calendar, Users, FileText, Settings, LayoutDashboard, Stethoscope, Package, FileCheck, ChevronLeft, ChevronRight, FolderOpen } from "lucide-react"
+import { Calendar, Users, FileText, Settings, LayoutDashboard, Stethoscope, Package, FileCheck, ChevronLeft, ChevronRight, FolderOpen, UserCog } from "lucide-react"
 import { useSidebar } from "@/contexts/sidebar-context"
+import { useSession } from "@/lib/auth/session"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
@@ -20,9 +21,16 @@ const navigation = [
   { name: "Settings", href: "/settings", icon: Settings },
 ]
 
+// Admin-only entry, shown only for local-mode admins (offline user management — AC-5.4).
+const adminNavItem = { name: "Users", href: "/users", icon: UserCog }
+
 export function DashboardSidebar() {
   const pathname = usePathname()
   const { isCollapsed, toggleSidebar } = useSidebar()
+  const { user, mode } = useSession()
+
+  const navItems =
+    mode === "local" && user?.role === "admin" ? [...navigation, adminNavItem] : navigation
 
   return (
     <aside
@@ -46,7 +54,7 @@ export function DashboardSidebar() {
       {/* Navigation */}
       <nav className="flex-1 space-y-1 p-4">
         <TooltipProvider>
-          {navigation.map((item) => {
+          {navItems.map((item) => {
             const isActive = pathname === item.href
             const linkContent = (
               <Link

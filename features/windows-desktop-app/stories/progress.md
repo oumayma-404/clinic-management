@@ -13,8 +13,8 @@
 | 3 | FE | Local login + first-run setup UI | done (review skipped by user) |
 | 4 | BE | Staff self-registration API | done (review skipped by user) |
 | 5 | FE | Staff registration UI | done (review skipped by user) |
-| 6 | BE | Admin user-management API | implemented |
-| 7 | FE | Admin user-management UI | not-started |
+| 6 | BE | Admin user-management API | done (review skipped by user) |
+| 7 | FE | Admin user-management UI | implemented |
 | 8 | BE | Admin lockout-recovery utility | not-started |
 
 ## Working tree note (start of session)
@@ -138,9 +138,34 @@
 - **Deferred to manual (no Docker this session):** admin lists → reset → target forced to change at next login; deactivate → login rejected → reactivate → login OK; non-admin → 403; regenerate code invalidates the old one.
 
 ## Story 6 — Review / test execution
-- `/review-story` — **skipped by user request** (`/next skip review`, 2026-07-08).
+- `/review-story` — **skipped by user request** (`/next skip review`, 2026-07-08). Story 6 → **done**.
 - `/story-e2e` — ⊘ auto-skipped (Layer: BE).
 - `/story-api-tests` / `/story-integration-tests` — ⊘ auto-skipped (Postman never run / no integration test plan APPROVED).
+
+## Story 7 — Steps (FE: Admin user-management UI)
+- [x] 1. Admin user-management page (`/users` + `user-management.tsx`): users table (name, email, role, status + "must change password" badge, last login) with **reset-password** and **deactivate/reactivate** actions, each behind a confirm `AlertDialog` (AC-5.1/5.2/5.3).
+- [x] 2. Clinic code shown on the page with a **Regenerate** action (confirm dialog) → `clinicsApi.regenerateCode()` → `POST /clinics/regenerate-code` (AC-4.5).
+- [x] 3. Reset-password shows the returned temporary password once in a `Dialog` (copy-to-clipboard) for the admin to relay (AC-5.2).
+- [x] 4. **Force-password-change screen** (`/change-password` + `change-password-form.tsx`): current/temp + new + confirm; posts to a new `/api/auth/change-password` route that proxies the .NET `/auth/change-password` with the cookie JWT and clears the forced-change flag on success. Middleware forces the user onto this screen while the flag is set (AC-5.2). Also reachable voluntarily from the header menu (Local mode).
+- [x] 5. Management page hidden for non-admins: admin-only sidebar entry (`mode==='local' && role==='admin'`) + an in-page "Admins only" gate (AC-5.4); the API is `AdminOnly` (403) as the server-side backstop.
+
+## Story 7 — Endpoints / client
+- `web/lib/api/users.ts` (new) — `usersApi.list` / `resetPassword` / `setStatus` over `GET /users`, `POST /users/{id}/reset-password`, `PUT /users/{id}/status` (all return the unwrapped value, matching `UsersController`).
+- `web/lib/api/clinics.ts` — added `regenerateCode()` (`POST /clinics/regenerate-code`, `Result<ClinicDto>` unwrapped).
+- New routes/pages: `app/users/page.tsx`, `app/change-password/page.tsx`, `components/user-management.tsx`, `components/change-password-form.tsx`, `app/api/auth/change-password/route.ts`.
+- Modified: `middleware.ts` (Local force-change gate), `app/api/auth/local-login/route.ts` + `local-logout/route.ts` (set/clear the flag cookie), `lib/auth/local-auth.ts` (`MUST_CHANGE_COOKIE`), `dashboard-sidebar.tsx` (admin nav), `dashboard-header.tsx` (change-password menu item).
+
+## Story 7 — Verification
+- **Typecheck:** `npx tsc --noEmit` clean.
+- **Build:** `npm run build` succeeds; all 17 routes compile (new `/users`, `/change-password`, `/api/auth/change-password`). No new warnings.
+- **No FE unit-test runner** in the repo; E2E deferred (`/story-e2e` auto-skips — no `test-plan-e2e.md`).
+- **Cloud parity:** every new behavior is mode-gated on Local (`AUTH_MODE`): the force-change middleware block is inside the existing `resolveAuthMode() === 'local'` branch; the admin sidebar entry and header change-password item require `mode==='local'`; the new `/api/auth/*` routes are Local-only. Cloud path unchanged.
+- **Deferred to manual (no dev server/API this session):** admin lists → reset → temp shown → target forced to change at next login; deactivate → login rejected → reactivate → login OK; non-admin cannot see/reach `/users`; regenerate invalidates the old code.
+
+## Story 7 — Review / test execution
+- `/review-story` — **skipped by user request** (`/next skip review`, 2026-07-08).
+- `/story-e2e` — ⊘ auto-skipped (no `test-plan-e2e.md` APPROVED).
+- `/story-api-tests` / `/story-integration-tests` — ⊘ auto-skipped (Layer: FE).
 
 ## Structural notes / decisions
 - **JWT package location:** the plan assumed `JwtSecurityTokenHandler` was transitively available in Infrastructure via JwtBearer, but JwtBearer is only referenced by the API project. Since the plan places `LocalAuthService` in Infrastructure, adding `System.IdentityModel.Tokens.Jwt` to the Infrastructure project (alongside the planned `Microsoft.Extensions.Identity.Core`). Consistent with the plan's intent.
@@ -166,6 +191,12 @@
 | (Story 6) `ILocalAuthService.GenerateTemporaryPassword()` new interface method | Trivial | Reset needs a secure temp password; the auth service is its natural home (alongside hashing/JWT). Crypto-random (`RandomNumberGenerator`), 12 chars, unambiguous alphabet. Both impls are ours; additive. |
 | (Story 6) `SetUserActiveCommand` rejects an admin deactivating **their own** account | Defensive (uncertain→documented) | Not in spec, but a self-deactivation would be an unrecoverable lockout in Phase 1 (the recovery utility, Story 8, resets a password, not the active flag). A one-line guard prevents a footgun; all other (de)activations behave exactly as AC-5.3 specifies. |
 | (Story 6) Admin-only enforced by BOTH `[Authorize(Policy = AdminOnly)]` (endpoints) and inline `IsAdmin()` (handlers) | Trivial (plan-directed) | Plan step 5: "enforce admin-only via role check on these endpoints." Policy gives the correct 403 (AC-5.4); the inline DB-sourced check is defense-in-depth and unit-testable without HTTP. |
+| (Story 7) Force-change gating via a `local_must_change_password` cookie + a Local-mode middleware redirect | Trivial (stated requirement, no specified mechanism) | The app JWT carries no `mustChangePassword` claim (Story 1), so the flag can't be read from the session. Login sets an HttpOnly flag cookie when `mustChangePassword`; the middleware forces `/change-password` while set; the change-password proxy route clears it on success. All within the `web` project, mode-gated to Local — no API contract change, Cloud path untouched. Realizes Story 7 step 4 / AC-5.2. |
+| (Story 7) User management as a dedicated `/users` page + admin-only sidebar entry (not nested "under settings") | Trivial | Step 1 says "under settings"; the story's own Files list says "dashboard-sidebar.tsx / settings — nav entry (admin-only)". A discoverable top-level page reachable via an admin-only sidebar entry satisfies the intent and AC-5.4. |
+| (Story 7) Clinic code + Regenerate placed on the `/users` (admin) page rather than in `ClinicSettings` | Trivial | Regenerate is admin-only (AC-4.5); the read-only code already shows in `ClinicSettings` for everyone. Co-locating the admin action with the admin screen keeps the admin-only mutation in one place. |
+| (Story 7) Change-password submits via a new `/api/auth/change-password` Next route (proxy) instead of calling the .NET endpoint directly | Trivial | The route both attaches the cookie JWT as Bearer (same pattern as `local-login`) and clears the forced-change flag cookie server-side on success. Cookie clearing must happen server-side. |
+| (Story 7) Removed the dead "Profile" header menu item and wired the "Settings" item to navigate | Trivial (Scout rule) | `Profile` had no handler (dead UI); `Settings` was inert. Now `Settings` routes to `/settings` and (Local) a `Change password` item is added. |
+| (Story 7) `/users` non-admin gate renders an inline "Admins only" card instead of reusing `unauthorized-page` | Trivial | `unauthorized-page` is clinic-membership specific (Create/Join clinic CTAs), wrong copy for a role gate. A focused card with a back-to-dashboard action fits AC-5.4. |
 
 ## Significant Deviations
 (none)

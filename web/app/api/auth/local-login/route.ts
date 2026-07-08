@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { SESSION_COOKIE } from '@/lib/auth/local-auth';
+import { SESSION_COOKIE, MUST_CHANGE_COOKIE } from '@/lib/auth/local-auth';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -33,7 +33,8 @@ export async function POST(request: NextRequest) {
     }
 
     const { accessToken, expiresAt, mustChangePassword } = data.value;
-    const response = NextResponse.json({ mustChangePassword: Boolean(mustChangePassword) });
+    const mustChange = Boolean(mustChangePassword);
+    const response = NextResponse.json({ mustChangePassword: mustChange });
     response.cookies.set(SESSION_COOKIE, accessToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
@@ -41,6 +42,16 @@ export async function POST(request: NextRequest) {
       path: '/',
       expires: expiresAt ? new Date(expiresAt) : undefined,
     });
+    // AC-5.2: while this flag is set the middleware forces the user onto /change-password.
+    if (mustChange) {
+      response.cookies.set(MUST_CHANGE_COOKIE, '1', {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        path: '/',
+        expires: expiresAt ? new Date(expiresAt) : undefined,
+      });
+    }
     return response;
   } catch {
     return NextResponse.json(

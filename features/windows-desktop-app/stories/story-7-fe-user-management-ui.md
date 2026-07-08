@@ -1,6 +1,6 @@
 # Story 7 (FE): Admin user-management UI
 
-**Status:** APPROVED
+**Status:** implemented
 **Layer:** FE
 **Depends On:** 3, 6
 

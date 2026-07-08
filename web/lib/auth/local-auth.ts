@@ -3,6 +3,10 @@
 
 export const SESSION_COOKIE = 'local_session';
 
+// Set at login when the account must change its password (admin reset — AC-5.2). While present,
+// the middleware forces the user onto /change-password; the change-password route clears it.
+export const MUST_CHANGE_COOKIE = 'local_must_change_password';
+
 export type AuthMode = 'cloud' | 'local';
 
 /** Resolves the configured auth mode from the Next server env (default Cloud). */

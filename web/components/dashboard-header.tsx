@@ -1,5 +1,6 @@
 "use client"
 
+import { useRouter } from 'next/navigation'
 import { useSession } from '@/lib/auth/session'
 import { Button } from "@/components/ui/button"
 import {
@@ -11,10 +12,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Bell, Search, LogOut } from "lucide-react"
+import { Bell, Search, LogOut, KeyRound } from "lucide-react"
 
 export function DashboardHeader() {
-  const { user, isLoading, logout } = useSession()
+  const { user, isLoading, mode, logout } = useSession()
+  const router = useRouter()
 
   const getInitials = (name?: string) => {
     if (!name) return "U"
@@ -68,8 +70,18 @@ export function DashboardHeader() {
             <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuLabel>My Account</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem>Profile</DropdownMenuItem>
-              <DropdownMenuItem>Settings</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => router.push("/settings")} className="cursor-pointer">
+                Settings
+              </DropdownMenuItem>
+              {mode === "local" && (
+                <DropdownMenuItem
+                  onClick={() => router.push("/change-password")}
+                  className="flex items-center cursor-pointer"
+                >
+                  <KeyRound className="mr-2 h-4 w-4" />
+                  Change password
+                </DropdownMenuItem>
+              )}
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={logout}
