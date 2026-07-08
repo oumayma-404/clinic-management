@@ -29,7 +29,7 @@ graph TD
 
 | Story | Layer | Name | Status | Depends On |
 |-------|-------|------|--------|------------|
-| 1 | BE | Local auth mode + login API | implemented | - |
+| 1 | BE | Local auth mode + login API | reviewed | - |
 | 2 | BE | First-run clinic + admin creation (localhost-only) | not-started | 1 |
 | 3 | FE | Local login + first-run setup UI | not-started | 1, 2 |
 | 4 | BE | Staff self-registration API (clinic code) | not-started | 1 |

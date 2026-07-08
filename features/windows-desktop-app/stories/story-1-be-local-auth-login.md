@@ -1,6 +1,6 @@
 # Story 1 (BE): Local auth mode + login API
 
-**Status:** implemented
+**Status:** reviewed
 **Layer:** BE
 **Depends On:** —
 

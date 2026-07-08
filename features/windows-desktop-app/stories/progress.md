@@ -8,7 +8,7 @@
 
 | Story | Layer | Name | Status |
 |-------|-------|------|--------|
-| 1 | BE | Local auth mode + login API | implemented |
+| 1 | BE | Local auth mode + login API | reviewed |
 | 2 | BE | First-run clinic + admin creation | not-started |
 | 3 | FE | Local login + first-run setup UI | not-started |
 | 4 | BE | Staff self-registration API | not-started |

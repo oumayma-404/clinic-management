@@ -95,9 +95,10 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
 
             return Result<LoginResultDto>.Success(result);
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            return Result<LoginResultDto>.Failure($"Error during login: {ex.Message}");
+            // Anonymous endpoint: do not echo internal exception details to the caller.
+            return Result<LoginResultDto>.Failure("An unexpected error occurred during login. Please try again.");
         }
     }
 }
