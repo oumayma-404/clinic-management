@@ -241,8 +241,9 @@
 
 ## Pull Request
 
-**Status:** opened
+**Status:** ready — push done; PR creation blocked on `gh` account (logged in as `o-benkhalifa`, cannot access `oumayma-404/clinic-management`)
 **Date:** 2026-07-08
-**Branch:** `feature/windows-desktop-app` -> `main` (repo has no `develop` branch; `main` is the PR base)
+**Branch:** `feature/windows-desktop-app` -> `main` (repo has no `develop` branch; `main` is the PR base) — **pushed to origin**
 **Pre-PR checks:** frontend `tsc --noEmit` clean; `dotnet build ClinicManagement.sln` 0 errors (58 pre-existing warnings); unit tests 69/69 pass.
+**Open PR:** https://github.com/oumayma-404/clinic-management/compare/main...feature/windows-desktop-app
 **Created by:** Claude
