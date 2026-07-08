@@ -1,4 +1,5 @@
 using ClinicManagement.Application;
+using ClinicManagement.API.Maintenance;
 using ClinicManagement.Infrastructure;
 using ClinicManagement.Infrastructure.Persistence;
 using ClinicManagement.Application.Common.Exceptions;
@@ -10,6 +11,14 @@ using Hangfire.PostgreSql;
 using Hangfire.Dashboard;
 using Serilog;
 using Serilog.Events;
+
+// Offline admin lockout recovery (FR-B6): a one-shot console command that runs on the server PC
+// instead of starting the web server. Usage:
+//   dotnet run --project ClinicManagement.API -- reset-admin-password [admin-email]
+if (args.Length > 0 && string.Equals(args[0], AdminPasswordResetCommand.CommandName, StringComparison.OrdinalIgnoreCase))
+{
+    return await AdminPasswordResetCommand.RunAsync(args);
+}
 
 // Configure Serilog
 Log.Logger = new LoggerConfiguration()
@@ -232,6 +241,8 @@ finally
 {
     Log.CloseAndFlush();
 }
+
+return 0;
 
 // Simple authorization filter for Hangfire (in production, use proper authentication)
 public class HangfireAuthorizationFilter : IDashboardAuthorizationFilter

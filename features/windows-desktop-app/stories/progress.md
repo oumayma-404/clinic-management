@@ -15,7 +15,7 @@
 | 5 | FE | Staff registration UI | done (review skipped by user) |
 | 6 | BE | Admin user-management API | done (review skipped by user) |
 | 7 | FE | Admin user-management UI | reviewed |
-| 8 | BE | Admin lockout-recovery utility | not-started |
+| 8 | BE | Admin lockout-recovery utility | implemented |
 
 ## Working tree note (start of session)
 - `web/components/document-editor-content.tsx` — pre-existing modified file, **unrelated** to this backend story. Excluded from this story's commits (staged by explicit path only).
@@ -167,6 +167,31 @@
 - `/story-e2e` — ⊘ auto-skipped (no `test-plan-e2e.md` APPROVED).
 - `/story-api-tests` / `/story-integration-tests` — ⊘ auto-skipped (Layer: FE).
 
+## Story 8 — Steps (BE: Admin lockout-recovery utility)
+- [x] 1. `reset-admin-password` console command in the API project, intercepted at the top of `Program.cs` **before** the web host starts → runs one-shot and returns an exit code (0 success / 1 failure). Usage: `dotnet run --project ClinicManagement.API -- reset-admin-password [admin-email]`.
+- [x] 2. Reuses `ILocalAuthService.GenerateTemporaryPassword()` + `HashPassword()` and `User.SetPassword(hash, mustChangePassword: true)` (which also zeroes failed-attempt count + clears lockout). Target = admin by email, or the **sole** local admin if unambiguous (0 admins → error; >1 → asks for the email).
+- [x] 3. Local-mode-only (refuses to run in Cloud mode); runs on the server PC against the local DB (no web endpoint — direct DB access is the "runs locally" gate). Prints clear success (account + one-time temp password) / failure.
+- [x] 4. Recovery procedure documented: [../ADMIN_RECOVERY.md](../ADMIN_RECOVERY.md).
+
+## Story 8 — Files
+- New: `api/ClinicManagement.Application/Common/Maintenance/AdminPasswordRecoveryService.cs` — testable core (find admin → temp password → `SetPassword` → persist). **Not** registered in DI (can't be injected into an HTTP handler → no unauthenticated reset path).
+- New: `api/ClinicManagement.API/Maintenance/AdminPasswordResetCommand.cs` — CLI wrapper (builds config + `AddInfrastructure` DI, Local-mode guard, resolves the core service, prints result).
+- Modified: `api/ClinicManagement.API/Program.cs` — early CLI-arg branch + explicit `return 0;` (top-level program now returns `int`).
+- New: `api/ClinicManagement.UnitTests/Common/Maintenance/AdminPasswordRecoveryServiceTests.cs` (8 tests).
+- New doc: `features/windows-desktop-app/ADMIN_RECOVERY.md`.
+
+## Story 8 — Verification
+- **Build:** `dotnet build ClinicManagement.sln` → 0 errors, 0 new warnings (58 pre-existing, none in changed files).
+- **Unit tests:** 68/68 (8 new in `AdminPasswordRecoveryServiceTests`: reset-by-email happy path, email trimming, unknown email, non-admin refused, sole-admin (no email), no-admin, multiple-admins ambiguity, lockout cleared; 60 pre-existing).
+- **Unused usings:** IDE0005 (temp `Directory.Build.props`) on the two new production files + `Program.cs` → clean; temp props deleted.
+- **No migration** — reuses Story 1's `User` credential columns; no schema change.
+- **Deferred to manual (no Docker this session):** run `reset-admin-password` on a live Local DB → admin logs in with the temp password → forced-change screen; Cloud mode → utility refuses.
+
+## Story 8 — Review / test execution
+- `/review-story` — **skipped by user request** (`/next skip review`, 2026-07-08).
+- `/story-e2e` — ⊘ auto-skipped (Layer: BE, no user-facing flow).
+- `/story-api-tests` / `/story-integration-tests` — ⊘ auto-skipped (Postman never run / no `test-plan-integration.md` APPROVED).
+
 ## Structural notes / decisions
 - **JWT package location:** the plan assumed `JwtSecurityTokenHandler` was transitively available in Infrastructure via JwtBearer, but JwtBearer is only referenced by the API project. Since the plan places `LocalAuthService` in Infrastructure, adding `System.IdentityModel.Tokens.Jwt` to the Infrastructure project (alongside the planned `Microsoft.Extensions.Identity.Core`). Consistent with the plan's intent.
 - **Per-install signing key:** read from `Auth:Local:SigningKey` (config); if absent, generate a 512-bit key and persist to a gitignored file under the content root, then reuse. Never committed / never in `appsettings.json`.
@@ -197,6 +222,9 @@
 | (Story 7) Change-password submits via a new `/api/auth/change-password` Next route (proxy) instead of calling the .NET endpoint directly | Trivial | The route both attaches the cookie JWT as Bearer (same pattern as `local-login`) and clears the forced-change flag cookie server-side on success. Cookie clearing must happen server-side. |
 | (Story 7) Removed the dead "Profile" header menu item and wired the "Settings" item to navigate | Trivial (Scout rule) | `Profile` had no handler (dead UI); `Settings` was inert. Now `Settings` routes to `/settings` and (Local) a `Change password` item is added. |
 | (Story 7) `/users` non-admin gate renders an inline "Admins only" card instead of reusing `unauthorized-page` | Trivial | `unauthorized-page` is clinic-membership specific (Create/Join clinic CTAs), wrong copy for a role gate. A focused card with a back-to-dashboard action fits AC-5.4. |
+| (Story 8) Recovery logic split into an Application-layer `AdminPasswordRecoveryService` (testable core) + a thin API `AdminPasswordResetCommand` CLI wrapper | Trivial (planned intent + testability constraint) | Plan says "CLI/console entry in `ClinicManagement.API`". The `UnitTests` project references **only `Application`** (not API/Infrastructure), so the orchestration logic must live in Application to satisfy the plan's own "add unit tests" requirement. Keeps Clean Architecture (use-case orchestration in Application, host wiring in API). No new package, no API contract, no behavior change. The service is deliberately **not** DI-registered so it can't be injected into a controller (no unauthenticated reset path). |
+| (Story 8) Local-mode-only guard + no web endpoint as the "runs locally on the server PC" mechanism | Trivial (stated requirement, no specified mechanism) | Spec FR-B6 says "runnable on the server PC by someone with Windows access". A console command with direct DB access inherently runs on the server; adding a Cloud-mode refusal keeps it offline-only. No HTTP surface = nothing to reach over the LAN. |
+| (Story 8) `Program.cs` top-level program now returns `int` (early CLI branch + trailing `return 0;`) | Trivial | Required so the one-shot console command can set a process exit code without booting the web host. Web-server path unchanged (falls through to `return 0;` after `app.Run()`). |
 
 ## Significant Deviations
 (none)

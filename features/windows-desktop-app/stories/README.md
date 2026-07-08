@@ -36,7 +36,7 @@ graph TD
 | 5 | FE | Staff registration UI | implemented | 3, 4 |
 | 6 | BE | Admin user-management API | implemented | 1 |
 | 7 | FE | Admin user-management UI | reviewed | 3, 6 |
-| 8 | BE | Admin lockout-recovery utility | not-started | 1 |
+| 8 | BE | Admin lockout-recovery utility | implemented | 1 |
 
 ## Cross-cutting constraint (every story)
 Cloud/Auth0 mode must remain fully working. Each story re-verifies the Cloud path is unaffected (all Local behavior is mode-gated on `Auth:Mode` / `AUTH_MODE`).
