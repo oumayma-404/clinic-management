@@ -1,4 +1,5 @@
 using MediatR;
+using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.DTOs;
@@ -27,19 +28,22 @@ public class UpdateMedicalDocumentCommandHandler : IRequestHandler<UpdateMedical
     private readonly IPatientFileRepository _fileRepository;
     private readonly IFileStorage _fileStorage;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly ILogger<UpdateMedicalDocumentCommandHandler> _logger;
 
     public UpdateMedicalDocumentCommandHandler(
         IMedicalDocumentRepository documentRepository,
         IPatientFolderRepository folderRepository,
         IPatientFileRepository fileRepository,
         IFileStorage fileStorage,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        ILogger<UpdateMedicalDocumentCommandHandler> logger)
     {
         _documentRepository = documentRepository;
         _folderRepository = folderRepository;
         _fileRepository = fileRepository;
         _fileStorage = fileStorage;
         _unitOfWork = unitOfWork;
+        _logger = logger;
     }
 
     public async Task<Result<MedicalDocumentDto>> Handle(UpdateMedicalDocumentCommand request, CancellationToken cancellationToken)
@@ -54,32 +58,28 @@ public class UpdateMedicalDocumentCommandHandler : IRequestHandler<UpdateMedical
 
             Guid? fileId = request.FileId ?? document.FileId;
 
+            // Storage key of the file being replaced, if any. Its blob is deleted only AFTER the whole
+            // update is committed, so a failed save never strands the document pointing at a missing blob (FR-C3).
+            string? previousStorageKey = null;
+
             // If PDF file is provided, save it to patient files
             if (request.PdfFile != null && request.PdfFile.Length > 0)
             {
                 // ALWAYS save PDF files to "documents" folder (not "brouillons")
                 // This ensures all PDFs are in the documents folder regardless of draft status
                 const string folderName = "documents";
-                
-                System.Diagnostics.Debug.WriteLine($"[UpdateMedicalDocumentCommand] Saving PDF to folder: {folderName}, PatientId: {document.PatientId}, PDF size: {request.PdfFile.Length} bytes");
-                
+
                 // Get or create the "documents" folder for this patient
                 var folder = await _folderRepository.GetByNameAndPatientIdAsync(folderName, document.PatientId, cancellationToken);
-                
+
                 if (folder == null)
                 {
-                    System.Diagnostics.Debug.WriteLine($"[UpdateMedicalDocumentCommand] Folder '{folderName}' not found for patient {document.PatientId}, creating new folder");
                     folder = new PatientFolder(
                         Guid.NewGuid(),
                         document.PatientId,
                         folderName);
                     await _folderRepository.AddAsync(folder, cancellationToken);
                     await _unitOfWork.SaveChangesAsync(cancellationToken);
-                    System.Diagnostics.Debug.WriteLine($"[UpdateMedicalDocumentCommand] Folder '{folderName}' created with ID: {folder.Id}");
-                }
-                else
-                {
-                    System.Diagnostics.Debug.WriteLine($"[UpdateMedicalDocumentCommand] Folder '{folderName}' found with ID: {folder.Id}");
                 }
 
                 // Generate filename with collision detection
@@ -87,47 +87,49 @@ public class UpdateMedicalDocumentCommandHandler : IRequestHandler<UpdateMedical
                 var sanitizedPatientName = SanitizeFileName(document.PatientName.ToLowerInvariant());
                 var baseFileName = $"{documentTypeName}-{sanitizedPatientName}";
                 var fileName = await GenerateUniqueFileName(_fileRepository, folder.Id, baseFileName, "pdf", cancellationToken);
-                
-                System.Diagnostics.Debug.WriteLine($"[UpdateMedicalDocumentCommand] Generated filename: {fileName}");
 
-                // Upload PDF to MinIO
+                // Store the PDF blob first, then persist the record. If the DB save fails we must
+                // remove the just-stored blob so no orphan remains (FR-C3).
                 using var pdfStream = new MemoryStream(request.PdfFile);
                 var storageKey = await _fileStorage.UploadAsync(pdfStream, "application/pdf", cancellationToken);
-                
-                System.Diagnostics.Debug.WriteLine($"[UpdateMedicalDocumentCommand] PDF uploaded to storage, key: {storageKey}");
 
-                // If document already has a file, delete the old one
-                if (document.FileId.HasValue)
+                try
                 {
-                    System.Diagnostics.Debug.WriteLine($"[UpdateMedicalDocumentCommand] Document already has file ID: {document.FileId.Value}, deleting old file");
-                    var oldFile = await _fileRepository.GetByIdAsync(document.FileId.Value, cancellationToken);
-                    if (oldFile != null)
+                    // If the document already has a file, remove its record now (committed together with the
+                    // new record below). Its blob is deleted only after the whole update commits — deleting it
+                    // here would strand the document on a missing blob if a later save fails.
+                    if (document.FileId.HasValue)
                     {
-                        await _fileStorage.DeleteAsync(oldFile.StorageKey, cancellationToken);
-                        await _fileRepository.DeleteAsync(oldFile, cancellationToken);
-                        System.Diagnostics.Debug.WriteLine($"[UpdateMedicalDocumentCommand] Old file deleted");
+                        var oldFile = await _fileRepository.GetByIdAsync(document.FileId.Value, cancellationToken);
+                        if (oldFile != null)
+                        {
+                            previousStorageKey = oldFile.StorageKey;
+                            await _fileRepository.DeleteAsync(oldFile, cancellationToken);
+                        }
                     }
+
+                    // Create new PatientFile entry
+                    var patientFile = new PatientFile(
+                        Guid.NewGuid(),
+                        document.PatientId,
+                        fileName,
+                        storageKey,
+                        "application/pdf",
+                        request.PdfFile.Length,
+                        FileType.MedicalRecord,
+                        folder.Id,
+                        $"Document médical: {documentTypeName}");
+
+                    await _fileRepository.AddAsync(patientFile, cancellationToken);
+                    await _unitOfWork.SaveChangesAsync(cancellationToken); // Save file immediately
+                    fileId = patientFile.Id;
                 }
-
-                // Create new PatientFile entry
-                var patientFile = new PatientFile(
-                    Guid.NewGuid(),
-                    document.PatientId,
-                    fileName,
-                    storageKey,
-                    "application/pdf",
-                    request.PdfFile.Length,
-                    FileType.MedicalRecord,
-                    folder.Id,
-                    $"Document médical: {documentTypeName}");
-
-                System.Diagnostics.Debug.WriteLine($"[UpdateMedicalDocumentCommand] Creating PatientFile: Id={patientFile.Id}, FolderId={folder.Id}, FileName={fileName}");
-                
-                await _fileRepository.AddAsync(patientFile, cancellationToken);
-                await _unitOfWork.SaveChangesAsync(cancellationToken); // Save file immediately
-                fileId = patientFile.Id;
-                
-                System.Diagnostics.Debug.WriteLine($"[UpdateMedicalDocumentCommand] PatientFile saved successfully with ID: {fileId}");
+                catch
+                {
+                    try { await _fileStorage.DeleteAsync(storageKey, cancellationToken); }
+                    catch { /* best-effort orphan cleanup: don't mask the original failure */ }
+                    throw;
+                }
             }
 
             // Update document
@@ -141,6 +143,14 @@ public class UpdateMedicalDocumentCommandHandler : IRequestHandler<UpdateMedical
 
             await _documentRepository.UpdateAsync(document, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            // The replacement is now committed and the document points at the new file; drop the old blob.
+            // Best-effort: a leaked blob is preferable to deleting one the document might still reference.
+            if (previousStorageKey != null)
+            {
+                try { await _fileStorage.DeleteAsync(previousStorageKey, cancellationToken); }
+                catch { /* best-effort cleanup of the replaced file's blob */ }
+            }
 
             var dto = new MedicalDocumentDto
             {
@@ -168,7 +178,8 @@ public class UpdateMedicalDocumentCommandHandler : IRequestHandler<UpdateMedical
         }
         catch (Exception ex)
         {
-            return Result<MedicalDocumentDto>.Failure($"Error updating medical document: {ex.Message}");
+            _logger.LogError(ex, "Error updating medical document {DocumentId}", request.Id);
+            return Result<MedicalDocumentDto>.Failure("Error updating medical document.");
         }
     }
 
@@ -220,4 +231,3 @@ public class UpdateMedicalDocumentCommandHandler : IRequestHandler<UpdateMedical
         return newFileName;
     }
 }
-

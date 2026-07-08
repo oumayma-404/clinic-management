@@ -57,8 +57,7 @@ Domain events (`IDomainEvent : INotification`) are handled here via `INotificati
 |-----------|---------|
 | `IUnitOfWork` | `SaveChangesAsync` + explicit `Begin/Commit/RollbackTransactionAsync`. |
 | `IClinicContext` | Reads clinic id / role / user id / email from JWT claims; `BelongsToClinic`, `EnsureClinicAccess` (throws `ForbiddenAccessException`). **Implemented in this layer** (`Common/Services/ClinicContext.cs`). |
-| `IFileStorage` | MinIO-style upload/download/delete by storage key (custom path overload). |
-| `IFileStorageService` | Alternative file storage contract (save/get/delete/exists by path). |
+| `IFileStorage` | Blob upload/download/delete by storage key (custom path overload). Backend is mode-branched: MinIO (Cloud) or `LocalDiskFileStorage` (Local). |
 | `IGoogleCalendarService` | Low-level Google Calendar CRUD; exposes `GoogleCalendarEvent`. |
 | `IGoogleCalendarSyncService` | Two-way sync of appointments ↔ Google Calendar. |
 | `IPdfGenerationService` | Generate PDF from `MedicalDocumentPdfData`. |
@@ -83,4 +82,4 @@ Plain request/response records used by handlers & controllers: `PatientDto`, `Ap
 - Clinic scoping is resolved per-request from the DB (`User.ClinicId`), not just from the JWT `clinic_id` claim.
 - Some handlers swallow non-critical failures (e.g. Auth0 metadata update in `CreateClinicCommand`) so the core use case still succeeds.
 - **`CreateClinicCommand` / `JoinClinicCommand` are dual-path**: a non-null `Password` on the request switches them into the Local first-run / self-registration branch (creates a password-backed `User`); a null `Password` keeps the original Cloud/Auth0 flow. Only the Local-mode `AuthController` endpoints (`setup`/`register`) ever set `Password`.
-- Two parallel file-storage interfaces exist (`IFileStorage`, `IFileStorageService`) and two AI chat providers (`IGoogleAIService`, `IHuggingFaceAIService`) — check which the relevant handler injects.
+- File storage goes through the single `IFileStorage` seam (backend chosen by `Auth:Mode`); handlers that store a blob then persist a DB record clean up the blob if the save fails (FR-C3 orphan prevention). Two AI chat providers exist (`IGoogleAIService`, `IHuggingFaceAIService`) — check which the relevant handler injects.

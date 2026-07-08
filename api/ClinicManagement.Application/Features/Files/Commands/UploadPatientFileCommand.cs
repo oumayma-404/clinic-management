@@ -1,4 +1,5 @@
 using MediatR;
+using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.DTOs;
@@ -27,19 +28,22 @@ public class UploadPatientFileCommandHandler : IRequestHandler<UploadPatientFile
     private readonly IPatientFileRepository _fileRepository;
     private readonly IFileStorage _fileStorage;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly ILogger<UploadPatientFileCommandHandler> _logger;
 
     public UploadPatientFileCommandHandler(
         IPatientRepository patientRepository,
         IPatientFolderRepository folderRepository,
         IPatientFileRepository fileRepository,
         IFileStorage fileStorage,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        ILogger<UploadPatientFileCommandHandler> logger)
     {
         _patientRepository = patientRepository;
         _folderRepository = folderRepository;
         _fileRepository = fileRepository;
         _fileStorage = fileStorage;
         _unitOfWork = unitOfWork;
+        _logger = logger;
     }
 
     public async Task<Result<PatientFileDto>> Handle(UploadPatientFileCommand request, CancellationToken cancellationToken)
@@ -72,47 +76,58 @@ public class UploadPatientFileCommandHandler : IRequestHandler<UploadPatientFile
                 }
             }
 
-            // Upload file to MinIO
+            // Store the blob first, then persist the record. If the DB save fails we must remove
+            // the just-stored blob so no orphan remains (FR-C3).
             var storageKey = await _fileStorage.UploadAsync(request.FileStream, request.ContentType, cancellationToken);
 
-            // Determine file type from content type
-            var fileType = DetermineFileType(request.ContentType);
-
-            // Create file entity
-            var file = new PatientFile(
-                Guid.NewGuid(),
-                request.PatientId,
-                request.FileName,
-                storageKey,
-                request.ContentType,
-                request.FileSize,
-                fileType,
-                request.FolderId,
-                request.Description,
-                request.UploadedBy);
-
-            await _fileRepository.AddAsync(file, cancellationToken);
-            await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-            var dto = new PatientFileDto
+            try
             {
-                Id = file.Id,
-                PatientId = file.PatientId,
-                FolderId = file.FolderId,
-                FileName = file.FileName,
-                ContentType = file.ContentType,
-                FileSize = file.FileSize,
-                FileType = file.FileType.ToString(),
-                Description = file.Description,
-                UploadedAt = file.UploadedAt,
-                UploadedBy = file.UploadedBy
-            };
+                // Determine file type from content type
+                var fileType = DetermineFileType(request.ContentType);
 
-            return Result<PatientFileDto>.Success(dto);
+                // Create file entity
+                var file = new PatientFile(
+                    Guid.NewGuid(),
+                    request.PatientId,
+                    request.FileName,
+                    storageKey,
+                    request.ContentType,
+                    request.FileSize,
+                    fileType,
+                    request.FolderId,
+                    request.Description,
+                    request.UploadedBy);
+
+                await _fileRepository.AddAsync(file, cancellationToken);
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+                var dto = new PatientFileDto
+                {
+                    Id = file.Id,
+                    PatientId = file.PatientId,
+                    FolderId = file.FolderId,
+                    FileName = file.FileName,
+                    ContentType = file.ContentType,
+                    FileSize = file.FileSize,
+                    FileType = file.FileType.ToString(),
+                    Description = file.Description,
+                    UploadedAt = file.UploadedAt,
+                    UploadedBy = file.UploadedBy
+                };
+
+                return Result<PatientFileDto>.Success(dto);
+            }
+            catch
+            {
+                try { await _fileStorage.DeleteAsync(storageKey, cancellationToken); }
+                catch { /* best-effort orphan cleanup: don't mask the original failure */ }
+                throw;
+            }
         }
         catch (Exception ex)
         {
-            return Result<PatientFileDto>.Failure($"Error uploading file: {ex.Message}");
+            _logger.LogError(ex, "Error uploading file for patient {PatientId}", request.PatientId);
+            return Result<PatientFileDto>.Failure("Error uploading file.");
         }
     }
 

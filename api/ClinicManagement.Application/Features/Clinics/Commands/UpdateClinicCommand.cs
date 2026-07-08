@@ -1,4 +1,5 @@
 using MediatR;
+using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Common.Interfaces;
@@ -23,19 +24,22 @@ public class UpdateClinicCommandHandler : IRequestHandler<UpdateClinicCommand, R
     private readonly IClinicContext _clinicContext;
     private readonly IFileStorage _fileStorage;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly ILogger<UpdateClinicCommandHandler> _logger;
 
     public UpdateClinicCommandHandler(
         IClinicRepository clinicRepository,
         IUserRepository userRepository,
         IClinicContext clinicContext,
         IFileStorage fileStorage,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        ILogger<UpdateClinicCommandHandler> logger)
     {
         _clinicRepository = clinicRepository;
         _userRepository = userRepository;
         _clinicContext = clinicContext;
         _fileStorage = fileStorage;
         _unitOfWork = unitOfWork;
+        _logger = logger;
     }
 
     public async Task<Result<ClinicDto>> Handle(UpdateClinicCommand request, CancellationToken cancellationToken)
@@ -66,7 +70,8 @@ public class UpdateClinicCommandHandler : IRequestHandler<UpdateClinicCommand, R
             }
 
             // Handle logo upload if provided
-            string? logoUrl = clinic.LogoUrl; // Keep existing logo by default
+            var originalLogoUrl = clinic.LogoUrl; // Persisted value, used for orphan cleanup below
+            string? logoUrl = originalLogoUrl;    // Keep existing logo by default
 
             if (request.LogoFile != null && !string.IsNullOrWhiteSpace(request.LogoContentType))
             {
@@ -92,16 +97,31 @@ public class UpdateClinicCommandHandler : IRequestHandler<UpdateClinicCommand, R
                     cancellationToken);
             }
 
-            // Update clinic information
-            clinic.Update(
-                request.Name,
-                request.Address,
-                request.Phone,
-                request.Email,
-                logoUrl);
+            try
+            {
+                // Update clinic information
+                clinic.Update(
+                    request.Name,
+                    request.Address,
+                    request.Phone,
+                    request.Email,
+                    logoUrl);
 
-            await _clinicRepository.UpdateAsync(clinic, cancellationToken);
-            await _unitOfWork.SaveChangesAsync(cancellationToken);
+                await _clinicRepository.UpdateAsync(clinic, cancellationToken);
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+            }
+            catch
+            {
+                // The save failed after we may have stored a new logo blob. Remove it only when the
+                // persisted clinic won't reference it (a new key), so we never delete a logo the DB
+                // still points to — the logo path is deterministic (FR-C3).
+                if (!string.IsNullOrWhiteSpace(logoUrl) && logoUrl != originalLogoUrl)
+                {
+                    try { await _fileStorage.DeleteAsync(logoUrl, cancellationToken); }
+                    catch { /* best-effort orphan cleanup: don't mask the original failure */ }
+                }
+                throw;
+            }
 
             // Return updated clinic DTO
             var clinicDto = new ClinicDto
@@ -119,7 +139,8 @@ public class UpdateClinicCommandHandler : IRequestHandler<UpdateClinicCommand, R
         }
         catch (Exception ex)
         {
-            return Result<ClinicDto>.Failure($"Error updating clinic: {ex.Message}");
+            _logger.LogError(ex, "Error updating clinic");
+            return Result<ClinicDto>.Failure("Error updating clinic.");
         }
     }
 }

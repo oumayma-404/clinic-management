@@ -1,4 +1,5 @@
 using MediatR;
+using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.DTOs;
@@ -33,6 +34,7 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
     private readonly IPatientFileRepository _fileRepository;
     private readonly IFileStorage _fileStorage;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly ILogger<CreateMedicalDocumentCommandHandler> _logger;
 
     public CreateMedicalDocumentCommandHandler(
         IMedicalDocumentRepository documentRepository,
@@ -40,7 +42,8 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
         IPatientFolderRepository folderRepository,
         IPatientFileRepository fileRepository,
         IFileStorage fileStorage,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        ILogger<CreateMedicalDocumentCommandHandler> logger)
     {
         _documentRepository = documentRepository;
         _patientRepository = patientRepository;
@@ -48,6 +51,7 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
         _fileRepository = fileRepository;
         _fileStorage = fileStorage;
         _unitOfWork = unitOfWork;
+        _logger = logger;
     }
 
     public async Task<Result<MedicalDocumentDto>> Handle(CreateMedicalDocumentCommand request, CancellationToken cancellationToken)
@@ -115,25 +119,35 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
                 var baseFileName = $"{documentTypeName}-{sanitizedPatientName}";
                 var fileName = await GenerateUniqueFileName(_fileRepository, documentsFolder.Id, baseFileName, "pdf", cancellationToken);
 
-                // Upload PDF to MinIO
-                using var pdfStream = new MemoryStream(request.PdfFile);
+                // Store the PDF blob first, then persist the record. If the DB save fails we must
+                // remove the just-stored blob so no orphan remains (FR-C3).
+                using var pdfStream = new MemoryStream(pdfFileToSave);
                 var storageKey = await _fileStorage.UploadAsync(pdfStream, "application/pdf", cancellationToken);
 
-                // Create PatientFile entry in "documents" folder
-                var patientFile = new PatientFile(
-                    Guid.NewGuid(),
-                    request.PatientId,
-                    fileName,
-                    storageKey,
-                    "application/pdf",
-                    request.PdfFile.Length,
-                    FileType.MedicalRecord,
-                    documentsFolder.Id, // Always use documents folder for PDFs
-                    $"Document médical: {documentTypeName}");
+                try
+                {
+                    // Create PatientFile entry in "documents" folder
+                    var patientFile = new PatientFile(
+                        Guid.NewGuid(),
+                        request.PatientId,
+                        fileName,
+                        storageKey,
+                        "application/pdf",
+                        pdfFileToSave.Length,
+                        FileType.MedicalRecord,
+                        documentsFolder.Id, // Always use documents folder for PDFs
+                        $"Document médical: {documentTypeName}");
 
-                await _fileRepository.AddAsync(patientFile, cancellationToken);
-                await _unitOfWork.SaveChangesAsync(cancellationToken); // Save file first
-                fileId = patientFile.Id;
+                    await _fileRepository.AddAsync(patientFile, cancellationToken);
+                    await _unitOfWork.SaveChangesAsync(cancellationToken); // Save file first
+                    fileId = patientFile.Id;
+                }
+                catch
+                {
+                    try { await _fileStorage.DeleteAsync(storageKey, cancellationToken); }
+                    catch { /* best-effort orphan cleanup: don't mask the original failure */ }
+                    throw;
+                }
             }
 
             var document = new MedicalDocument(
@@ -183,7 +197,8 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
         }
         catch (Exception ex)
         {
-            return Result<MedicalDocumentDto>.Failure($"Error creating medical document: {ex.Message}");
+            _logger.LogError(ex, "Error creating medical document for patient {PatientId}", request.PatientId);
+            return Result<MedicalDocumentDto>.Failure("Error creating medical document.");
         }
     }
 

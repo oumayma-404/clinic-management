@@ -63,9 +63,10 @@ Note: `PatientRepository.UpdateAsync` is careful with tracked vs detached entiti
 ### Notifications
 - **`NotificationService`** (`INotificationService`) — email + SMS dispatch. **Placeholder/stub**: logs instead of actually sending (commented MailKit/HTTP examples). Returns false when SMTP/SMS config absent. Constructed with explicit config args in `Extensions.cs`.
 
-### File Storage
-- **`Storage/MinioFileStorage`** (`IFileStorage`) — primary blob store. Upload/Download/Delete against MinIO; auto-creates bucket; buffers non-seekable streams to learn size. Storage key = custom path or `{guid}-{timestamp}`.
-- **`LocalFileStorageService`** (`IFileStorageService`) — local-disk fallback storage (sanitizes filenames, ensures uniqueness). Registered as singleton.
+### File Storage (`IFileStorage`, mode-branched)
+The single storage seam is `IFileStorage`; the concrete backend is chosen by `Auth:Mode` (see DI below).
+- **`Storage/MinioFileStorage`** (Cloud mode) — blob store against MinIO; auto-creates bucket; buffers non-seekable streams to learn size. Storage key = custom path or `{guid}-{timestamp}`.
+- **`Storage/LocalDiskFileStorage`** (Local/offline mode) — stores blobs under `FileStorage:BasePath`, returning an opaque relative storage key. Mirrors MinIO semantics: guid-based keys, deterministic custom-path overwrite, seekable (`MemoryStream`) download, idempotent delete (missing key is not an error), and download-missing throws (surfaced by handlers as a clean failure). Keys are resolved and constrained within the base folder (path-traversal safe).
 
 ### Other
 - **`PdfGenerationService`** (`IPdfGenerationService`) — QuestPDF (Community license). Renders French medical documents: `prescription` (ORDONNANCE), `liaison`, `honoraires`, `certificat`. Parses `MedicalDocumentPdfData.Content` (handles both JSON-array and legacy string formats).
@@ -80,8 +81,7 @@ Note: `PatientRepository.UpdateAsync` is careful with tracked vs detached entiti
 - `ApplicationDbContext` via `UseNpgsql("DefaultConnection")`; `IUnitOfWork` scoped.
 - All repositories scoped (table above).
 - `AddHttpClient()` (used by HuggingFace/GoogleAI/Auth0).
-- `IFileStorageService` → `LocalFileStorageService` (**singleton**, base path `FileStorage:BasePath`).
-- `IFileStorage` → `MinioFileStorage` (**scoped**) only if `MinIO:Endpoint/AccessKey/SecretKey` present; otherwise a stub that throws on use. `IMinioClient` registered as singleton when configured.
+- `IFileStorage` (**scoped**) is **mode-branched** on `Auth:Mode`: **Local** → `LocalDiskFileStorage` (base path `FileStorage:BasePath`, no MinIO); **Cloud** → `MinioFileStorage` if `MinIO:Endpoint/AccessKey/SecretKey` present (with `IMinioClient` singleton), otherwise a stub that throws on use.
 - `INotificationService` → `NotificationService` (scoped, config injected explicitly).
 - `IPatientSummaryService`, `IGoogleCalendarService`, `IGoogleCalendarSyncService`, `IPdfGenerationService`, `IHuggingFaceAIService`, `IAIActionService` — all scoped.
 - **Auth-mode-branched** (`Auth:Mode`): Local → `ILocalAuthService` → `LocalAuthService` and `IAuth0ManagementService` → `NoOpAuth0ManagementService`; Cloud → the real `Auth0ManagementService`.
