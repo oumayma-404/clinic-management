@@ -85,8 +85,10 @@ public static class LocalAuthConfig
             return bytes;
         }
 
+        // Resolve the per-install key file against the install directory (R-6) so it is found the same
+        // way whether launched from a console or as a Windows service (whose CWD is System32).
         var path = configuration["Auth:Local:SigningKeyPath"]
-                   ?? Path.Combine(Directory.GetCurrentDirectory(), ".local", "signing-key");
+                   ?? LocalInstallPaths.LocalFile("signing-key");
 
         if (File.Exists(path))
         {

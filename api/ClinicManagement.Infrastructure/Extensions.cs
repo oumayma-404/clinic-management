@@ -48,8 +48,9 @@ public static class Extensions
         services.AddMemoryCache();
         services.AddSingleton<IInternetProbe, InternetProbe>();
 
-        // File storage base path (used by the Local-mode disk backend below).
-        var fileStoragePath = configuration["FileStorage:BasePath"] ?? Path.Combine(Directory.GetCurrentDirectory(), "Files");
+        // File storage base path (used by the Local-mode disk backend below). Resolved against the install
+        // directory (R-6) so it is stable whether launched from a console or as a Windows service.
+        var fileStoragePath = LocalInstallPaths.Resolve(configuration["FileStorage:BasePath"] ?? "Files");
 
         // Local (offline) authentication service. Harmless in Cloud mode (only used by /api/auth/login).
         services.AddScoped<ILocalAuthService, LocalAuthService>();
@@ -130,6 +131,16 @@ public static class Extensions
 
         // Domain Services
         services.AddScoped<Domain.Services.IPatientSummaryService, PatientSummaryService>();
+
+        // HTTPS certificate provisioner (US-3 / FR-E2): self-generates the CA + server cert into .local/ on
+        // first Local boot. Registered for completeness; the actual first use is pre-Build in Program.cs
+        // (Kestrel needs the cert before the DI container exists). Singleton — one install-wide cert set.
+        services.AddSingleton<Security.CertificateProvisioner>();
+
+        // One-click backup (US-8 / FR-G): pg_dump + file-storage copy. Safe to register unconditionally —
+        // only exercised by the admin-gated backup endpoint; on Cloud (no bundled pg_dump) a call fails
+        // with a clear "pg_dump introuvable" error rather than doing anything.
+        services.AddScoped<IBackupService, PgDumpBackupService>();
 
         // Google OAuth refresh-token store (US-3 / FR-E3): persists the token to a gitignored per-install
         // file instead of rewriting appsettings.json. Singleton so the in-memory cache provides the

@@ -23,6 +23,12 @@
     <PackageReference Include="Serilog.Enrichers.Thread" Version="4.0.0" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.0" />
+    <!-- Phase 5 (S2): run the API as an auto-starting Windows service (no-op in console/dev). -->
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.1" />
+    <!-- Phase 5 (S2): surface startup failures to the Windows Event Log (best-effort, Windows-only). -->
+    <PackageReference Include="System.Diagnostics.EventLog" Version="8.0.1" />
+    <!-- Phase 5 (S4): same-origin front door — reverse-proxy non-/api routes to the localhost Next server. -->
+    <PackageReference Include="Yarp.ReverseProxy" Version="2.2.0" />
   </ItemGroup>
 
   <ItemGroup>

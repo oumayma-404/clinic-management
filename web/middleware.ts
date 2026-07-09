@@ -14,7 +14,7 @@ export async function middleware(request: NextRequest) {
   if (resolveAuthMode() === 'local') {
     if (
       pathname.startsWith('/_next/') ||
-      pathname.startsWith('/api/auth/') ||
+      pathname.startsWith('/bff/auth/') ||
       PUBLIC_ROUTES.includes(pathname)
     ) {
       return NextResponse.next();
@@ -44,7 +44,7 @@ export async function middleware(request: NextRequest) {
   }
 
   // Allow public routes (setup and join don't require clinic membership)
-  if (PUBLIC_ROUTES.includes(pathname) || pathname.startsWith('/_next/') || pathname.startsWith('/api/auth/')) {
+  if (PUBLIC_ROUTES.includes(pathname) || pathname.startsWith('/_next/') || pathname.startsWith('/bff/auth/')) {
     return NextResponse.next();
   }
 

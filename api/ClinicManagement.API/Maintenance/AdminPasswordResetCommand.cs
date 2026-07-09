@@ -30,8 +30,12 @@ public static class AdminPasswordResetCommand
 
         try
         {
+            // Resolve appsettings from the install directory (R-6), not the CWD, so the packaged
+            // `ClinicManagement.API.exe reset-admin-password` works from any working directory
+            // (this is the sole offline admin-recovery path — FR-B6). The signing key likewise resolves
+            // against the install directory via LocalAuthConfig.
             var configuration = new ConfigurationBuilder()
-                .SetBasePath(Directory.GetCurrentDirectory())
+                .SetBasePath(AppContext.BaseDirectory)
                 .AddJsonFile("appsettings.json", optional: false)
                 .AddJsonFile(
                     $"appsettings.{Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Production"}.json",

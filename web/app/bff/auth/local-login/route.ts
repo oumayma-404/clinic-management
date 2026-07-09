@@ -4,7 +4,10 @@ import { SESSION_COOKIE, MUST_CHANGE_COOKIE } from '@/lib/auth/local-auth';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
+// Server-side handler: must reach the .NET API with an ABSOLUTE URL. The browser-facing
+// NEXT_PUBLIC_API_URL is relative (`/api`) behind the same-origin front door and has no origin
+// server-side, so use the server-only API_INTERNAL_URL (default the co-located API over loopback).
+const API_INTERNAL_URL = process.env.API_INTERNAL_URL || 'http://localhost:5000/api';
 
 // Local-mode login: posts credentials to the .NET API, then stores the returned
 // JWT in an HttpOnly session cookie that the token route reads back.
@@ -17,7 +20,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const res = await fetch(`${API_BASE_URL}/auth/login`, {
+    const res = await fetch(`${API_INTERNAL_URL}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: body.email ?? '', password: body.password ?? '' }),

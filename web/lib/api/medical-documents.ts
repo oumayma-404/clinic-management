@@ -104,7 +104,7 @@ export const medicalDocumentsApi = {
     const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
     const token = await (async () => {
       try {
-        const response = await fetch('/api/auth/token', { credentials: 'include' });
+        const response = await fetch('/bff/auth/token', { credentials: 'include' });
         if (response.ok) {
           const data = await response.json();
           return data.accessToken || null;

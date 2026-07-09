@@ -6,7 +6,7 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/a
 // Get Auth0 access token from client-side
 async function getAccessToken(): Promise<string | null> {
   try {
-    const response = await fetch('/api/auth/token', {
+    const response = await fetch('/bff/auth/token', {
       credentials: 'include',
     });
     if (response.ok) {

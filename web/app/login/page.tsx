@@ -65,7 +65,7 @@ function LocalLoginForm() {
     setError(null)
     setIsSubmitting(true)
     try {
-      const res = await fetch('/api/auth/local-login', {
+      const res = await fetch('/bff/auth/local-login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),

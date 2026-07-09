@@ -28,6 +28,8 @@ import {
 import Image from "next/image"
 import { clinicsApi, type ClinicDto } from "@/lib/api/clinics"
 import { useAuthToken } from "@/lib/hooks/use-auth-token"
+import { useSession } from "@/lib/auth/session"
+import { BackupSettings } from "@/components/backup-settings"
 
 const tunisianGovernorates = [
   "Tunis",
@@ -85,6 +87,7 @@ interface WorkingHoursInput {
 
 export default function ClinicSettings() {
   const { accessToken } = useAuthToken()
+  const { mode, user } = useSession()
   const [isLoading, setIsLoading] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
 
@@ -874,6 +877,9 @@ export default function ClinicSettings() {
             </CardContent>
           )}
         </Card>
+
+        {/* Admin-only backup card — Local mode only (US-8 / FR-G). */}
+        {mode === "local" && user?.role === "admin" && <BackupSettings />}
 
         <Card className="border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20">
           <CardContent className="p-3">

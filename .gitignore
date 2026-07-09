@@ -20,5 +20,9 @@ logs/
 Thumbs.db
 
 # Local (offline) mode per-install secrets — generated at first run, never committed
+# (.local/ covers the signing key, cert password, generated ca.crt / server.pfx — FR-F4)
 .local/
 **/signing-key
+
+# Packaging build artifacts (Phase 5) — keep the committed .iss/.ps1 scripts, ignore build output
+packaging/**/build-output/

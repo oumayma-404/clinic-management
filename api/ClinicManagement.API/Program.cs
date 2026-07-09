@@ -1,7 +1,9 @@
 using ClinicManagement.Application;
 using ClinicManagement.API.Maintenance;
+using ClinicManagement.API.Startup;
 using ClinicManagement.Infrastructure;
 using ClinicManagement.Infrastructure.Persistence;
+using ClinicManagement.Infrastructure.Security;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Authorization;
 using ClinicManagement.Application.Common.Authorization.Handlers;
@@ -20,6 +22,23 @@ if (args.Length > 0 && string.Equals(args[0], AdminPasswordResetCommand.CommandN
     return await AdminPasswordResetCommand.RunAsync(args);
 }
 
+// Determine auth mode early (before Serilog is configured) so Local installs can anchor the log file to
+// the install directory (R-6) — a Windows service's CWD is System32, where a relative "logs/" path would
+// scatter or fail. Cloud keeps its prior relative path, byte-for-byte. This early config is also the seam
+// used for the outer-catch startup-failure handling below (both need the mode before builder.Build()).
+var startupConfig = new ConfigurationBuilder()
+    .SetBasePath(AppContext.BaseDirectory)
+    .AddJsonFile("appsettings.json", optional: true)
+    .AddJsonFile(
+        $"appsettings.{Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Production"}.json",
+        optional: true)
+    .AddEnvironmentVariables()
+    .Build();
+var startupIsLocalMode = ClinicManagement.Infrastructure.Auth.LocalAuthConfig.IsLocalMode(startupConfig);
+var logFilePath = startupIsLocalMode
+    ? Path.Combine(LocalInstallPaths.BaseDirectory, "logs", "clinic-management-.log")
+    : "logs/clinic-management-.log";
+
 // Configure Serilog
 Log.Logger = new LoggerConfiguration()
     .MinimumLevel.Information()
@@ -33,7 +52,7 @@ Log.Logger = new LoggerConfiguration()
     .WriteTo.Console(
         outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}")
     .WriteTo.File(
-        path: "logs/clinic-management-.log",
+        path: logFilePath,
         rollingInterval: RollingInterval.Day,
         retainedFileCountLimit: 7,
         outputTemplate: "[{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} {Level:u3}] {Message:lj}{NewLine}{Exception}")
@@ -47,6 +66,14 @@ try
 
     // Use Serilog for logging
     builder.Host.UseSerilog();
+
+    // Local installs (Phase 5 S2): run as an auto-starting Windows service. UseWindowsService() also sets
+    // the content root to the install directory. Gated on mode so Cloud (and console/dev) is unaffected;
+    // it is additionally a no-op when the process was not launched as a Windows service.
+    if (startupIsLocalMode)
+    {
+        builder.Host.UseWindowsService();
+    }
 
     // Add services to the container
     builder.Services.AddControllers()
@@ -177,23 +204,85 @@ try
         });
     });
 
-    // --- LAN hosting: config-driven bind + optional HTTPS serving (FR-E2, FR-E4) ---
-    // HTTPS is opt-in: when a server certificate is configured we bind an HTTPS endpoint using it and
-    // enable the redirect below; otherwise we stay on plain HTTP — the safe default so an HTTP-only LAN
-    // deployment isn't broken by a failed redirect. The local CA + server-cert *generation* at install,
-    // and the client-side CA trust import, are Phase 5; Phase 4 serves against any operator-supplied cert.
+    // --- Same-origin front door (Local mode, Phase 5 S4) ---
+    // Kestrel is the single browser-facing HTTPS endpoint: it serves /api/* via controllers in-process and
+    // reverse-proxies every other route (pages, /_next/*, static assets, /bff/*) to the co-located Next
+    // server on http://localhost:<webPort>. So one hosted web build serves clients at any server IP
+    // (NEXT_PUBLIC_API_URL=/api, same-origin) and TLS terminates once, inside the audited .NET app. Cloud
+    // installs no proxy (absolute API URL, separate origins) and is unchanged.
+    if (isLocalAuthMode)
+    {
+        var webPort = builder.Configuration.GetValue<int?>("Hosting:WebPort") ?? 3000;
+        var proxyRoutes = new[]
+        {
+            new Yarp.ReverseProxy.Configuration.RouteConfig
+            {
+                RouteId = "next-app",
+                ClusterId = "next-cluster",
+                // Least-specific catch-all: attribute-routed /api/* controllers are more specific and win
+                // endpoint selection; every other path falls here and is forwarded to Next.
+                Match = new Yarp.ReverseProxy.Configuration.RouteMatch { Path = "/{**catch-all}" }
+            }
+        };
+        var proxyClusters = new[]
+        {
+            new Yarp.ReverseProxy.Configuration.ClusterConfig
+            {
+                ClusterId = "next-cluster",
+                Destinations = new Dictionary<string, Yarp.ReverseProxy.Configuration.DestinationConfig>
+                {
+                    ["next"] = new Yarp.ReverseProxy.Configuration.DestinationConfig
+                    {
+                        Address = $"http://localhost:{webPort}"
+                    }
+                }
+            }
+        };
+        builder.Services.AddReverseProxy().LoadFromMemory(proxyRoutes, proxyClusters);
+    }
+
+    // --- LAN hosting: config-driven bind + HTTPS serving (FR-E2, FR-E4) ---
+    // Cert password is sourced from the .local/ store or env, never committed appsettings (S3 / Finding 5).
     var httpsCertPath = builder.Configuration["Https:CertPath"];
     var httpsCertPassword = builder.Configuration["Https:CertPassword"];
-    var httpsConfigured = !string.IsNullOrWhiteSpace(httpsCertPath) && System.IO.File.Exists(httpsCertPath);
+    var httpPort = builder.Configuration.GetValue<int?>("Hosting:HttpPort") ?? 5000;
+    var httpsPort = builder.Configuration.GetValue<int?>("Hosting:HttpsPort") ?? 5001;
+    // "generated" | "configured" | "cloud" — logged in the startup transport posture (S3 step 4).
+    var certSource = "cloud";
 
-    if (httpsConfigured)
+    if (isLocalAuthMode)
     {
-        // Bind explicitly so the redirect target port is deterministic. Both endpoints listen on all
-        // interfaces so LAN clients can connect (FR-E1/FR-E4). Ports are configuration-driven.
-        var httpPort = builder.Configuration.GetValue<int?>("Hosting:HttpPort") ?? 5000;
-        var httpsPort = builder.Configuration.GetValue<int?>("Hosting:HttpsPort") ?? 5001;
-        var serverCertificate = new System.Security.Cryptography.X509Certificates.X509Certificate2(
-            httpsCertPath!, httpsCertPassword);
+        // LOCAL: always serve HTTPS. If a cert path is explicitly configured it MUST exist — refuse the
+        // silent HTTP downgrade (Phase 4 Finding 2 / fail closed & loud). Otherwise self-generate a CA +
+        // server cert into .local/ (FR-E2). Gated on the *mode*, never on a capability flag (Finding 4).
+        string certPath;
+        string? certPassword;
+
+        if (!string.IsNullOrWhiteSpace(httpsCertPath))
+        {
+            if (!System.IO.File.Exists(httpsCertPath))
+            {
+                StartupDiagnostics.ReportFatal(
+                    $"Https:CertPath est défini ('{httpsCertPath}') mais le fichier est introuvable. Le serveur " +
+                    "refuse de démarrer en HTTP non chiffré. Corrigez le chemin du certificat ou retirez Https:CertPath.");
+                return 1;
+            }
+            certPath = httpsCertPath;
+            certPassword = httpsCertPassword;
+            certSource = "configured";
+        }
+        else
+        {
+            var provisioner = new CertificateProvisioner(
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<CertificateProvisioner>.Instance);
+            var generated = provisioner.EnsureServerCertificate();
+            certPath = generated.PfxPath;
+            certPassword = generated.Password;
+            certSource = "generated";
+            Log.Information("Local HTTPS certificate ready; CA exported to {CaCertPath} for client trust import.", generated.CaCertPath);
+        }
+
+        var serverCertificate = new System.Security.Cryptography.X509Certificates.X509Certificate2(certPath, certPassword);
         builder.WebHost.ConfigureKestrel(kestrel =>
         {
             kestrel.ListenAnyIP(httpPort);
@@ -203,12 +292,26 @@ try
     }
     else
     {
-        // No cert: honor an explicit Hosting:Urls bind (e.g. "http://0.0.0.0:5000") so the LAN bind
-        // isn't hardcoded to localhost. ASPNETCORE_URLS / the "urls" key remain honored by default.
-        var hostingUrls = builder.Configuration["Hosting:Urls"];
-        if (!string.IsNullOrWhiteSpace(hostingUrls))
+        // CLOUD — byte-for-byte unchanged: opt-in HTTPS only when a cert file exists, else honor Hosting:Urls.
+        var httpsConfigured = !string.IsNullOrWhiteSpace(httpsCertPath) && System.IO.File.Exists(httpsCertPath);
+        if (httpsConfigured)
         {
-            builder.WebHost.UseUrls(hostingUrls.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+            var serverCertificate = new System.Security.Cryptography.X509Certificates.X509Certificate2(
+                httpsCertPath!, httpsCertPassword);
+            builder.WebHost.ConfigureKestrel(kestrel =>
+            {
+                kestrel.ListenAnyIP(httpPort);
+                kestrel.ListenAnyIP(httpsPort, listen => listen.UseHttps(serverCertificate));
+            });
+            builder.Services.AddHttpsRedirection(options => options.HttpsPort = httpsPort);
+        }
+        else
+        {
+            var hostingUrls = builder.Configuration["Hosting:Urls"];
+            if (!string.IsNullOrWhiteSpace(hostingUrls))
+            {
+                builder.WebHost.UseUrls(hostingUrls.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+            }
         }
     }
 
@@ -221,15 +324,10 @@ try
         app.UseSwaggerUI();
     }
 
-    // Guarded (R-3): in LOCAL mode only redirect when an HTTPS endpoint is actually configured — an
-    // unconditional UseHttpsRedirection breaks a plain-HTTP LAN deployment ("failed to determine the
-    // https port for redirect"), so a no-cert LAN install intentionally serves HTTP only. CLOUD keeps
-    // its prior unconditional UseHttpsRedirection so Cloud stays byte-for-byte unchanged (its HTTPS
-    // posture is set by the reverse proxy / host, not by Phase 4).
-    if (!isLocalAuthMode || httpsConfigured)
-    {
-        app.UseHttpsRedirection();
-    }
+    // Redirect HTTP → HTTPS. LOCAL now always serves HTTPS (generated or configured cert; a
+    // configured-but-missing cert fails loud above, so we never reach here on plain HTTP in Local).
+    // CLOUD is unchanged — it always enabled the redirect (its HTTPS posture is set by the host/proxy).
+    app.UseHttpsRedirection();
     app.UseCors("AllowAll");
     
     // Exception handling middleware (must be before authentication/authorization)
@@ -255,11 +353,30 @@ try
         Authorization = new[] { new HangfireAuthorizationFilter(isLocalAuthMode) }
     });
 
-    // Ensure database is created
+    // Same-origin front door (Local): forward every non-/api route to the localhost Next server. The
+    // catch-all is the least-specific endpoint, so /api/* controllers and the loopback-gated /hangfire
+    // middleware take precedence. Cloud maps no proxy (unchanged).
+    if (isLocalAuthMode)
+    {
+        app.MapReverseProxy();
+    }
+
+    // Ensure database is created (FR-F3: migrations apply automatically on startup).
     using (var scope = app.Services.CreateScope())
     {
         var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-        context.Database.Migrate();
+        try
+        {
+            context.Database.Migrate();
+        }
+        catch (Exception ex) when (isLocalAuthMode && StartupDiagnostics.IsDatabaseConnectionFailure(ex))
+        {
+            // FR-F5 (Local): an unreachable database is an operator problem, not a stack trace. Surface a
+            // clear message (console + log + Event Log) and exit non-zero rather than crashing opaquely.
+            // Cloud keeps the fatal-rethrow below (the `when` filter is false), byte-for-byte (R-9).
+            StartupDiagnostics.ReportFatal(StartupDiagnostics.DatabaseUnreachableMessage(), ex);
+            return 1;
+        }
     }
 
 
@@ -285,8 +402,25 @@ try
     //     job => job.SyncFromGoogleCalendar(),
     //     Cron.Hourly);
 
+    // Log the transport posture on startup so it is observable (S3 step 4 / fail-loud-and-observable).
+    if (isLocalAuthMode)
+    {
+        Log.Information(
+            "Transport posture (Local): HTTPS on port {HttpsPort} (HTTP {HttpPort} redirects), certificate source: {CertSource}.",
+            httpsPort, httpPort, certSource);
+    }
+
     Log.Information("Clinic Management API started successfully");
     app.Run();
+}
+catch (Exception ex) when (startupIsLocalMode && StartupDiagnostics.IsAddressInUse(ex))
+{
+    // FR-F5 (Local): the bind port is already taken — name it and exit non-zero with a clear message
+    // instead of a raw AddressInUseException. Uses the early startup config (the in-try mode flag is out
+    // of scope here). Cloud (filter false) falls through to the fatal-rethrow below, unchanged.
+    var port = startupConfig.GetValue<int?>("Hosting:HttpsPort") ?? 5001;
+    StartupDiagnostics.ReportFatal(StartupDiagnostics.PortInUseMessage(port), ex);
+    return 1;
 }
 catch (Exception ex)
 {

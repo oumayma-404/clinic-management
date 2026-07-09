@@ -86,7 +86,7 @@ export function LocalSessionProvider({ children }: { children: React.ReactNode }
   const logout = useCallback(() => {
     // AC-3.6: logout returns to the login screen; the configured server address
     // (NEXT_PUBLIC_API_URL / shell config) is untouched.
-    fetch("/api/auth/local-logout", { method: "POST" })
+    fetch("/bff/auth/local-logout", { method: "POST" })
       .catch(() => {})
       .finally(() => {
         window.location.href = "/login"
@@ -95,12 +95,12 @@ export function LocalSessionProvider({ children }: { children: React.ReactNode }
 
   useEffect(() => {
     let active = true
-    fetch("/api/auth/session", { credentials: "include" })
+    fetch("/bff/auth/session", { credentials: "include" })
       .then((res) => {
         if (res.status === 401) {
           // Stale/expired session cookie — clear it so the API client stops attaching an
           // expired bearer token (which would otherwise 401 every call with no recovery).
-          fetch("/api/auth/local-logout", { method: "POST" }).catch(() => {})
+          fetch("/bff/auth/local-logout", { method: "POST" }).catch(() => {})
           return null
         }
         return res.ok ? res.json() : null

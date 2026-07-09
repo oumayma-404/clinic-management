@@ -22,7 +22,7 @@ export function useAuthToken() {
     }
 
     // User exists, fetch access token from our API route
-    fetch('/api/auth/token')
+    fetch('/bff/auth/token')
       .then(res => {
         if (!res.ok) {
           throw new Error('Failed to fetch token')

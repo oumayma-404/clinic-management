@@ -28,9 +28,10 @@ public sealed class FileGoogleTokenStore : IGoogleTokenStore
     {
         _configuration = configuration;
         _logger = logger;
-        // Same gitignored .local/ folder as the per-install signing key. Overridable for tests/installers.
+        // Same gitignored .local/ folder as the per-install signing key, resolved against the install
+        // directory (R-6). Overridable for tests/installers.
         _filePath = configuration["GoogleCalendar:RefreshTokenPath"]
-                    ?? Path.Combine(Directory.GetCurrentDirectory(), ".local", "google-refresh-token");
+                    ?? LocalInstallPaths.LocalFile("google-refresh-token");
     }
 
     public string? GetRefreshToken()

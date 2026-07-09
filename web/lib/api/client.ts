@@ -56,7 +56,7 @@ async function handleRequest<T>(requestFn: () => Promise<Response>): Promise<T> 
 // Get Auth0 access token from client-side
 async function getAccessToken(): Promise<string | null> {
   try {
-    const response = await fetch('/api/auth/token', {
+    const response = await fetch('/bff/auth/token', {
       credentials: 'include', // Include cookies for session
     });
     if (response.ok) {
@@ -83,7 +83,11 @@ function createHeaders(accessToken?: string | null): HeadersInit {
 }
 
 export async function apiGet<T>(endpoint: string, params?: Record<string, any>, accessToken?: string | null): Promise<T> {
-  const url = new URL(`${API_BASE_URL}${endpoint}`);
+  // Pass an origin base so a RELATIVE API base (`/api` in the same-origin front-door build, S4) parses —
+  // `new URL('/api/foo')` throws "Invalid URL" without a base. Absolute bases ignore the second arg, so
+  // this is a no-op for the Cloud build (absolute NEXT_PUBLIC_API_URL). window.location.origin is safe:
+  // apiGet only runs client-side.
+  const url = new URL(`${API_BASE_URL}${endpoint}`, window.location.origin);
   if (params) {
     Object.entries(params).forEach(([key, value]) => {
       if (value !== undefined && value !== null) {
