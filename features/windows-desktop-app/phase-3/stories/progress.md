@@ -107,3 +107,14 @@ CLAUDE.md files updated for the Phase 3 connectivity-awareness feature:
 - `web/CLAUDE.md` — `ConnectivityProvider` in `layout.tsx`; appointments-page gating note.
 - `web/lib/CLAUDE.md` — `connectivity/connectivity.tsx` seam, `isSyncedToGoogle` type, google-calendar routing through `client.ts`.
 - `web/components/CLAUDE.md` — `connectivity-indicator.tsx`, offline gating in `ai-chat.tsx` + `appointment-calendar.tsx`.
+
+## Pull Request
+
+**Status:** pending manual creation (gh CLI account mismatch — see below)
+**Date:** 2026-07-09
+**Branch:** feature/windows-desktop-app -> main
+**Created by:** Claude (prepared; commit + push + PR deferred to user)
+
+Quality gate (2026-07-09): frontend `tsc --noEmit` clean · backend `dotnet build ClinicManagement.sln` 0 warnings/0 errors · 100 unit tests pass.
+
+Phase 3 is the third of five phases delivered on this shared long-running branch. Uncommitted finish artifacts (`features/LEARNINGS.md`, `retrospective.md`, `reviews/feature-review.md`) are ready for a manual commit. `gh pr create` cannot run because the `gh` CLI is authenticated as a different account than the git push identity (`oumayma-404`); PR to be opened via the compare URL.
