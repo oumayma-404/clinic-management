@@ -26,3 +26,6 @@ Thumbs.db
 
 # Packaging build artifacts (Phase 5) — keep the committed .iss/.ps1 scripts, ignore build output
 packaging/**/build-output/
+packaging/build-output/
+# Operator-supplied third-party binaries staged for the installers (not committed)
+packaging/server/tools/

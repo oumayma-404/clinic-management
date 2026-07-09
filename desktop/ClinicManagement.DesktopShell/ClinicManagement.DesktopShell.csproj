@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <!-- WPF + WebView2 → Windows-only desktop target (distinct from the backend's net8.0). -->
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>ClinicManagement.DesktopShell</RootNamespace>
+    <AssemblyName>ClinicManagement.DesktopShell</AssemblyName>
+    <Version>1.0.0</Version>
+    <!-- Self-contained win-x64 publish is driven by packaging/publish-server.ps1 (S6); no RID pinned here
+         so `dotnet build` stays framework-dependent for review. -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Evergreen WebView2 control (managed wrapper + loader; the runtime is installed on the client PC). -->
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2903.40" />
+  </ItemGroup>
+
+</Project>

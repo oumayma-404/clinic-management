@@ -4,12 +4,17 @@
 **Plan:** [../plan.md](../plan.md) (APPROVED · Challenged 2026-07-09)
 **Branch:** `feature/windows-desktop-app`
 
-## Session scope (2026-07-09)
+## Session scope
 
-**Story 1 is one `Layer: Full` story delivered in 7 slices (S1–S7).** Per the multi-phase rule, the user
-scoped **this session to slices S1–S4** (all testable in-repo). Slices **S5–S7 (packaging: WebView2 shell,
-Inno Setup installers, publish orchestration) are deferred** to a follow-up session — they are
-committed-but-not-executed / operator-verified (R-1) and add no value to attempt here.
+**Story 1 is one `Layer: Full` story delivered in 7 slices (S1–S7).**
+
+- **Session 1 (2026-07-09):** slices **S1–S4** (all testable in-repo) — backend/web changes, committed (5fc7b16).
+- **Session 2 (2026-07-09):** the deferred packaging slices **S5–S7** — WebView2 desktop shell, server
+  installer, client installer + expanded `packaging/README.md`. These are **committed-but-not-executed /
+  operator-verified (R-1)**: this environment cannot run a Windows installer or a WebView2 shell. The shell
+  **compiles clean** (`dotnet build` → 0/0); the installers + end-to-end stand-up are proven by the operator
+  against the `packaging/README.md` checklist. **No S1–S4 code was touched** (verified: `git status` shows only
+  new `desktop/` + `packaging/` files and doc/gitignore edits).
 
 ## Working tree note (start of session)
 
@@ -24,9 +29,9 @@ session start — the Phase 5 planning artifacts. No unrelated changes. Nothing 
 | S2 | Windows service + startup-failure messaging | done (backend builds; StartupDiagnostics tests pass) |
 | S3 | HTTPS cert self-gen + fail-loud transport | done (backend builds; CertificateProvisioner tests pass) |
 | S4 | Same-origin Kestrel front door (YARP + BFF relocation + FE URL fixes) | done (backend builds; web `tsc` + `npm run build` pass; `/bff/auth/*` routes confirmed) |
-| S5 | WebView2 desktop shell | **deferred (next session)** |
-| S6 | Server installer | **deferred (next session)** |
-| S7 | Client installer | **deferred (next session)** |
+| S5 | WebView2 desktop shell | done (committed; `dotnet build` 0/0; runtime operator-verified R-1) |
+| S6 | Server installer (publish-server.ps1 + clinic-server.iss) | done (committed; PS parses under PS5.1; ISCC/stand-up operator-verified R-1) |
+| S7 | Client installer (clinic-client.iss) + README checklist | done (committed; ISCC/CA-import operator-verified R-1) |
 
 ## Final quality gate (S1–S4)
 
@@ -40,12 +45,26 @@ session start — the Phase 5 planning artifacts. No unrelated changes. Nothing 
   live backup against a real pg_dump/PostgreSQL) requires Docker + a Windows install — deferred to operator
   verification per `packaging/README.md` (R-1). S5–S7 packaging artifacts not started this session.
 
+## Final quality gate (S5–S7, Session 2)
+
+- **Desktop shell:** `dotnet build desktop/ClinicManagement.DesktopShell.sln -c Release` → **0 errors, 0 warnings**
+  (WebView2 restored; WPF built). Running the shell requires a Windows install + WebView2 runtime → operator-verified (R-1).
+- **publish-server.ps1:** `[Parser]::ParseFile` → **0 errors** (validated it parses under Windows PowerShell 5.1,
+  not only pwsh 7). Non-ASCII `→`/`—` replaced with ASCII so `powershell.exe`'s codepage guess on the no-BOM
+  file can't break parsing.
+- **Inno Setup `.iss` (server + client):** review-only; **cannot compile here** (no ISCC in this environment, R-1).
+  Saved UTF-8 **with BOM** so ISCC (Unicode) reads the French dialog strings without mojibake.
+- **No backend/web rebuild needed:** S5–S7 touched **zero** `api/`/`web/` source, so the Session-1 green gate
+  (`dotnet build ClinicManagement.sln` 0/57-baseline; web `tsc`+`build`) is unchanged by construction.
+
 ## Auto-Approved Deviations
 
 | Deviation | Classification | Reason |
 |-----------|----------------|--------|
 | Introduced shared `LocalInstallPaths` helper (Infrastructure) instead of inlining `AppContext.BaseDirectory` at each R-6 site | Trivial | Internal helper extraction (pure path resolution); no API/behavior change; used by the same Local-only paths the plan names. |
 | BFF routes relocated with `git mv` (history preserved) rather than delete+recreate | Trivial | Same files/content; mechanical move only. |
+| S6: config sanitization (blank Google/HuggingFace/Auth0 secrets, set Local mode) added to `publish-server.ps1` operating on the *published* `appsettings.json` | Trivial | Build-output-only step; no source/behavior change; realises the plan's "scrub secrets from shipped config" (US-6 step 5 / FR-F4) at the publish boundary rather than in committed source. |
+| S5: `desktop/ClinicManagement.DesktopShell.sln` created as a standalone solution + `%AppData%\ClinicManagement\server.json` chosen for the address store (plan named the store path but not the sln layout) | Trivial | New isolated files; no effect on other code; store path is exactly the plan's AC-2.2 location. |
 
 ## Significant Deviations
 
@@ -61,6 +80,22 @@ build/install sections + the per-AC operator checklist remain for the S5–S7 se
 S2/S4 also call for doc entries. Deferring all docs to S5–S7 would leave S1–S4 acceptance criteria unmet.
 **Impact:** None negative — the file is additive and will be expanded, not rewritten, in the packaging session.
 **Approved:** Auto (documentation of already-approved slice scope; no code/behavior impact).
+
+### DEV-2: DesktopShell kept as a standalone solution, NOT added to `api/ClinicManagement.sln`
+**Date:** 2026-07-09 (Session 2)
+**Story:** 1 (slice S5)
+**Category:** Scope / structural
+**Original Plan:** US-5 / S5 step 5 says "Add the project to the solution" (the backend `api/ClinicManagement.sln`).
+**Actual Implementation:** Created `desktop/ClinicManagement.DesktopShell.sln` (standalone) instead; the shell is
+built/published only via `packaging/publish-server.ps1`. `api/ClinicManagement.sln` is untouched.
+**Justification:** The shell is a Windows-only WPF + WebView2 GUI (`net8.0-windows`), a different SDK/target
+from the backend `net8.0` services. Adding it to the backend solution would make the verified-green S1–S4
+quality gate (`dotnet build ClinicManagement.sln`) also build a desktop GUI on every backend build — risking
+baseline drift/native-asset restore issues — and muddy a backend solution with a client. The publish script
+covers buildability/discoverability the plan intended.
+**Impact:** Positive — backend gate stays byte-for-byte; shell still builds (own sln, 0/0) and publishes.
+No behavior change to any shipped app.
+**Approved:** Yes — user chose "Keep it standalone (Recommended)" via AskUserQuestion, 2026-07-09.
 
 ## Test run note (S1–S3)
 
