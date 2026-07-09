@@ -123,6 +123,17 @@ Observations (no change): the deliberate `[Authorize]` on `MedicalDocumentsContr
 Cloud (intended defense-in-depth, FE audited); Kestrel explicit-bind vs `ASPNETCORE_URLS` logs an
 "Overriding address(es)" warning (operator note for Phase 5).
 
+## Memory Updated
+
+**Status:** done
+**Date:** 2026-07-09
+
+Updated CLAUDE.md files for Phase 4 (LAN hosting & security gates):
+- **Root `CLAUDE.md`** — Phases-complete marker → 1–4; new "LAN hosting & security gates (Phase 4)" architectural note; security-debt bullet revised (items retired in Local, Cloud residual noted).
+- **`api/ClinicManagement.Application/CLAUDE.md`** — added `IGoogleTokenStore` interface; `AuthorizationPolicies.ConfigurePolicies(options, isLocalMode)` fail-closed fallback.
+- **`api/ClinicManagement.Infrastructure/CLAUDE.md`** — `FileGoogleTokenStore` + `GoogleCalendarService` token-store read; new "LAN hosting / security helpers" section (`LocalRequest`, `CorsOrigins`); DI + config keys.
+- **`api/ClinicManagement.API/CLAUDE.md`** — controllers table (GoogleCalendar/MedicalDocuments auth); Local fallback release-gate note; loopback-only Hangfire; `Program.cs` JWT/CORS/HTTPS-bind/redirect-guard steps; config keys; security note.
+
 ## Next step
 
 `/story-integration-tests` if `test-plan-integration.md` were APPROVED — it is **not** (no test plans

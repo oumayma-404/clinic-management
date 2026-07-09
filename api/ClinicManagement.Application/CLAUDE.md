@@ -67,6 +67,7 @@ Domain events (`IDomainEvent : INotification`) are handled here via `INotificati
 | `IAIActionService` | Decide & execute AI-driven actions (defines `AIActionRequest`/`AIActionResult`). |
 | `IGoogleAIService` / `IHuggingFaceAIService` | Chat completions for the AI feature; define message/response/token DTOs. |
 | `IInternetProbe` | Connectivity awareness (Phase 3): `IsInternetReachableAsync()` — does the **server** have working internet egress. Impl in Infrastructure (Singleton, cached). Backs the Local-only `GET /api/connectivity` used to gate AI + Google Calendar offline. |
+| `IGoogleTokenStore` | Google OAuth refresh-token persistence (Phase 4 / US-3): `GetRefreshToken()` + `SaveRefreshTokenAsync(...)`. Stores the token in a gitignored per-install `.local/` file (falling back to `GoogleCalendar:RefreshToken` config), **replacing** the old callback that rewrote the token into committed `appsettings.json`. Impl in Infrastructure (Singleton, in-memory cache for read-after-write). |
 
 ## DTOs — `DTOs/`
 Plain request/response records used by handlers & controllers: `PatientDto`, `AppointmentDto` (includes `IsSyncedToGoogle`, derived from `GoogleCalendarEventId != null` — mapped in all four Create/Update/Get/GetAll handlers; drives the "not synced to Google" badge), `ConnectivityStatusDto` (`InternetReachable`), `ClinicDto`, `DoctorPersonalInfoDto`, `UserDto`, `UserStatusDto`, `AddressDto`, `InsuranceInfoDto`, `PatientFlagDto`, `PatientMedicalHistoryDto`, `PatientFamilyHistoryDto`, `DentalRecordDto`, `PatientFileDto`, `MedicalDocumentDto`, `ProcedureTypeDto`, plus request shapes `CreateClinicRequest`, `JoinClinicRequest`, `UpdateDoctorsRequest`. `Common/Models/MedicalDocumentPdfData.cs` is the PDF-generation model.
@@ -75,7 +76,7 @@ Plain request/response records used by handlers & controllers: `PatientDto`, `Ap
 - **Maintenance** (`Common/Maintenance/`): `AdminPasswordRecoveryService` — the testable core of the offline admin-lockout recovery utility (find admin → temp password → `SetPassword` → persist). Deliberately **not** DI-registered (no HTTP-reachable reset path); driven only by the `reset-admin-password` CLI wrapper in the API project. Lives here because `UnitTests` references only Application.
 - **Exceptions** (`Common/Exceptions/`): `NotFoundException`, `ForbiddenAccessException`, and **`ExceptionMiddleware`** (ASP.NET middleware mapping these to 404/403, everything else → 500 with a generic JSON body).
 - **Authorization** (`Common/Authorization/`): policy-based.
-  - `AuthorizationPolicies.cs` — policy names `DoctorOrSecretary`, `DoctorOnly`, `SecretaryOnly`, `AdminOnly` + `ConfigurePolicies(...)`.
+  - `AuthorizationPolicies.cs` — policy names `DoctorOrSecretary`, `DoctorOnly`, `SecretaryOnly`, `AdminOnly` + `ConfigurePolicies(options, isLocalMode)`. In **Local** mode (Phase 4 / FR-E3 release gate) it installs a fail-closed `FallbackPolicy = RequireAuthenticatedUser()` so every endpoint without an explicit `[AllowAnonymous]` returns 401; in **Cloud** the fallback stays null (named policies only) → Cloud unchanged.
   - `Requirements/RoleRequirement.cs` — `params string[] AllowedRoles`.
   - `Handlers/RoleAuthorizationHandler.cs` — reads role claim (tries `https://clinic-management.com/role`, `role`, `ClaimTypes.Role`) and succeeds if it matches an allowed role.
 
