@@ -10,7 +10,7 @@
 
 | Story | Layer | Name | Status |
 |-------|-------|------|--------|
-| 1 | BE | LAN hosting & security gates | **implemented** |
+| 1 | BE | LAN hosting & security gates | **reviewed** |
 
 ## Working tree note (start of session)
 
@@ -108,6 +108,24 @@ These require a live API + LAN client and are validated at Phase 5 / review time
   the API's implicit framework reference does not flow to a `Microsoft.NET.Sdk` test project, so ASP.NET
   types (`DefaultHttpContext`, MVC `ControllerBase`, authorization options) won't resolve without it.
 
+## Review (Phase 4, Story 1) — 2026-07-09
+
+Reviewed → **[reviews/story-1.md](../reviews/story-1.md)**. Score **100/100**.
+
+**1 Major finding, fixed during review:**
+- `UseHttpsRedirection` was guarded on `httpsConfigured` (cert-path present), which is never set in
+  Cloud — so Cloud went from *always* redirecting to *never*, breaking the "Cloud byte-for-byte
+  unchanged" exit criterion (and dropping the HTTP→HTTPS redirect for a Kestrel-direct-HTTPS Cloud
+  deploy). Guard changed to `!isLocalAuthMode || httpsConfigured` (`Program.cs:224-231`): Cloud keeps
+  its prior unconditional redirect; Local still serves plain HTTP with no cert. Build 0-error, 122/122 tests pass.
+
+Observations (no change): the deliberate `[Authorize]` on `MedicalDocumentsController` does tighten
+Cloud (intended defense-in-depth, FE audited); Kestrel explicit-bind vs `ASPNETCORE_URLS` logs an
+"Overriding address(es)" warning (operator note for Phase 5).
+
 ## Next step
 
-`/review-story` (Phase 4, Story 1).
+`/story-integration-tests` if `test-plan-integration.md` were APPROVED — it is **not** (no test plans
+this phase), and this is a **Layer: BE** story so `/story-e2e` and `/story-api-tests` also auto-skip.
+Story 1 is the only Phase 4 story ⇒ all stories done → next pipeline step is the regression/test-suite
+check (auto-skipped, no APPROVED suites) → **`/review-feature`** (Phase 4).

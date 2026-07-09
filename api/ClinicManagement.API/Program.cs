@@ -221,10 +221,12 @@ try
         app.UseSwaggerUI();
     }
 
-    // Guarded (R-3): only redirect to HTTPS when an HTTPS endpoint is actually configured. An
+    // Guarded (R-3): in LOCAL mode only redirect when an HTTPS endpoint is actually configured — an
     // unconditional UseHttpsRedirection breaks a plain-HTTP LAN deployment ("failed to determine the
-    // https port for redirect"). When no cert is supplied we intentionally serve HTTP only.
-    if (httpsConfigured)
+    // https port for redirect"), so a no-cert LAN install intentionally serves HTTP only. CLOUD keeps
+    // its prior unconditional UseHttpsRedirection so Cloud stays byte-for-byte unchanged (its HTTPS
+    // posture is set by the reverse proxy / host, not by Phase 4).
+    if (!isLocalAuthMode || httpsConfigured)
     {
         app.UseHttpsRedirection();
     }
