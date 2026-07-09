@@ -45,7 +45,7 @@ graph TD
 
 | Story | Layer | Name | Status | Depends On |
 |-------|-------|------|--------|------------|
-| 1 | Full | Phase 5 — Packaging, Installers & Manual Backup (slices S1–S7) | implemented (S1–S4 in-repo; S5–S7 packaging committed — shell builds 0/0, installers operator-verified R-1) | - |
+| 1 | Full | Phase 5 — Packaging, Installers & Manual Backup (slices S1–S7) | reviewed (2026-07-09, 100/100 — see reviews/story-1.md; S1–S4 in-repo; S5–S7 packaging committed — shell builds 0/0, installers operator-verified R-1) | - |
 
 ### Internal slice map (for reference — all within Story 1)
 

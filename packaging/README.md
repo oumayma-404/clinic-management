@@ -31,11 +31,13 @@ Build with these environment variables so the browser bundle uses same-origin, r
 | `NEXT_PUBLIC_API_URL` | `/api` | Relative → same-origin. The browser hits the Kestrel front door; no baked-in server IP. |
 | `AUTH_MODE` | `local` | Selects the Local session provider + Local `/bff/auth/*` routes. |
 | `API_INTERNAL_URL` | `http://localhost:5000/api` | **Server-only.** The `local-login` / `change-password` BFF route handlers call the API with this absolute URL (a relative `/api` has no origin server-side). |
+| `AUTH_COOKIE_SECURE` | `true` | **Runtime, server-only.** Forces the `Secure` flag on the auth session cookie. Required because the Node server sits behind the HTTPS front door on a plain-HTTP loopback hop — without this the BFF login handler would derive a non-Secure request scheme and drop `Secure` even though the browser transport is HTTPS. Set by the server installer's web-service registration. |
 
 ```bash
 cd web
 NEXT_PUBLIC_API_URL=/api AUTH_MODE=local API_INTERNAL_URL=http://localhost:5000/api npm run build
-# Serve the standalone output; Next listens HTTP on localhost:<WebPort> only (never LAN-facing).
+# Serve the standalone output with AUTH_COOKIE_SECURE=true so the session cookie is Secure behind the
+# HTTPS front door; Next listens HTTP on localhost:<WebPort> only (never LAN-facing).
 ```
 
 ### API configuration (`appsettings.json` / environment)

@@ -37,10 +37,13 @@ export async function POST(request: NextRequest) {
 
     const { accessToken, expiresAt, mustChangePassword } = data.value;
     const mustChange = Boolean(mustChangePassword);
-    // The offline product is served over the LAN, often over plain HTTP (HTTPS arrives in a later
-    // phase). Keying `secure` off NODE_ENV would set it on any production build and the browser would
-    // silently drop the cookie over HTTP, breaking login. Derive it from the actual request scheme,
-    // with an explicit AUTH_COOKIE_SECURE override for deployments behind a TLS-terminating proxy.
+    // The browser now reaches the app over the HTTPS front door (Phase 5 S3), but this handler runs on
+    // the Node server that sits behind it on a plain-HTTP loopback hop — so `request.nextUrl.protocol`
+    // is `http:` here and would wrongly drop the Secure flag. Keying `secure` off NODE_ENV instead would
+    // set it on any production build, including genuine plain-HTTP dev, and the browser would silently
+    // drop the cookie over HTTP, breaking login. So derive it from the request scheme by default, and set
+    // AUTH_COOKIE_SECURE=true for deployments behind a TLS-terminating proxy — which the server installer
+    // does for the front-door topology, so the session cookie is Secure on the HTTPS LAN deployment.
     const secure = process.env.AUTH_COOKIE_SECURE
       ? process.env.AUTH_COOKIE_SECURE === 'true'
       : request.nextUrl.protocol === 'https:';

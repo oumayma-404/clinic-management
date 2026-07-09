@@ -107,6 +107,16 @@ logic defect (R-1 / project memory `smart-app-control-blocks-tests`). Passing: a
 (4), `StartupDiagnostics` (8), and `PgDumpBackupService` (3) tests — cert SANs/CA-signing/idempotency,
 startup DB-down/port-in-use classification, and backup fail-loud pre-checks all verified green.
 
+## Review (2026-07-09)
+
+Story 1 **reviewed** — see [`../reviews/story-1.md`](../reviews/story-1.md). Score **100/100**. Backend
+build 0 errors / 57-baseline warnings; web `tsc` 0 errors. **1 finding (Minor, security-hardening), fixed
+during review:** the auth session cookie shipped without `Secure` on the HTTPS front-door deployment because
+the BFF login handler runs on the internal plain-HTTP loopback hop and the installer omitted the
+`AUTH_COOKIE_SECURE` override — fixed in `packaging/server/clinic-server.iss` + `packaging/README.md` +
+the `web/app/bff/auth/local-login/route.ts` comment. S5–S7 remain operator-verified per `packaging/README.md`
+(R-1). Slice statuses below advance from `done (implemented)` to **reviewed**.
+
 ## Learnings
 
 - **YARP reverse proxy must be added pre-`builder.Build()`** for cert config, but the provisioner also runs

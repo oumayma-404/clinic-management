@@ -1,7 +1,7 @@
 # Story 1: [Full] Phase 5 — Packaging, Installers & Manual Backup
 
 **Status:** APPROVED
-**Story Status:** implemented (S1–S4 implemented & building green 2026-07-09; S5–S7 packaging implemented 2026-07-09 — committed, shell builds 0/0; installer compilation + end-to-end stand-up operator-verified per `packaging/README.md`, R-1)
+**Story Status:** reviewed (2026-07-09 — see `../reviews/story-1.md`, 100/100, 1 Minor security-hardening finding fixed; backend build 0/57-baseline, web tsc 0. S1–S4 implemented & building green; S5–S7 packaging committed, shell builds 0/0; installer compilation + end-to-end stand-up operator-verified per `packaging/README.md`, R-1)
 **Layer:** Full
 **Depends On:** None (Phases 1–4 COMPLETE; artifacts archived under `../phase-1/`, `../phase-3/`, `../phase-4/`)
 **Blocks:** None (final phase of the umbrella spec)

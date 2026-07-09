@@ -198,9 +198,13 @@ begin
     RunWait(Nssm, 'set {#ServiceWeb} AppDirectory "' + WebDir + '"', '', Rc);
     RunWait(Nssm, 'set {#ServiceWeb} Start SERVICE_AUTO_START', '', Rc);
     RunWait(Nssm, 'set {#ServiceWeb} DependOnService {#ServiceDb}', '', Rc);
-    { Same-origin build env for the co-located Next server (localhost only, never LAN-facing). }
+    { Same-origin build env for the co-located Next server (localhost only, never LAN-facing).
+      AUTH_COOKIE_SECURE=true: the browser reaches the app over the HTTPS front door, but this Node
+      server sits behind it on a plain-HTTP loopback hop, so the BFF login handler would otherwise
+      derive a non-Secure request scheme and drop the Secure flag on the auth session cookie. Force it
+      on — the front door is the TLS-terminating proxy the handler's override was written for. }
     RunWait(Nssm, 'set {#ServiceWeb} AppEnvironmentExtra ' +
-      'PORT={#WebPort} HOSTNAME=127.0.0.1 NODE_ENV=production AUTH_MODE=local ' +
+      'PORT={#WebPort} HOSTNAME=127.0.0.1 NODE_ENV=production AUTH_MODE=local AUTH_COOKIE_SECURE=true ' +
       'NEXT_PUBLIC_API_URL=/api API_INTERNAL_URL=http://localhost:{#HttpPort}/api', '', Rc);
   end
   else
