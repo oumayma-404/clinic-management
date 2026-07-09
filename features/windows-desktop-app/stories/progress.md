@@ -134,6 +134,18 @@ Updated CLAUDE.md files for Phase 4 (LAN hosting & security gates):
 - **`api/ClinicManagement.Infrastructure/CLAUDE.md`** — `FileGoogleTokenStore` + `GoogleCalendarService` token-store read; new "LAN hosting / security helpers" section (`LocalRequest`, `CorsOrigins`); DI + config keys.
 - **`api/ClinicManagement.API/CLAUDE.md`** — controllers table (GoogleCalendar/MedicalDocuments auth); Local fallback release-gate note; loopback-only Hangfire; `Program.cs` JWT/CORS/HTTPS-bind/redirect-guard steps; config keys; security note.
 
+## Pull Request
+
+**Status:** pending manual creation (gh CLI account mismatch — see below)
+**Date:** 2026-07-09
+**Branch:** `feature/windows-desktop-app` -> `main`
+**Compare URL:** https://github.com/oumayma-404/clinic-management/compare/main...feature/windows-desktop-app?expand=1
+**Created by:** Claude
+**Note:** Branch pushed successfully (git remote = `oumayma-404`). `gh` CLI is authenticated as
+`o-benkhalifa` and cannot resolve the repo, so `gh pr create` fails — PR to be opened via the compare
+URL or after `gh auth switch`. This is the cumulative windows-desktop-app branch (Phases 1–4), never
+merged, so the PR to `main` contains the full feature.
+
 ## Next step
 
 `/story-integration-tests` if `test-plan-integration.md` were APPROVED — it is **not** (no test plans
