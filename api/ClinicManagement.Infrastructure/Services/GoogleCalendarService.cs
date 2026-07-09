@@ -13,12 +13,17 @@ namespace ClinicManagement.Infrastructure.Services;
 public class GoogleCalendarService : IGoogleCalendarService
 {
     private readonly IConfiguration _configuration;
+    private readonly IGoogleTokenStore _tokenStore;
     private readonly ILogger<GoogleCalendarService> _logger;
     private CalendarService? _calendarService;
 
-    public GoogleCalendarService(IConfiguration configuration, ILogger<GoogleCalendarService> logger)
+    public GoogleCalendarService(
+        IConfiguration configuration,
+        IGoogleTokenStore tokenStore,
+        ILogger<GoogleCalendarService> logger)
     {
         _configuration = configuration;
+        _tokenStore = tokenStore;
         _logger = logger;
     }
 
@@ -29,7 +34,9 @@ public class GoogleCalendarService : IGoogleCalendarService
 
         var clientId = _configuration["GoogleCalendar:ClientId"];
         var clientSecret = _configuration["GoogleCalendar:ClientSecret"];
-        var refreshToken = _configuration["GoogleCalendar:RefreshToken"];
+        // Read via the token store (per-install .local/ file), which falls back to configuration for
+        // Cloud / back-compat (R-5) — replaces the direct _configuration[...] read.
+        var refreshToken = _tokenStore.GetRefreshToken();
         var calendarId = _configuration["GoogleCalendar:CalendarId"] ?? "primary";
 
         if (string.IsNullOrEmpty(clientId) || string.IsNullOrEmpty(clientSecret))

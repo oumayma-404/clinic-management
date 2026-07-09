@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 using MediatR;
 using ClinicManagement.Application.Features.Documents.Commands;
 using ClinicManagement.Application.Features.Documents.Queries;
@@ -12,6 +13,12 @@ namespace ClinicManagement.API.Controllers;
 
 [ApiController]
 [Route("api/medical-documents")]
+// Explicit defense-in-depth: this controller was previously anonymous-by-omission and serves patient
+// PHI (medical documents + generated PDFs). The class-level [Authorize] documents the intent and
+// authenticates it in BOTH modes' terms — in Local mode it is also covered by the fail-closed fallback
+// policy (FR-E3); in Cloud it now requires the Auth0 bearer the frontend already sends (verified: the
+// one raw-fetch caller attaches the token).
+[Authorize]
 public class MedicalDocumentsController : ControllerBase
 {
     private readonly IMediator _mediator;

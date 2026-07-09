@@ -1,8 +1,8 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 using ClinicManagement.Application.Common.Interfaces;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Configuration;
-using System.Text.RegularExpressions;
 
 namespace ClinicManagement.API.Controllers;
 
@@ -12,15 +12,18 @@ public class GoogleCalendarController : ControllerBase
 {
     private readonly IGoogleCalendarSyncService _syncService;
     private readonly IConfiguration _configuration;
+    private readonly IGoogleTokenStore _tokenStore;
     private readonly ILogger<GoogleCalendarController> _logger;
 
     public GoogleCalendarController(
         IGoogleCalendarSyncService syncService,
         IConfiguration configuration,
+        IGoogleTokenStore tokenStore,
         ILogger<GoogleCalendarController> logger)
     {
         _syncService = syncService;
         _configuration = configuration;
+        _tokenStore = tokenStore;
         _logger = logger;
     }
 
@@ -91,7 +94,7 @@ public class GoogleCalendarController : ControllerBase
         var config = HttpContext.RequestServices.GetRequiredService<IConfiguration>();
         var clientId = config["GoogleCalendar:ClientId"];
         var clientSecret = config["GoogleCalendar:ClientSecret"];
-        var refreshToken = config["GoogleCalendar:RefreshToken"];
+        var refreshToken = _tokenStore.GetRefreshToken();
         var calendarId = config["GoogleCalendar:CalendarId"] ?? "primary";
 
         var hasClientId = !string.IsNullOrEmpty(clientId);
@@ -167,6 +170,10 @@ public class GoogleCalendarController : ControllerBase
     /// <summary>
     /// Initiate Google Calendar OAuth authorization flow
     /// </summary>
+    // Browser-redirect endpoint: reached by a top-level navigation that cannot carry a bearer token,
+    // so it is exempted from the Local-mode fail-closed fallback policy (FR-E3). The AJAX endpoints
+    // above deliberately carry NO carve-out — the fallback now requires auth on them in Local mode.
+    [AllowAnonymous]
     [HttpGet("authorize")]
     public IActionResult Authorize()
     {
@@ -214,6 +221,9 @@ public class GoogleCalendarController : ControllerBase
     /// <summary>
     /// Handle OAuth callback and exchange authorization code for refresh token
     /// </summary>
+    // Browser-redirect endpoint (Google redirects the user's browser here with ?code=...); it cannot
+    // carry a bearer token, so it is exempted from the Local-mode fail-closed fallback policy (FR-E3).
+    [AllowAnonymous]
     [HttpGet("callback")]
     public async Task<IActionResult> Callback([FromQuery] string? code, [FromQuery] string? error, [FromQuery] string? state)
     {
@@ -303,17 +313,17 @@ public class GoogleCalendarController : ControllerBase
             else
             {
                 // If no refresh token in response, it means the user already authorized before
-                // We should use the existing refresh token from configuration
-                refreshToken = _configuration["GoogleCalendar:RefreshToken"];
+                // We should use the existing refresh token from the token store (file, config fallback)
+                refreshToken = _tokenStore.GetRefreshToken();
                 if (string.IsNullOrEmpty(refreshToken))
                 {
-                    _logger.LogWarning("No refresh token in response and no existing refresh token in configuration. " +
+                    _logger.LogWarning("No refresh token in response and no existing refresh token stored. " +
                         "This might happen if the user already authorized. You may need to revoke access and re-authorize.");
-                    return StatusCode(500, new { 
-                        error = "Refresh token not received. If you've already authorized this app, you may need to revoke access in Google Account settings and try again." 
+                    return StatusCode(500, new {
+                        error = "Refresh token not received. If you've already authorized this app, you may need to revoke access in Google Account settings and try again."
                     });
                 }
-                _logger.LogInformation("Using existing refresh token from configuration");
+                _logger.LogInformation("Using existing refresh token from the token store");
             }
 
             if (string.IsNullOrEmpty(refreshToken))
@@ -321,33 +331,10 @@ public class GoogleCalendarController : ControllerBase
                 return StatusCode(500, new { error = "Refresh token is empty" });
             }
 
-            // Update appsettings.json with the refresh token
-            // Note: In production, you should store this securely (e.g., in a database or secure vault)
-            try
-            {
-                var appsettingsPath = Path.Combine(Directory.GetCurrentDirectory(), "appsettings.json");
-                var appsettingsContent = await System.IO.File.ReadAllTextAsync(appsettingsPath);
-                
-                // Simple string replacement approach - more reliable than JSON parsing
-                var oldRefreshTokenPattern = "\"RefreshToken\":\\s*\"[^\"]*\"";
-                var newRefreshTokenLine = $"\"RefreshToken\": \"{refreshToken}\"";
-                
-                var updatedContent = Regex.Replace(
-                    appsettingsContent,
-                    oldRefreshTokenPattern,
-                    newRefreshTokenLine,
-                    RegexOptions.IgnoreCase);
-
-                await System.IO.File.WriteAllTextAsync(appsettingsPath, updatedContent);
-                _logger.LogInformation("Refresh token saved to appsettings.json");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to save refresh token to appsettings.json. Token will only be available in memory until restart.");
-            }
-
-            // Also update the configuration in memory
-            _configuration["GoogleCalendar:RefreshToken"] = refreshToken;
+            // Persist the refresh token to the gitignored per-install token store instead of rewriting the
+            // committed appsettings.json (US-3 / FR-E3). The store is a Singleton with an in-memory cache,
+            // so the new token is picked up immediately by GoogleCalendarService without a restart.
+            await _tokenStore.SaveRefreshTokenAsync(refreshToken);
 
             _logger.LogInformation("Google Calendar authorization successful. Refresh token saved.");
 

@@ -21,9 +21,17 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <!-- Needed for ASP.NET Core types (DefaultHttpContext, MVC ControllerBase, authorization options)
+       used by the Phase 4 auth-gate tests and the controller attribute-coverage reflection scan. -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\ClinicManagement.Application\ClinicManagement.Application.csproj" />
     <ProjectReference Include="..\ClinicManagement.Infrastructure\ClinicManagement.Infrastructure.csproj" />
+    <!-- API referenced so the reflection test can enumerate controller types (Phase 4). -->
+    <ProjectReference Include="..\ClinicManagement.API\ClinicManagement.API.csproj" />
   </ItemGroup>
 
 </Project>

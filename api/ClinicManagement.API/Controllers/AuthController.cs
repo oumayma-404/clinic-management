@@ -83,7 +83,7 @@ public class AuthController : ControllerBase
             return NotFound();
         }
 
-        if (!IsLocalRequest(HttpContext))
+        if (!ClinicManagement.Infrastructure.LocalRequest.IsLoopback(HttpContext))
         {
             return StatusCode((int)HttpStatusCode.Forbidden, new { error = "First-run setup is only available on the server machine." });
         }
@@ -166,21 +166,5 @@ public class AuthController : ControllerBase
         }
 
         return Ok(result);
-    }
-
-    /// <summary>True when the request originates from the server machine itself (loopback).</summary>
-    private static bool IsLocalRequest(HttpContext context)
-    {
-        var connection = context.Connection;
-        var remoteIp = connection.RemoteIpAddress;
-        if (remoteIp is null)
-        {
-            return true; // in-process / no remote info
-        }
-        if (connection.LocalIpAddress is not null)
-        {
-            return remoteIp.Equals(connection.LocalIpAddress) || IPAddress.IsLoopback(remoteIp);
-        }
-        return IPAddress.IsLoopback(remoteIp);
     }
 }

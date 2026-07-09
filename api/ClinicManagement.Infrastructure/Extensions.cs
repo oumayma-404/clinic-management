@@ -131,6 +131,12 @@ public static class Extensions
         // Domain Services
         services.AddScoped<Domain.Services.IPatientSummaryService, PatientSummaryService>();
 
+        // Google OAuth refresh-token store (US-3 / FR-E3): persists the token to a gitignored per-install
+        // file instead of rewriting appsettings.json. Singleton so the in-memory cache provides the
+        // immediate live-refresh-without-restart behavior the old in-place config set had. Safe to
+        // register unconditionally — only exercised when Google Calendar is used.
+        services.AddSingleton<IGoogleTokenStore, FileGoogleTokenStore>();
+
         // Google Calendar Service
         services.AddScoped<IGoogleCalendarService, GoogleCalendarService>();
         services.AddScoped<IGoogleCalendarSyncService, GoogleCalendarSyncService>();

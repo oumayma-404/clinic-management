@@ -136,7 +136,9 @@ try
     {
         builder.Services.AddAuthorization(options =>
         {
-            AuthorizationPolicies.ConfigurePolicies(options);
+            // Local mode (FR-E3 release gate): install a fail-closed fallback policy so every endpoint
+            // without an explicit [AllowAnonymous] requires an authenticated session. Cloud stays unchanged.
+            AuthorizationPolicies.ConfigurePolicies(options, isLocalAuthMode);
         });
 
         // Register authorization handlers
@@ -160,18 +162,55 @@ try
 
     // Add CORS
     // Note: When using credentials (cookies), we cannot use AllowAnyOrigin()
-    // We must specify the exact origin and use AllowCredentials()
-    var frontendUrl = builder.Configuration["FrontendUrl"] ?? "http://localhost:3000";
+    // We must specify the exact origin(s) and use AllowCredentials().
+    // The origin list is FrontendUrl unioned with the optional Cors:AllowedOrigins array (FR-E1) —
+    // so a Local/LAN install can allow client-PC origins via config; Cloud keeps the single FrontendUrl.
+    var corsOrigins = ClinicManagement.Infrastructure.CorsOrigins.FromConfiguration(builder.Configuration);
     builder.Services.AddCors(options =>
     {
         options.AddPolicy("AllowAll", policy =>
         {
-            policy.WithOrigins(frontendUrl)
+            policy.WithOrigins(corsOrigins)
                   .AllowAnyMethod()
                   .AllowAnyHeader()
                   .AllowCredentials(); // Required when sending credentials (cookies)
         });
     });
+
+    // --- LAN hosting: config-driven bind + optional HTTPS serving (FR-E2, FR-E4) ---
+    // HTTPS is opt-in: when a server certificate is configured we bind an HTTPS endpoint using it and
+    // enable the redirect below; otherwise we stay on plain HTTP — the safe default so an HTTP-only LAN
+    // deployment isn't broken by a failed redirect. The local CA + server-cert *generation* at install,
+    // and the client-side CA trust import, are Phase 5; Phase 4 serves against any operator-supplied cert.
+    var httpsCertPath = builder.Configuration["Https:CertPath"];
+    var httpsCertPassword = builder.Configuration["Https:CertPassword"];
+    var httpsConfigured = !string.IsNullOrWhiteSpace(httpsCertPath) && System.IO.File.Exists(httpsCertPath);
+
+    if (httpsConfigured)
+    {
+        // Bind explicitly so the redirect target port is deterministic. Both endpoints listen on all
+        // interfaces so LAN clients can connect (FR-E1/FR-E4). Ports are configuration-driven.
+        var httpPort = builder.Configuration.GetValue<int?>("Hosting:HttpPort") ?? 5000;
+        var httpsPort = builder.Configuration.GetValue<int?>("Hosting:HttpsPort") ?? 5001;
+        var serverCertificate = new System.Security.Cryptography.X509Certificates.X509Certificate2(
+            httpsCertPath!, httpsCertPassword);
+        builder.WebHost.ConfigureKestrel(kestrel =>
+        {
+            kestrel.ListenAnyIP(httpPort);
+            kestrel.ListenAnyIP(httpsPort, listen => listen.UseHttps(serverCertificate));
+        });
+        builder.Services.AddHttpsRedirection(options => options.HttpsPort = httpsPort);
+    }
+    else
+    {
+        // No cert: honor an explicit Hosting:Urls bind (e.g. "http://0.0.0.0:5000") so the LAN bind
+        // isn't hardcoded to localhost. ASPNETCORE_URLS / the "urls" key remain honored by default.
+        var hostingUrls = builder.Configuration["Hosting:Urls"];
+        if (!string.IsNullOrWhiteSpace(hostingUrls))
+        {
+            builder.WebHost.UseUrls(hostingUrls.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+        }
+    }
 
     var app = builder.Build();
 
@@ -182,7 +221,13 @@ try
         app.UseSwaggerUI();
     }
 
-    app.UseHttpsRedirection();
+    // Guarded (R-3): only redirect to HTTPS when an HTTPS endpoint is actually configured. An
+    // unconditional UseHttpsRedirection breaks a plain-HTTP LAN deployment ("failed to determine the
+    // https port for redirect"). When no cert is supplied we intentionally serve HTTP only.
+    if (httpsConfigured)
+    {
+        app.UseHttpsRedirection();
+    }
     app.UseCors("AllowAll");
     
     // Exception handling middleware (must be before authentication/authorization)
@@ -200,10 +245,12 @@ try
 
     app.MapControllers();
 
-    // Hangfire Dashboard
+    // Hangfire Dashboard — in Local mode, reachable only from the server PC itself (loopback);
+    // Cloud keeps the previous behavior (FR-E3). Mode is passed into the filter so the decision is
+    // per-request (the filter is a singleton attached to the dashboard middleware).
     app.UseHangfireDashboard("/hangfire", new DashboardOptions
     {
-        Authorization = new[] { new HangfireAuthorizationFilter() }
+        Authorization = new[] { new HangfireAuthorizationFilter(isLocalAuthMode) }
     });
 
     // Ensure database is created
@@ -251,12 +298,28 @@ finally
 
 return 0;
 
-// Simple authorization filter for Hangfire (in production, use proper authentication)
+// Authorization filter for the Hangfire dashboard.
+// Local mode (FR-E3): allow only requests originating from the server PC itself (loopback) — the
+// dashboard exposes job internals and must not be reachable from a LAN client. Cloud mode keeps the
+// prior permissive behavior (the dashboard is not exposed publicly there; tightening it is R-6/R-7).
+// Reverse-proxy caveat (R-9): behind a proxy the client IP is the proxy's, not loopback — acceptable
+// for the v1 single-PC topology where the API is not proxied.
 public class HangfireAuthorizationFilter : IDashboardAuthorizationFilter
 {
+    private readonly bool _isLocalMode;
+
+    public HangfireAuthorizationFilter(bool isLocalMode)
+    {
+        _isLocalMode = isLocalMode;
+    }
+
     public bool Authorize(DashboardContext context)
     {
-        // In production, implement proper authorization
+        if (_isLocalMode)
+        {
+            return ClinicManagement.Infrastructure.LocalRequest.IsLoopback(context.GetHttpContext());
+        }
+
         return true;
     }
 }
