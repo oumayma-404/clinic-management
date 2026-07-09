@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -27,12 +27,24 @@ export function BackupSettings() {
   const [working, setWorking] = useState(false)
   const [lastResult, setLastResult] = useState<{ path: string; size: string } | null>(null)
 
+  // Guard against setState after unmount: a backup can be long-running and the operator may navigate away
+  // from /settings mid-request (Finding 18 — matches the guarded-async pattern used in session.tsx).
+  const mounted = useRef(true)
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
+
   const handleBackup = async () => {
     setWorking(true)
     setLastResult(null)
     try {
       const result = await backupApi.backupNow(destination)
-      setLastResult({ path: result.destinationPath, size: formatSize(result.sizeBytes) })
+      if (mounted.current) {
+        setLastResult({ path: result.destinationPath, size: formatSize(result.sizeBytes) })
+      }
       toast.success("Sauvegarde terminée", {
         description: `${result.destinationPath} (${formatSize(result.sizeBytes)})`,
       })
@@ -40,7 +52,9 @@ export function BackupSettings() {
       const message = err instanceof ApiError ? err.message : "La sauvegarde a échoué."
       toast.error("Échec de la sauvegarde", { description: message })
     } finally {
-      setWorking(false)
+      if (mounted.current) {
+        setWorking(false)
+      }
     }
   }
 

@@ -63,10 +63,13 @@ public class BackupNowCommandHandler : IRequestHandler<BackupNowCommand, Result<
             var result = await _backupService.CreateBackupAsync(request.DestinationFolder, cancellationToken);
             return Result<BackupResultDto>.Success(result);
         }
-        catch (Exception ex)
+        catch (InvalidOperationException ex)
         {
-            // The service throws with a clear operator-facing reason (unwritable / disk full /
-            // pg_dump missing / dump failed); surface it verbatim rather than a silent failure.
+            // IBackupService surfaces every EXPECTED failure (unwritable / disk full / pg_dump missing /
+            // dump failed) as InvalidOperationException with a clear operator-facing reason — return it
+            // verbatim. Anything else (a genuine bug, or OperationCanceledException on cancellation) is
+            // left to propagate to the global exception middleware rather than masked as a benign failure
+            // (Finding 7).
             return Result<BackupResultDto>.Failure(ex.Message);
         }
     }

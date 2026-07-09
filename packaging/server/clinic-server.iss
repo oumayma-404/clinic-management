@@ -73,13 +73,21 @@ Filename: "{sys}\sc.exe"; Parameters: "stop {#ServiceWeb}"; Flags: runhidden; Ru
 Filename: "{sys}\sc.exe"; Parameters: "delete {#ServiceApi}"; Flags: runhidden; RunOnceId: "DelApi"
 Filename: "{sys}\sc.exe"; Parameters: "delete {#ServiceWeb}"; Flags: runhidden; RunOnceId: "DelWeb"
 Filename: "{app}\postgres\bin\pg_ctl.exe"; Parameters: "unregister -N ""{#ServiceDb}"""; Flags: runhidden skipifdoesntexist; RunOnceId: "DelDb"
+; Remove the LAN firewall hole opened by OpenFirewall — otherwise it persists after uninstall (Finding 4).
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Clinic Management HTTPS"""; Flags: runhidden; RunOnceId: "DelFwRule"
 
 [Code]
 const
   SW_HIDE = 0;
 
 var
-  DbPassword: string;
+  DbPassword: string;       { clinic_user login password (also baked into the connection string) }
+  PgSuperPassword: string;   { postgres superuser password (scram-sha-256, Finding 10) }
+
+{ OS CSPRNG (bcrypt.dll) — replaces Inno's non-cryptographic, unseeded Random for generated secrets
+  (Finding 12). BCRYPT_USE_SYSTEM_PREFERRED_RNG = 2; hAlgorithm = NULL (0). Returns STATUS_SUCCESS (0). }
+function BCryptGenRandom(hAlgorithm: Cardinal; pbBuffer: AnsiString; cbBuffer: Cardinal; dwFlags: Cardinal): Integer;
+  external 'BCryptGenRandom@bcrypt.dll stdcall';
 
 { Run a program hidden and wait; returns True on exit code 0. }
 function RunWait(const FileName, Params, WorkingDir: string; var ResultCode: Integer): Boolean;
@@ -87,17 +95,29 @@ begin
   Result := Exec(FileName, Params, WorkingDir, SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
 end;
 
-{ Weak-but-adequate random password for the local-only clinic_user role. The DB never leaves the PC;
-  the value is stored only in the install's appsettings.Production.json. }
-function NewDbPassword: string;
+{ Cryptographically-random 24-char password over an unambiguous alphabet. Sourced from the OS CSPRNG so it
+  is genuinely per-install-unique (Finding 12); enforced by scram-sha-256 auth (Finding 10). Falls back to
+  a seeded Randomize+Random only if the CSPRNG call fails (should not happen on supported Windows). }
+function NewRandomPassword: string;
 var
+  Buf: AnsiString;
   I: Integer;
   Chars: string;
 begin
   Chars := 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
   Result := '';
-  for I := 1 to 24 do
-    Result := Result + Copy(Chars, Random(Length(Chars)) + 1, 1);
+  SetLength(Buf, 24);
+  if BCryptGenRandom(0, Buf, 24, 2) = 0 then
+  begin
+    for I := 1 to 24 do
+      Result := Result + Copy(Chars, (Ord(Buf[I]) mod Length(Chars)) + 1, 1);
+  end
+  else
+  begin
+    Randomize;
+    for I := 1 to 24 do
+      Result := Result + Copy(Chars, Random(Length(Chars)) + 1, 1);
+  end;
 end;
 
 { Write the machine-specific Local runtime config as appsettings.Production.json (the API service runs
@@ -130,54 +150,93 @@ begin
   SaveStringToFile(AppDir + '\api\appsettings.Production.json', Cfg, False);
 end;
 
-{ initdb a fresh cluster, register + start the PostgreSQL service, then create the DB + role. }
+{ initdb a fresh cluster (password-enforced), register + start the PostgreSQL service, then create the DB +
+  role. Returns False on ANY hard failure so the caller aborts instead of proceeding against a missing
+  role/DB and reporting "success" (Finding 5). Auth is scram-sha-256, not trust, so no local OS account can
+  connect password-less (Finding 10); psql authenticates via a temporary pgpass.conf that is deleted after
+  bootstrap. }
 function SetupPostgres: Boolean;
 var
   Rc: Integer;
-  PgBin, PgData, Psql, InitDb, PgCtl, Sql: string;
+  PgBin, PgData, Psql, InitDb, PgCtl, PwFile, PgPassDir, PgPassFile, SqlFile, Sql: string;
 begin
+  Result := False;
   PgBin  := ExpandConstant('{app}\postgres\bin');
   PgData := ExpandConstant('{app}\pgdata');
   InitDb := PgBin + '\initdb.exe';
   PgCtl  := PgBin + '\pg_ctl.exe';
   Psql   := PgBin + '\psql.exe';
 
-  { Fresh cluster only if pgdata is empty (idempotent re-install). }
+  { Fresh cluster only if pgdata is empty (idempotent re-install). Enforce password auth and set the
+    postgres superuser password via a temp --pwfile (deleted immediately after). }
   if not FileExists(PgData + '\PG_VERSION') then
   begin
-    if not RunWait(InitDb, '-D "' + PgData + '" -U postgres -A trust --encoding=UTF8 --locale=C', PgBin, Rc) then
+    PwFile := ExpandConstant('{tmp}\pg-super.pw');
+    SaveStringToFile(PwFile, PgSuperPassword, False);
+    if not RunWait(InitDb, '-D "' + PgData + '" -U postgres -A scram-sha-256 --pwfile="' + PwFile + '" --encoding=UTF8 --locale=C', PgBin, Rc) then
     begin
-      MsgBox('Échec de l''initialisation de PostgreSQL (initdb). Code ' + IntToStr(Rc), mbError, MB_OK);
-      Result := False;
+      DeleteFile(PwFile);
+      MsgBox('Échec de l''initialisation de PostgreSQL (initdb, code ' + IntToStr(Rc) + '). Installation interrompue.', mbError, MB_OK);
       Exit;
     end;
+    DeleteFile(PwFile);
   end;
 
-  { Register as an auto-start service (bind loopback only — the DB is never LAN-facing). }
+  { Register as an auto-start service (bind loopback only — the DB is never LAN-facing). Tolerate
+    "already registered"/"already running" on re-install; the readiness probe below is the real gate. }
   RunWait(PgCtl, 'register -N "{#ServiceDb}" -D "' + PgData + '" -S auto -o "-p {#DbPort} -h 127.0.0.1"', PgBin, Rc);
   Exec(ExpandConstant('{sys}\sc.exe'), 'start {#ServiceDb}', '', SW_HIDE, ewWaitUntilTerminated, Rc);
 
-  { Wait for readiness. }
-  RunWait(PgBin + '\pg_isready.exe', '-h 127.0.0.1 -p {#DbPort} -t 30', PgBin, Rc);
+  { Wait for readiness — hard-fail if the server never comes up. }
+  if not RunWait(PgBin + '\pg_isready.exe', '-h 127.0.0.1 -p {#DbPort} -t 30', PgBin, Rc) then
+  begin
+    MsgBox('PostgreSQL ne répond pas (pg_isready). Installation interrompue.', mbError, MB_OK);
+    Exit;
+  end;
 
-  { Create the role + database if absent (idempotent). PGPASSWORD unused — trust auth on localhost. }
+  { psql now needs a password (scram). Provide it via the default pgpass.conf so nothing is passed on the
+    command line; the file is deleted after bootstrap. {userappdata} is the (elevated) installer account,
+    which is also the account the psql child runs under, so psql picks it up automatically. }
+  PgPassDir  := ExpandConstant('{userappdata}\postgresql');
+  PgPassFile := PgPassDir + '\pgpass.conf';
+  ForceDirectories(PgPassDir);
+  SaveStringToFile(PgPassFile,
+    '127.0.0.1:{#DbPort}:*:postgres:' + PgSuperPassword + #13#10 +
+    '127.0.0.1:{#DbPort}:*:{#DbUser}:' + DbPassword + #13#10, False);
+
+  { Create the role if absent, then the database if absent (\gexec creates only when the guard returns a
+    row). One script, ON_ERROR_STOP=1 so a genuine failure aborts the install. -w never prompts. }
   Sql :=
     'DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname=''{#DbUser}'') THEN ' +
-    'CREATE ROLE {#DbUser} LOGIN PASSWORD ''' + DbPassword + '''; END IF; END $$;';
-  RunWait(Psql, '-h 127.0.0.1 -p {#DbPort} -U postgres -d postgres -v ON_ERROR_STOP=1 -c "' + Sql + '"', PgBin, Rc);
+    'CREATE ROLE {#DbUser} LOGIN PASSWORD ''' + DbPassword + '''; END IF; END $$;' + #13#10 +
+    'SELECT ''CREATE DATABASE {#DbName} OWNER {#DbUser}'' ' +
+    'WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname=''{#DbName}'')\gexec' + #13#10;
+  SqlFile := ExpandConstant('{tmp}\clinic-db-init.sql');
+  SaveStringToFile(SqlFile, Sql, False);
 
-  { CREATE DATABASE cannot run inside a DO block; guard with a existence check via psql -tc. }
-  RunWait(Psql, '-h 127.0.0.1 -p {#DbPort} -U postgres -d postgres -v ON_ERROR_STOP=0 -c ' +
-    '"CREATE DATABASE {#DbName} OWNER {#DbUser};"', PgBin, Rc);
+  if not RunWait(Psql, '-h 127.0.0.1 -p {#DbPort} -U postgres -d postgres -w -v ON_ERROR_STOP=1 -f "' + SqlFile + '"', PgBin, Rc) then
+  begin
+    DeleteFile(SqlFile);
+    DeleteFile(PgPassFile);
+    MsgBox('Échec de la création du rôle/de la base PostgreSQL (code ' + IntToStr(Rc) + '). Installation interrompue.', mbError, MB_OK);
+    Exit;
+  end;
 
+  DeleteFile(SqlFile);
+  DeleteFile(PgPassFile);   { remove the superuser secret from disk once bootstrap is done }
   Result := True;
 end;
 
-{ Register the API (self-contained exe + UseWindowsService) and the Node web server (via NSSM). }
+{ Register the Node web server (via NSSM) and the API (self-contained exe + UseWindowsService).
+  The web service is created FIRST so the API's dependency on it is satisfiable, and the API depends on the
+  web service ONLY when it was actually registered (Finding 6 — otherwise sc start fails with 1068 and the
+  API is dead while the installer reports success). On upgrade, existing services are removed first so a
+  changed binPath/env is re-applied rather than silently keeping the old definition (Finding 15). }
 procedure SetupAppServices;
 var
   Rc: Integer;
-  ApiExe, NodeExe, ServerJs, WebDir, Nssm: string;
+  ApiExe, NodeExe, ServerJs, WebDir, Nssm, ApiDepend: string;
+  WebRegistered: Boolean;
 begin
   ApiExe   := ExpandConstant('{app}\api\ClinicManagement.API.exe');
   NodeExe  := ExpandConstant('{app}\node\node.exe');
@@ -185,13 +244,17 @@ begin
   ServerJs := WebDir + '\server.js';
   Nssm     := ExpandConstant('{app}\tools\nssm.exe');
 
-  { API service — depends on the DB and the web server (front door proxies to Node). }
-  Exec(ExpandConstant('{sys}\sc.exe'),
-    'create {#ServiceApi} binPath= "' + ApiExe + '" start= auto DisplayName= "Clinic Management API" depend= {#ServiceDb}/{#ServiceWeb}',
-    '', SW_HIDE, ewWaitUntilTerminated, Rc);
-  Exec(ExpandConstant('{sys}\sc.exe'), 'failure {#ServiceApi} reset= 60 actions= restart/5000', '', SW_HIDE, ewWaitUntilTerminated, Rc);
+  { --- Idempotent upgrade: tear down any existing services first (best-effort; ignore "not found"). --- }
+  Exec(ExpandConstant('{sys}\sc.exe'), 'stop {#ServiceApi}', '', SW_HIDE, ewWaitUntilTerminated, Rc);
+  Exec(ExpandConstant('{sys}\sc.exe'), 'delete {#ServiceApi}', '', SW_HIDE, ewWaitUntilTerminated, Rc);
+  Exec(ExpandConstant('{sys}\sc.exe'), 'stop {#ServiceWeb}', '', SW_HIDE, ewWaitUntilTerminated, Rc);
+  if FileExists(Nssm) then
+    RunWait(Nssm, 'remove {#ServiceWeb} confirm', '', Rc)
+  else
+    Exec(ExpandConstant('{sys}\sc.exe'), 'delete {#ServiceWeb}', '', SW_HIDE, ewWaitUntilTerminated, Rc);
 
-  { Web service via NSSM — Node listens HTTP on localhost:{#WebPort} only (HOSTNAME=127.0.0.1). }
+  { --- Web service FIRST (via NSSM) — Node listens HTTP on localhost:{#WebPort} only (HOSTNAME=127.0.0.1). --- }
+  WebRegistered := False;
   if FileExists(Nssm) then
   begin
     RunWait(Nssm, 'install {#ServiceWeb} "' + NodeExe + '" "' + ServerJs + '"', '', Rc);
@@ -206,11 +269,22 @@ begin
     RunWait(Nssm, 'set {#ServiceWeb} AppEnvironmentExtra ' +
       'PORT={#WebPort} HOSTNAME=127.0.0.1 NODE_ENV=production AUTH_MODE=local AUTH_COOKIE_SECURE=true ' +
       'NEXT_PUBLIC_API_URL=/api API_INTERNAL_URL=http://localhost:{#HttpPort}/api', '', Rc);
+    WebRegistered := True;
   end
   else
     MsgBox('nssm.exe introuvable ({app}\tools\nssm.exe) — le service web n''a pas été enregistré. ' +
            'Ajoutez nssm.exe et réexécutez, ou enregistrez le service Node manuellement (voir README).',
            mbError, MB_OK);
+
+  { --- API service — depend on the web server ONLY if it was actually created. --- }
+  if WebRegistered then
+    ApiDepend := '{#ServiceDb}/{#ServiceWeb}'
+  else
+    ApiDepend := '{#ServiceDb}';
+  Exec(ExpandConstant('{sys}\sc.exe'),
+    'create {#ServiceApi} binPath= "' + ApiExe + '" start= auto DisplayName= "Clinic Management API" depend= ' + ApiDepend,
+    '', SW_HIDE, ewWaitUntilTerminated, Rc);
+  Exec(ExpandConstant('{sys}\sc.exe'), 'failure {#ServiceApi} reset= 60 actions= restart/5000', '', SW_HIDE, ewWaitUntilTerminated, Rc);
 end;
 
 { Open only the HTTPS front-door port on the LAN firewall. }
@@ -254,7 +328,10 @@ end;
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssInstall then
-    DbPassword := NewDbPassword;
+  begin
+    DbPassword      := NewRandomPassword;
+    PgSuperPassword := NewRandomPassword;
+  end;
 
   if CurStep = ssPostInstall then
   begin

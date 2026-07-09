@@ -70,45 +70,105 @@ public sealed class PgDumpBackupService : IBackupService
         var filesPath = ResolveFileStorageBasePath();
 
         // --- Pre-checks: destination writable + enough free space (distinct errors, AC-8.2/8.3) ---
+        // Free-space estimate now factors in the database dump size (Finding 9), not just the file copy,
+        // so a large DB but small file store still fails with the recognizable "espace disque insuffisant"
+        // message rather than mid-dump via the generic pg_dump error path.
         EnsureDestinationWritable(destinationRoot);
-        EnsureSufficientFreeSpace(destinationRoot, filesPath);
+        var dbSizeEstimate = await TryGetDatabaseSizeBytesAsync(conn, cancellationToken);
+        EnsureSufficientFreeSpace(destinationRoot, filesPath, dbSizeEstimate);
 
-        // --- Create the timestamped backup folder ---
+        // --- Create a UNIQUE timestamped backup folder ---
+        // The name has whole-second granularity, so two backups in the same second would otherwise resolve
+        // to the same folder and clobber each other (Finding 8). Disambiguate with a counter suffix.
         var timestamp = DateTime.UtcNow;
-        var backupFolder = Path.Combine(destinationRoot, $"clinic-backup-{timestamp:yyyyMMdd-HHmmss}");
+        var baseFolder = Path.Combine(destinationRoot, $"clinic-backup-{timestamp:yyyyMMdd-HHmmss}");
+        var backupFolder = baseFolder;
+        var attempt = 1;
+        while (Directory.Exists(backupFolder))
+        {
+            backupFolder = $"{baseFolder}-{++attempt}";
+        }
         Directory.CreateDirectory(backupFolder);
 
-        // --- (1) Database dump (R-3: DB first) ---
-        var dumpFile = Path.Combine(backupFolder, "database.dump");
-        await RunPgDumpAsync(pgDumpPath, conn, dumpFile, cancellationToken);
-
-        // --- (2) File-storage copy ---
-        if (Directory.Exists(filesPath))
+        // If the dump or the file copy fails (or is cancelled), remove the partial folder before rethrowing
+        // so an operator never sees a half-written backup that looks complete and restores from it
+        // (Finding 1 — the opposite of the "no silent partial success" intent, AC-8.2/8.3).
+        try
         {
-            try
+            // --- (1) Database dump (R-3: DB first) ---
+            var dumpFile = Path.Combine(backupFolder, "database.dump");
+            await RunPgDumpAsync(pgDumpPath, conn, dumpFile, cancellationToken);
+
+            // --- (2) File-storage copy ---
+            if (Directory.Exists(filesPath))
             {
-                CopyDirectory(filesPath, Path.Combine(backupFolder, "files"));
+                try
+                {
+                    CopyDirectory(filesPath, Path.Combine(backupFolder, "files"));
+                }
+                catch (IOException ex) when (IsDiskFull(ex))
+                {
+                    throw new InvalidOperationException(
+                        "Espace disque insuffisant pour copier les fichiers pendant la sauvegarde.", ex);
+                }
             }
-            catch (IOException ex) when (IsDiskFull(ex))
+            else
             {
-                throw new InvalidOperationException(
-                    "Espace disque insuffisant pour copier les fichiers pendant la sauvegarde.", ex);
+                _logger.LogInformation("File-storage folder {Path} does not exist yet — backing up the database only.", filesPath);
+            }
+
+            var sizeBytes = DirectorySize(backupFolder);
+            _logger.LogInformation("Backup completed at {Folder} ({Size} bytes).", backupFolder, sizeBytes);
+
+            return new BackupResultDto
+            {
+                DestinationPath = backupFolder,
+                SizeBytes = sizeBytes,
+                TimestampUtc = timestamp
+            };
+        }
+        catch
+        {
+            TryDeleteDirectory(backupFolder);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Best-effort estimate of the database size (via <c>pg_database_size</c>) so the free-space pre-check
+    /// accounts for the dump, not only the file-storage copy (Finding 9). The custom-format dump is
+    /// compressed, so the live DB size is a conservative over-estimate — fine for a pre-check. Any failure
+    /// (DB briefly unreachable, permissions) returns 0, leaving the file-copy estimate + fixed margin.
+    /// </summary>
+    private static async Task<long> TryGetDatabaseSizeBytesAsync(NpgsqlConnectionStringBuilder conn, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var connection = new NpgsqlConnection(conn.ConnectionString);
+            await connection.OpenAsync(cancellationToken);
+            await using var command = new NpgsqlCommand("SELECT pg_database_size(current_database())", connection);
+            var result = await command.ExecuteScalarAsync(cancellationToken);
+            return result is long size ? size : 0;
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    private void TryDeleteDirectory(string path)
+    {
+        try
+        {
+            if (Directory.Exists(path))
+            {
+                Directory.Delete(path, recursive: true);
             }
         }
-        else
+        catch (Exception ex)
         {
-            _logger.LogInformation("File-storage folder {Path} does not exist yet — backing up the database only.", filesPath);
+            _logger.LogWarning(ex, "Failed to clean up the partial backup folder {Folder} after a failed backup.", path);
         }
-
-        var sizeBytes = DirectorySize(backupFolder);
-        _logger.LogInformation("Backup completed at {Folder} ({Size} bytes).", backupFolder, sizeBytes);
-
-        return new BackupResultDto
-        {
-            DestinationPath = backupFolder,
-            SizeBytes = sizeBytes,
-            TimestampUtc = timestamp
-        };
     }
 
     private async Task RunPgDumpAsync(string pgDumpPath, NpgsqlConnectionStringBuilder conn, string dumpFile, CancellationToken cancellationToken)
@@ -203,16 +263,16 @@ public sealed class PgDumpBackupService : IBackupService
         }
     }
 
-    private static void EnsureSufficientFreeSpace(string destinationRoot, string filesPath)
+    private static void EnsureSufficientFreeSpace(string destinationRoot, string filesPath, long dbSizeBytes)
     {
         long estimated;
         try
         {
-            estimated = DirectorySize(filesPath) + FreeSpaceMarginBytes;
+            estimated = DirectorySize(filesPath) + dbSizeBytes + FreeSpaceMarginBytes;
         }
         catch
         {
-            estimated = FreeSpaceMarginBytes; // couldn't size the files — still require the margin
+            estimated = dbSizeBytes + FreeSpaceMarginBytes; // couldn't size the files — still require the DB estimate + margin
         }
 
         try

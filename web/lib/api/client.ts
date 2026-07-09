@@ -85,9 +85,11 @@ function createHeaders(accessToken?: string | null): HeadersInit {
 export async function apiGet<T>(endpoint: string, params?: Record<string, any>, accessToken?: string | null): Promise<T> {
   // Pass an origin base so a RELATIVE API base (`/api` in the same-origin front-door build, S4) parses —
   // `new URL('/api/foo')` throws "Invalid URL" without a base. Absolute bases ignore the second arg, so
-  // this is a no-op for the Cloud build (absolute NEXT_PUBLIC_API_URL). window.location.origin is safe:
-  // apiGet only runs client-side.
-  const url = new URL(`${API_BASE_URL}${endpoint}`, window.location.origin);
+  // this is a no-op for the Cloud build (absolute NEXT_PUBLIC_API_URL). Guard `window` (Finding 11): an
+  // SSR render pass / generateMetadata / Node unit test importing this module has no `window`, and an
+  // unconditional `window.location.origin` would throw ReferenceError before the URL is even built.
+  const base = typeof window !== "undefined" ? window.location.origin : undefined;
+  const url = new URL(`${API_BASE_URL}${endpoint}`, base);
   if (params) {
     Object.entries(params).forEach(([key, value]) => {
       if (value !== undefined && value !== null) {

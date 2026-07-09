@@ -99,7 +99,7 @@ Write-Step 'Scrubbing bundled secrets from published appsettings.json (FR-F4)'
 $ApiSettings = Join-Path $ApiOut 'appsettings.json'
 if (Test-Path $ApiSettings) {
     $cfg = Get-Content $ApiSettings -Raw | ConvertFrom-Json
-    $cfg.Auth.Mode = 'Local'
+    if ($cfg.Auth) { $cfg.Auth.Mode = 'Local' }   # guarded like the others (Finding 13)
     if ($cfg.GoogleCalendar) {
         $cfg.GoogleCalendar.ClientId     = ''
         $cfg.GoogleCalendar.ClientSecret = ''
@@ -110,7 +110,19 @@ if (Test-Path $ApiSettings) {
         $cfg.Auth0.ManagementApi.ClientId     = ''
         $cfg.Auth0.ManagementApi.ClientSecret = ''
     }
-    ($cfg | ConvertTo-Json -Depth 32) | Set-Content $ApiSettings -Encoding UTF8
+    # Blank the remaining bundled secrets so NO real secret ships (Finding 13). Low impact — MinIO is unused
+    # in Local and the connection string is overridden by the installer's appsettings.Production.json — but
+    # this keeps the "no secret shipped" guarantee honest.
+    if ($cfg.MinIO) {
+        $cfg.MinIO.AccessKey = ''
+        $cfg.MinIO.SecretKey = ''
+    }
+    if ($cfg.ConnectionStrings -and $cfg.ConnectionStrings.DefaultConnection) {
+        $cfg.ConnectionStrings.DefaultConnection = $cfg.ConnectionStrings.DefaultConnection -replace 'Password=[^;]*', 'Password='
+    }
+    # Write BOM-less UTF-8 (Finding 14): Set-Content -Encoding UTF8 on Windows PowerShell 5.1 emits a BOM,
+    # which trips any consumer that reads appsettings.json as a string into System.Text.Json.
+    [System.IO.File]::WriteAllText($ApiSettings, ($cfg | ConvertTo-Json -Depth 32), (New-Object System.Text.UTF8Encoding($false)))
     Write-Host "Scrubbed: $ApiSettings"
 } else {
     Write-Warning "Published appsettings.json not found at $ApiSettings -- cannot scrub secrets."
@@ -187,6 +199,13 @@ if ($LASTEXITCODE -ne 0) { throw "dotnet publish (DesktopShell) failed with exit
 
 # The client installer imports the server CA; the operator drops ca.crt here (exported by the server, S6).
 New-Item -ItemType Directory -Path (Join-Path $ClientOut 'ca') -Force | Out-Null
+
+# WebView2 Evergreen runtime (Finding 16): on an offline LAN PC without the runtime the shell can't render
+# and there is no internet to fetch a bootstrapper. Drop the OFFLINE standalone installer
+# (MicrosoftEdgeWebView2Setup.exe, "Evergreen Standalone Installer") here on the build machine; the client
+# installer bundles it (optional) and runs it silently only when the runtime is missing.
+New-Item -ItemType Directory -Path (Join-Path $ClientOut 'webview2') -Force | Out-Null
+Write-Host "Drop the offline WebView2 runtime installer into: $(Join-Path $ClientOut 'webview2')\MicrosoftEdgeWebView2Setup.exe"
 
 # --- 6. Compile the installers (optional) -------------------------------------------------------
 if (-not $SkipInstallers) {

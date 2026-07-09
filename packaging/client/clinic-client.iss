@@ -42,6 +42,10 @@ Source: "{#SourcePath}\..\build-output\client\shell\*"; DestDir: "{app}"; Flags:
 ; The server's exported CA (build-output\client\ca\ca.crt). Optional at compile time so the shell can
 ; still be installed before the CA is available; a warning is shown if it is missing.
 Source: "{#SourcePath}\..\build-output\client\ca\ca.crt"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+; WebView2 Evergreen runtime — OFFLINE standalone installer, dropped by publish-server.ps1's staging step
+; into build-output\client\webview2\. Optional at compile time; if bundled it is run silently only when the
+; runtime is missing (see EnsureWebView2 / Finding 16). Installed to {tmp} so it isn't left on disk.
+Source: "{#SourcePath}\..\build-output\client\webview2\MicrosoftEdgeWebView2Setup.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall skipifsourcedoesntexist
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExe}"
@@ -55,11 +59,52 @@ Filename: "{app}\{#AppExe}"; Description: "Lancer {#AppName}"; Flags: nowait pos
 
 [UninstallRun]
 ; Remove the imported CA on uninstall (best-effort — matches by store; leaves other certs untouched).
-Filename: "{sys}\certutil.exe"; Parameters: "-delstore Root ""Clinic Management CA"""; Flags: runhidden; RunOnceId: "DelCa"
+; The subject CN must match the CA the server generates — "Clinic Management Local CA"
+; (CertificateProvisioner.cs). A wrong name silently matches nothing, leaving the root CA permanently
+; trusted after uninstall (Finding 3).
+Filename: "{sys}\certutil.exe"; Parameters: "-delstore Root ""Clinic Management Local CA"""; Flags: runhidden; RunOnceId: "DelCa"
 
 [Code]
 const
   SW_HIDE = 0;
+
+{ True if the WebView2 Evergreen runtime is already installed (machine-wide or per-user). Detected via the
+  EdgeUpdate client key for the WebView2 runtime GUID; a present, non-zero 'pv' version means installed. }
+function WebView2Installed: Boolean;
+var
+  Pv: string;
+begin
+  Result :=
+    (RegQueryStringValue(HKLM, 'SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}', 'pv', Pv) and (Pv <> '') and (Pv <> '0.0.0.0')) or
+    (RegQueryStringValue(HKLM, 'SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}', 'pv', Pv) and (Pv <> '') and (Pv <> '0.0.0.0')) or
+    (RegQueryStringValue(HKCU, 'SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}', 'pv', Pv) and (Pv <> '') and (Pv <> '0.0.0.0'));
+end;
+
+{ Ensure the WebView2 runtime is present (Finding 16). If missing and the offline standalone installer was
+  bundled, run it silently; otherwise warn with a manual remedy. The WebView2 shell renders nothing without
+  this runtime, and an offline LAN PC has no internet to fetch a bootstrapper. }
+procedure EnsureWebView2;
+var
+  Rc: Integer;
+  Boot: string;
+begin
+  if WebView2Installed then
+    Exit;
+
+  Boot := ExpandConstant('{tmp}\MicrosoftEdgeWebView2Setup.exe');
+  if FileExists(Boot) then
+  begin
+    if not Exec(Boot, '/silent /install', '', SW_HIDE, ewWaitUntilTerminated, Rc) or (Rc <> 0) then
+      MsgBox('L''installation du runtime WebView2 a échoué (code ' + IntToStr(Rc) + '). ' +
+             'L''application ne s''affichera pas tant que « Microsoft Edge WebView2 Runtime » n''est pas ' +
+             'installé (voir README).', mbError, MB_OK);
+  end
+  else
+    MsgBox('Le runtime « Microsoft Edge WebView2 » est absent et son installateur hors-ligne n''a pas été ' +
+           'fourni avec cet installateur. L''application ne s''affichera pas tant qu''il n''est pas installé. ' +
+           'Installez MicrosoftEdgeWebView2Setup.exe (version « Evergreen Standalone ») sur ce poste (voir README).',
+           mbError, MB_OK);
+end;
 
 { Import the server CA into the machine Root store so the WebView2 shell trusts the server's
   self-signed HTTPS certificate (FR-E2). No-op with a warning if the CA was not bundled. }
@@ -88,5 +133,8 @@ end;
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
+  begin
+    EnsureWebView2;
     ImportCa;
+  end;
 end;

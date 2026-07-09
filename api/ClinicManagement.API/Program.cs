@@ -273,8 +273,11 @@ try
         }
         else
         {
+            // Use a real (Serilog-backed) logger so the provisioner's own generate-vs-reuse log lines are
+            // visible (Finding 17); it runs pre-Build, before the DI container/ILoggerFactory exists.
             var provisioner = new CertificateProvisioner(
-                Microsoft.Extensions.Logging.Abstractions.NullLogger<CertificateProvisioner>.Instance);
+                new Serilog.Extensions.Logging.SerilogLoggerFactory(Log.Logger)
+                    .CreateLogger<CertificateProvisioner>());
             var generated = provisioner.EnsureServerCertificate();
             certPath = generated.PfxPath;
             certPassword = generated.Password;
@@ -285,7 +288,11 @@ try
         var serverCertificate = new System.Security.Cryptography.X509Certificates.X509Certificate2(certPath, certPassword);
         builder.WebHost.ConfigureKestrel(kestrel =>
         {
-            kestrel.ListenAnyIP(httpPort);
+            // Plain HTTP stays LOOPBACK-only (Finding 2): the sole legitimate consumer is the co-located
+            // Next BFF over http://localhost:5000. Binding it on every LAN interface would expose the
+            // cleartext API (incl. POST /api/auth/login) if the firewall rule is removed/disabled. The
+            // LAN-facing surface is the HTTPS front door only.
+            kestrel.ListenLocalhost(httpPort);
             kestrel.ListenAnyIP(httpsPort, listen => listen.UseHttps(serverCertificate));
         });
         builder.Services.AddHttpsRedirection(options => options.HttpsPort = httpsPort);

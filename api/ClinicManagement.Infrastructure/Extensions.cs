@@ -132,10 +132,9 @@ public static class Extensions
         // Domain Services
         services.AddScoped<Domain.Services.IPatientSummaryService, PatientSummaryService>();
 
-        // HTTPS certificate provisioner (US-3 / FR-E2): self-generates the CA + server cert into .local/ on
-        // first Local boot. Registered for completeness; the actual first use is pre-Build in Program.cs
-        // (Kestrel needs the cert before the DI container exists). Singleton — one install-wide cert set.
-        services.AddSingleton<Security.CertificateProvisioner>();
+        // NOTE: CertificateProvisioner is intentionally NOT DI-registered (Finding 17) — it is constructed
+        // manually pre-Build in Program.cs (Kestrel needs the cert before the DI container exists), so a
+        // singleton registration here was dead. Program.cs passes it a real (Serilog-backed) logger.
 
         // One-click backup (US-8 / FR-G): pg_dump + file-storage copy. Safe to register unconditionally —
         // only exercised by the admin-gated backup endpoint; on Cloud (no bundled pg_dump) a call fails
