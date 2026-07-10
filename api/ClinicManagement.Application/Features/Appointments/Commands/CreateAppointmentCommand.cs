@@ -26,7 +26,6 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
     private readonly IUserRepository _userRepository;
     private readonly IClinicContext _clinicContext;
     private readonly IUnitOfWork _unitOfWork;
-    private readonly IRealtimeNotifier _realtimeNotifier;
 
     public CreateAppointmentCommandHandler(
         IAppointmentRepository appointmentRepository,
@@ -34,8 +33,7 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
         IProcedureTypeRepository procedureTypeRepository,
         IUserRepository userRepository,
         IClinicContext clinicContext,
-        IUnitOfWork unitOfWork,
-        IRealtimeNotifier realtimeNotifier)
+        IUnitOfWork unitOfWork)
     {
         _appointmentRepository = appointmentRepository;
         _patientRepository = patientRepository;
@@ -43,7 +41,6 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
         _userRepository = userRepository;
         _clinicContext = clinicContext;
         _unitOfWork = unitOfWork;
-        _realtimeNotifier = realtimeNotifier;
     }
 
     public async Task<Result<AppointmentDto>> Handle(CreateAppointmentCommand request, CancellationToken cancellationToken)
@@ -122,9 +119,8 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
             await _appointmentRepository.AddAsync(appointment, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            // Real-time: broadcast only AFTER the change is committed (never on a rolled-back save).
-            // Additive — the notifier swallows its own failures, so this never breaks the create.
-            await _realtimeNotifier.NotifyAppointmentsChangedAsync(clinicId, cancellationToken);
+            // Real-time "appointments changed" is broadcast centrally by RealtimeBroadcastBehavior after
+            // this command returns success (i.e. after the commit above) — no per-handler broadcast here.
 
             var dto = new AppointmentDto
             {

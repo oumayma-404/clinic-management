@@ -56,6 +56,8 @@ import { EditPatientDialog } from "@/components/edit-patient-dialog"
 import { PatientRecordModal } from "@/components/patient-record-modal"
 import { PatientSummaryModal } from "@/components/patient-summary-modal"
 import { Edit } from "lucide-react"
+import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
+import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 
 const calculateAge = (dob: string | undefined) => {
   if (!dob) return null
@@ -139,6 +141,14 @@ export default function PatientDetailsPage() {
   const [previewFile, setPreviewFile] = useState<PatientFileDto | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
+  const [refreshKey, setRefreshKey] = useState(0)
+
+  // Real-time: when any client of this clinic edits this patient's record, appointments, or files, the
+  // server signals the resource and we re-run the loader below (bump refreshKey). Additive (AC-5).
+  useClinicRealtime(
+    [RealtimeResource.Patients, RealtimeResource.Appointments, RealtimeResource.Files],
+    () => setRefreshKey((k) => k + 1),
+  )
 
   // Load patient data
   useEffect(() => {
@@ -179,7 +189,7 @@ export default function PatientDetailsPage() {
     if (patientId) {
       loadPatientData()
     }
-  }, [patientId])
+  }, [patientId, refreshKey])
 
   // Reload files when folder changes
   useEffect(() => {

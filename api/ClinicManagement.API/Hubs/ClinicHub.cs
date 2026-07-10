@@ -15,8 +15,11 @@ namespace ClinicManagement.API.Hubs;
 [Authorize]
 public class ClinicHub : Hub
 {
-    /// <summary>Server → client event name (no payload — signals the client to refetch).</summary>
-    public const string AppointmentsChanged = "appointmentsChanged";
+    /// <summary>
+    /// Server → client event name. Carries a single string argument — the lowercase resource key that
+    /// changed (e.g. "appointments", "patients") — so a client refetches only the views it owns.
+    /// </summary>
+    public const string EntityChanged = "entityChanged";
 
     private readonly IUserRepository _userRepository;
 

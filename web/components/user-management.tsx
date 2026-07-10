@@ -30,6 +30,8 @@ import { usersApi, type ClinicUserDto } from "@/lib/api/users"
 import { clinicsApi } from "@/lib/api/clinics"
 import { ApiError } from "@/lib/api/client"
 import { useSession } from "@/lib/auth/session"
+import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
+import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 
 type PendingAction =
   | { type: "reset"; user: ClinicUserDto }
@@ -82,6 +84,10 @@ export function UserManagement() {
   useEffect(() => {
     loadData()
   }, [loadData])
+
+  // Real-time: refetch the users table + clinic code when any client of this clinic changes a user
+  // (reset password / activate / deactivate) or registers.
+  useClinicRealtime(RealtimeResource.Users, loadData)
 
   const confirmAction = async () => {
     if (!pending) return

@@ -19,17 +19,17 @@ public class SignalRRealtimeNotifier : IRealtimeNotifier
         _logger = logger;
     }
 
-    public async Task NotifyAppointmentsChangedAsync(Guid clinicId, CancellationToken cancellationToken = default)
+    public async Task NotifyEntityChangedAsync(Guid clinicId, string resource, CancellationToken cancellationToken = default)
     {
         try
         {
             await _hubContext.Clients
                 .Group(ClinicGroups.Name(clinicId))
-                .SendAsync(ClinicHub.AppointmentsChanged, cancellationToken);
+                .SendAsync(ClinicHub.EntityChanged, resource, cancellationToken);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to broadcast {Event} to clinic {ClinicId}", ClinicHub.AppointmentsChanged, clinicId);
+            _logger.LogWarning(ex, "Failed to broadcast {Event} ({Resource}) to clinic {ClinicId}", ClinicHub.EntityChanged, resource, clinicId);
         }
     }
 }

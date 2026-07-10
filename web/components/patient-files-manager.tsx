@@ -33,6 +33,8 @@ import { cn } from "@/lib/utils"
 import { patientFilesApi } from "@/lib/api/patient-files"
 import type { PatientFileDto, PatientFolderDto } from "@/lib/api/types"
 import { toast } from "sonner"
+import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
+import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 
 export function PatientFilesManager({ patientName }: { patientName: string }) {
   const params = useParams()
@@ -80,6 +82,9 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
       setLoading(false)
     }
   }
+
+  // Real-time: reload folders/files when any client of this clinic uploads/deletes a file or folder.
+  useClinicRealtime(RealtimeResource.Files, loadData)
 
   // Initialize default folders on first load
   useEffect(() => {

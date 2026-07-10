@@ -3,6 +3,8 @@
 import type React from "react"
 
 import { useState, useEffect } from "react"
+import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
+import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -243,6 +245,14 @@ export default function ClinicSettings() {
       return () => clearTimeout(timer)
     }
   }, [notification])
+
+  // Real-time: reload clinic profile/doctors when another client of this clinic changes them — but not
+  // while this admin is mid-edit, so a live refresh never clobbers unsaved form input.
+  useClinicRealtime(RealtimeResource.Clinics, () => {
+    if (!isEditingClinicInfo && !isEditingDoctors && !isEditingHours) {
+      loadClinicData()
+    }
+  })
 
   const handleEditClinicInfo = () => {
     setOriginalClinicData({ clinicName, address, governorate, phone, email, logoPreview, logoFile })

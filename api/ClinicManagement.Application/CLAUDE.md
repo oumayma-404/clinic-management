@@ -16,12 +16,13 @@ AddApplication():
 ```
 
 ## MediatR pipeline (request → response)
-`Send(command/query)` → **ValidationBehavior** → **LoggingBehavior** → **Handler**. Behaviors live in `Common/Behaviors/`:
+`Send(command/query)` → **ValidationBehavior** → **LoggingBehavior** → **RealtimeBroadcastBehavior** → **Handler**. Behaviors live in `Common/Behaviors/`:
 
 - **`ValidationBehavior<TRequest,TResponse>`** — resolves all `IValidator<TRequest>`, runs them, throws `FluentValidation.ValidationException` on failure. (No `AbstractValidator`s exist yet, so this is effectively a no-op today; handlers currently do validation inline and return `Result.Failure(...)`.)
 - **`LoggingBehavior<TRequest,TResponse>`** — logs "Handling/Handled {RequestName}".
+- **`RealtimeBroadcastBehavior<TRequest,TResponse>`** — the single wiring point for real-time "any edit is live". After the handler returns (i.e. after its commit), if the request is a mutating command (namespace `...Features.<Area>.Commands`, excluding `Auth`/`AI`/`Backup`/`Connectivity`) **and** the response is a successful `Result`, it resolves the caller's clinic (same `IClinicContext`→`IUserRepository` lookup handlers use) and calls `IRealtimeNotifier.NotifyEntityChangedAsync(clinicId, "<area>")` — clients of that clinic then refetch. Purely structural (no per-command marker), so new commands broadcast automatically. Additive/fail-safe: it runs after commit (a failed command's `Result` is a failure → no broadcast) and swallows any resolution/broadcast error so a broadcast can never fail the committed command. `IRealtimeNotifier` is implemented in the API layer (`SignalRRealtimeNotifier` over the `ClinicHub`).
 
-Order is registration order (Validation first, then Logging).
+Order is registration order (Validation → Logging → RealtimeBroadcast).
 
 ## Result pattern — `Common/Models/Result.cs`
 - `Result` — `IsSuccess` / `IsFailure` / `Error`; `Result.Success()`, `Result.Failure(error)`.

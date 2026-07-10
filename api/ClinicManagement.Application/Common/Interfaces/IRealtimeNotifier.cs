@@ -9,8 +9,10 @@ namespace ClinicManagement.Application.Common.Interfaces;
 public interface IRealtimeNotifier
 {
     /// <summary>
-    /// Signals every connected client of <paramref name="clinicId"/> that appointments changed, so
-    /// their calendar refetches. Carries no payload — clients refetch on the signal.
+    /// Signals every connected client of <paramref name="clinicId"/> that a resource changed, so
+    /// views showing <paramref name="resource"/> refetch. <paramref name="resource"/> is a lowercase
+    /// entity key (e.g. <c>"appointments"</c>, <c>"patients"</c>) derived from the mutating command's
+    /// feature area. Carries no other payload — clients refetch on the signal.
     /// </summary>
-    Task NotifyAppointmentsChangedAsync(Guid clinicId, CancellationToken cancellationToken = default);
+    Task NotifyEntityChangedAsync(Guid clinicId, string resource, CancellationToken cancellationToken = default);
 }

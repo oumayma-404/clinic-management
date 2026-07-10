@@ -10,12 +10,17 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Search, Filter, Plus } from "lucide-react"
 import type { PatientDto } from "@/lib/api/types"
+import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
+import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 
 export default function PatientsPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [showFlaggedOnly, setShowFlaggedOnly] = useState(false)
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
+
+  // Real-time: refetch the table when any client of this clinic adds/edits a patient (remounts via key).
+  useClinicRealtime(RealtimeResource.Patients, () => setRefreshKey((prev) => prev + 1))
 
   return (
     <ClinicGuard>

@@ -14,9 +14,12 @@ import { PatientSummaryModal } from "@/components/patient-summary-modal"
 import type { PatientDto, DentalRecordDto } from "@/lib/api/types"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
+import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
+import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 
 export default function MedicalRecordsPage() {
   const [patients, setPatients] = useState<PatientDto[]>([])
+  const [refreshKey, setRefreshKey] = useState(0)
   const [selectedPatient, setSelectedPatient] = useState<PatientDto | null>(null)
   const [selectedPatientDentalRecords, setSelectedPatientDentalRecords] = useState<DentalRecordDto[]>([])
   const [loading, setLoading] = useState(true)
@@ -41,7 +44,10 @@ export default function MedicalRecordsPage() {
       }
     }
     loadPatients()
-  }, [])
+  }, [refreshKey])
+
+  // Real-time: refetch the patient list when any client of this clinic adds/edits a patient.
+  useClinicRealtime(RealtimeResource.Patients, () => setRefreshKey((k) => k + 1))
 
   const handlePatientClick = async (patient: PatientDto) => {
     try {

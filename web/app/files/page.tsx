@@ -14,6 +14,8 @@ import { patientFilesApi } from "@/lib/api/patient-files"
 import type { PatientDto, PatientFileDto, PatientFolderDto } from "@/lib/api/types"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
+import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
+import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import {
   Dialog,
   DialogContent,
@@ -41,6 +43,7 @@ export default function FilesPage() {
   const [newFolderName, setNewFolderName] = useState("")
   const [uploading, setUploading] = useState(false)
   const [deletingFileId, setDeletingFileId] = useState<string | null>(null)
+  const [patientsRefreshKey, setPatientsRefreshKey] = useState(0)
 
   // Load all patients
   useEffect(() => {
@@ -59,7 +62,7 @@ export default function FilesPage() {
       }
     }
     loadPatients()
-  }, [])
+  }, [patientsRefreshKey])
 
   const loadPatientFiles = async () => {
     if (!selectedPatientId) {
@@ -91,6 +94,17 @@ export default function FilesPage() {
   useEffect(() => {
     loadPatientFiles()
   }, [selectedPatientId, currentFolderId])
+
+  // Real-time: a file change (upload/delete/folder) reloads the open patient's files; a patient change
+  // reloads the patient list. One connection routes both by resource. Undefined (reconnect) → refresh both.
+  useClinicRealtime([RealtimeResource.Files, RealtimeResource.Patients], (resource) => {
+    if (resource === RealtimeResource.Patients || resource === undefined) {
+      setPatientsRefreshKey((k) => k + 1)
+    }
+    if (resource === RealtimeResource.Files || resource === undefined) {
+      loadPatientFiles()
+    }
+  })
 
   // Initialize default folders when patient is first selected
   useEffect(() => {

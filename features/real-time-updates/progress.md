@@ -62,3 +62,24 @@ Frontend:
 | AC-2 / AC-5 | New class | `ClinicManagement.UnitTests/Hubs/SignalRRealtimeNotifierTests.cs` | Sends `appointmentsChanged` to `clinic-{id}` group only; swallows hub failures (never throws) |
 | AC-2 / AC-3 | New class | `ClinicManagement.UnitTests/Hubs/ClinicHubTests.cs` | `[Authorize]` present (AC-3); connection joins its own clinic group; no group when unauthenticated |
 | AC-4 | Not unit-tested | — | Reconnect (`withAutomaticReconnect` in `web/lib/realtime/clinic-hub.ts`) is a frontend concern; the repo has no FE test runner (FE gate is tsc + build per LEARNINGS) — DEFERRED to manual/operator verification |
+
+## Slice 2 — Generalized to "any edit" (real-time for all mutations)
+Moved broadcasting out of the two appointment handlers into a **cross-cutting MediatR pipeline behavior**, so every successful mutating command broadcasts automatically, and wired all API-backed frontend views to subscribe.
+
+### Backend
+- `RealtimeBroadcastBehavior<TRequest,TResponse>` (new, `Common/Behaviors/`) — broadcasts `entityChanged("<area>")` after any successful `Features/<Area>/Commands` request; resource derived from namespace; excludes `Auth`/`AI`/`Backup`/`Connectivity`; resolves clinic via `IClinicContext`→`IUserRepository`; fail-safe (swallows errors, only after commit). Registered in `Extensions.cs` after Logging.
+- `IRealtimeNotifier` — `NotifyAppointmentsChangedAsync` → **`NotifyEntityChangedAsync(clinicId, resource)`**.
+- `ClinicHub.AppointmentsChanged` → **`ClinicHub.EntityChanged = "entityChanged"`** (now carries the resource key as an argument); `SignalRRealtimeNotifier` updated.
+- `CreateAppointmentCommand` / `UpdateAppointmentCommand` — removed the explicit broadcast + `IRealtimeNotifier` ctor param (now centralized in the behavior; avoids double-broadcast).
+
+### Frontend
+- `clinic-hub.ts` — `APPOINTMENTS_CHANGED_EVENT` → `ENTITY_CHANGED_EVENT`; added `RealtimeResource` key map (mirrors backend area names) + `RealtimeResourceKey`.
+- `use-clinic-realtime.ts` — `useClinicRealtime(resource | resource[], onChanged)`; `onChanged(resource?)` receives the changed key so a page can watch several resources over ONE connection; filters by watched set; reconnect → catch-up refetch.
+- Wired: `appointments`, `patients` (list), `patients/[id]` (detail: patients+appointments+files), `patients/[id]/files` (`patient-files-manager`), `procedure-types`, `records`, `files` (global: files+patients), `users` (`user-management`), `settings` (`clinic-settings` — guarded so a live reload never clobbers an in-progress edit).
+
+### Slice 2 tests / quality
+| Suite | Result |
+|-------|--------|
+| Unit (`Hubs` + `Common.Behaviors` + `Features.Appointments`) | **19 passed, 0 failed, 0 skipped** |
+- New `RealtimeBroadcastBehaviorTests` (6): success broadcasts area to clinic; failed command / query / excluded area / no-clinic → no broadcast; broadcast failure swallowed. Replaced the old handler-level `AppointmentRealtimeBroadcastTests` (broadcast moved to the behavior). `SignalRRealtimeNotifierTests` updated to `entityChanged`+resource; `AppointmentSyncMappingTests` ctor calls updated.
+- Backend `dotnet build`: **0 errors, 0 warnings** (changed files). Frontend `tsc --noEmit`: **clean**; `npm run build`: **succeeds** (17 routes).

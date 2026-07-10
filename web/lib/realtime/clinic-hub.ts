@@ -1,7 +1,28 @@
 import { HubConnection, HubConnectionBuilder, LogLevel } from "@microsoft/signalr"
 
-/** Server → client event name (mirrors ClinicHub.AppointmentsChanged on the API). No payload. */
-export const APPOINTMENTS_CHANGED_EVENT = "appointmentsChanged"
+/**
+ * Server → client event name (mirrors ClinicHub.EntityChanged on the API). Carries one argument: the
+ * lowercase resource key that changed (see RealtimeResource) so a client refetches only its own views.
+ */
+export const ENTITY_CHANGED_EVENT = "entityChanged"
+
+/**
+ * Resource keys carried by ENTITY_CHANGED_EVENT. These mirror the backend RealtimeBroadcastBehavior,
+ * which derives the key from a mutating command's feature area (`Features/<Area>/Commands`) lowercased.
+ * Keep in sync with the API's feature-area folder names.
+ */
+export const RealtimeResource = {
+  Appointments: "appointments",
+  Patients: "patients",
+  ProcedureTypes: "proceduretypes",
+  Documents: "documents",
+  Files: "files",
+  Clinics: "clinics",
+  Users: "users",
+  Stock: "stock",
+} as const
+
+export type RealtimeResourceKey = (typeof RealtimeResource)[keyof typeof RealtimeResource]
 
 /**
  * Resolves the SignalR hub URL. The hub is hosted at `/hub/clinic` on the API HOST ROOT — not under

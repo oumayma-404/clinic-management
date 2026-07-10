@@ -18,6 +18,10 @@ public static class Extensions
 
         services.AddTransient(typeof(IPipelineBehavior<,>), typeof(ValidationBehavior<,>));
         services.AddTransient(typeof(IPipelineBehavior<,>), typeof(LoggingBehavior<,>));
+        // Real-time: broadcasts an "entityChanged" signal to the caller's clinic after any successful
+        // mutating command, so connected clients refetch. Registered after the handler runs (innermost),
+        // i.e. after commit. The IRealtimeNotifier impl is registered in the API layer (Program.cs).
+        services.AddTransient(typeof(IPipelineBehavior<,>), typeof(RealtimeBroadcastBehavior<,>));
 
         // Register ClinicContext
         // Note: IHttpContextAccessor must be registered in the API layer (Program.cs)
