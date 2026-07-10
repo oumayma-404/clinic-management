@@ -107,7 +107,19 @@ are deletions verified by `tsc` at implementation time (no unit surface).
 
 **Tests:** +5 new (dental cross-clinic read; procedure-type single-Get + list scoping; OAuth state-without-cookie + cookie-mismatch). Updated `MedicalDocumentTenantIsolationTests` (new logger arg + `GetByClinicIdAsync` mock). Backend build 0 errors / 0 new warnings; `tsc` clean; **206 passed, 0 failed** (was 201).
 
-**Not committed** — working tree is uncommitted; commit/push/PR is deferred to `/finish-feature`.
+**Committed & pushed** — commit `5a126f3` on `feature/windows-desktop-app`, pushed to origin.
+
+## Pull Request
+
+**Status:** pending manual creation (gh CLI account mismatch — see below)
+**Date:** 2026-07-10
+**Branch:** feature/windows-desktop-app -> main
+**Commit:** 5a126f3
+**Created by:** Claude
+**Note:** Branch pushed via git (identity `oumayma-404`). `gh pr create` is blocked because the
+`gh` CLI is authenticated as `o-benkhalifa`, which cannot resolve `oumayma-404/clinic-management`.
+Open the PR via the compare URL below, or `gh auth switch` to `oumayma-404` and re-run.
+**Compare URL:** https://github.com/oumayma-404/clinic-management/compare/main...feature/windows-desktop-app?expand=1
 
 ## Auto-Approved Deviations
 | Deviation | Reason |
