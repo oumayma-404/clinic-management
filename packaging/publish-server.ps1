@@ -181,7 +181,13 @@ Write-Step 'Staging PostgreSQL 16 binaries'
 $PgOut = Join-Path $ServerOut 'postgres'
 if ($PostgresDir -and (Test-Path (Join-Path $PostgresDir 'bin\pg_dump.exe'))) {
     New-Item -ItemType Directory -Path $PgOut -Force | Out-Null
-    Copy-Item (Join-Path $PostgresDir '*') $PgOut -Recurse -Force
+    # Stage ONLY the server runtime (initdb/pg_ctl/pg_dump/pg_restore/psql + libs + share templates).
+    # Skip pgAdmin 4 / StackBuilder / doc / include: unused by the app, ~700 MB of bloat, and their deep
+    # nested paths overflow Windows MAX_PATH (260 chars) during Inno Setup compression.
+    foreach ($sub in @('bin','lib','share')) {
+        $src = Join-Path $PostgresDir $sub
+        if (Test-Path $src) { Copy-Item $src (Join-Path $PgOut $sub) -Recurse -Force }
+    }
 } else {
     Write-Warning "PostgresDir not supplied or bin\pg_dump.exe missing -- server/postgres/ left empty. Provide -PostgresDir on the build machine."
 }
@@ -212,8 +218,14 @@ if (-not $SkipInstallers) {
     Write-Step 'Compiling installers (Inno Setup)'
     $Iscc = Get-Command 'ISCC.exe' -ErrorAction SilentlyContinue
     if (-not $Iscc) {
-        $default = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
-        if (Test-Path $default) { $Iscc = $default } else { $Iscc = $null }
+        # ISCC isn't added to PATH by the installer. Check the usual machine-wide locations AND the
+        # per-user location a `winget install JRSoftware.InnoSetup` uses.
+        $candidates = @(
+            (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'),
+            (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe'),
+            (Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe')
+        )
+        $Iscc = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
     }
     if ($Iscc) {
         & $Iscc (Join-Path $PackagingDir 'server\clinic-server.iss')

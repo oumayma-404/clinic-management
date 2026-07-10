@@ -77,8 +77,7 @@ Filename: "{app}\postgres\bin\pg_ctl.exe"; Parameters: "unregister -N ""{#Servic
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Clinic Management HTTPS"""; Flags: runhidden; RunOnceId: "DelFwRule"
 
 [Code]
-const
-  SW_HIDE = 0;
+{ SW_HIDE is a built-in Inno Setup constant — do not redeclare it (duplicate-identifier compile error). }
 
 var
   DbPassword: string;       { clinic_user login password (also baked into the connection string) }
@@ -96,8 +95,10 @@ begin
 end;
 
 { Cryptographically-random 24-char password over an unambiguous alphabet. Sourced from the OS CSPRNG so it
-  is genuinely per-install-unique (Finding 12); enforced by scram-sha-256 auth (Finding 10). Falls back to
-  a seeded Randomize+Random only if the CSPRNG call fails (should not happen on supported Windows). }
+  is genuinely per-install-unique (Finding 12); enforced by scram-sha-256 auth (Finding 10). If the CSPRNG
+  call fails (never expected on supported Windows), fail the install loudly rather than fall back to a weak,
+  predictable password — a decorative-but-insecure secret is worse than a hard stop. (Inno's Pascal has no
+  `Randomize`, and its `Random` is unseeded/deterministic, so there is no safe non-CSPRNG fallback.) }
 function NewRandomPassword: string;
 var
   Buf: AnsiString;
@@ -107,17 +108,10 @@ begin
   Chars := 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
   Result := '';
   SetLength(Buf, 24);
-  if BCryptGenRandom(0, Buf, 24, 2) = 0 then
-  begin
-    for I := 1 to 24 do
-      Result := Result + Copy(Chars, (Ord(Buf[I]) mod Length(Chars)) + 1, 1);
-  end
-  else
-  begin
-    Randomize;
-    for I := 1 to 24 do
-      Result := Result + Copy(Chars, Random(Length(Chars)) + 1, 1);
-  end;
+  if BCryptGenRandom(0, Buf, 24, 2) <> 0 then
+    RaiseException('Impossible de générer un mot de passe sécurisé (BCryptGenRandom a échoué).');
+  for I := 1 to 24 do
+    Result := Result + Copy(Chars, (Ord(Buf[I]) mod Length(Chars)) + 1, 1);
 end;
 
 { Write the machine-specific Local runtime config as appsettings.Production.json (the API service runs
@@ -158,7 +152,8 @@ end;
 function SetupPostgres: Boolean;
 var
   Rc: Integer;
-  PgBin, PgData, Psql, InitDb, PgCtl, PwFile, PgPassDir, PgPassFile, SqlFile, Sql: string;
+  PgBin, PgData, Psql, InitDb, PgCtl, PwFile, PgPassDir, PgPassFile, SqlFile, Sql, InitLog, CmdLine: string;
+  LogText: AnsiString;
 begin
   Result := False;
   PgBin  := ExpandConstant('{app}\postgres\bin');
@@ -167,19 +162,45 @@ begin
   PgCtl  := PgBin + '\pg_ctl.exe';
   Psql   := PgBin + '\psql.exe';
 
-  { Fresh cluster only if pgdata is empty (idempotent re-install). Enforce password auth and set the
+  { Fresh cluster only if pgdata is not already a valid cluster. Enforce password auth and set the
     postgres superuser password via a temp --pwfile (deleted immediately after). }
   if not FileExists(PgData + '\PG_VERSION') then
   begin
-    PwFile := ExpandConstant('{tmp}\pg-super.pw');
+    { initdb DROPS administrator privileges (PostgreSQL security) and then runs as the de-privileged
+      interactive user, which cannot create or write a folder under Program Files. So the elevated
+      installer must provide an EMPTY data dir and grant the accounts that need it Full Control:
+        S-1-5-32-545 = BUILTIN\Users   (the de-privileged initdb user)
+        S-1-5-18     = LocalSystem      (the DB service's default account)
+        S-1-5-20     = NetworkService   (in case the service runs under it)
+      A previous aborted install may have left a partial cluster — clear its CONTENTS but keep the dir. }
+    if DirExists(PgData) then
+      DelTree(PgData + '\*', False, True, True)
+    else
+      CreateDir(PgData);
+    Exec(ExpandConstant('{sys}\icacls.exe'),
+      '"' + PgData + '" /grant "*S-1-5-32-545:(OI)(CI)F" /grant "*S-1-5-18:(OI)(CI)F" /grant "*S-1-5-20:(OI)(CI)F"',
+      '', SW_HIDE, ewWaitUntilTerminated, Rc);
+
+    PwFile  := ExpandConstant('{tmp}\pg-super.pw');
+    InitLog := ExpandConstant('{app}\initdb.log');
     SaveStringToFile(PwFile, PgSuperPassword, False);
-    if not RunWait(InitDb, '-D "' + PgData + '" -U postgres -A scram-sha-256 --pwfile="' + PwFile + '" --encoding=UTF8 --locale=C', PgBin, Rc) then
+
+    { Run via cmd.exe so initdb's stdout+stderr are CAPTURED to a log (Finding 5 — surface the real
+      reason, not just an exit code). The nested quoting needs the outer "" cmd /C wrapper. }
+    CmdLine := '/C ""' + InitDb + '" -D "' + PgData + '" -U postgres -A scram-sha-256 --pwfile="' + PwFile +
+               '" --encoding=UTF8 --locale=C > "' + InitLog + '" 2>&1"';
+    Exec(ExpandConstant('{sys}\cmd.exe'), CmdLine, PgBin, SW_HIDE, ewWaitUntilTerminated, Rc);
+    DeleteFile(PwFile);
+
+    if Rc <> 0 then
     begin
-      DeleteFile(PwFile);
-      MsgBox('Échec de l''initialisation de PostgreSQL (initdb, code ' + IntToStr(Rc) + '). Installation interrompue.', mbError, MB_OK);
+      LogText := '';
+      LoadStringFromFile(InitLog, LogText);
+      MsgBox('Échec de l''initialisation de PostgreSQL (initdb, code ' + IntToStr(Rc) + ').' + #13#10#13#10 +
+             'Détail :' + #13#10 + LogText + #13#10#13#10 +
+             'Journal complet : ' + InitLog + #13#10 + 'Installation interrompue.', mbError, MB_OK);
       Exit;
     end;
-    DeleteFile(PwFile);
   end;
 
   { Register as an auto-start service (bind loopback only — the DB is never LAN-facing). Tolerate
@@ -195,8 +216,8 @@ begin
   end;
 
   { psql now needs a password (scram). Provide it via the default pgpass.conf so nothing is passed on the
-    command line; the file is deleted after bootstrap. {userappdata} is the (elevated) installer account,
-    which is also the account the psql child runs under, so psql picks it up automatically. }
+    command line; the file is deleted after bootstrap. The AppData\postgresql path belongs to the
+    (elevated) installer account, which is also the account the psql child runs under, so psql finds it. }
   PgPassDir  := ExpandConstant('{userappdata}\postgresql');
   PgPassFile := PgPassDir + '\pgpass.conf';
   ForceDirectories(PgPassDir);
@@ -257,7 +278,10 @@ begin
   WebRegistered := False;
   if FileExists(Nssm) then
   begin
-    RunWait(Nssm, 'install {#ServiceWeb} "' + NodeExe + '" "' + ServerJs + '"', '', Rc);
+    { Pass server.js RELATIVE (resolved against AppDirectory below), NOT as a full path: NSSM does not
+      quote AppParameters, so a full path containing a space ("C:\Program Files\...") is split and Node
+      receives "C:\Program" as its script → MODULE_NOT_FOUND. A relative "server.js" has no space. }
+    RunWait(Nssm, 'install {#ServiceWeb} "' + NodeExe + '" server.js', '', Rc);
     RunWait(Nssm, 'set {#ServiceWeb} AppDirectory "' + WebDir + '"', '', Rc);
     RunWait(Nssm, 'set {#ServiceWeb} Start SERVICE_AUTO_START', '', Rc);
     RunWait(Nssm, 'set {#ServiceWeb} DependOnService {#ServiceDb}', '', Rc);

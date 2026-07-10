@@ -365,10 +365,15 @@ try
         app.UseSwaggerUI();
     }
 
-    // Redirect HTTP → HTTPS. LOCAL now always serves HTTPS (generated or configured cert; a
-    // configured-but-missing cert fails loud above, so we never reach here on plain HTTP in Local).
-    // CLOUD is unchanged — it always enabled the redirect (its HTTPS posture is set by the host/proxy).
-    app.UseHttpsRedirection();
+    // Redirect HTTP → HTTPS — CLOUD only. In LOCAL mode we must NOT redirect: the only HTTP consumer is
+    // the co-located Next BFF calling the API over http://localhost:5000 (loopback). Redirecting that to
+    // the self-signed HTTPS front door makes Node reject the untrusted cert, surfacing as
+    // "cannot reach the clinic server" on login. Local's LAN surface is HTTPS-only by bind (5001) and the
+    // HTTP port is loopback-only, so there is no external HTTP client that needs redirecting.
+    if (!isLocalAuthMode)
+    {
+        app.UseHttpsRedirection();
+    }
     app.UseCors("AllowAll");
     
     // Exception handling middleware (must be before authentication/authorization)
@@ -403,7 +408,11 @@ try
     // middleware take precedence. Cloud maps no proxy (unchanged).
     if (isLocalAuthMode)
     {
-        app.MapReverseProxy();
+        // The proxy serves the Next web app (login/setup pages, static assets, /bff/* auth routes), which
+        // handles its OWN authentication. It must be AllowAnonymous — otherwise the Local-mode fail-closed
+        // FallbackPolicy (RequireAuthenticatedUser) gates every page request and returns 401 before the user
+        // can even reach the login page. Only /api/* controllers stay behind [Authorize].
+        app.MapReverseProxy().AllowAnonymous();
     }
 
     // Ensure database is created (FR-F3: migrations apply automatically on startup).

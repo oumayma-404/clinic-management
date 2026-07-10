@@ -50,7 +50,17 @@ public partial class MainWindow : Window
 
         try
         {
-            await WebView.EnsureCoreWebView2Async();
+            // WebView2's DEFAULT user-data folder is created next to the .exe. For an installed app that
+            // lives under %ProgramFiles%, a standard (non-admin) user can't write there, so
+            // EnsureCoreWebView2Async() fails with E_ACCESSDENIED (0x80070005). Point it at a per-user
+            // writable folder instead so the shell works for any user without elevation.
+            var userDataFolder = System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "ClinicManagement", "WebView2");
+            System.IO.Directory.CreateDirectory(userDataFolder);
+
+            var env = await CoreWebView2Environment.CreateAsync(browserExecutableFolder: null, userDataFolder: userDataFolder);
+            await WebView.EnsureCoreWebView2Async(env);
             _coreReady = true;
             return true;
         }

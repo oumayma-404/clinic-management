@@ -6,6 +6,17 @@ import { SESSION_COOKIE, MUST_CHANGE_COOKIE, resolveAuthMode } from './lib/auth/
 const PUBLIC_ROUTES = ['/login', '/setup', '/join'];
 const CHANGE_PASSWORD_ROUTE = '/change-password';
 
+// Redirect to the same-origin FRONT DOOR. Behind the reverse proxy the Next server's own request host is
+// the internal localhost:<webPort> (HTTP-only), so `new URL(path, request.url)` would bounce the browser
+// there (ERR_SSL_PROTOCOL_ERROR). A bare relative Location isn't allowed either — Next's middleware runtime
+// runs `new URL()` on it and throws ERR_INVALID_URL (→ 500). So build an ABSOLUTE URL from the forwarded
+// headers YARP adds (the browser's real host + scheme), sending the browser to the HTTPS front door.
+function frontDoorRedirect(request: NextRequest, location: string) {
+  const host = request.headers.get('x-forwarded-host') ?? request.headers.get('host') ?? request.nextUrl.host;
+  const proto = request.headers.get('x-forwarded-proto') ?? 'https';
+  return NextResponse.redirect(new URL(location, `${proto}://${host}`));
+}
+
 // Dual-mode middleware: Local (offline cookie session) or Cloud (Auth0), by AUTH_MODE.
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -22,16 +33,14 @@ export async function middleware(request: NextRequest) {
 
     const token = request.cookies.get(SESSION_COOKIE)?.value;
     if (!token) {
-      const loginUrl = new URL('/login', request.url);
-      loginUrl.searchParams.set('returnTo', pathname);
-      return NextResponse.redirect(loginUrl);
+      return frontDoorRedirect(request, `/login?returnTo=${encodeURIComponent(pathname)}`);
     }
 
     // AC-5.2: a user whose password was reset must change it before using the app. While the
     // flag cookie is set, force them onto /change-password (the route clears it on success).
     const mustChange = request.cookies.get(MUST_CHANGE_COOKIE)?.value === '1';
     if (mustChange && pathname !== CHANGE_PASSWORD_ROUTE) {
-      return NextResponse.redirect(new URL(CHANGE_PASSWORD_ROUTE, request.url));
+      return frontDoorRedirect(request, CHANGE_PASSWORD_ROUTE);
     }
 
     return NextResponse.next();

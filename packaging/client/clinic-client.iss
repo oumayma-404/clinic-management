@@ -65,8 +65,7 @@ Filename: "{app}\{#AppExe}"; Description: "Lancer {#AppName}"; Flags: nowait pos
 Filename: "{sys}\certutil.exe"; Parameters: "-delstore Root ""Clinic Management Local CA"""; Flags: runhidden; RunOnceId: "DelCa"
 
 [Code]
-const
-  SW_HIDE = 0;
+{ SW_HIDE is a built-in Inno Setup constant — do not redeclare it (duplicate-identifier compile error). }
 
 { True if the WebView2 Evergreen runtime is already installed (machine-wide or per-user). Detected via the
   EdgeUpdate client key for the WebView2 runtime GUID; a present, non-zero 'pv' version means installed. }

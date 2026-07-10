@@ -48,6 +48,12 @@ Patterns and insights discovered during feature development.
 **Learning:** `httpsConfigured` is never set in Cloud, so guarding on it silently changed Cloud behavior: `UseHttpsRedirection` went from *always* (Cloud's prior state) to *never*. The fix was `!isLocalAuthMode || httpsConfigured`. Symmetrically, a Cloud deploy that *did* set a cert path would have had Kestrel `ListenAnyIP` override its `ASPNETCORE_URLS` bind.
 **Recommendation:** When the invariant is "mode X is unchanged," gate new behavior on the **mode** flag itself, not on a capability/feature flag that merely *correlates* with the mode. A capability flag can be toggled in the protected mode later and silently break the invariant.
 
+### A service constructed before `builder.Build()` has no DI — give it a real logger, and don't leave a dead registration
+**Discovered in:** windows-desktop-app (Phase 5, S3 + review Finding 17)
+**Context:** The HTTPS `CertificateProvisioner` must run *before* `builder.Build()` (Kestrel needs the cert before the DI container exists), so it's `new`-ed directly in `Program.cs`.
+**Learning:** A pre-Build service can't be resolved from DI, so it was constructed with a `NullLogger` — which silently swallowed its own "generated vs reused certificate" log lines. It was *also* left `AddSingleton`-registered "for completeness," a dead registration nothing ever resolves. Both are traps: invisible logs and misleading DI wiring.
+**Recommendation:** For anything built pre-Build, pass a real logger (e.g. a Serilog-backed `SerilogLoggerFactory(Log.Logger).CreateLogger<T>()`, since Serilog is configured first) rather than `NullLogger`, and do **not** DI-register a type that is only ever constructed manually — the registration reads as wired-up when it isn't.
+
 ---
 
 ## Pitfalls
@@ -112,6 +118,48 @@ Patterns and insights discovered during feature development.
 **Problem:** The build broke — `HttpStatusCode` (also in `System.Net`) was still used elsewhere in the file. Namespaces provide many types; the one you moved is not necessarily the only one in use.
 **Recommendation:** Before deleting a `using`, search the file for *all* types that namespace could supply, not just the symbol you refactored. Rely on the compiler/`tsc`/build as the final check, but don't assume "I moved the obvious user" means the import is dead.
 
+### A reverse-proxy/loopback hop makes request-scheme-derived security decisions on the *internal* leg
+**Discovered in:** windows-desktop-app (Phase 5, story review)
+**Context:** A Next BFF login handler sets the auth cookie `Secure` flag from `request.nextUrl.protocol`, while the browser reaches it over the Kestrel HTTPS front door which proxies to the Node server on a plain-HTTP `localhost` hop.
+**Problem:** The handler runs on the *internal* HTTP hop, so `protocol` is `http:` and it derives `Secure=false` — even though the browser transport is HTTPS. Any request-scheme-derived decision (cookie `Secure`, redirect scheme) behind a front door is made on the wrong leg.
+**Recommendation:** Behind a reverse proxy / loopback front door, don't derive transport-security decisions from the local request scheme. Use an explicit override (here `AUTH_COOKIE_SECURE=true`, set by the service registration) or trusted `X-Forwarded-Proto` handling.
+
+### A multi-step operation must delete its partial output on failure
+**Discovered in:** windows-desktop-app (Phase 5, review Finding 1)
+**Context:** A backup creates a timestamped folder, then dumps the DB, then copies files — any step can throw.
+**Problem:** The folder was created before the dump/copy and never removed on failure, leaving a partial `clinic-backup-<ts>/` that *looks* complete — an operator could restore from a truncated dump, the opposite of "no silent partial success."
+**Recommendation:** Wrap the artifact-producing steps in try/catch that best-effort deletes the partial output before rethrowing (catch bare so cancellation cleans up too), so only complete artifacts remain on disk.
+
+### Make a loopback-only guarantee a property of the bind, not a firewall rule
+**Discovered in:** windows-desktop-app (Phase 5, review Finding 2)
+**Context:** In Local mode the API's plain-HTTP port was bound with `ListenAnyIP` (all interfaces); the only thing keeping LAN clients off the cleartext API (incl. `POST /login`) was one `netsh` firewall rule.
+**Problem:** If that rule is removed/reordered or the firewall is disabled, the entire cleartext API is LAN-reachable — and the request body is on the wire before any HTTPS redirect can act. A single breakable control guarded a security boundary.
+**Recommendation:** When a port must be loopback-only, bind it to loopback (`ListenLocalhost`) so the guarantee is structural. Keep the LAN-facing surface to the intended (TLS) endpoint only; never let a firewall rule be the sole thing enforcing a network boundary.
+
+### An orchestration script must check every external step's exit code and abort loudly
+**Discovered in:** windows-desktop-app (Phase 5, review Finding 5)
+**Context:** An installer procedure ran `initdb` / `sc start` / `pg_isready` / `CREATE ROLE` / `CREATE DATABASE` (the last with `ON_ERROR_STOP=0`) then returned `True` unconditionally.
+**Problem:** Any failed step (DB service won't start, role/DB creation fails) was swallowed; the installer reported "completed successfully" while the app then failed at boot against a missing role/DB. The install failed *open* and silent.
+**Recommendation:** In a script orchestrating external commands, capture and check each exit code, guard idempotent DDL (`\gexec` / existence check + `ON_ERROR_STOP=1`), and abort with a clear message on any hard failure — never return success unconditionally.
+
+### Don't declare a hard dependency on a resource created later or conditionally in the same routine
+**Discovered in:** windows-desktop-app (Phase 5, review Finding 6)
+**Context:** A Windows service was `sc create`d with `depend= DbSvc/WebSvc`, but the Web service was registered *afterward* in the same procedure and only if an optional tool (`nssm.exe`) was present.
+**Problem:** When the tool was absent, the API service depended on a Web service that was never created → `sc start` fails with 1068 (dependency missing), leaving the API dead while the installer reported success.
+**Recommendation:** Create a dependency's target *before* the dependent, and make the dependency **conditional** on the target actually having been created (drop it, or fail the install, when the optional component is missing).
+
+### Guard browser globals (`window`) in any module importable server-side
+**Discovered in:** windows-desktop-app (Phase 5, review Finding 11)
+**Context:** A shared API client built a URL with `new URL(path, window.location.origin)` — needed only for the relative same-origin base.
+**Problem:** `window.location.origin` is evaluated unconditionally, so any SSR render pass, `generateMetadata`, or Node unit test importing the module throws `ReferenceError: window is not defined` before the URL is built — latent only because all current callers live in `useEffect`/handlers.
+**Recommendation:** In modules that can be imported on the server (Next.js client components still render server-side), guard browser globals: `const base = typeof window !== "undefined" ? window.location.origin : undefined;`. Don't rely on "it only runs client-side today."
+
+### Enforce DB password auth at init — never rely on `-A trust` / network isolation on a shared host
+**Discovered in:** windows-desktop-app (Phase 5, review Finding 10)
+**Context:** The bundled PostgreSQL cluster was initialized with `initdb -A trust`, with a generated `clinic_user` password baked into the connection string but never actually enforced.
+**Problem:** With `trust`, any OS user/process on the server PC can connect as any role — including `postgres` superuser — with no password, reaching all PHI. On a shared/multi-account Windows host that's local privilege escalation to the full database; the "random per-install password" was illusory.
+**Recommendation:** Initialize with `scram-sha-256` (or `md5`) so generated passwords are enforced, and supply the superuser password via `--pwfile`, then bootstrap with a temporary `pgpass.conf` (deleted after). Don't treat "loopback-only" as a substitute for authentication on a machine other accounts can use.
+
 ---
 
 ## Conventions
@@ -126,7 +174,7 @@ Patterns and insights discovered during feature development.
 **Discovered in:** windows-desktop-app (review Finding 5)
 **Context:** Clinic self-registration code — the sole gate for the anonymous, LAN-reachable `POST /api/auth/register`.
 **Learning:** `new Random()` is non-cryptographic and time-seeded. Any value that gates access (codes, temp passwords, tokens) must use `RandomNumberGenerator` (as `LocalAuthService.GenerateTemporaryPassword` already does).
-**Recommendation:** Default to `RandomNumberGenerator` for generated secrets/codes; consider length adequate to the brute-force surface. Extract one shared generator rather than copy-pasting the logic (review Finding 10).
+**Recommendation:** Default to `RandomNumberGenerator` for generated secrets/codes; consider length adequate to the brute-force surface. Extract one shared generator rather than copy-pasting the logic (review Finding 10). **Extends to installer/build scripts:** Inno Setup's Pascal `Random` is non-cryptographic *and* unseeded (no `Randomize` ⇒ identical value across installs). For a generated per-install secret, source bytes from the OS CSPRNG (`BCryptGenRandom@bcrypt.dll`) rather than `Random` (Phase 5 Finding 12).
 
 ### One shared constant for policy values enforced in multiple places
 **Discovered in:** windows-desktop-app (review Finding 9)
@@ -158,6 +206,12 @@ Patterns and insights discovered during feature development.
 **Learning:** An empty secret slot in tracked config invites an operator to paste the real secret (here, a PFX private-key password) straight into version control — reintroducing exactly the debt the phase eliminated. A leaked PFX password compromises the server's TLS key.
 **Recommendation:** Source secrets from the gitignored `.local/` store, environment variables, or user-secrets — the same path already used for the signing key and refresh token. Don't add a secret *key* to committed appsettings at all; if a slot must exist, document that it may only be set in an untracked override. Extends the "per-install signing key: never in appsettings" convention above to *all* secret-bearing config.
 
+### A store-deletion keyed on a literal must match the exact value the generator produces — pin both to one source of truth
+**Discovered in:** windows-desktop-app (Phase 5, review Finding 3)
+**Context:** The client uninstaller ran `certutil -delstore Root "Clinic Management CA"`, but the server's `CertificateProvisioner` generates the CA with subject CN **`Clinic Management Local CA`**.
+**Learning:** `certutil -delstore` matches by (substring of the) subject name; the literals didn't match, so uninstall removed nothing and the self-signed root CA stayed permanently trusted on every staff PC — a lingering trust anchor. Two hand-written copies of a cross-artifact identifier drifted.
+**Recommendation:** When one artifact deletes/looks up what another produces by a literal name, both must reference the same value (a shared constant, or delete by thumbprint), and a test should assert the generator's actual output (as `CertificateProvisionerTests` pins the CN). Never hand-copy a cross-artifact identifier into a second file.
+
 ---
 
 ## Tools & Libraries
@@ -179,3 +233,15 @@ Patterns and insights discovered during feature development.
 **Context:** Unit-testing `Program.cs`-adjacent types (authorization options, `DefaultHttpContext`, MVC `ControllerBase`) that live in the `Microsoft.NET.Sdk.Web` API project, from a `Microsoft.NET.Sdk` test project.
 **Learning:** The API's *implicit* `FrameworkReference Include="Microsoft.AspNetCore.App"` (from the Web SDK) does **not** flow transitively to a plain `Microsoft.NET.Sdk` test project. Without adding it explicitly, ASP.NET types won't resolve even though the test project references the API project.
 **Recommendation:** Add `<FrameworkReference Include="Microsoft.AspNetCore.App" />` to any non-Web test project that touches ASP.NET types. Relatedly: `DenyAnonymousAuthorizationRequirement` (used to assert `RequireAuthenticatedUser()`) lives in `Microsoft.AspNetCore.Authorization.Infrastructure`, not the root `Microsoft.AspNetCore.Authorization`.
+
+### `Microsoft.Extensions.Hosting.WindowsServices` 8.0.1 pins `System.Diagnostics.EventLog` 8.0.1
+**Discovered in:** windows-desktop-app (Phase 5, S2)
+**Context:** Adding Windows-service hosting + Event Log startup diagnostics to the API.
+**Learning:** `Microsoft.Extensions.Hosting.WindowsServices` 8.0.1 transitively pins `System.Diagnostics.EventLog` to 8.0.1; adding `EventLog` at 8.0.0 trips `NU1605` (package downgrade treated as error) and fails the build.
+**Recommendation:** When adding a package that a Windows-service/hosting dependency already pins transitively, match the transitive version (here 8.0.1) rather than the repo's default 8.0.0.
+
+### PowerShell 5.1 `Set-Content -Encoding UTF8` writes a UTF-8 **BOM**
+**Discovered in:** windows-desktop-app (Phase 5, review Finding 14)
+**Context:** A publish script rewrote the scrubbed `appsettings.json` with `Set-Content -Encoding UTF8` under Windows PowerShell 5.1 (`powershell.exe`).
+**Learning:** On WinPS 5.1, `-Encoding UTF8` emits a BOM. ASP.NET Core's stream-based config provider tolerates it, but any consumer that reads the file as a *string* into `System.Text.Json` throws on the leading BOM, and a BOM in `appsettings.json` is fragile/non-idiomatic.
+**Recommendation:** Write BOM-less UTF-8 explicitly — `[System.IO.File]::WriteAllText($path, $json, (New-Object System.Text.UTF8Encoding($false)))` — for any file other tooling reads as text. (pwsh 7's `-Encoding utf8` is already BOM-less, but don't assume the script runs there.)

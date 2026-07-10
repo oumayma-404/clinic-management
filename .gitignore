@@ -29,3 +29,5 @@ packaging/**/build-output/
 packaging/build-output/
 # Operator-supplied third-party binaries staged for the installers (not committed)
 packaging/server/tools/
+# Build-time tools fetched by fetch-build-tools.ps1 (PostgreSQL binaries, NSSM) — not committed
+packaging/build-tools/
