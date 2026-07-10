@@ -25,14 +25,16 @@ Dockerized via `web/Dockerfile`.
 
 | Var | Purpose |
 |-----|---------|
-| `NEXT_PUBLIC_API_URL` | Base URL of the .NET API (default fallback `http://localhost:5000/api`). Read in `lib/api/client.ts`. |
-| `AUTH_MODE` | `cloud` (default) or `local`. Read server-side (`lib/auth/local-auth.ts`); selects the session provider and gates the Local-only `/api/auth/*` routes and middleware behavior. Delivered to the browser via SSR (`useSession().mode`). |
+| `NEXT_PUBLIC_API_URL` | Base URL of the .NET API (default fallback `http://localhost:5000/api`). Read in `lib/api/client.ts`. **In the Local same-origin front-door build (Phase 5) set this to the relative `/api`** — the browser hits the Kestrel front door on whatever server IP it loaded from; `client.ts` resolves the relative base against `window.location.origin`. |
+| `AUTH_MODE` | `cloud` (default) or `local`. Read server-side (`lib/auth/local-auth.ts`); selects the session provider and gates the Local-only **`/bff/auth/*`** routes and middleware behavior. Delivered to the browser via SSR (`useSession().mode`). |
+| `API_INTERNAL_URL` | **Local, server-only (Phase 5).** Absolute API URL the `local-login` / `change-password` BFF route handlers call server-side (a relative `/api` has no origin server-side). Default `http://localhost:5000/api` (the API's loopback HTTP hop). |
+| `AUTH_COOKIE_SECURE` | **Local, server-only (Phase 5).** `true` forces the `Secure` flag on the auth session cookie. Needed because the Node server sits behind the HTTPS front door on a plain-HTTP loopback hop, so the BFF handler would otherwise derive a non-Secure scheme and drop `Secure` even though the browser transport is HTTPS. |
 | `AUTH0_SECRET`, `AUTH0_DOMAIN`, `AUTH0_ISSUER_BASE_URL`, `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET`, `AUTH0_AUDIENCE`, `AUTH0_BASE_URL`, `APP_BASE_URL` | Auth0 config (server-side, cloud mode). `AUTH0_AUDIENCE` enables API access tokens. |
 
 ## How the frontend talks to the .NET API
 
 - All requests go through helpers in **`lib/api/client.ts`** (`apiGet/apiPost/apiPut/apiDelete`, plus `apiPostFormData/apiPutFormData` for uploads). Base URL = `NEXT_PUBLIC_API_URL`.
-- **Auth token**: client.ts auto-fetches the Auth0 access token from the local route **`app/api/auth/token/route.ts`** (which calls `auth0.getAccessToken()` server-side) and attaches it as `Authorization: Bearer <token>`. Requests also send `credentials: 'include'` for the session cookie.
+- **Auth token**: client.ts auto-fetches the token from the local route **`app/bff/auth/token/route.ts`** (Phase 5 relocated `/api/auth/*` → `/bff/auth/*` so the front-door proxy forwards them to Next instead of colliding with the API's `/api/*`; mode-aware: Auth0 access token in cloud, the local JWT from the cookie in local) and attaches it as `Authorization: Bearer <token>`. Requests also send `credentials: 'include'` for the session cookie.
 - **Errors**: non-OK responses throw `ApiError(status, message)`; validation errors from the .NET ProblemDetails (`title`/`errors`) are flattened into the message. Network failures throw `ApiError(0, ...)`.
 - Per-resource API modules wrap these helpers (see `web/lib/CLAUDE.md`). DTO types live in `lib/api/types.ts`.
 
@@ -40,7 +42,7 @@ Dockerized via `web/Dockerfile`.
 
 - **`middleware.ts`** is mode-branched (`resolveAuthMode()`):
   - **cloud**: routes `/auth/*` to Auth0; allows public `/login`, `/setup`, `/join`; else requires an Auth0 session or redirects to `/auth/login?returnTo=...`.
-  - **local**: gates protected routes on the `local_session` HttpOnly cookie (redirect to `/login`), skips Auth0 entirely, and forces users with the `local_must_change_password` cookie onto `/change-password`.
+  - **local**: gates protected routes on the `local_session` HttpOnly cookie (redirect to `/login`), skips Auth0 entirely, and forces users with the `local_must_change_password` cookie onto `/change-password`. Redirects go through `frontDoorRedirect()` (Phase 5): behind the YARP proxy Next's own request host is the internal `localhost:<WebPort>` (HTTP), so it builds an **absolute** URL from the `x-forwarded-host`/`x-forwarded-proto` headers YARP adds — sending the browser to the HTTPS front door, not the internal port. Public/skip paths include `/_next/*` and `/bff/auth/*`.
 - **The session seam** (`lib/auth/session.tsx`): a single `useSession()` context — `{ user, mode, isLoading, logout }` — backed by `CloudSessionProvider` (bridges Auth0 `useUser`) or `LocalSessionProvider` (reads `/api/auth/session` from the cookie; 30-min inactivity auto-logout). All ~5 former `useUser` consumers read this instead. SSR-tolerant (returns a loading default when no provider is in scope).
 - **Clinic-membership** is enforced client-side, not in middleware: pages wrap content in **`<ClinicGuard>`** (`components/clinic-guard.tsx`), which uses `useClinicAccess` to verify the user belongs to a clinic (else shows `unauthorized-page` / redirects to `/setup`).
 - `app/layout.tsx` (a server component) reads `AUTH_MODE` and mounts either `CloudSessionProvider` (with `Auth0Provider` inside) or `LocalSessionProvider`, plus the `ConnectivityProvider` (Phase 3 — polls `/api/connectivity` in Local mode, static online default in Cloud), `SidebarProvider`, the global `<Toaster>`, and the floating `<AIChat>` widget (inside the providers so it can read connectivity).
@@ -50,8 +52,9 @@ Dockerized via `web/Dockerfile`.
 ```
 web/
   app/                 App Router pages, layouts, route handlers
-    api/auth/          token/ (mode-aware JWT for the client), session/ (decode local cookie → {email,role}),
-                       local-login/ + local-logout/ (set/clear session + must-change cookies), change-password/ (proxy)
+    bff/auth/          token/ (mode-aware JWT for the client), session/ (decode local cookie → {email,role}),
+                       local-login/ + local-logout/ (set/clear session + must-change cookies), change-password/ (proxy).
+                       Under /bff/* (Phase 5) so the front-door proxy routes them to Next, not the API's /api/*.
   components/          Feature components (+ components/ui = shadcn primitives)  -> see components/CLAUDE.md
   lib/
     api/               fetch wrapper (client.ts) + per-resource API modules + types.ts

@@ -124,3 +124,16 @@ the `web/app/bff/auth/local-login/route.ts` comment. S5–S7 remain operator-ver
   in `Program.cs` with a `NullLogger`, and DI-registered only for completeness. (S3)
 - **`Microsoft.Extensions.Hosting.WindowsServices` 8.0.1 pins `System.Diagnostics.EventLog` 8.0.1** — adding
   EventLog at 8.0.0 trips `NU1605` (downgrade-as-error). Match the transitive version. (S2)
+
+## Memory Updated
+
+**Status:** done
+**Date:** 2026-07-10
+
+Refreshed the `CLAUDE.md` map for Phase 5 (the final phase — whole feature now complete):
+- **Root `CLAUDE.md`** — added `desktop/` + `packaging/` roots to the layout, bumped controllers 12→13, flipped the auth note to "all 5 phases complete", added a Phase 5 architectural bullet (same-origin YARP front door, `/api/auth/*`→`/bff/auth/*`, self-generated HTTPS, Windows service + startup diagnostics, one-click backup, `LocalInstallPaths`, desktop shell + installers), closed the Phase-4 cert-downgrade gap note, and listed `packaging/README.md`.
+- **`api/ClinicManagement.API/CLAUDE.md`** — `BackupController` row; reworked the `Program.cs` startup section (returns `int`, Windows-service hosting, YARP front door, mode-branched HTTPS/self-gen cert with loopback-only HTTP, Cloud-only redirect, `LocalAuthEnforcementMiddleware`, `MapReverseProxy().AllowAnonymous()`, DB-down/port-in-use fatal handling); new `Startup/StartupDiagnostics` subsection; `Backup:*` + `Hosting:WebPort` config keys.
+- **`api/ClinicManagement.Application/CLAUDE.md`** — Backup feature area (`BackupNowCommand`), `IBackupService` interface, `BackupResultDto`.
+- **`api/ClinicManagement.Infrastructure/CLAUDE.md`** — `PgDumpBackupService`, `Security/CertificateProvisioner`, `LocalInstallPaths`; DI additions (`IBackupService`, install-relative file-storage path); `Backup:*` config keys.
+- **`web/CLAUDE.md`, `web/lib/CLAUDE.md`, `web/components/CLAUDE.md`** — `/bff/auth/*` relocation, relative same-origin `NEXT_PUBLIC_API_URL=/api`, new `API_INTERNAL_URL` / `AUTH_COOKIE_SECURE` env, `frontDoorRedirect`, `backup.ts` module + `BackupSettings` component.
+- **New `desktop/CLAUDE.md`** — WPF/WebView2 thin shell (standalone sln, HTTPS-front-door-only, per-user server address, view-state screens).

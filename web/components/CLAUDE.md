@@ -27,7 +27,8 @@ Feature/screen components for the clinic frontend. `components/ui/` holds shadcn
 | `procedure-type-form-modal.tsx` | Create/edit procedure type (name, duration, cost, color, description). |
 | `stock-table.tsx` | Inventory table with delete confirm — **sample data, not API-backed**. |
 | `stock-item-form-modal.tsx` | Create/edit stock item modal — local state only. |
-| `clinic-settings.tsx` | Clinic profile + doctors management (name, address, logo upload, add/remove doctors) via `clinicsApi`. |
+| `clinic-settings.tsx` | Clinic profile + doctors management (name, address, logo upload, add/remove doctors) via `clinicsApi`. Mounts `<BackupSettings/>` (Phase 5) only in Local mode for admins. |
+| `backup-settings.tsx` | **Local, admin-only** (Phase 5 / US-8). "Sauvegarde" card: optional destination folder + "Sauvegarder maintenant" → `backupApi.backupNow`; toasts success (path + human-readable size) or the failure reason, and shows the last-backup path/size. Guards `setState` against unmount (a backup can be long-running). |
 | `setup-wizard.tsx` | First-run clinic creation wizard (FR; Tunisian governorates). Calls `clinicsApi.create`; in local mode also collects the admin account (full name, email, password) → `/auth/setup`. |
 | `join-wizard.tsx` | Join-clinic-by-code wizard (role, specialty). Calls `clinicsApi.join`; in local mode collects account fields (name/email/password) and self-registers via `clinicsApi.register` → `/auth/register`. |
 | `user-management.tsx` | **Local, admin-only** (`/users`): users table (status + must-change badge + last login) with reset-password (temp shown once in a dialog) and deactivate/reactivate, each behind a confirm dialog; clinic-code display + Regenerate. Own row's Deactivate disabled (mirrors backend self-deactivation guard). |
