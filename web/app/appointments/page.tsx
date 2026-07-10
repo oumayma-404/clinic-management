@@ -14,6 +14,7 @@ import type { AppointmentDto } from "@/lib/api/types"
 import { setHours, setMinutes } from "date-fns"
 import { googleCalendarApi } from "@/lib/api/google-calendar"
 import { useConnectivity } from "@/lib/connectivity/connectivity"
+import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 
 export default function AppointmentsPage() {
   const [view, setView] = useState<"day" | "week">("day")
@@ -49,6 +50,12 @@ export default function AppointmentsPage() {
   const handleAppointmentUpdated = useCallback(() => {
     setRefreshKey(prev => prev + 1)
   }, [])
+
+  // Real-time: when another client of this clinic creates/edits/cancels an appointment, the server
+  // broadcasts "appointmentsChanged" and we refetch by bumping refreshKey (the calendar remounts and
+  // reloads) — same refresh path as a local create/edit. Additive: if the hub is down, manual refresh
+  // still works (AC-5).
+  useClinicRealtime(handleAppointmentUpdated)
 
   // Check Google Calendar status on mount and after authorization
   useEffect(() => {

@@ -28,19 +28,22 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
     private readonly IUnitOfWork _unitOfWork;
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly ILogger<UpdateAppointmentCommandHandler> _logger;
+    private readonly IRealtimeNotifier _realtimeNotifier;
 
     public UpdateAppointmentCommandHandler(
         IAppointmentRepository appointmentRepository,
         IProcedureTypeRepository procedureTypeRepository,
         IUnitOfWork unitOfWork,
         IServiceScopeFactory serviceScopeFactory,
-        ILogger<UpdateAppointmentCommandHandler> logger)
+        ILogger<UpdateAppointmentCommandHandler> logger,
+        IRealtimeNotifier realtimeNotifier)
     {
         _appointmentRepository = appointmentRepository;
         _procedureTypeRepository = procedureTypeRepository;
         _unitOfWork = unitOfWork;
         _serviceScopeFactory = serviceScopeFactory;
         _logger = logger;
+        _realtimeNotifier = realtimeNotifier;
     }
 
     public async Task<Result<AppointmentDto>> Handle(UpdateAppointmentCommand request, CancellationToken cancellationToken)
@@ -184,6 +187,10 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
 
             await _appointmentRepository.UpdateAsync(appointment, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            // Real-time: broadcast only AFTER the change is committed (covers cancellation, which is an
+            // update to status=Cancelled). Additive — the notifier swallows its own failures.
+            await _realtimeNotifier.NotifyAppointmentsChangedAsync(appointment.ClinicId, cancellationToken);
 
             var dto = new AppointmentDto
             {

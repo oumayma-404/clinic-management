@@ -1,4 +1,6 @@
 using ClinicManagement.Application;
+using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.API.Hubs;
 using ClinicManagement.API.Maintenance;
 using ClinicManagement.API.Startup;
 using ClinicManagement.Infrastructure;
@@ -57,6 +59,31 @@ Log.Logger = new LoggerConfiguration()
         retainedFileCountLimit: 7,
         outputTemplate: "[{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} {Level:u3}] {Message:lj}{NewLine}{Exception}")
     .CreateLogger();
+
+// Shared JWT event wiring so the SignalR hub authenticates in BOTH auth modes. A browser WebSocket
+// handshake cannot set an Authorization header, so the SignalR client passes the JWT as the
+// `access_token` query param; pull it into the token for hub paths only. Same-signed token, same
+// validation as the REST API — this only changes WHERE the token is read from for /hub requests.
+//
+// SECURITY (feature-review Finding 1 — bearer token in the query string): because the token rides in
+// the query string, any request logging that records full URLs would capture it. This is intentionally
+// safe today — framework request logging is suppressed (Microsoft.AspNetCore → Warning above) and no
+// UseSerilogRequestLogging / reverse-proxy access log is wired. If HTTP request logging is ever enabled
+// (Serilog request logging, a YARP/front-door access log, etc.), it MUST scrub or omit the query string
+// for `/hub/*`, or those logs must be treated as secret-bearing. Do not log `/hub` request URLs verbatim.
+static Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerEvents CreateHubJwtEvents() => new()
+{
+    OnMessageReceived = context =>
+    {
+        var accessToken = context.Request.Query["access_token"];
+        if (!string.IsNullOrEmpty(accessToken) &&
+            context.HttpContext.Request.Path.StartsWithSegments("/hub"))
+        {
+            context.Token = accessToken;
+        }
+        return Task.CompletedTask;
+    }
+};
 
 try
 {
@@ -133,6 +160,7 @@ try
                 IssuerSigningKey = ClinicManagement.Infrastructure.Auth.LocalAuthConfig.SecurityKey(builder.Configuration),
                 ClockSkew = TimeSpan.Zero
             };
+            options.Events = CreateHubJwtEvents();
         });
         authConfigured = true;
     }
@@ -155,6 +183,7 @@ try
                 ValidateIssuerSigningKey = true,
                 ClockSkew = TimeSpan.Zero
             };
+            options.Events = CreateHubJwtEvents();
         });
         authConfigured = true;
     }
@@ -180,6 +209,11 @@ try
 
     // Add Infrastructure layer
     builder.Services.AddInfrastructure(builder.Configuration);
+
+    // Real-time (SignalR): the clinic-scoped hub + the outbound notifier that appointment handlers use
+    // to broadcast "appointments changed" to a clinic's connected clients. Runs in both auth modes.
+    builder.Services.AddSignalR();
+    builder.Services.AddScoped<IRealtimeNotifier, SignalRRealtimeNotifier>();
 
     // Add Hangfire for background jobs
     var hangfireConnectionString = builder.Configuration.GetConnectionString("DefaultConnection");
@@ -351,6 +385,10 @@ try
     }
 
     app.MapControllers();
+
+    // Real-time hub. A literal route, so it is more specific than the Local-mode YARP catch-all below
+    // and wins endpoint selection (the WebSocket reaches the hub in-process, not the Next proxy).
+    app.MapHub<ClinicHub>("/hub/clinic");
 
     // Hangfire Dashboard — in Local mode, reachable only from the server PC itself (loopback);
     // Cloud keeps the previous behavior (FR-E3). Mode is passed into the filter so the decision is
