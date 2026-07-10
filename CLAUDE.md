@@ -69,7 +69,7 @@ Frontend talks to the API via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
 - **Background jobs mostly idle**: Hangfire is wired but `NotificationJob`/`AISummaryJob`/calendar-sync recurring registrations are commented out. Only on-demand `PdfGenerationJob` fires in practice.
 - **Stubs/placeholders**: `NotificationService` logs instead of sending email/SMS; `PatientSummaryService` is a string template (no AI call); `GoogleAIService` exists but isn't registered (HuggingFace is the wired AI backend).
 - **`ValidationBehavior` is inert**: no FluentValidation validators exist; handlers validate inline and return `Result.Failure`.
-- **Several frontend surfaces use hardcoded sample data** (dashboard stats, appointment-list, notifications-list, the whole stock feature) — not yet wired to the API.
+- **One frontend surface still uses hardcoded sample data**: `notifications-list` (the notifications feature isn't built). Dashboard stats, `appointment-list`, and the stock feature **are** API-wired (`dashboardApi`, `useAppointments`, `stockApi`).
 - ⚠️ **Security debt**: `api/.../appsettings.json` still contains real-looking secrets. **Phase 4 retired several items in Local mode** — the OAuth callback no longer rewrites the refresh token into appsettings (now `IGoogleTokenStore` → `.local/`), the Hangfire filter is loopback-only in Local (not `return true;`), and anonymous-by-omission endpoints fail closed via the Local `FallbackPolicy`. **In Cloud these largely remain**: the fallback stays null (so a controller without `[Authorize]` is still anonymous), and the Hangfire filter is unchanged (authorizes everyone). Treat with care.
 
 ## Root-level setup / reference docs

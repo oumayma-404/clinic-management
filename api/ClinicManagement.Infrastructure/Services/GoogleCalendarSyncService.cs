@@ -315,10 +315,16 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
         }
     }
 
+    // Field labels emitted into the Google event Description by BuildAppointmentDescription and parsed
+    // back out by ExtractNotesFromDescription. Shared so the writer and reader can never drift apart
+    // (a silent AC-6 regression risk if one side's literal were changed independently).
+    private const string NotesLabel = "Notes: ";
+    private const string StatusLabel = "Status: ";
+
     private string BuildAppointmentDescription(Appointment appointment)
     {
         var parts = new List<string>();
-        
+
         if (!string.IsNullOrEmpty(appointment.DoctorName))
         {
             parts.Add($"Doctor: {appointment.DoctorName}");
@@ -326,10 +332,10 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
 
         if (!string.IsNullOrEmpty(appointment.Notes))
         {
-            parts.Add($"Notes: {appointment.Notes}");
+            parts.Add($"{NotesLabel}{appointment.Notes}");
         }
 
-        parts.Add($"Status: {appointment.Status}");
+        parts.Add($"{StatusLabel}{appointment.Status}");
         if (appointment.PatientId.HasValue)
         {
             parts.Add($"Patient ID: {appointment.PatientId.Value}");
@@ -340,6 +346,34 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
         }
 
         return string.Join("\n", parts);
+    }
+
+    /// <summary>
+    /// Extracts just the user's notes from a description built by <see cref="BuildAppointmentDescription"/>
+    /// (the "Notes: ..." line). Returns null when there is no "Notes:" marker, signalling the caller to
+    /// leave the existing notes untouched (prevents the metadata block from being swallowed into Notes).
+    /// The notes value runs until the "Status:" field that BuildAppointmentDescription always appends after it.
+    /// </summary>
+    private static string? ExtractNotesFromDescription(string? description)
+    {
+        if (string.IsNullOrEmpty(description))
+        {
+            return null;
+        }
+
+        var markerIndex = description.IndexOf(NotesLabel, StringComparison.Ordinal);
+        if (markerIndex < 0)
+        {
+            return null;
+        }
+
+        var start = markerIndex + NotesLabel.Length;
+        var statusIndex = description.IndexOf("\n" + StatusLabel, start, StringComparison.Ordinal);
+        var value = statusIndex >= 0
+            ? description.Substring(start, statusIndex - start)
+            : description.Substring(start);
+
+        return value.Trim();
     }
 
     private string? ExtractPatientNameFromSummary(string summary)
@@ -445,10 +479,14 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                 updated = true;
             }
 
-            // Update notes if changed
-            if (appointment.Notes != googleEvent.Description)
+            // Update notes if changed. Parse back ONLY the user's notes from the composite description
+            // block that BuildAppointmentDescription writes (Doctor:/Notes:/Status:/Patient ID:). Assigning
+            // the whole Description here made the metadata block accumulate and nest on every sync. When the
+            // description carries no "Notes:" line, leave the appointment's notes unchanged.
+            var parsedNotes = ExtractNotesFromDescription(googleEvent.Description);
+            if (parsedNotes != null && appointment.Notes != parsedNotes)
             {
-                appointment.UpdateNotes(googleEvent.Description);
+                appointment.UpdateNotes(parsedNotes);
                 updated = true;
             }
 

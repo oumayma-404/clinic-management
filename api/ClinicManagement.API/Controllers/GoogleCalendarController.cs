@@ -1,29 +1,46 @@
+using System.Security.Cryptography;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using ClinicManagement.Application.Common.Interfaces;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Configuration;
 
 namespace ClinicManagement.API.Controllers;
 
+// Class-level [Authorize]: closes the Cloud-mode gap where sync-from-google / status / sync-appointment
+// were reachable unauthenticated (Cloud has a null fallback policy). The two browser-redirect OAuth
+// endpoints below carry an explicit [AllowAnonymous] (they cannot present a bearer token).
 [ApiController]
+[Authorize]
 [Route("api/[controller]")]
 public class GoogleCalendarController : ControllerBase
 {
+    // Short-lived server-side store of issued OAuth `state` values for CSRF protection on the callback.
+    private const string OAuthStateCachePrefix = "google_oauth_state:";
+    // Companion HttpOnly cookie holding the same state, so the callback can prove the flow was started by
+    // THIS browser (double-submit) — not merely that the server issued some state recently (login-CSRF).
+    private const string OAuthStateCookieName = "google_oauth_state";
+    private const string OAuthCookiePath = "/api/googlecalendar";
+    private static readonly TimeSpan OAuthStateLifetime = TimeSpan.FromMinutes(10);
+
     private readonly IGoogleCalendarSyncService _syncService;
     private readonly IConfiguration _configuration;
     private readonly IGoogleTokenStore _tokenStore;
+    private readonly IMemoryCache _cache;
     private readonly ILogger<GoogleCalendarController> _logger;
 
     public GoogleCalendarController(
         IGoogleCalendarSyncService syncService,
         IConfiguration configuration,
         IGoogleTokenStore tokenStore,
+        IMemoryCache cache,
         ILogger<GoogleCalendarController> logger)
     {
         _syncService = syncService;
         _configuration = configuration;
         _tokenStore = tokenStore;
+        _cache = cache;
         _logger = logger;
     }
 
@@ -193,7 +210,21 @@ public class GoogleCalendarController : ControllerBase
             : $"{Request.Scheme}://{Request.Host}/api/googlecalendar/callback";
         
         var scopes = "https://www.googleapis.com/auth/calendar";
-        var state = Guid.NewGuid().ToString(); // Optional: store in session for CSRF protection
+
+        // CSRF protection: mint a high-entropy state (CSPRNG, not Guid), persist it server-side
+        // (short-lived), AND drop it into an HttpOnly companion cookie. The callback requires the query
+        // state to match BOTH the cache entry and the cookie — binding the flow to this browser so an
+        // attacker cannot lure an admin to a callback carrying a state the attacker minted (login-CSRF).
+        var state = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+        _cache.Set(OAuthStateCachePrefix + state, true, OAuthStateLifetime);
+        Response.Cookies.Append(OAuthStateCookieName, state, new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = Request.IsHttps,
+            SameSite = SameSiteMode.Lax, // sent on the top-level GET redirect Google makes back to the callback
+            MaxAge = OAuthStateLifetime,
+            Path = OAuthCookiePath
+        });
 
         var authUrl = $"https://accounts.google.com/o/oauth2/v2/auth?" +
             $"client_id={Uri.EscapeDataString(clientId)}&" +
@@ -238,6 +269,21 @@ public class GoogleCalendarController : ControllerBase
             _logger.LogWarning("Authorization code not provided in callback");
             return BadRequest(new { error = "Authorization code not provided" });
         }
+
+        // CSRF protection: reject a callback whose state we didn't issue, that is missing, or that does not
+        // match the companion cookie set on `authorize` (proves this browser started the flow). Consume the
+        // cache entry and clear the cookie so a state cannot be replayed.
+        var cookieState = Request.Cookies[OAuthStateCookieName];
+        Response.Cookies.Delete(OAuthStateCookieName, new CookieOptions { Path = OAuthCookiePath });
+        if (string.IsNullOrEmpty(state)
+            || string.IsNullOrEmpty(cookieState)
+            || !string.Equals(state, cookieState, StringComparison.Ordinal)
+            || !_cache.TryGetValue(OAuthStateCachePrefix + state, out _))
+        {
+            _logger.LogWarning("Google OAuth callback rejected: missing, unrecognized, or unbound state parameter");
+            return BadRequest(new { error = "Invalid or expired authorization state. Please restart the Google authorization." });
+        }
+        _cache.Remove(OAuthStateCachePrefix + state);
 
         try
         {

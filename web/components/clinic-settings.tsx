@@ -394,10 +394,6 @@ export default function ClinicSettings() {
     try {
       // Note: You'll need to add an update clinic endpoint
       // For now, this is a placeholder
-      console.log("Saving working hours:", {
-        workingHours,
-      })
-
       setNotification({ type: "success", message: "Working hours saved successfully!" })
       setIsEditingHours(false)
     } catch (error: any) {

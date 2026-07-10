@@ -1,4 +1,5 @@
 using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Features.Appointments.Commands;
 using ClinicManagement.Application.Features.Appointments.Queries;
 using ClinicManagement.Domain.Entities;
@@ -126,9 +127,14 @@ public class AppointmentSyncMappingTests
         var repo = new Mock<IAppointmentRepository>();
         repo.Setup(r => r.GetByIdAsync(appointment.Id, It.IsAny<CancellationToken>())).ReturnsAsync(appointment);
 
+        var clinicResolver = new Mock<ICurrentClinicResolver>();
+        clinicResolver.Setup(r => r.GetClinicIdAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result<Guid>.Success(ClinicId));
+
         var handler = new UpdateAppointmentCommandHandler(
             repo.Object,
             new Mock<IProcedureTypeRepository>().Object,
+            clinicResolver.Object,
             new Mock<IUnitOfWork>().Object,
             ScopeFactory(),
             NullLogger<UpdateAppointmentCommandHandler>.Instance);

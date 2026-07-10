@@ -24,15 +24,18 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
 {
     private readonly IPatientRepository _patientRepository;
     private readonly IDentalRecordRepository _dentalRecordRepository;
+    private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
 
     public CreateDentalRecordCommandHandler(
         IPatientRepository patientRepository,
         IDentalRecordRepository dentalRecordRepository,
+        ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork)
     {
         _patientRepository = patientRepository;
         _dentalRecordRepository = dentalRecordRepository;
+        _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
     }
 
@@ -45,8 +48,14 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
                 return Result<DentalRecordDto>.Failure("Procedure type is required");
             }
 
+            var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
+            if (clinicResult.IsFailure)
+            {
+                return Result<DentalRecordDto>.Failure(clinicResult.Error ?? "Unable to resolve current clinic");
+            }
+
             var patient = await _patientRepository.GetByIdAsync(request.PatientId, cancellationToken);
-            if (patient == null)
+            if (patient == null || patient.ClinicId != clinicResult.Value)
             {
                 return Result<DentalRecordDto>.Failure("Patient not found");
             }

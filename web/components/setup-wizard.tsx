@@ -221,9 +221,8 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
         logoFile: logoFile || undefined,
       }
 
-      const result = await clinicsApi.create(clinicData)
-      console.log("Clinic created successfully:", result)
-      
+      await clinicsApi.create(clinicData)
+
       // Redirect to app immediately after successful creation
       window.location.href = "/"
     } catch (err: any) {

@@ -16,11 +16,16 @@ public class ProcedureTypeConfiguration : IEntityTypeConfiguration<ProcedureType
         builder.Property(pt => pt.Id)
             .ValueGeneratedNever();
 
+        builder.Property(pt => pt.ClinicId)
+            .IsRequired();
+
         builder.Property(pt => pt.Name)
             .IsRequired()
             .HasMaxLength(200);
 
-        builder.HasIndex(pt => pt.Name)
+        // Names are unique per clinic (tenant-scoped) — not globally — so two clinics can each
+        // define e.g. "Détartrage" independently.
+        builder.HasIndex(pt => new { pt.ClinicId, pt.Name })
             .IsUnique();
 
         builder.Property(pt => pt.DefaultDurationMinutes)

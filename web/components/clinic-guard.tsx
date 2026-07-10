@@ -22,7 +22,7 @@ export function ClinicGuard({
 }: ClinicGuardProps) {
   const pathname = usePathname()
   const { accessToken, isLoading: authLoading } = useAuthToken()
-  const { hasAccess, isLoading: clinicLoading } = useClinicAccess(false) // Don't auto-redirect
+  const { hasAccess, isLoading: clinicLoading, error, refresh } = useClinicAccess(false) // Don't auto-redirect
 
   // Don't show guard on setup/join/login pages
   const isSetupPage = pathname === "/setup" || pathname === "/join" || pathname === "/login"
@@ -71,6 +71,28 @@ export function ClinicGuard({
   if (hasAccess) {
     // User has clinic, render children
     return <>{children}</>
+  }
+
+  // Transient failure (network / >=500) — NOT a legitimate "not a member". "Not a member" is the
+  // HTTP-200 hasClinic:false path (error === null). Show a distinct retry state and keep the user in
+  // place instead of booting an authenticated member to the "Access Restricted" screen (AC-9).
+  if (error) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center max-w-md px-4">
+          <p className="text-lg font-medium mb-2">Connexion au serveur impossible</p>
+          <p className="text-muted-foreground mb-6">
+            Impossible de vérifier votre accès pour le moment. Vérifiez votre connexion et réessayez.
+          </p>
+          <button
+            onClick={refresh}
+            className="inline-flex items-center justify-center rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+          >
+            Réessayer
+          </button>
+        </div>
+      </div>
+    )
   }
 
   // User doesn't have clinic, show unauthorized page

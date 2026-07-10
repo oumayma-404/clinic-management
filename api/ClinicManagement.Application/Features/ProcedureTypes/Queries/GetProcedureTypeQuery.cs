@@ -1,4 +1,5 @@
 using MediatR;
+using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Domain.Repositories;
@@ -14,13 +15,16 @@ public class GetProcedureTypeQuery : IRequest<Result<ProcedureTypeDto>>
 public class GetProcedureTypeQueryHandler : IRequestHandler<GetProcedureTypeQuery, Result<ProcedureTypeDto>>
 {
     private readonly IProcedureTypeRepository _procedureTypeRepository;
+    private readonly ICurrentClinicResolver _clinicResolver;
     private readonly ILogger<GetProcedureTypeQueryHandler> _logger;
 
     public GetProcedureTypeQueryHandler(
         IProcedureTypeRepository procedureTypeRepository,
+        ICurrentClinicResolver clinicResolver,
         ILogger<GetProcedureTypeQueryHandler> logger)
     {
         _procedureTypeRepository = procedureTypeRepository;
+        _clinicResolver = clinicResolver;
         _logger = logger;
     }
 
@@ -28,8 +32,16 @@ public class GetProcedureTypeQueryHandler : IRequestHandler<GetProcedureTypeQuer
     {
         try
         {
+            // Verify the procedure type belongs to the caller's clinic (explicit scope, not just the
+            // fail-open global filter). Return generic "not found" on mismatch — mirrors the siblings (AC-1).
+            var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
+            if (clinicResult.IsFailure)
+            {
+                return Result<ProcedureTypeDto>.Failure(clinicResult.Error ?? "Unable to resolve current clinic");
+            }
+
             var procedureType = await _procedureTypeRepository.GetByIdAsync(request.Id, cancellationToken);
-            if (procedureType == null)
+            if (procedureType == null || procedureType.ClinicId != clinicResult.Value)
             {
                 return Result<ProcedureTypeDto>.Failure("Procedure type not found");
             }

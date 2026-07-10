@@ -6,7 +6,6 @@ import { DashboardHeader } from "@/components/dashboard-header"
 import { DashboardSidebar } from "@/components/dashboard-sidebar"
 import { StatsCard } from "@/components/stats-card"
 import { AppointmentList } from "@/components/appointment-list"
-import { NotificationsList } from "@/components/notifications-list"
 import { Calendar, CalendarDays, Users, Clock, AlertCircle } from "lucide-react"
 import { ClinicGuard } from "@/components/clinic-guard"
 import { useDashboardStats } from "@/lib/hooks/use-dashboard-stats"
@@ -79,13 +78,8 @@ export default function DashboardPage() {
               </div>
 
               {/* Main Content Grid */}
-              <div className="grid gap-6 lg:grid-cols-3">
-                <div className="lg:col-span-2">
-                  <AppointmentList />
-                </div>
-                <div>
-                  <NotificationsList />
-                </div>
+              <div className="grid gap-6">
+                <AppointmentList />
               </div>
             </div>
           </main>

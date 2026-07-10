@@ -14,11 +14,16 @@ public class DeletePatientMedicalHistoryCommand : IRequest<Result>
 public class DeletePatientMedicalHistoryCommandHandler : IRequestHandler<DeletePatientMedicalHistoryCommand, Result>
 {
     private readonly IPatientRepository _patientRepository;
+    private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
 
-    public DeletePatientMedicalHistoryCommandHandler(IPatientRepository patientRepository, IUnitOfWork unitOfWork)
+    public DeletePatientMedicalHistoryCommandHandler(
+        IPatientRepository patientRepository,
+        ICurrentClinicResolver clinicResolver,
+        IUnitOfWork unitOfWork)
     {
         _patientRepository = patientRepository;
+        _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
     }
 
@@ -26,8 +31,14 @@ public class DeletePatientMedicalHistoryCommandHandler : IRequestHandler<DeleteP
     {
         try
         {
+            var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
+            if (clinicResult.IsFailure)
+            {
+                return Result.Failure(clinicResult.Error ?? "Unable to resolve current clinic");
+            }
+
             var patient = await _patientRepository.GetByIdAsync(request.PatientId, cancellationToken);
-            if (patient == null)
+            if (patient == null || patient.ClinicId != clinicResult.Value)
             {
                 return Result.Failure("Patient not found");
             }

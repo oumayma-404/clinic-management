@@ -24,13 +24,19 @@ public class UpdateDentalRecordCommand : IRequest<Result<DentalRecordDto>>
 public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalRecordCommand, Result<DentalRecordDto>>
 {
     private readonly IDentalRecordRepository _dentalRecordRepository;
+    private readonly IPatientRepository _patientRepository;
+    private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
 
     public UpdateDentalRecordCommandHandler(
         IDentalRecordRepository dentalRecordRepository,
+        IPatientRepository patientRepository,
+        ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork)
     {
         _dentalRecordRepository = dentalRecordRepository;
+        _patientRepository = patientRepository;
+        _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
     }
 
@@ -43,6 +49,12 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
                 return Result<DentalRecordDto>.Failure("Procedure type is required");
             }
 
+            var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
+            if (clinicResult.IsFailure)
+            {
+                return Result<DentalRecordDto>.Failure(clinicResult.Error ?? "Unable to resolve current clinic");
+            }
+
             var dentalRecord = await _dentalRecordRepository.GetByIdAsync(request.Id, cancellationToken);
             if (dentalRecord == null)
             {
@@ -52,6 +64,13 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
             if (dentalRecord.PatientId != request.PatientId)
             {
                 return Result<DentalRecordDto>.Failure("Dental record does not belong to the specified patient");
+            }
+
+            // Verify the owning patient belongs to the caller's clinic before mutating.
+            var patient = await _patientRepository.GetByIdAsync(dentalRecord.PatientId, cancellationToken);
+            if (patient == null || patient.ClinicId != clinicResult.Value)
+            {
+                return Result<DentalRecordDto>.Failure("Dental record not found");
             }
 
             // Validate tooth numbers match the teeth type (adult vs child)

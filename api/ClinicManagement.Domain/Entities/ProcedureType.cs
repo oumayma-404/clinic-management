@@ -6,6 +6,7 @@ namespace ClinicManagement.Domain.Entities;
 
 public class ProcedureType : AggregateRoot<Guid>
 {
+    public Guid ClinicId { get; private set; }
     public string Name { get; private set; }
     public int DefaultDurationMinutes { get; private set; }
     public decimal? DefaultCost { get; private set; }
@@ -22,6 +23,7 @@ public class ProcedureType : AggregateRoot<Guid>
 
     public ProcedureType(
         Guid id,
+        Guid clinicId,
         string name,
         int defaultDurationMinutes,
         ColorHex color,
@@ -44,6 +46,7 @@ public class ProcedureType : AggregateRoot<Guid>
             throw new ArgumentException("Default cost cannot be negative", nameof(defaultCost));
 
         Id = id;
+        ClinicId = clinicId;
         Name = name.Trim();
         DefaultDurationMinutes = defaultDurationMinutes;
         DefaultCost = defaultCost;

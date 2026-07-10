@@ -51,11 +51,9 @@ export function useClinicAccess(redirectToSetup: boolean = true) {
     try {
       // Check user status - simple check: if hasClinic is true, user has access
       const status = await clinicsApi.getUserStatus()
-      console.log("Clinic access check - status:", status)
-      
+
       // Simple check: if user has clinic (created or joined), they have access
       const hasAccess = status.hasClinic === true
-      console.log("Clinic access check - hasAccess:", hasAccess)
 
       setState({
         hasAccess,
@@ -70,18 +68,15 @@ export function useClinicAccess(redirectToSetup: boolean = true) {
       }
     } catch (err: any) {
       console.error("Error checking clinic access:", err)
-      // On error, assume no access (but don't block if we're not sure)
+      // A thrown error here is a transient ApiError (status 0 network / >=500) — "not a member" is
+      // the HTTP-200 hasClinic:false success path above. Surface an error/retry state and keep the
+      // user in place; never boot an authenticated member to /setup on a blip.
       setState({
         hasAccess: false,
         isLoading: false,
         status: null,
         error: err.message || "Failed to check clinic access",
       })
-
-      // On error, still redirect to setup if enabled
-      if (redirectToSetup) {
-        router.push("/setup")
-      }
     }
   }, [accessToken, authLoading, redirectToSetup, router])
 

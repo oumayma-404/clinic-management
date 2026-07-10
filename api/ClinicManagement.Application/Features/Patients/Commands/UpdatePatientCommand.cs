@@ -26,11 +26,16 @@ public class UpdatePatientCommand : IRequest<Result<PatientDto>>
 public class UpdatePatientCommandHandler : IRequestHandler<UpdatePatientCommand, Result<PatientDto>>
 {
     private readonly IPatientRepository _patientRepository;
+    private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
 
-    public UpdatePatientCommandHandler(IPatientRepository patientRepository, IUnitOfWork unitOfWork)
+    public UpdatePatientCommandHandler(
+        IPatientRepository patientRepository,
+        ICurrentClinicResolver clinicResolver,
+        IUnitOfWork unitOfWork)
     {
         _patientRepository = patientRepository;
+        _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
     }
 
@@ -38,8 +43,21 @@ public class UpdatePatientCommandHandler : IRequestHandler<UpdatePatientCommand,
     {
         try
         {
+            var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
+            if (clinicResult.IsFailure)
+            {
+                return Result<PatientDto>.Failure(clinicResult.Error ?? "Unable to resolve current clinic");
+            }
+
             var patient = await _patientRepository.GetByIdAsync(request.Id, cancellationToken);
             if (patient == null)
+            {
+                return Result<PatientDto>.Failure("Patient not found");
+            }
+
+            // Explicit tenant check (defense-in-depth alongside the global query filter): a patient
+            // from another clinic reads as "not found".
+            if (patient.ClinicId != clinicResult.Value)
             {
                 return Result<PatientDto>.Failure("Patient not found");
             }
@@ -87,7 +105,8 @@ public class UpdatePatientCommandHandler : IRequestHandler<UpdatePatientCommand,
                 patient.UpdatePersonalInfo(firstName, lastName, dateOfBirth, gender, email, phoneNumber, address);
             }
 
-            // Update insurance info if provided
+            // Update insurance info. A null/omitted InsuranceInfo clears the stored insurance
+            // (the edit dialog sends undefined when both insurance fields are emptied).
             if (request.InsuranceInfo != null)
             {
                 var insuranceInfo = new InsuranceInfo(
@@ -97,11 +116,9 @@ public class UpdatePatientCommandHandler : IRequestHandler<UpdatePatientCommand,
                     request.InsuranceInfo.ExpiryDate);
                 patient.UpdateInsuranceInfo(insuranceInfo);
             }
-            else if (request.InsuranceInfo == null && patient.InsuranceInfo != null)
+            else
             {
-                // If InsuranceInfo is explicitly set to null, clear it
-                // Note: This requires checking if the DTO has a way to indicate "clear"
-                // For now, we'll only update if InsuranceInfo is provided
+                patient.UpdateInsuranceInfo(null);
             }
 
             // Update medical history if provided

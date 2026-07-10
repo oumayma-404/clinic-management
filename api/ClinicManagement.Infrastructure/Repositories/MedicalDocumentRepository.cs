@@ -39,6 +39,17 @@ public class MedicalDocumentRepository : IMedicalDocumentRepository
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IEnumerable<MedicalDocument>> GetByClinicIdAsync(Guid clinicId, CancellationToken cancellationToken = default)
+    {
+        // Scope to the clinic in SQL via the owning patient (MedicalDocument has no ClinicId of its own),
+        // so other tenants' documents are never materialized into memory.
+        return await _context.MedicalDocuments
+            .Include(d => d.Patient)
+            .Where(d => d.Patient != null && d.Patient.ClinicId == clinicId)
+            .OrderByDescending(d => d.DocumentDate)
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<IEnumerable<MedicalDocument>> GetAllAsync(CancellationToken cancellationToken = default)
     {
         return await _context.MedicalDocuments

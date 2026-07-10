@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiPut, apiDelete } from './client';
+import { apiGet, apiPost, apiPut } from './client';
 import type { AppointmentDto } from './types';
 
 export const appointmentsApi = {
@@ -9,10 +9,6 @@ export const appointmentsApi = {
     doctorName?: string;
   }): Promise<AppointmentDto[]> => {
     return apiGet<AppointmentDto[]>('/appointments', params);
-  },
-
-  get: async (id: string): Promise<AppointmentDto> => {
-    return apiGet<AppointmentDto>(`/appointments/${id}`);
   },
 
   create: async (data: {
@@ -45,10 +41,6 @@ export const appointmentsApi = {
     procedureTypeId?: string | null;
   }): Promise<AppointmentDto> => {
     return apiPut<AppointmentDto>(`/appointments/${id}`, data);
-  },
-
-  delete: async (id: string): Promise<void> => {
-    return apiDelete<void>(`/appointments/${id}`);
   },
 };
 

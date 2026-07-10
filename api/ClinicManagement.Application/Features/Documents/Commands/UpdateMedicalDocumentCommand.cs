@@ -27,6 +27,8 @@ public class UpdateMedicalDocumentCommandHandler : IRequestHandler<UpdateMedical
     private readonly IPatientFolderRepository _folderRepository;
     private readonly IPatientFileRepository _fileRepository;
     private readonly IFileStorage _fileStorage;
+    private readonly IClinicContext _clinicContext;
+    private readonly IUserRepository _userRepository;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<UpdateMedicalDocumentCommandHandler> _logger;
 
@@ -35,6 +37,8 @@ public class UpdateMedicalDocumentCommandHandler : IRequestHandler<UpdateMedical
         IPatientFolderRepository folderRepository,
         IPatientFileRepository fileRepository,
         IFileStorage fileStorage,
+        IClinicContext clinicContext,
+        IUserRepository userRepository,
         IUnitOfWork unitOfWork,
         ILogger<UpdateMedicalDocumentCommandHandler> logger)
     {
@@ -42,6 +46,8 @@ public class UpdateMedicalDocumentCommandHandler : IRequestHandler<UpdateMedical
         _folderRepository = folderRepository;
         _fileRepository = fileRepository;
         _fileStorage = fileStorage;
+        _clinicContext = clinicContext;
+        _userRepository = userRepository;
         _unitOfWork = unitOfWork;
         _logger = logger;
     }
@@ -54,6 +60,19 @@ public class UpdateMedicalDocumentCommandHandler : IRequestHandler<UpdateMedical
             if (document == null)
             {
                 return Result<MedicalDocumentDto>.Failure("Medical document not found");
+            }
+
+            // Verify the document's owning patient belongs to the caller's clinic. Skipped when there is
+            // no clinic in scope — PdfGenerationJob updates the document from a background scope with no
+            // authenticated user (DEV-1, mirrors the global filter's AC-3 rule).
+            var userId = _clinicContext.GetUserId();
+            if (!string.IsNullOrEmpty(userId))
+            {
+                var user = await _userRepository.GetByAuth0SubAsync(userId, cancellationToken);
+                if (user == null || document.Patient == null || document.Patient.ClinicId != user.ClinicId)
+                {
+                    return Result<MedicalDocumentDto>.Failure("Medical document not found");
+                }
             }
 
             Guid? fileId = request.FileId ?? document.FileId;

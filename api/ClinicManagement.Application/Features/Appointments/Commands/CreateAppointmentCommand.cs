@@ -68,7 +68,7 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
             if (request.PatientId.HasValue)
             {
                 patient = await _patientRepository.GetByIdAsync(request.PatientId.Value, cancellationToken);
-                if (patient == null)
+                if (patient == null || patient.ClinicId != clinicId)
                 {
                     return Result<AppointmentDto>.Failure("Patient not found");
                 }
@@ -83,7 +83,7 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
             if (procedureTypeId.HasValue)
             {
                 var procedureType = await _procedureTypeRepository.GetByIdAsync(procedureTypeId.Value, cancellationToken);
-                if (procedureType == null)
+                if (procedureType == null || procedureType.ClinicId != clinicId)
                 {
                     return Result<AppointmentDto>.Failure("Procedure type not found");
                 }

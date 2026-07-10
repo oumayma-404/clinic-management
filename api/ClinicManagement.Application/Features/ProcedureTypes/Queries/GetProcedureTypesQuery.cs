@@ -1,4 +1,5 @@
 using MediatR;
+using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Domain.Repositories;
@@ -14,13 +15,16 @@ public class GetProcedureTypesQuery : IRequest<Result<IEnumerable<ProcedureTypeD
 public class GetProcedureTypesQueryHandler : IRequestHandler<GetProcedureTypesQuery, Result<IEnumerable<ProcedureTypeDto>>>
 {
     private readonly IProcedureTypeRepository _procedureTypeRepository;
+    private readonly ICurrentClinicResolver _clinicResolver;
     private readonly ILogger<GetProcedureTypesQueryHandler> _logger;
 
     public GetProcedureTypesQueryHandler(
         IProcedureTypeRepository procedureTypeRepository,
+        ICurrentClinicResolver clinicResolver,
         ILogger<GetProcedureTypesQueryHandler> logger)
     {
         _procedureTypeRepository = procedureTypeRepository;
+        _clinicResolver = clinicResolver;
         _logger = logger;
     }
 
@@ -28,6 +32,15 @@ public class GetProcedureTypesQueryHandler : IRequestHandler<GetProcedureTypesQu
     {
         try
         {
+            // Scope explicitly to the caller's clinic so isolation does not hinge on the fail-open global
+            // filter (defense-in-depth; the sibling Update/Delete/Create handlers scope the same way).
+            var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
+            if (clinicResult.IsFailure)
+            {
+                return Result<IEnumerable<ProcedureTypeDto>>.Failure(clinicResult.Error ?? "Unable to resolve current clinic");
+            }
+            var clinicId = clinicResult.Value;
+
             IEnumerable<Domain.Entities.ProcedureType> procedureTypes;
 
             if (request.IncludeInactive)
@@ -38,6 +51,8 @@ public class GetProcedureTypesQueryHandler : IRequestHandler<GetProcedureTypesQu
             {
                 procedureTypes = await _procedureTypeRepository.GetActiveAsync(cancellationToken);
             }
+
+            procedureTypes = procedureTypes.Where(pt => pt.ClinicId == clinicId);
 
             var dtos = procedureTypes.Select(pt => new ProcedureTypeDto
             {

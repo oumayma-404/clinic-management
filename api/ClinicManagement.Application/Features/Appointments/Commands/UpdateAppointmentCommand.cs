@@ -25,6 +25,7 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
 {
     private readonly IAppointmentRepository _appointmentRepository;
     private readonly IProcedureTypeRepository _procedureTypeRepository;
+    private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly ILogger<UpdateAppointmentCommandHandler> _logger;
@@ -32,12 +33,14 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
     public UpdateAppointmentCommandHandler(
         IAppointmentRepository appointmentRepository,
         IProcedureTypeRepository procedureTypeRepository,
+        ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
         IServiceScopeFactory serviceScopeFactory,
         ILogger<UpdateAppointmentCommandHandler> logger)
     {
         _appointmentRepository = appointmentRepository;
         _procedureTypeRepository = procedureTypeRepository;
+        _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
         _serviceScopeFactory = serviceScopeFactory;
         _logger = logger;
@@ -47,8 +50,21 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
     {
         try
         {
+            var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
+            if (clinicResult.IsFailure)
+            {
+                return Result<AppointmentDto>.Failure(clinicResult.Error ?? "Unable to resolve current clinic");
+            }
+
             var appointment = await _appointmentRepository.GetByIdAsync(request.Id, cancellationToken);
             if (appointment == null)
+            {
+                return Result<AppointmentDto>.Failure("Appointment not found");
+            }
+
+            // Explicit tenant check (defense-in-depth alongside the global query filter): an appointment
+            // from another clinic reads as "not found".
+            if (appointment.ClinicId != clinicResult.Value)
             {
                 return Result<AppointmentDto>.Failure("Appointment not found");
             }
@@ -101,7 +117,7 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                 if (request.ProcedureTypeId.HasValue)
                 {
                     var procedureType = await _procedureTypeRepository.GetByIdAsync(request.ProcedureTypeId.Value, cancellationToken);
-                    if (procedureType == null)
+                    if (procedureType == null || procedureType.ClinicId != clinicResult.Value)
                     {
                         return Result<AppointmentDto>.Failure("Procedure type not found");
                     }

@@ -40,7 +40,6 @@ export const medicalDocumentsApi = {
   create: async (data: CreateMedicalDocumentRequest): Promise<MedicalDocumentDto> => {
     // If PDF file is provided, use FormData
     if (data.pdfFile) {
-      console.log('Creating document with PDF file, size:', data.pdfFile.size, 'bytes');
       const formData = new FormData();
       formData.append('patientId', data.patientId);
       formData.append('documentType', data.documentType);
@@ -54,9 +53,7 @@ export const medicalDocumentsApi = {
       formData.append('doctorName', data.doctorName);
       formData.append('doctorSpecialty', data.doctorSpecialty);
       formData.append('pdfFile', data.pdfFile);
-      console.log('FormData created, sending request...');
       const result = await apiPostFormData<MedicalDocumentDto>('/medical-documents', formData);
-      console.log('Document created successfully:', result.id);
       return result;
     }
     // Otherwise, use JSON

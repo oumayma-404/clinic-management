@@ -22,17 +22,20 @@ public class UpdateProcedureTypeCommandHandler : IRequestHandler<UpdateProcedure
 {
     private readonly IProcedureTypeRepository _procedureTypeRepository;
     private readonly IAppointmentRepository _appointmentRepository;
+    private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<UpdateProcedureTypeCommandHandler> _logger;
 
     public UpdateProcedureTypeCommandHandler(
         IProcedureTypeRepository procedureTypeRepository,
         IAppointmentRepository appointmentRepository,
+        ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
         ILogger<UpdateProcedureTypeCommandHandler> logger)
     {
         _procedureTypeRepository = procedureTypeRepository;
         _appointmentRepository = appointmentRepository;
+        _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
         _logger = logger;
     }
@@ -43,6 +46,18 @@ public class UpdateProcedureTypeCommandHandler : IRequestHandler<UpdateProcedure
         {
             var procedureType = await _procedureTypeRepository.GetByIdAsync(request.Id, cancellationToken);
             if (procedureType == null)
+            {
+                return Result<ProcedureTypeDto>.Failure("Procedure type not found");
+            }
+
+            // Explicit tenant check (defense-in-depth alongside the global query filter): a procedure
+            // type from another clinic reads as "not found".
+            var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
+            if (clinicResult.IsFailure)
+            {
+                return Result<ProcedureTypeDto>.Failure(clinicResult.Error ?? "Unable to resolve current clinic");
+            }
+            if (procedureType.ClinicId != clinicResult.Value)
             {
                 return Result<ProcedureTypeDto>.Failure("Procedure type not found");
             }

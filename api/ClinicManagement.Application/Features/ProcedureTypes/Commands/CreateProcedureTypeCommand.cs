@@ -21,15 +21,18 @@ public class CreateProcedureTypeCommand : IRequest<Result<ProcedureTypeDto>>
 public class CreateProcedureTypeCommandHandler : IRequestHandler<CreateProcedureTypeCommand, Result<ProcedureTypeDto>>
 {
     private readonly IProcedureTypeRepository _procedureTypeRepository;
+    private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<CreateProcedureTypeCommandHandler> _logger;
 
     public CreateProcedureTypeCommandHandler(
         IProcedureTypeRepository procedureTypeRepository,
+        ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
         ILogger<CreateProcedureTypeCommandHandler> logger)
     {
         _procedureTypeRepository = procedureTypeRepository;
+        _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
         _logger = logger;
     }
@@ -44,7 +47,16 @@ public class CreateProcedureTypeCommandHandler : IRequestHandler<CreateProcedure
                 return Result<ProcedureTypeDto>.Failure("Name is required");
             }
 
-            // Check if name already exists
+            // Resolve the caller's clinic — the new procedure type is scoped to it.
+            var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
+            if (clinicResult.IsFailure)
+            {
+                return Result<ProcedureTypeDto>.Failure(clinicResult.Error ?? "Unable to resolve current clinic");
+            }
+            var clinicId = clinicResult.Value;
+
+            // Check if name already exists. The global query filter scopes this to the caller's clinic,
+            // so uniqueness is enforced per-clinic (matching the composite unique index).
             var nameExists = await _procedureTypeRepository.ExistsByNameAsync(request.Name, null, cancellationToken);
             if (nameExists)
             {
@@ -82,6 +94,7 @@ public class CreateProcedureTypeCommandHandler : IRequestHandler<CreateProcedure
             // Create procedure type
             var procedureType = new ProcedureType(
                 Guid.NewGuid(),
+                clinicId,
                 request.Name,
                 request.DefaultDurationMinutes,
                 color,

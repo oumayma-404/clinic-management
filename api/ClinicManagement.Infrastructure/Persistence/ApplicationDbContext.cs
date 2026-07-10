@@ -1,16 +1,31 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Common;
+using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Infrastructure.Persistence.Configurations;
 
 namespace ClinicManagement.Infrastructure.Persistence;
 
 public class ApplicationDbContext : DbContext
 {
-    public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : base(options)
+    private readonly ICurrentClinicProvider? _clinicProvider;
+
+    // The clinic provider is optional so the design-time factory and any manual construction still work
+    // (they pass no provider → the global query filter is inactive). At runtime AddDbContext injects it.
+    public ApplicationDbContext(
+        DbContextOptions<ApplicationDbContext> options,
+        ICurrentClinicProvider? clinicProvider = null) : base(options)
     {
+        _clinicProvider = clinicProvider;
     }
+
+    // Exposed for the global query filters below. Accessed through the context instance so EF Core
+    // treats them as parameters re-evaluated per query (never baked into the cached model). When no
+    // clinic is in scope (background jobs, CLI, anonymous flows) the filter is inactive → all rows.
+    private bool IsClinicScoped => _clinicProvider?.ClinicId != null;
+    private Guid ScopedClinicId => _clinicProvider?.ClinicId ?? Guid.Empty;
 
     public DbSet<Clinic> Clinics { get; set; }
     public DbSet<User> Users { get; set; }
@@ -30,10 +45,30 @@ public class ApplicationDbContext : DbContext
     public DbSet<PatientFolder> PatientFolders { get; set; }
     public DbSet<MedicalDocument> MedicalDocuments { get; set; }
 
+    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
+    {
+        // The clinic-scoping query filters are applied only to the aggregate roots (Patient/Appointment/
+        // ProcedureType), not their child entities — this is deliberate. EF then warns that the roots are
+        // the required end of relationships whose dependents lack a matching filter; handlers guard the
+        // filtered-out case explicitly (null owning-patient => "not found"), so this warning is expected noise.
+        optionsBuilder.ConfigureWarnings(w =>
+            w.Ignore(CoreEventId.PossibleIncorrectRequiredNavigationWithQueryFilterInteractionWarning));
+        base.OnConfiguring(optionsBuilder);
+    }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(ApplicationDbContext).Assembly);
-        
+
+        // Multi-tenant backstop (defense-in-depth): scope the directly-clinic-owned entities by the
+        // caller's clinic. Inactive when no clinic is in scope (see IsClinicScoped). This is a backstop —
+        // handlers still do the authoritative DB-resolved User.ClinicId check. Where a request-scoped path
+        // must read across clinics, it calls IgnoreQueryFilters() explicitly. User/Clinic are deliberately
+        // NOT filtered (auth/join flows resolve them cross-clinic before a clinic context exists).
+        modelBuilder.Entity<Patient>().HasQueryFilter(p => !IsClinicScoped || p.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<Appointment>().HasQueryFilter(a => !IsClinicScoped || a.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<ProcedureType>().HasQueryFilter(pt => !IsClinicScoped || pt.ClinicId == ScopedClinicId);
+
         // Apply a value converter for all DateTime and DateTime? properties to ensure UTC
         // This is required for PostgreSQL which only accepts UTC DateTime values
         // We apply this after configurations to ensure it works with all entities

@@ -18,11 +18,16 @@ public class CreatePatientFamilyHistoryCommand : IRequest<Result<PatientFamilyHi
 public class CreatePatientFamilyHistoryCommandHandler : IRequestHandler<CreatePatientFamilyHistoryCommand, Result<PatientFamilyHistoryDto>>
 {
     private readonly IPatientRepository _patientRepository;
+    private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
 
-    public CreatePatientFamilyHistoryCommandHandler(IPatientRepository patientRepository, IUnitOfWork unitOfWork)
+    public CreatePatientFamilyHistoryCommandHandler(
+        IPatientRepository patientRepository,
+        ICurrentClinicResolver clinicResolver,
+        IUnitOfWork unitOfWork)
     {
         _patientRepository = patientRepository;
+        _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
     }
 
@@ -40,8 +45,14 @@ public class CreatePatientFamilyHistoryCommandHandler : IRequestHandler<CreatePa
                 return Result<PatientFamilyHistoryDto>.Failure("Condition is required");
             }
 
+            var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
+            if (clinicResult.IsFailure)
+            {
+                return Result<PatientFamilyHistoryDto>.Failure(clinicResult.Error ?? "Unable to resolve current clinic");
+            }
+
             var patient = await _patientRepository.GetByIdAsync(request.PatientId, cancellationToken);
-            if (patient == null)
+            if (patient == null || patient.ClinicId != clinicResult.Value)
             {
                 return Result<PatientFamilyHistoryDto>.Failure("Patient not found");
             }

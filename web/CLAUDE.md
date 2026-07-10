@@ -43,7 +43,7 @@ Dockerized via `web/Dockerfile`.
 - **`middleware.ts`** is mode-branched (`resolveAuthMode()`):
   - **cloud**: routes `/auth/*` to Auth0; allows public `/login`, `/setup`, `/join`; else requires an Auth0 session or redirects to `/auth/login?returnTo=...`.
   - **local**: gates protected routes on the `local_session` HttpOnly cookie (redirect to `/login`), skips Auth0 entirely, and forces users with the `local_must_change_password` cookie onto `/change-password`. Redirects go through `frontDoorRedirect()` (Phase 5): behind the YARP proxy Next's own request host is the internal `localhost:<WebPort>` (HTTP), so it builds an **absolute** URL from the `x-forwarded-host`/`x-forwarded-proto` headers YARP adds — sending the browser to the HTTPS front door, not the internal port. Public/skip paths include `/_next/*` and `/bff/auth/*`.
-- **The session seam** (`lib/auth/session.tsx`): a single `useSession()` context — `{ user, mode, isLoading, logout }` — backed by `CloudSessionProvider` (bridges Auth0 `useUser`) or `LocalSessionProvider` (reads `/api/auth/session` from the cookie; 30-min inactivity auto-logout). All ~5 former `useUser` consumers read this instead. SSR-tolerant (returns a loading default when no provider is in scope).
+- **The session seam** (`lib/auth/session.tsx`): a single `useSession()` context — `{ user, mode, isLoading, logout }` — backed by `CloudSessionProvider` (bridges Auth0 `useUser`) or `LocalSessionProvider` (reads `/bff/auth/session` from the cookie; 30-min inactivity auto-logout). All ~5 former `useUser` consumers read this instead. SSR-tolerant (returns a loading default when no provider is in scope).
 - **Clinic-membership** is enforced client-side, not in middleware: pages wrap content in **`<ClinicGuard>`** (`components/clinic-guard.tsx`), which uses `useClinicAccess` to verify the user belongs to a clinic (else shows `unauthorized-page` / redirects to `/setup`).
 - `app/layout.tsx` (a server component) reads `AUTH_MODE` and mounts either `CloudSessionProvider` (with `Auth0Provider` inside) or `LocalSessionProvider`, plus the `ConnectivityProvider` (Phase 3 — polls `/api/connectivity` in Local mode, static online default in Cloud), `SidebarProvider`, the global `<Toaster>`, and the floating `<AIChat>` widget (inside the providers so it can read connectivity).
 
@@ -73,7 +73,7 @@ All app pages are client components (`"use client"`) that render `DashboardSideb
 
 | Route | File | Renders |
 |-------|------|---------|
-| `/` | `app/page.tsx` | Dashboard: stats cards, appointment list, notifications (currently **static placeholder data**) |
+| `/` | `app/page.tsx` | Dashboard: stats cards (`dashboardApi`) + appointment list (`useAppointments`), both API-wired. (The notifications list was removed from this page.) |
 | `/appointments` | `app/appointments/page.tsx` | Day/week calendar, create/edit appointment dialogs, Google Calendar sync controls (Local: gated on internet reachability + per-appointment "not synced"/Push-to-Google via `useConnectivity()`) |
 | `/patients` | `app/patients/page.tsx` | Patients table + search/flag filter, create patient dialog |
 | `/patients/[id]` | `app/patients/[id]/page.tsx` | Patient detail: info, dental records, history, AI summary, documents |
@@ -83,7 +83,7 @@ All app pages are client components (`"use client"`) that render `DashboardSideb
 | `/documents` | `app/documents/page.tsx` | Document template gallery (ordonnance, lettre de liaison, note d'honoraires, etc. — FR labels) + saved docs list |
 | `/documents/[type]` | `app/documents/[type]/page.tsx` | Document editor (`DocumentEditorContent`, Suspense-wrapped) |
 | `/files` | `app/files/page.tsx` | Global file browser across patients (folders, upload, preview, download) |
-| `/stock` | `app/stock/page.tsx` | Stock/inventory table + item form modal (**sample data, no API yet**) |
+| `/stock` | `app/stock/page.tsx` | Stock/inventory table + item form modal (API-wired via `stockApi`) |
 | `/settings` | `app/settings/page.tsx` | Clinic settings (`ClinicSettings`) |
 | `/login` | `app/login/page.tsx` | Mode-aware: Auth0 sign-in landing (cloud) **or** a local email+password form (local) |
 | `/setup` | `app/setup/page.tsx` | First-run wizard: create a clinic (`SetupWizard`); local mode also collects the admin account |
@@ -97,4 +97,4 @@ All app pages are client components (`"use client"`) that render `DashboardSideb
 - Lists are refreshed by bumping a `refreshKey` state passed to child tables.
 - Import alias `@/*` -> project root (`tsconfig.json`). UI alias `@/components/ui`, utils `@/lib/utils`.
 - Some screens use French labels (documents, setup) — this is a Tunisia-targeted clinic app.
-- `appointment-list.tsx`, `notifications-list.tsx`, dashboard stats, and `stock-table.tsx` still render hardcoded sample data (not wired to the API).
+- `notifications-list.tsx` still renders hardcoded sample data (the notifications feature isn't built). `appointment-list.tsx`, dashboard stats, and `stock-table.tsx` are API-wired.

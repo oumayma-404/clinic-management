@@ -103,7 +103,6 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
       }
 
       await clinicsApi.join(joinData)
-      console.log("Joined clinic successfully")
 
       // Redirect to app after successful join
       window.location.href = "/"
