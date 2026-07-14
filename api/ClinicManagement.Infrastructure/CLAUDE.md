@@ -4,14 +4,14 @@ Infrastructure layer (Clean Architecture). Implements the persistence + external
 
 ## EF Core Persistence
 
-- **`Persistence/ApplicationDbContext.cs`** — single `DbContext`. `DbSet`s: Clinics, Users, Doctors, Patients, Appointments, Notifications, PatientFiles, PatientFlags, RecurringAppointments, StockItems, ProcedureTypes, PatientMedicalHistories, PatientFamilyHistories, DentalRecords, DentalRecordTeeth, PatientFolders, MedicalDocuments.
+- **`Persistence/ApplicationDbContext.cs`** — single `DbContext`. `DbSet`s: Clinics, Users, Doctors, Patients, Appointments, Notifications, PatientFiles, PatientFlags, RecurringAppointments, StockItems, ProcedureTypes, PatientMedicalHistories, PatientFamilyHistories, DentalRecords, DentalRecordTeeth, PatientFolders, MedicalDocuments, **StaffNotifications, NotificationReads** (in-app feed). `StaffNotification` is in the clinic global query filter (`ClinicId`); `NotificationRead` is **not** (no `ClinicId` — scoped by `UserId` in every query instead).
   - `OnModelCreating` calls `ApplyConfigurationsFromAssembly` (auto-discovers all `IEntityTypeConfiguration`s), then installs a **global value converter** forcing every `DateTime`/`DateTime?` to UTC (PostgreSQL `timestamp with time zone` requires UTC).
   - `SaveChanges`/`SaveChangesAsync` are overridden to run `ConvertDateTimesToUtc()` on Added/Modified entries — belt-and-suspenders UTC normalization. **Convention: all dates are UTC everywhere.**
 - **`Persistence/ApplicationDbContextFactory.cs`** — `IDesignTimeDbContextFactory` for `dotnet ef` CLI. Reads connection string from the API project's `appsettings.json` (path `../ClinicManagement.API`).
 - **`Persistence/UnitOfWork.cs`** — implements `IUnitOfWork` (Application layer). Wraps `SaveChangesAsync` + `BeginTransaction/Commit/Rollback`. Repositories do NOT call `SaveChanges`; callers (handlers/services) commit via the UoW.
 
 ### Entity Configurations (`Persistence/Configurations/`)
-One `IEntityTypeConfiguration<T>` per aggregate. Common conventions: `Id` uses `ValueGeneratedNever()` (Guids assigned in domain ctors); enums stored via `HasConversion<int>()`; value objects (Email, PhoneNumber) mapped as owned/converted columns. Notable: `AppointmentConfiguration` stores `Duration` as ticks (`HasConversion`), makes `PatientId` nullable (busy slots) with `OnDelete(SetNull)`, and `ProcedureTypeId` FK `SetNull`. Files: `AppointmentConfiguration`, `PatientConfiguration`, `PatientFlagConfiguration`, `PatientFileConfiguration`, `PatientFolderConfiguration`, `PatientMedicalHistoryConfiguration`, `PatientFamilyHistoryConfiguration`, `NotificationConfiguration`, `StockItemConfiguration`, `ProcedureTypeConfiguration`, `DentalRecordConfiguration`, `DentalRecordToothConfiguration`, `MedicalDocumentConfiguration`, `ClinicConfiguration`, `UserConfiguration`, `DoctorConfiguration`.
+One `IEntityTypeConfiguration<T>` per aggregate. Common conventions: `Id` uses `ValueGeneratedNever()` (Guids assigned in domain ctors); enums stored via `HasConversion<int>()`; value objects (Email, PhoneNumber) mapped as owned/converted columns. Notable: `AppointmentConfiguration` stores `Duration` as ticks (`HasConversion`), makes `PatientId` nullable (busy slots) with `OnDelete(SetNull)`, and `ProcedureTypeId` FK `SetNull`. Files: `AppointmentConfiguration`, `PatientConfiguration`, `PatientFlagConfiguration`, `PatientFileConfiguration`, `PatientFolderConfiguration`, `PatientMedicalHistoryConfiguration`, `PatientFamilyHistoryConfiguration`, `NotificationConfiguration`, `StaffNotificationConfiguration` (in-app feed; indexes on `(ClinicId, EffectiveFeedTime)` for the newest-first query), `NotificationReadConfiguration` (per-user read markers; `(NotificationId, UserId)` uniqueness), `StockItemConfiguration`, `ProcedureTypeConfiguration`, `DentalRecordConfiguration`, `DentalRecordToothConfiguration`, `MedicalDocumentConfiguration`, `ClinicConfiguration`, `UserConfiguration`, `DoctorConfiguration`.
 
 ### Migrations (`Migrations/`)
 Migrations exist and are applied automatically at startup (`context.Database.Migrate()` in API `Program.cs`). Schema evolution in order:
@@ -25,6 +25,7 @@ Migrations exist and are applied automatically at startup (`context.Database.Mig
 - `MakeAppointmentPatientIdNullable` — patient-less "busy slot" appointments.
 - `addclinics`, `addUsers`, `addDoctors`, `addLogoUrl`, `updateDoctorConfig` — multi-tenant clinic/user/doctor model (Clinic, User, Doctor entities; logo URL).
 - `AddLocalAuthUserFields` — Local-auth `User` columns (`PasswordHash`, `MustChangePassword`, `IsActive`, lockout fields) + a **partial unique index on lowercased email** (filtered to `PasswordHash IS NOT NULL`, so Cloud rows are unaffected). Additive + defaulted → safe for existing Cloud DBs.
+- `AddStaffNotifications` — in-app feed tables: `StaffNotifications` (indexed `(ClinicId, EffectiveFeedTime)` + `AppointmentId`) and `NotificationReads` (composite PK `(NotificationId, UserId)`, cascade FK to the notification). Additive.
 
 ## Repositories (`Repositories/`)
 Concrete EF Core implementations of Domain repo interfaces. Pattern: ctor-inject `ApplicationDbContext`, `GetById*` uses `.Include(...)` for needed graphs, mutations (`AddAsync`/`UpdateAsync`/`DeleteAsync`) only stage changes (no `SaveChanges` — UoW commits).
@@ -34,6 +35,7 @@ Concrete EF Core implementations of Domain repo interfaces. Pattern: ctor-inject
 | `IPatientRepository` | `PatientRepository` |
 | `IAppointmentRepository` | `AppointmentRepository` |
 | `INotificationRepository` | `NotificationRepository` |
+| `IStaffNotificationRepository` | `StaffNotificationRepository` (in-app feed: newest-first/actor-excluded/50-cap reads, unread count/list gated on the viewer's join time, read-marker existence + insert, reminder-by-appointment lookup) |
 | `IStockItemRepository` | `StockItemRepository` |
 | `IProcedureTypeRepository` | `ProcedureTypeRepository` |
 | `IDentalRecordRepository` | `DentalRecordRepository` |

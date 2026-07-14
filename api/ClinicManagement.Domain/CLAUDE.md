@@ -39,6 +39,7 @@
 | `User` | `Entities/User.cs` | **`AggregateRoot<string>`** — Id is the **Auth0 `sub`** (Cloud) or `local\|{guid}` (Local mode). `Role` string ("doctor"/"secretary"/"admin") with `IsDoctor/IsSecretary/IsAdmin` helpers. Belongs to a `Clinic`. **Local-auth fields (Phase 1):** nullable `PasswordHash`, `MustChangePassword`, `IsActive`, plus lockout state (`FailedLoginAttempts`, `LockoutEnd`). Factory `CreateLocalUser(...)` (trims + lowercases the email); `SetPassword(hash, mustChangePassword)` also clears lockout/failed-attempt state; `Activate()`/`Deactivate()`; failed-login + lockout methods. Cloud users leave `PasswordHash` null. |
 | `ProcedureType` | `Entities/ProcedureType.cs` | Catalog of procedures: `Name`, `DefaultDurationMinutes` (1–479), `DefaultCost`, `Color` (`ColorHex` VO), active flag. `IsUsedByFutureAppointments(...)` guards deletion. |
 | `StockItem` | `Entities/StockItem.cs` | Inventory item. `AddStock/RemoveStock` (with guards), `UpdateStockLevels`, `IsLowStock()/IsOutOfStock()`. |
+| `StaffNotification` | `Entities/StaffNotification.cs` | In-app staff notification feed record (bell/panel). **One shared clinic-scoped row per event** — per-user read state lives in the separate `NotificationRead` (no write-time fan-out). `Category`, `Title`/`Message` (French), `EffectiveFeedTime` (UTC; the ordering + due-ness `<= now` + late-joiner baseline anchor — creation time for immediate categories, due time for `Reminder`), `ActorUserId` (the user who caused it, excluded from their own feed; null for reminders/low-stock), `TargetKind` + optional `AppointmentId`/`StockItemId` for deep-links. `MoveReminder(newDueTime, title, message)` repoints a pending reminder on reschedule. Deliberately **separate** from the dormant email/SMS `Notification`. |
 
 ## Non-root Entities (`Entity<Guid>`)
 
@@ -53,7 +54,8 @@
 | `PatientFolder` | `Entities/PatientFolder.cs` | Nestable folder (`ParentFolderId`) holding sub-folders & files; enforces same-patient invariant. |
 | `MedicalDocument` | `Entities/MedicalDocument.cs` | Generated document (prescription / liaison / honoraires / certificat). Stores `ContentJson` plus **snapshots** of patient/clinic/doctor info; `IsDraft`, optional `FileId`. |
 | `RecurringAppointment` | `Entities/RecurringAppointment.cs` | Recurrence template (pattern, interval, start/end) for a patient. |
-| `Notification` | `Entities/Notification.cs` | Scheduled email/SMS reminder. Status lifecycle `MarkAsSent/MarkAsFailed/Retry`; tracks `RetryCount`. |
+| `Notification` | `Entities/Notification.cs` | Scheduled **email/SMS** reminder (dormant outbound pipeline). Status lifecycle `MarkAsSent/MarkAsFailed/Retry`; tracks `RetryCount`. Not the in-app feed — that is `StaffNotification`. |
+| `NotificationRead` | `Entities/NotificationRead.cs` | Per-user read marker for a `StaffNotification` (`NotificationId` + `UserId`, timestamp). Existence = "this user read it". Scoped by `UserId` only (a user belongs to one clinic) — no `ClinicId` column, so it is **not** in the global clinic query filter; every query filters it by the current `UserId`. |
 
 ## Value Objects (`ValueObjects/`)
 
@@ -83,8 +85,10 @@ All implement `IDomainEvent` (carry `OccurredOn = DateTime.UtcNow`). Handlers ar
 | `AppointmentStatus` | Scheduled, Confirmed, InProgress, Completed, Cancelled, NoShow |
 | `PatientFlagType` | HighPriority, SpecialCondition, Alert, Critical, Allergy |
 | `FileType` | LabResult, Scan, Prescription, MedicalRecord, Insurance, Other |
-| `NotificationType` | Email, SMS, Both |
-| `NotificationStatus` | Pending, Sent, Failed |
+| `NotificationType` | Email, SMS, Both (outbound `Notification` only) |
+| `NotificationStatus` | Pending, Sent, Failed (outbound `Notification` only) |
+| `NotificationCategory` | AppointmentCreated, AppointmentCancelled, AppointmentRescheduled, Reminder, LowStock (in-app `StaffNotification`) |
+| `NotificationTargetKind` | None, Appointment, StockItem (drives the panel deep-link) |
 
 ## Repository interfaces (`Repositories/`)
 
@@ -103,7 +107,8 @@ Async, `CancellationToken`-aware contracts implemented in the Infrastructure lay
 | `IPatientFolderRepository` | by patient / root / sub-folders / name |
 | `IMedicalDocumentRepository` | by patient / document type |
 | `IStockItemRepository` | `GetLowStockItemsAsync`, `GetOutOfStockItemsAsync` |
-| `INotificationRepository` | `GetPendingNotificationsAsync`, `GetByAppointmentIdAsync` |
+| `INotificationRepository` | `GetPendingNotificationsAsync`, `GetByAppointmentIdAsync` (outbound email/SMS `Notification`) |
+| `IStaffNotificationRepository` | In-app feed. `GetRecentForUserAsync` (newest-first, actor-excluded, 50-cap), `CountUnreadAsync`/`GetUnreadForUserAsync` (due + not-actor + at/after the viewer's join time + no read marker), `GetReadNotificationIdsAsync`, `ReadMarkerExistsAsync`/`AddReadMarkerAsync`, `GetReminderByAppointmentAsync`. Due-ness/actor-exclusion/late-joiner-baseline/cap all live in the query impls. |
 
 ## Domain services (`Services/`)
 

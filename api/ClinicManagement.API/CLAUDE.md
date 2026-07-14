@@ -9,7 +9,8 @@ All are thin: inject `IMediator`, send a command/query, map `Result.IsFailure` �
 
 | Route | Controller | Responsibility | Auth |
 |---|---|---|---|
-| `api/appointments` | `AppointmentsController` | GET (list, date filter), POST (create), PUT/{id} (update; cancel via status="Cancelled") | `[Authorize]` |
+| `api/appointments` | `AppointmentsController` | GET (list, date filter), **GET/{id}** (single appointment — the notification deep-link target, wired to the previously-unrouted `GetAppointmentQuery`; returns `NotFound` when the id resolves to another clinic), POST (create), PUT/{id} (update; cancel via status="Cancelled") | `[Authorize]` |
+| `api/notifications` | `NotificationsController` | **In-app staff feed.** GET (50 newest for the viewer's clinic), GET `unread-count` (`{ count }`), PUT `{id}/read` (mark one read), PUT `read-all` (mark all read). Tenant/missing → `NotFound(result.Error)` (not-found convention). | `[Authorize]` |
 | `api/patients` | `PatientsController` | GET (list), GET/{id}, POST (create), PUT/{id} | `[Authorize]` |
 | `api/googlecalendar` | `GoogleCalendarController` | OAuth flow + manual sync: `authorize`, `callback` (code→refresh token, **persisted via `IGoogleTokenStore` to `.local/`** — no longer rewrites appsettings.json), `sync-from-google`, `sync-appointment/{id}`, `status`, `redirect-uri` | `authorize`/`callback` `[AllowAnonymous]` (Google browser-redirect, no bearer); AJAX endpoints covered by the Local fallback policy |
 | `api/auth` | `AuthController` | **Local mode only** (each action 404s in Cloud, except `mode`). `login` (email+password → JWT), `mode` (which auth mode), `setup` (first-run clinic+admin — **localhost-gated** + "no admin yet"), `register` (staff self-registration, gated by clinic code), `change-password` (`[Authorize]`) | mostly `[AllowAnonymous]` |

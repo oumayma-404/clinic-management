@@ -13,7 +13,7 @@ The data-access layer: a thin `fetch` wrapper, per-resource API modules, shared 
 - FormData helpers omit `Content-Type` so the browser sets the multipart boundary.
 
 ### `types.ts` — shared DTOs (mirror backend)
-`AppointmentDto` (includes `isSyncedToGoogle`), `PatientDto`, `PatientMedicalHistoryDto`, `PatientFamilyHistoryDto`, `ProcedureTypeDto`, `DentalRecordDto`, `PatientFileDto`, `PatientFolderDto`, `MedicalDocumentDto`. (Note: `duration` on `AppointmentDto` is a TimeSpan string like `"00:30:00"`.)
+`AppointmentDto` (includes `isSyncedToGoogle`), `PatientDto`, `PatientMedicalHistoryDto`, `PatientFamilyHistoryDto`, `ProcedureTypeDto`, `DentalRecordDto`, `PatientFileDto`, `PatientFolderDto`, `MedicalDocumentDto`, `NotificationDto` (in-app feed row: category, title, message, `effectiveFeedTime`, `isRead`, target kind + optional appointment/stock id). (Note: `duration` on `AppointmentDto` is a TimeSpan string like `"00:30:00"`.)
 
 ### Per-resource modules
 Each exports a `<name>Api` object of async methods built on `client.ts`. Endpoints are relative to the API base.
@@ -32,6 +32,7 @@ Each exports a `<name>Api` object of async methods built on `client.ts`. Endpoin
 | `users.ts` | `usersApi` | **Local, admin**: `list` (`GET /users`), `resetPassword` (`POST /users/{id}/reset-password` → temp password once), `setStatus` (`PUT /users/{id}/status`). Values returned unwrapped. |
 | `google-calendar.ts` | `googleCalendarApi` | `/googlecalendar`: `getStatus`, `authorize` (browser redirect to OAuth), `syncFromGoogle`, `syncAppointment`. `syncFromGoogle`/`syncAppointment` are routed through `client.ts` (Phase 3) so a mid-request connection drop surfaces as `ApiError(status:0)` — the shared offline signal (see `connectivity/`). |
 | `ai-chat.ts` | `aiChatApi` | `/ai/chat` — POST chat messages + optional context. |
+| `notifications.ts` | `notificationsApi` | In-app feed: `list` (`GET /notifications`), `unreadCount` (`GET /notifications/unread-count`), `markRead` (`PUT /notifications/{id}/read`), `markAllRead` (`PUT /notifications/read-all`). |
 | `backup.ts` | `backupApi` | **Local, admin (Phase 5)**: `backupNow(destinationFolder?)` → `POST /backup` → `BackupResultDto` (`destinationPath`/`sizeBytes`/`timestampUtc`). Empty destination → server default. |
 | `auth-client.ts` | `useAuthenticatedApi()` | Hook returning `get/post/put/delete` pre-bound with the Auth0 token from `useAuthToken` (alternative to client.ts auto-fetch). |
 
@@ -43,6 +44,7 @@ Each exports a `<name>Api` object of async methods built on `client.ts`. Endpoin
 | `use-clinic-access.ts` (`useClinicAccess`) | Calls `clinicsApi.getUserStatus`; returns `{ hasAccess, status, isLoading, error, refresh }`. Optionally redirects to `/setup` when no clinic. Backs `ClinicGuard`. |
 | `use-doctors.ts` (`useDoctors`) | Derives doctor list from clinic status and auto-detects the current user's doctor record. |
 | `use-appointments.ts` (`useAppointments`) | Fetches appointments for a date range (+ optional patient/doctor); memoizes formatted date params; returns `{ appointments, loading, error, refetch }`. |
+| `use-notifications.ts` (`useNotifications`) | Backs the header bell + panel: unread count (always) + list (on panel open) via `notificationsApi`, `markRead`/`markAllRead`, and refetch on the `"notifications"` realtime key. Sole consumer is `DashboardHeader`. |
 
 ## Other lib files
 

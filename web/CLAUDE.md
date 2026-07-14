@@ -97,4 +97,4 @@ All app pages are client components (`"use client"`) that render `DashboardSideb
 - Lists are refreshed by bumping a `refreshKey` state passed to child tables.
 - Import alias `@/*` -> project root (`tsconfig.json`). UI alias `@/components/ui`, utils `@/lib/utils`.
 - Some screens use French labels (documents, setup) — this is a Tunisia-targeted clinic app.
-- `notifications-list.tsx` still renders hardcoded sample data (the notifications feature isn't built). `appointment-list.tsx`, dashboard stats, and `stock-table.tsx` are API-wired.
+- The in-app **notification center** is API-wired: the header bell + `notification-panel.tsx` in `dashboard-header.tsx`, driven by `useNotifications()` over `notificationsApi`, live via the `"notifications"` realtime key. `appointment-list.tsx`, dashboard stats, and `stock-table.tsx` are also API-wired. (The old `notifications-list.tsx` hardcoded-sample component still exists but is no longer mounted.)

@@ -85,3 +85,16 @@ _(captured as discovered)_
 - **[Minor, fixed]** Same-page notification deep-link didn't open/highlight the target (a same-route `router.push` doesn't remount, so the mount-only effect never fired). Fixed with a `clinic:deeplink` `CustomEvent` the target pages listen for; kept off `useSearchParams` to preserve static prerendering (R-8). Files: `dashboard-header.tsx`, `app/appointments/page.tsx`, `app/stock/page.tsx`.
 **Quality gates:** backend build 0 err (57 pre-existing warnings, 0 in this feature); notification unit tests 22/22; `tsc --noEmit` clean; `npm run build` clean (target pages still static).
 **Observations:** spec uses narrative ACs; repository LINQ predicates untested (no integration harness — accepted per plan); 57 pre-existing warnings are the repo baseline (out of scope).
+
+## Memory Updated
+
+**Status:** done
+**Date:** 2026-07-14
+
+Updated CLAUDE.md files with the notification-center architecture (in-app `StaffNotification` feed + per-user `NotificationRead`, best-effort post-commit `INotificationGenerator`/`NotificationGenerator` seam, `NotificationsController`, `useNotifications`/`notificationsApi`/`notification-panel`, `"notifications"` realtime key). Corrected the stale "notifications feature isn't built / notifications-list hardcoded sample" notes across the root, `web/`, and `web/components/` guides:
+- `CLAUDE.md` (root) — replaced stale notifications notes with a built-feature architectural note.
+- `api/ClinicManagement.Domain/CLAUDE.md` — `StaffNotification` aggregate, `NotificationRead` entity, `NotificationCategory`/`NotificationTargetKind` enums, `IStaffNotificationRepository`.
+- `api/ClinicManagement.Application/CLAUDE.md` — Notifications feature area, `INotificationGenerator` seam (Application-layer impl), `NotificationDto`, `Common/Services`.
+- `api/ClinicManagement.Infrastructure/CLAUDE.md` — DbSets, `StaffNotificationConfiguration`/`NotificationReadConfiguration`, `AddStaffNotifications` migration, `StaffNotificationRepository`.
+- `api/ClinicManagement.API/CLAUDE.md` — `NotificationsController` + the `GET /api/appointments/{id}` deep-link route.
+- `web/CLAUDE.md`, `web/components/CLAUDE.md`, `web/lib/CLAUDE.md` — bell/panel in `dashboard-header`, `notification-panel`, `notifications.ts`, `use-notifications`, `NotificationDto`.
