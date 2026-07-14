@@ -184,7 +184,9 @@ public class UpdateStockItemCommandHandlerTests
     private readonly Mock<ICurrentClinicResolver> _clinicResolver = new();
     private readonly Mock<IUnitOfWork> _uow = new();
 
-    private UpdateStockItemCommandHandler Handler() => new(_stock.Object, _clinicResolver.Object, _uow.Object);
+    private readonly Mock<INotificationGenerator> _notificationGenerator = new();
+
+    private UpdateStockItemCommandHandler Handler() => new(_stock.Object, _clinicResolver.Object, _uow.Object, _notificationGenerator.Object);
 
     private void Authenticated()
     {

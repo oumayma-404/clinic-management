@@ -1,0 +1,73 @@
+using MediatR;
+using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Domain.Entities;
+using ClinicManagement.Domain.Repositories;
+
+namespace ClinicManagement.Application.Features.Notifications.Commands;
+
+/// <summary>
+/// Marks ALL of the current user's currently-unread notifications read — not just the visible 50 — so
+/// the unread badge always drops to 0 afterward.
+/// </summary>
+public class MarkAllNotificationsReadCommand : IRequest<Result>
+{
+}
+
+public class MarkAllNotificationsReadCommandHandler : IRequestHandler<MarkAllNotificationsReadCommand, Result>
+{
+    private readonly IStaffNotificationRepository _notifications;
+    private readonly IUserRepository _userRepository;
+    private readonly IClinicContext _clinicContext;
+    private readonly IUnitOfWork _unitOfWork;
+
+    public MarkAllNotificationsReadCommandHandler(
+        IStaffNotificationRepository notifications,
+        IUserRepository userRepository,
+        IClinicContext clinicContext,
+        IUnitOfWork unitOfWork)
+    {
+        _notifications = notifications;
+        _userRepository = userRepository;
+        _clinicContext = clinicContext;
+        _unitOfWork = unitOfWork;
+    }
+
+    public async Task<Result> Handle(MarkAllNotificationsReadCommand request, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var userId = _clinicContext.GetUserId();
+            if (string.IsNullOrEmpty(userId))
+            {
+                return Result.Failure("User ID not found in token");
+            }
+
+            var user = await _userRepository.GetByAuth0SubAsync(userId, cancellationToken);
+            if (user == null)
+            {
+                return Result.Failure("User not found");
+            }
+
+            var now = DateTime.UtcNow;
+            var unread = await _notifications.GetUnreadForUserAsync(user.ClinicId, userId, user.CreatedAt, now, cancellationToken);
+
+            if (unread.Count == 0)
+            {
+                return Result.Success();
+            }
+
+            foreach (var notification in unread)
+            {
+                await _notifications.AddReadMarkerAsync(new NotificationRead(notification.Id, userId), cancellationToken);
+            }
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return Result.Success();
+        }
+        catch (Exception ex)
+        {
+            return Result.Failure($"Error marking all notifications read: {ex.Message}");
+        }
+    }
+}

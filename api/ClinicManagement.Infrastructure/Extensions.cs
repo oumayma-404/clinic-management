@@ -38,6 +38,7 @@ public static class Extensions
         services.AddScoped<IUserRepository, UserRepository>();
         services.AddScoped<IClinicRepository, ClinicRepository>();
         services.AddScoped<IDoctorRepository, DoctorRepository>();
+        services.AddScoped<IStaffNotificationRepository, StaffNotificationRepository>();
 
         // HttpClient for Auth0 Management API
         services.AddHttpClient();

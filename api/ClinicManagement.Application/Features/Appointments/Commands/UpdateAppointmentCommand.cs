@@ -26,23 +26,29 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
     private readonly IAppointmentRepository _appointmentRepository;
     private readonly IProcedureTypeRepository _procedureTypeRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
+    private readonly IClinicContext _clinicContext;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IServiceScopeFactory _serviceScopeFactory;
+    private readonly INotificationGenerator _notificationGenerator;
     private readonly ILogger<UpdateAppointmentCommandHandler> _logger;
 
     public UpdateAppointmentCommandHandler(
         IAppointmentRepository appointmentRepository,
         IProcedureTypeRepository procedureTypeRepository,
         ICurrentClinicResolver clinicResolver,
+        IClinicContext clinicContext,
         IUnitOfWork unitOfWork,
         IServiceScopeFactory serviceScopeFactory,
+        INotificationGenerator notificationGenerator,
         ILogger<UpdateAppointmentCommandHandler> logger)
     {
         _appointmentRepository = appointmentRepository;
         _procedureTypeRepository = procedureTypeRepository;
         _clinicResolver = clinicResolver;
+        _clinicContext = clinicContext;
         _unitOfWork = unitOfWork;
         _serviceScopeFactory = serviceScopeFactory;
+        _notificationGenerator = notificationGenerator;
         _logger = logger;
     }
 
@@ -68,6 +74,11 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
             {
                 return Result<AppointmentDto>.Failure("Appointment not found");
             }
+
+            // Capture pre-mutation state so we can tell (after commit) whether this update cancelled or
+            // rescheduled the appointment, for in-app staff notifications (spec US-3).
+            var oldStatus = appointment.Status;
+            var oldDateTime = appointment.AppointmentDateTime;
 
             // Update appointment date/time if provided
             if (request.AppointmentDateTime.HasValue)
@@ -203,6 +214,32 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
 
             // Real-time "appointments changed" is broadcast centrally by RealtimeBroadcastBehavior after
             // this command returns success (covers cancellation — an update to status=Cancelled).
+
+            // In-app staff notifications (best-effort, never fails this command). Only for appointments
+            // with a patient (spec US-3). Actor is excluded from their own action's notification.
+            if (appointment.PatientId.HasValue)
+            {
+                var actorUserId = _clinicContext.GetUserId();
+                var patientName = appointment.Patient?.GetFullName() ?? "Patient";
+                var becameCancelled = oldStatus != AppointmentStatus.Cancelled
+                                      && appointment.Status == AppointmentStatus.Cancelled;
+                // A cancelled→scheduled reactivation calls Reschedule(sameDateTime); guarding on an actual
+                // date change means that no-op reactivation never emits a bogus "rescheduled" (plan R-3).
+                var dateChanged = appointment.AppointmentDateTime != oldDateTime;
+
+                if (becameCancelled)
+                {
+                    await _notificationGenerator.AppointmentCancelledAsync(
+                        appointment.ClinicId, appointment.Id, actorUserId, patientName,
+                        appointment.AppointmentDateTime, cancellationToken);
+                }
+                else if (dateChanged)
+                {
+                    await _notificationGenerator.AppointmentRescheduledAsync(
+                        appointment.ClinicId, appointment.Id, actorUserId, patientName,
+                        oldDateTime, appointment.AppointmentDateTime, cancellationToken);
+                }
+            }
 
             var dto = new AppointmentDto
             {

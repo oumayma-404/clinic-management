@@ -44,6 +44,23 @@ public class AppointmentsController : ControllerBase
     }
 
     /// <summary>
+    /// Get a single appointment by id (used by notification deep-links). Tenant-scoped: an appointment
+    /// from another clinic reads as "not found".
+    /// </summary>
+    [HttpGet("{id}")]
+    public async Task<ActionResult<AppointmentDto>> GetAppointment(Guid id)
+    {
+        var result = await _mediator.Send(new GetAppointmentQuery { Id = id });
+
+        if (result.IsFailure)
+        {
+            return NotFound(result.Error);
+        }
+
+        return Ok(result.Value);
+    }
+
+    /// <summary>
     /// Create a new appointment
     /// </summary>
     [HttpPost]

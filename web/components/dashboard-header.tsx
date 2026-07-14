@@ -1,8 +1,10 @@
 "use client"
 
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useSession } from '@/lib/auth/session'
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -11,13 +13,30 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { ConnectivityIndicator } from "@/components/connectivity-indicator"
+import { NotificationPanel } from "@/components/notification-panel"
+import { useNotifications } from "@/lib/hooks/use-notifications"
+import type { NotificationDto } from "@/lib/api/types"
 import { Bell, Search, LogOut, KeyRound } from "lucide-react"
 
 export function DashboardHeader() {
   const { user, isLoading, mode, logout } = useSession()
   const router = useRouter()
+
+  const [notifOpen, setNotifOpen] = useState(false)
+  const { notifications, unreadCount, loading, error, markRead, markAllRead } = useNotifications(notifOpen)
+
+  const handleNotificationClick = (notification: NotificationDto) => {
+    setNotifOpen(false)
+    void markRead(notification.id)
+    if (notification.targetKind === "Appointment" && notification.appointmentId) {
+      router.push(`/appointments?appointmentId=${notification.appointmentId}`)
+    } else if (notification.targetKind === "StockItem" && notification.stockItemId) {
+      router.push(`/stock?itemId=${notification.stockItemId}`)
+    }
+  }
 
   const getInitials = (name?: string) => {
     if (!name) return "U"
@@ -49,10 +68,31 @@ export function DashboardHeader() {
       <div className="flex items-center gap-4">
         <ConnectivityIndicator />
 
-        <Button variant="ghost" size="icon" className="relative">
-          <Bell className="h-5 w-5" />
-          <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-destructive" />
-        </Button>
+        <Popover open={notifOpen} onOpenChange={setNotifOpen}>
+          <PopoverTrigger asChild>
+            <Button variant="ghost" size="icon" className="relative" aria-label="Notifications">
+              <Bell className="h-5 w-5" />
+              {unreadCount > 0 && (
+                <Badge
+                  variant="destructive"
+                  className="absolute -right-1 -top-1 flex h-5 min-w-[1.25rem] items-center justify-center rounded-full px-1 text-[10px] leading-none"
+                >
+                  {unreadCount > 99 ? "99+" : unreadCount}
+                </Badge>
+              )}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-auto p-0">
+            <NotificationPanel
+              notifications={notifications}
+              loading={loading}
+              error={error}
+              hasUnread={unreadCount > 0}
+              onMarkAllRead={markAllRead}
+              onRowClick={handleNotificationClick}
+            />
+          </PopoverContent>
+        </Popover>
 
         {!isLoading && (
           <DropdownMenu>

@@ -27,6 +27,8 @@ public static class Extensions
         // Note: IHttpContextAccessor must be registered in the API layer (Program.cs)
         services.AddScoped<IClinicContext, ClinicContext>();
         services.AddScoped<ICurrentClinicResolver, CurrentClinicResolver>();
+        // Best-effort writer for the in-app staff notification feed (generated inline from command handlers).
+        services.AddScoped<INotificationGenerator, NotificationGenerator>();
         // Backstop tenant scoping: feeds the EF Core global query filter with the caller's clinic id.
         // Inactive (null) when no clinic is in scope so background jobs / CLI / anonymous flows are unaffected.
         services.AddScoped<ICurrentClinicProvider, CurrentClinicProvider>();

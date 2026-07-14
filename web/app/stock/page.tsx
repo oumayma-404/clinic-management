@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { DashboardSidebar } from "@/components/dashboard-sidebar"
 import { ClinicGuard } from "@/components/clinic-guard"
@@ -14,6 +14,19 @@ export default function StockPage() {
   const [modalOpen, setModalOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<StockItemDto | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [highlightItemId, setHighlightItemId] = useState<string | null>(null)
+
+  // Deep-link from a low-stock notification: highlight the referenced item's row. Clears the query
+  // param so a refresh doesn't re-trigger it. Graceful — if the item isn't in the list, nothing is
+  // highlighted (the user still lands on the stock screen).
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const itemId = params.get("itemId")
+    if (itemId) {
+      setHighlightItemId(itemId)
+      window.history.replaceState({}, "", "/stock")
+    }
+  }, [])
 
   const handleAddNew = () => {
     setEditingItem(null)
@@ -49,7 +62,7 @@ export default function StockPage() {
               </div>
 
               {/* Stock Table */}
-              <StockTable refreshKey={refreshKey} onEdit={handleEdit} />
+              <StockTable refreshKey={refreshKey} onEdit={handleEdit} highlightItemId={highlightItemId} />
             </div>
           </main>
         </div>

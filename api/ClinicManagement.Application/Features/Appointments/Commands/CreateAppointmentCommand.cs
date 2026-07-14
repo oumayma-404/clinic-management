@@ -26,6 +26,7 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
     private readonly IUserRepository _userRepository;
     private readonly IClinicContext _clinicContext;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly INotificationGenerator _notificationGenerator;
 
     public CreateAppointmentCommandHandler(
         IAppointmentRepository appointmentRepository,
@@ -33,7 +34,8 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
         IProcedureTypeRepository procedureTypeRepository,
         IUserRepository userRepository,
         IClinicContext clinicContext,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        INotificationGenerator notificationGenerator)
     {
         _appointmentRepository = appointmentRepository;
         _patientRepository = patientRepository;
@@ -41,6 +43,7 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
         _userRepository = userRepository;
         _clinicContext = clinicContext;
         _unitOfWork = unitOfWork;
+        _notificationGenerator = notificationGenerator;
     }
 
     public async Task<Result<AppointmentDto>> Handle(CreateAppointmentCommand request, CancellationToken cancellationToken)
@@ -121,6 +124,18 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
 
             // Real-time "appointments changed" is broadcast centrally by RealtimeBroadcastBehavior after
             // this command returns success (i.e. after the commit above) — no per-handler broadcast here.
+
+            // In-app staff notifications (best-effort, never fails this command). Only for real patient
+            // appointments — patient-less "busy slot" appointments generate nothing (spec US-2). The creator
+            // is actor-excluded from the "created" notification; the ~24h reminder is visible to all staff.
+            if (patient != null)
+            {
+                var patientName = patient.GetFullName();
+                await _notificationGenerator.AppointmentCreatedAsync(
+                    clinicId, appointment.Id, userId, patientName, appointment.AppointmentDateTime, cancellationToken);
+                await _notificationGenerator.ScheduleAppointmentReminderAsync(
+                    clinicId, appointment.Id, patientName, appointment.AppointmentDateTime, cancellationToken);
+            }
 
             var dto = new AppointmentDto
             {

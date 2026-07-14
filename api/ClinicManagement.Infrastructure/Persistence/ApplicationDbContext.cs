@@ -44,6 +44,8 @@ public class ApplicationDbContext : DbContext
     public DbSet<DentalRecordTooth> DentalRecordTeeth { get; set; }
     public DbSet<PatientFolder> PatientFolders { get; set; }
     public DbSet<MedicalDocument> MedicalDocuments { get; set; }
+    public DbSet<StaffNotification> StaffNotifications { get; set; }
+    public DbSet<NotificationRead> NotificationReads { get; set; }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -68,6 +70,10 @@ public class ApplicationDbContext : DbContext
         modelBuilder.Entity<Patient>().HasQueryFilter(p => !IsClinicScoped || p.ClinicId == ScopedClinicId);
         modelBuilder.Entity<Appointment>().HasQueryFilter(a => !IsClinicScoped || a.ClinicId == ScopedClinicId);
         modelBuilder.Entity<ProcedureType>().HasQueryFilter(pt => !IsClinicScoped || pt.ClinicId == ScopedClinicId);
+        // StaffNotification is directly clinic-owned → filtered like the others. NotificationRead has no
+        // ClinicId; it is always queried scoped by UserId and joined to its clinic-filtered notification
+        // (a user belongs to one clinic), so it needs no filter of its own (plan R-5).
+        modelBuilder.Entity<StaffNotification>().HasQueryFilter(n => !IsClinicScoped || n.ClinicId == ScopedClinicId);
 
         // Apply a value converter for all DateTime and DateTime? properties to ensure UTC
         // This is required for PostgreSQL which only accepts UTC DateTime values

@@ -12,6 +12,7 @@ import { EditAppointmentDialog } from "@/components/edit-appointment-dialog"
 import { ClinicGuard } from "@/components/clinic-guard"
 import type { AppointmentDto } from "@/lib/api/types"
 import { setHours, setMinutes } from "date-fns"
+import { appointmentsApi } from "@/lib/api/appointments"
 import { googleCalendarApi } from "@/lib/api/google-calendar"
 import { useConnectivity } from "@/lib/connectivity/connectivity"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
@@ -84,6 +85,27 @@ export default function AppointmentsPage() {
       // Refresh status
       checkGoogleCalendarStatus()
     }
+  }, [])
+
+  // Deep-link from a notification: open the referenced appointment — focus its day and open the edit
+  // dialog. Graceful (spec Edge Cases): if the appointment no longer exists/is not visible, we simply
+  // stay on the list. Uses window.location.search + history.replaceState (no useSearchParams) so a
+  // refresh doesn't reopen it, matching the existing Google-auth-return pattern.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const appointmentId = params.get("appointmentId")
+    if (!appointmentId) return
+    window.history.replaceState({}, "", "/appointments")
+    appointmentsApi
+      .get(appointmentId)
+      .then((appt) => {
+        setSelectedDate(new Date(appt.appointmentDateTime))
+        setSelectedAppointment(appt)
+        setEditDialogOpen(true)
+      })
+      .catch(() => {
+        // Target gone or not visible — land on the list, no broken/blank state.
+      })
   }, [])
 
   const handleAuthorizeGoogleCalendar = useCallback(() => {

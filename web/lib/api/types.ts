@@ -14,6 +14,21 @@ export interface StockItemDto {
   updatedAt?: string;
 }
 
+export interface NotificationDto {
+  id: string;
+  /** AppointmentCreated | AppointmentCancelled | AppointmentRescheduled | Reminder | LowStock */
+  category: string;
+  title: string;
+  message: string;
+  /** Effective feed time (ISO) — creation time for immediate categories, due time for reminders. */
+  createdAt: string;
+  isRead: boolean;
+  /** Appointment | StockItem */
+  targetKind: string;
+  appointmentId?: string | null;
+  stockItemId?: string | null;
+}
+
 export interface DashboardStats {
   todaysAppointments: number;
   totalPatients: number;

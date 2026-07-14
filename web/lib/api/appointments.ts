@@ -11,6 +11,10 @@ export const appointmentsApi = {
     return apiGet<AppointmentDto[]>('/appointments', params);
   },
 
+  get: async (id: string): Promise<AppointmentDto> => {
+    return apiGet<AppointmentDto>(`/appointments/${id}`);
+  },
+
   create: async (data: {
     patientId?: string | null;
     appointmentDateTime: string;

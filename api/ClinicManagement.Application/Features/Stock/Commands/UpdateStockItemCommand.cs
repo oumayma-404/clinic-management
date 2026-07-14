@@ -25,15 +25,18 @@ public class UpdateStockItemCommandHandler : IRequestHandler<UpdateStockItemComm
     private readonly IStockItemRepository _stockItemRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly INotificationGenerator _notificationGenerator;
 
     public UpdateStockItemCommandHandler(
         IStockItemRepository stockItemRepository,
         ICurrentClinicResolver clinicResolver,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        INotificationGenerator notificationGenerator)
     {
         _stockItemRepository = stockItemRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
+        _notificationGenerator = notificationGenerator;
     }
 
     public async Task<Result<StockItemDto>> Handle(UpdateStockItemCommand request, CancellationToken cancellationToken)
@@ -65,12 +68,24 @@ public class UpdateStockItemCommandHandler : IRequestHandler<UpdateStockItemComm
                 ? request.MaximumStockLevel.Value
                 : request.MinimumStockLevel;
 
+            // Capture the low-stock state before the mutations so we can detect a not-low → low crossing
+            // (covers both a quantity drop and a MinimumStockLevel raise — spec US-5).
+            var wasLow = item.IsLowStock();
+
             item.UpdateInfo(request.Name, request.Description, request.Category, request.Unit, request.UnitPrice, request.Supplier);
             item.UpdateStockLevels(request.MinimumStockLevel, maximum);
             item.SetCurrentStock(request.CurrentStock);
 
             await _stockItemRepository.UpdateAsync(item, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            // Edge-triggered low-stock notification (best-effort, never fails this command): fire only on
+            // the not-low → low crossing. Staying low, or being created already low, generates nothing.
+            if (!wasLow && item.IsLowStock())
+            {
+                await _notificationGenerator.LowStockAsync(
+                    clinic.Value, item.Id, item.Name, item.CurrentStock, item.MinimumStockLevel, cancellationToken);
+            }
 
             return Result<StockItemDto>.Success(item.ToDto());
         }

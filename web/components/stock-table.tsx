@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -19,6 +19,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Package, Search, Pencil, Trash2, Loader2, AlertTriangle } from "lucide-react"
+import { cn } from "@/lib/utils"
 import { stockApi } from "@/lib/api/stock"
 import { ApiError } from "@/lib/api/client"
 import type { StockItemDto } from "@/lib/api/types"
@@ -26,9 +27,11 @@ import type { StockItemDto } from "@/lib/api/types"
 interface StockTableProps {
   refreshKey: number
   onEdit: (item: StockItemDto) => void
+  /** When set (from a low-stock notification deep-link), the matching row is highlighted + scrolled into view. */
+  highlightItemId?: string | null
 }
 
-export function StockTable({ refreshKey, onEdit }: StockTableProps) {
+export function StockTable({ refreshKey, onEdit, highlightItemId }: StockTableProps) {
   const [items, setItems] = useState<StockItemDto[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -38,6 +41,7 @@ export function StockTable({ refreshKey, onEdit }: StockTableProps) {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [itemToDelete, setItemToDelete] = useState<StockItemDto | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const highlightRowRef = useRef<HTMLTableRowElement | null>(null)
 
   const loadItems = useCallback(async () => {
     try {
@@ -57,6 +61,13 @@ export function StockTable({ refreshKey, onEdit }: StockTableProps) {
   useEffect(() => {
     loadItems()
   }, [loadItems, refreshKey])
+
+  // Scroll the deep-linked (highlighted) item into view once the list has loaded.
+  useEffect(() => {
+    if (!loading && highlightItemId && highlightRowRef.current) {
+      highlightRowRef.current.scrollIntoView({ behavior: "smooth", block: "center" })
+    }
+  }, [loading, highlightItemId, items])
 
   const categories = useMemo(() => Array.from(new Set(items.map((i) => i.category))).sort(), [items])
 
@@ -175,8 +186,14 @@ export function StockTable({ refreshKey, onEdit }: StockTableProps) {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    filteredItems.map((item) => (
-                      <TableRow key={item.id}>
+                    filteredItems.map((item) => {
+                      const isHighlighted = highlightItemId === item.id
+                      return (
+                      <TableRow
+                        key={item.id}
+                        ref={isHighlighted ? highlightRowRef : undefined}
+                        className={cn(isHighlighted && "bg-primary/10 ring-1 ring-inset ring-primary")}
+                      >
                         <TableCell className="font-medium text-foreground">{item.name}</TableCell>
                         <TableCell>
                           <Badge variant={item.isLowStock ? "destructive" : "default"} className="gap-1">
@@ -208,7 +225,8 @@ export function StockTable({ refreshKey, onEdit }: StockTableProps) {
                           </div>
                         </TableCell>
                       </TableRow>
-                    ))
+                      )
+                    })
                   )}
                 </TableBody>
               </Table>

@@ -20,6 +20,7 @@ export const RealtimeResource = {
   Clinics: "clinics",
   Users: "users",
   Stock: "stock",
+  Notifications: "notifications",
 } as const
 
 export type RealtimeResourceKey = (typeof RealtimeResource)[keyof typeof RealtimeResource]

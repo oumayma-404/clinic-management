@@ -79,8 +79,10 @@ public class AppointmentTenantIsolationTests
             repo.Object,
             new Mock<IProcedureTypeRepository>().Object,
             clinicResolver.Object,
+            new Mock<IClinicContext>().Object,
             uow.Object,
             ScopeFactory(),
+            new Mock<INotificationGenerator>().Object,
             NullLogger<UpdateAppointmentCommandHandler>.Instance);
 
         var result = await handler.Handle(new UpdateAppointmentCommand { Id = foreign.Id, Notes = "hacked" }, CancellationToken.None);
@@ -109,7 +111,8 @@ public class AppointmentTenantIsolationTests
             procedures.Object,
             users.Object,
             context.Object,
-            uow.Object);
+            uow.Object,
+            new Mock<INotificationGenerator>().Object);
         return (handler, appts, uow);
     }
 

@@ -105,7 +105,8 @@ public class AppointmentSyncMappingTests
             new Mock<IProcedureTypeRepository>().Object,
             users.Object,
             context.Object,
-            new Mock<IUnitOfWork>().Object);
+            new Mock<IUnitOfWork>().Object,
+            new Mock<INotificationGenerator>().Object);
 
         var result = await handler.Handle(
             new CreateAppointmentCommand { AppointmentDateTime = DateTime.UtcNow.AddDays(1), DurationMinutes = 30 },
@@ -135,8 +136,10 @@ public class AppointmentSyncMappingTests
             repo.Object,
             new Mock<IProcedureTypeRepository>().Object,
             clinicResolver.Object,
+            new Mock<IClinicContext>().Object,
             new Mock<IUnitOfWork>().Object,
             ScopeFactory(),
+            new Mock<INotificationGenerator>().Object,
             NullLogger<UpdateAppointmentCommandHandler>.Instance);
 
         var result = await handler.Handle(new UpdateAppointmentCommand { Id = appointment.Id }, CancellationToken.None);
