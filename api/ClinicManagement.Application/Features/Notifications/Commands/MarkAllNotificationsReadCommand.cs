@@ -50,16 +50,17 @@ public class MarkAllNotificationsReadCommandHandler : IRequestHandler<MarkAllNot
             }
 
             var now = DateTime.UtcNow;
-            var unread = await _notifications.GetUnreadForUserAsync(user.ClinicId, userId, user.CreatedAt, now, cancellationToken);
+            // Id-only projection: mark-all only needs each id to build a read marker, not the full rows.
+            var unreadIds = await _notifications.GetUnreadIdsForUserAsync(user.ClinicId, userId, user.CreatedAt, now, cancellationToken);
 
-            if (unread.Count == 0)
+            if (unreadIds.Count == 0)
             {
                 return Result.Success();
             }
 
-            foreach (var notification in unread)
+            foreach (var notificationId in unreadIds)
             {
-                await _notifications.AddReadMarkerAsync(new NotificationRead(notification.Id, userId), cancellationToken);
+                await _notifications.AddReadMarkerAsync(new NotificationRead(notificationId, userId), cancellationToken);
             }
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);

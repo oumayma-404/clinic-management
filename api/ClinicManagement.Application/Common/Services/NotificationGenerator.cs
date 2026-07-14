@@ -59,6 +59,7 @@ public class NotificationGenerator : INotificationGenerator
 
             await _notifications.AddAsync(notification, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return true; // immediately visible → refetch is worthwhile
         }, cancellationToken);
     }
 
@@ -72,12 +73,15 @@ public class NotificationGenerator : INotificationGenerator
             // <24h out → the "appointment created" notification suffices; schedule nothing.
             if (dueTime <= DateTime.UtcNow)
             {
-                return;
+                return false;
             }
 
             var reminder = BuildReminder(clinicId, appointmentId, patientName, appointmentDateTimeUtc, dueTime);
             await _notifications.AddAsync(reminder, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
+            // The reminder is future-dated (surfaces only once due), so nothing is visible in any feed
+            // yet — no client refetch needed now.
+            return false;
         }, cancellationToken);
     }
 
@@ -105,6 +109,7 @@ public class NotificationGenerator : INotificationGenerator
             }
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return true; // the cancellation notice is immediately visible
         }, cancellationToken);
     }
 
@@ -146,6 +151,7 @@ public class NotificationGenerator : INotificationGenerator
             }
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return true; // the reschedule notice is immediately visible
         }, cancellationToken);
     }
 
@@ -166,17 +172,22 @@ public class NotificationGenerator : INotificationGenerator
 
             await _notifications.AddAsync(notification, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return true; // immediately visible to all staff
         }, cancellationToken);
     }
 
-    // Runs the write, then broadcasts the realtime key. Best-effort: never throws to the caller (the core
-    // operation is already committed); logs at Error so a genuine fault stays visible.
-    private async Task SafelyAsync(Guid clinicId, Func<Task> write, CancellationToken cancellationToken)
+    // Runs the write and broadcasts the realtime key only when the write reports that something became
+    // visible in the feed (returns true) — a future-dated reminder or a no-op schedule returns false, so
+    // clients aren't made to refetch for no visible change. Best-effort: never throws to the caller (the
+    // core operation is already committed); logs at Error so a genuine fault stays visible.
+    private async Task SafelyAsync(Guid clinicId, Func<Task<bool>> write, CancellationToken cancellationToken)
     {
         try
         {
-            await write();
-            await _realtimeNotifier.NotifyEntityChangedAsync(clinicId, RealtimeResourceKey, cancellationToken);
+            if (await write())
+            {
+                await _realtimeNotifier.NotifyEntityChangedAsync(clinicId, RealtimeResourceKey, cancellationToken);
+            }
         }
         catch (Exception ex)
         {

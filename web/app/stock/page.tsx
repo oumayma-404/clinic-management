@@ -40,6 +40,14 @@ export default function StockPage() {
     return () => window.removeEventListener("clinic:deeplink", handler)
   }, [highlightItem])
 
+  // The highlight is a transient "here it is" cue — clear it after a few seconds so the row doesn't
+  // keep a stuck selection look for the lifetime of the page.
+  useEffect(() => {
+    if (!highlightItemId) return
+    const t = setTimeout(() => setHighlightItemId(null), 4000)
+    return () => clearTimeout(t)
+  }, [highlightItemId])
+
   const handleAddNew = () => {
     setEditingItem(null)
     setModalOpen(true)

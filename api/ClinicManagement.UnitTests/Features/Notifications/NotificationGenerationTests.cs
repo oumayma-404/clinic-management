@@ -72,6 +72,10 @@ public class NotificationGenerationTests
         Assert.Equal(NotificationCategory.Reminder, n.Category);
         Assert.Null(n.ActorUserId); // visible to all staff
         Assert.Equal(apptTime.AddHours(-24), n.EffectiveFeedTime, TimeSpan.FromSeconds(1));
+        // A future-dated reminder isn't visible in any feed yet, so no client refetch is triggered.
+        h.Realtime.Verify(
+            r => r.NotifyEntityChangedAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 
     // [US-4] Same-day booking (<24h out) schedules no reminder — the "created" notification suffices.

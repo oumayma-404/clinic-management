@@ -62,7 +62,9 @@ public class NotificationsController : ControllerBase
 
         if (result.IsFailure)
         {
-            return BadRequest(result.Error);
+            // The only non-auth failure is the tenant-mismatch/missing case, which the command
+            // treats as "not found" — surface it as 404 (matches AppointmentsController.GetAppointment).
+            return NotFound(result.Error);
         }
 
         return NoContent();

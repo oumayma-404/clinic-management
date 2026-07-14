@@ -91,9 +91,9 @@ public class NotificationQueryTests
     public async Task MarkAll_Marks_Every_Unread_And_Saves_Once()
     {
         var (repo, users, ctx, user) = Setup();
-        var unread = new[] { Notification(user.CreatedAt.AddHours(1)), Notification(user.CreatedAt.AddHours(2)) };
-        repo.Setup(r => r.GetUnreadForUserAsync(ClinicId, user.Id, user.CreatedAt, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(unread);
+        var unreadIds = new[] { Guid.NewGuid(), Guid.NewGuid() };
+        repo.Setup(r => r.GetUnreadIdsForUserAsync(ClinicId, user.Id, user.CreatedAt, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(unreadIds);
         var uow = new Mock<IUnitOfWork>();
         uow.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
 
@@ -109,8 +109,8 @@ public class NotificationQueryTests
     public async Task MarkAll_With_No_Unread_Does_Not_Save()
     {
         var (repo, users, ctx, user) = Setup();
-        repo.Setup(r => r.GetUnreadForUserAsync(ClinicId, user.Id, user.CreatedAt, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Array.Empty<StaffNotification>());
+        repo.Setup(r => r.GetUnreadIdsForUserAsync(ClinicId, user.Id, user.CreatedAt, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<Guid>());
         var uow = new Mock<IUnitOfWork>();
 
         var handler = new MarkAllNotificationsReadCommandHandler(repo.Object, users.Object, ctx.Object, uow.Object);

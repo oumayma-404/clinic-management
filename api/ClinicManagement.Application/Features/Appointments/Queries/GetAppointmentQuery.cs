@@ -1,4 +1,5 @@
 using MediatR;
+using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Domain.Repositories;
@@ -13,19 +14,42 @@ public class GetAppointmentQuery : IRequest<Result<AppointmentDto>>
 public class GetAppointmentQueryHandler : IRequestHandler<GetAppointmentQuery, Result<AppointmentDto>>
 {
     private readonly IAppointmentRepository _appointmentRepository;
+    private readonly IUserRepository _userRepository;
+    private readonly IClinicContext _clinicContext;
 
-    public GetAppointmentQueryHandler(IAppointmentRepository appointmentRepository)
+    public GetAppointmentQueryHandler(
+        IAppointmentRepository appointmentRepository,
+        IUserRepository userRepository,
+        IClinicContext clinicContext)
     {
         _appointmentRepository = appointmentRepository;
+        _userRepository = userRepository;
+        _clinicContext = clinicContext;
     }
 
     public async Task<Result<AppointmentDto>> Handle(GetAppointmentQuery request, CancellationToken cancellationToken)
     {
         try
         {
+            // Resolve the caller's clinic from the DB (not just the JWT claim, which the global query
+            // filter treats as fail-open when absent) so a cross-clinic id can't leak another clinic's
+            // appointment/PHI. Mirrors GetAppointmentsQuery / UpdateAppointmentCommand.
+            var userId = _clinicContext.GetUserId();
+            if (string.IsNullOrEmpty(userId))
+            {
+                return Result<AppointmentDto>.Failure("User ID not found in token");
+            }
+
+            var user = await _userRepository.GetByAuth0SubAsync(userId, cancellationToken);
+            if (user == null)
+            {
+                return Result<AppointmentDto>.Failure("User not found");
+            }
+
             var appointment = await _appointmentRepository.GetByIdAsync(request.Id, cancellationToken);
 
-            if (appointment == null)
+            // A missing appointment, or one belonging to another clinic, reads as "not found".
+            if (appointment == null || appointment.ClinicId != user.ClinicId)
             {
                 return Result<AppointmentDto>.Failure("Appointment not found");
             }

@@ -60,6 +60,14 @@ public class StaffNotificationRepository : IStaffNotificationRepository
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyCollection<Guid>> GetUnreadIdsForUserAsync(
+        Guid clinicId, string userId, DateTime userCreatedAtUtc, DateTime nowUtc, CancellationToken cancellationToken = default)
+    {
+        return await UnreadQuery(clinicId, userId, userCreatedAtUtc, nowUtc)
+            .Select(n => n.Id)
+            .ToListAsync(cancellationToken);
+    }
+
     // The single definition of "unread for this viewer": due, in-clinic, not actor-excluded, effective
     // at/after the viewer's join time (late-joiner baseline), and with no read marker.
     private IQueryable<StaffNotification> UnreadQuery(Guid clinicId, string userId, DateTime userCreatedAtUtc, DateTime nowUtc)

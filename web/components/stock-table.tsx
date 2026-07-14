@@ -42,6 +42,8 @@ export function StockTable({ refreshKey, onEdit, highlightItemId }: StockTablePr
   const [itemToDelete, setItemToDelete] = useState<StockItemDto | null>(null)
   const [deleting, setDeleting] = useState(false)
   const highlightRowRef = useRef<HTMLTableRowElement | null>(null)
+  // Scroll to the deep-linked row only once per deep-link — reset when the target changes.
+  const hasScrolledRef = useRef(false)
 
   const loadItems = useCallback(async () => {
     try {
@@ -62,12 +64,19 @@ export function StockTable({ refreshKey, onEdit, highlightItemId }: StockTablePr
     loadItems()
   }, [loadItems, refreshKey])
 
-  // Scroll the deep-linked (highlighted) item into view once the list has loaded.
+  // A fresh deep-link target re-arms the one-shot scroll.
   useEffect(() => {
-    if (!loading && highlightItemId && highlightRowRef.current) {
-      highlightRowRef.current.scrollIntoView({ behavior: "smooth", block: "center" })
-    }
-  }, [loading, highlightItemId, items])
+    hasScrolledRef.current = false
+  }, [highlightItemId])
+
+  // Scroll the deep-linked (highlighted) item into view once the list has loaded — exactly once per
+  // deep-link. Deliberately NOT keyed off `items`: it gets a new reference on every reload (add/edit/
+  // delete), which would otherwise yank the viewport back to the highlighted row on unrelated changes.
+  useEffect(() => {
+    if (loading || !highlightItemId || hasScrolledRef.current || !highlightRowRef.current) return
+    highlightRowRef.current.scrollIntoView({ behavior: "smooth", block: "center" })
+    hasScrolledRef.current = true
+  }, [loading, highlightItemId])
 
   const categories = useMemo(() => Array.from(new Set(items.map((i) => i.category))).sort(), [items])
 

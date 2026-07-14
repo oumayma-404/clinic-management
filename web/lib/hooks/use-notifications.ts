@@ -20,10 +20,20 @@ export function useNotifications(isOpen: boolean) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // DashboardHeader is rendered per-page, so navigating between routes unmounts this hook mid-fetch.
+  // Skip post-await setState once unmounted so we never touch a dead component.
+  const mountedRef = useRef(true)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
+
   const refetchCount = useCallback(async () => {
     try {
       const { unreadCount } = await notificationsApi.unreadCount()
-      setUnreadCount(unreadCount)
+      if (mountedRef.current) setUnreadCount(unreadCount)
     } catch {
       // The badge is best-effort — a failed/offline count must never surface an error in the header.
     }
@@ -33,11 +43,14 @@ export function useNotifications(isOpen: boolean) {
     setLoading(true)
     setError(null)
     try {
-      setNotifications(await notificationsApi.list())
+      const list = await notificationsApi.list()
+      if (mountedRef.current) setNotifications(list)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Erreur lors du chargement des notifications")
+      if (mountedRef.current) {
+        setError(err instanceof ApiError ? err.message : "Erreur lors du chargement des notifications")
+      }
     } finally {
-      setLoading(false)
+      if (mountedRef.current) setLoading(false)
     }
   }, [])
 

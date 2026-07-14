@@ -56,7 +56,13 @@ public class AppointmentSyncMappingTests
         var repo = new Mock<IAppointmentRepository>();
         repo.Setup(r => r.GetByIdAsync(appointment.Id, It.IsAny<CancellationToken>())).ReturnsAsync(appointment);
 
-        var handler = new GetAppointmentQueryHandler(repo.Object);
+        var user = User.CreateLocalUser(ClinicId, "secretary", "sec@clinic.com", "HASH", "Sec");
+        var context = new Mock<IClinicContext>();
+        context.Setup(c => c.GetUserId()).Returns(user.Id);
+        var users = new Mock<IUserRepository>();
+        users.Setup(r => r.GetByAuth0SubAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+
+        var handler = new GetAppointmentQueryHandler(repo.Object, users.Object, context.Object);
         var result = await handler.Handle(new GetAppointmentQuery { Id = appointment.Id }, CancellationToken.None);
 
         Assert.True(result.IsSuccess);

@@ -32,6 +32,13 @@ public interface IStaffNotificationRepository
     Task<IReadOnlyList<StaffNotification>> GetUnreadForUserAsync(
         Guid clinicId, string userId, DateTime userCreatedAtUtc, DateTime nowUtc, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// The ids of the viewer's currently-unread notifications (same predicate as <see cref="CountUnreadAsync"/>).
+    /// Id-only projection for mark-all, which only needs each id to build a <see cref="NotificationRead"/>.
+    /// </summary>
+    Task<IReadOnlyCollection<Guid>> GetUnreadIdsForUserAsync(
+        Guid clinicId, string userId, DateTime userCreatedAtUtc, DateTime nowUtc, CancellationToken cancellationToken = default);
+
     /// <summary>The subset of <paramref name="notificationIds"/> the user has already read.</summary>
     Task<IReadOnlyCollection<Guid>> GetReadNotificationIdsAsync(
         string userId, IReadOnlyCollection<Guid> notificationIds, CancellationToken cancellationToken = default);

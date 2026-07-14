@@ -226,6 +226,11 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                 // A cancelled→scheduled reactivation calls Reschedule(sameDateTime); guarding on an actual
                 // date change means that no-op reactivation never emits a bogus "rescheduled" (plan R-3).
                 var dateChanged = appointment.AppointmentDateTime != oldDateTime;
+                // Reactivating a cancelled appointment: the cancel already deleted its reminder, so a
+                // same-date reactivation would otherwise be left with no ~24h reminder (a date-changed
+                // reactivation is covered by the reschedule branch, which recreates it).
+                var becameReactivated = oldStatus == AppointmentStatus.Cancelled
+                                        && appointment.Status == AppointmentStatus.Scheduled;
 
                 if (becameCancelled)
                 {
@@ -238,6 +243,12 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                     await _notificationGenerator.AppointmentRescheduledAsync(
                         appointment.ClinicId, appointment.Id, actorUserId, patientName,
                         oldDateTime, appointment.AppointmentDateTime, cancellationToken);
+                }
+                else if (becameReactivated)
+                {
+                    await _notificationGenerator.ScheduleAppointmentReminderAsync(
+                        appointment.ClinicId, appointment.Id, patientName,
+                        appointment.AppointmentDateTime, cancellationToken);
                 }
             }
 
