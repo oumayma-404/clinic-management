@@ -1,0 +1,25 @@
+# Single-domain reverse proxy with automatic Let's Encrypt TLS (AC-2).
+# TLS terminates here once; upstreams speak plain HTTP on the internal Docker network.
+#
+#   /api/*  -> api:5000   (the .NET API — controller routes live under /api/...)
+#   /*      -> web:3000   (the Next.js frontend; also serves /auth/* and /bff/* + /_next/*)
+#
+# DOMAIN and ACME_EMAIL are injected from the environment by docker-compose.
+
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	# API — same-origin front door for the frontend's relative `/api` calls (AC-3).
+	handle /api/* {
+		reverse_proxy api:5000
+	}
+
+	# Everything else (pages, /_next/*, /auth/* Auth0 routes, /bff/* BFF auth routes).
+	handle {
+		reverse_proxy web:3000
+	}
+}

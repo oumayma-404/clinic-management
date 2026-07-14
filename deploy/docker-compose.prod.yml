@@ -1,0 +1,228 @@
+# Production compose for the single-VPS Cloud deployment (Cloud mode + Auth0).
+#
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# Only `caddy` publishes ports (80/443). postgres, minio, api and web are reachable
+# ONLY on the internal Docker network — never from the LAN/internet (AC-1). Every secret
+# comes from the gitignored `.env` beside this file (see .env.example); nothing sensitive
+# is baked into an image or committed (AC-4/AC-5).
+name: clinic-management
+
+services:
+  postgres:
+    # Custom image = postgres:16 + wal-g (PITR). Built here and tagged so the pitr sidecar reuses it.
+    build:
+      context: ./postgres
+      dockerfile: Dockerfile
+    image: clinic-postgres-pitr:16
+    container_name: clinic-postgres-prod
+    restart: unless-stopped
+    # Continuous WAL archiving off-site (PITR). archive_command runs `wal-g wal-push`, inheriting
+    # the WALG_*/AWS_* env below from the server process; a failed push is logged and retried by
+    # Postgres (WAL is retained, never silently lost — AC-6). archive_timeout forces a WAL switch
+    # so low-write clinics still ship recent changes promptly (wal_level stays PG16-default replica).
+    command:
+      - postgres
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_command=wal-g wal-push %p
+      - -c
+      - archive_timeout=${PITR_ARCHIVE_TIMEOUT:-300}
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      # WAL-G → dedicated off-site S3 bucket (same prefix as the base backups — AC-3).
+      WALG_S3_PREFIX: ${WALG_S3_PREFIX}
+      AWS_ENDPOINT: ${WALG_S3_ENDPOINT}
+      AWS_REGION: ${WALG_S3_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: ${WALG_S3_ACCESS_KEY}
+      AWS_SECRET_ACCESS_KEY: ${WALG_S3_SECRET_KEY}
+      AWS_S3_FORCE_PATH_STYLE: ${WALG_S3_FORCE_PATH_STYLE:-true}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks: [internal]
+    # No `ports:` — not published to the host (AC-1).
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    container_name: clinic-minio-prod
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio_data:/data
+    networks: [internal]
+    # No `ports:` — not published to the host (AC-1). The bucket is auto-created by the API.
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:9000/minio/health/live || exit 1"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  api:
+    build:
+      context: ../api
+      dockerfile: Dockerfile
+    container_name: clinic-api-prod
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:5000
+      # Cloud mode: host/proxy (Caddy) terminates TLS; the API speaks plain HTTP on the internal net.
+      Auth__Mode: Cloud
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+      # OAuth success redirect + primary CORS origin (same-origin, so CORS is not exercised by the browser).
+      FrontendUrl: "https://${DOMAIN}"
+      Auth0__Domain: ${AUTH0_DOMAIN}
+      Auth0__Audience: ${AUTH0_AUDIENCE}
+      Auth0__ManagementApi__ClientId: ${AUTH0_MGMT_CLIENT_ID}
+      Auth0__ManagementApi__ClientSecret: ${AUTH0_MGMT_CLIENT_SECRET}
+      GoogleCalendar__ClientId: ${GOOGLE_CLIENT_ID}
+      GoogleCalendar__ClientSecret: ${GOOGLE_CLIENT_SECRET}
+      GoogleCalendar__RefreshToken: ${GOOGLE_REFRESH_TOKEN}
+      GoogleCalendar__RedirectUri: "https://${DOMAIN}/api/googlecalendar/callback"
+      GoogleCalendar__CalendarId: ${GOOGLE_CALENDAR_ID:-primary}
+      HuggingFace__ApiKey: ${HUGGINGFACE_API_KEY}
+      MinIO__Endpoint: "minio:9000"
+      MinIO__AccessKey: ${MINIO_ROOT_USER}
+      MinIO__SecretKey: ${MINIO_ROOT_PASSWORD}
+      MinIO__UseSSL: "false"
+    networks: [internal]
+    # No `ports:` — Caddy proxies /api/* to this service over the internal network (AC-1).
+
+  web:
+    build:
+      context: ../web
+      dockerfile: Dockerfile
+      args:
+        # Baked at build time by Next. Relative `/api` => same-origin, no server IP/domain in the
+        # image (AC-3); one image works on any domain (edge case: Next bakes NEXT_PUBLIC_* at build).
+        NEXT_PUBLIC_API_URL: /api
+    container_name: clinic-web-prod
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      NODE_ENV: production
+      AUTH_MODE: cloud
+      # Auth0 (Regular Web App) — server-side, read at runtime by the Next Auth0 SDK.
+      AUTH0_SECRET: ${AUTH0_SECRET}
+      AUTH0_DOMAIN: "https://${AUTH0_DOMAIN}"
+      AUTH0_ISSUER_BASE_URL: "https://${AUTH0_DOMAIN}"
+      AUTH0_CLIENT_ID: ${AUTH0_CLIENT_ID}
+      AUTH0_CLIENT_SECRET: ${AUTH0_CLIENT_SECRET}
+      AUTH0_AUDIENCE: ${AUTH0_AUDIENCE}
+      AUTH0_BASE_URL: "https://${DOMAIN}"
+      APP_BASE_URL: "https://${DOMAIN}"
+    networks: [internal]
+    # No `ports:` — Caddy proxies everything except /api/* to this service (AC-1).
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: clinic-caddy-prod
+    restart: unless-stopped
+    depends_on:
+      - api
+      - web
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data      # persists the issued Let's Encrypt certificate + ACME account
+      - caddy_config:/config
+    networks: [internal]
+
+  # Nightly off-server backup (also runnable on demand):
+  #   docker compose -f docker-compose.prod.yml run --rm backup /usr/local/bin/backup.sh
+  backup:
+    build:
+      context: ./backup
+      dockerfile: Dockerfile
+    container_name: clinic-backup-prod
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGDATABASE: ${POSTGRES_DB}
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      BACKUP_REMOTE: ${BACKUP_REMOTE:-}
+      BACKUP_CRON: ${BACKUP_CRON:-0 2 * * *}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+    volumes:
+      - minio_data:/minio-data:ro   # MinIO object store, read-only, for the data archive
+      - backups:/backups            # local staging of each dump (pruned by retention)
+      - ./rclone:/config/rclone:ro  # operator's rclone.conf (gitignored) for the off-site remote
+    networks: [internal]
+
+  # PITR base backups + retention (complements the logical `backup` sidecar above — AC-5).
+  # Reuses the custom postgres image (wal-g + supercronic). Reads the postgres data volume
+  # read-only and connects to the primary to take a physical base backup on PITR_BASE_BACKUP_CRON,
+  # then prunes to PITR_RETAIN_BASE_BACKUPS (AC-2/AC-7). On first boot it takes an initial base
+  # backup if none exists yet, so PITR is usable immediately.
+  #   on-demand: docker compose -f docker-compose.prod.yml run --rm --entrypoint /usr/local/bin/pitr-backup.sh pitr
+  pitr:
+    # Same build as `postgres` so on-demand `run` commands (backup-list, base backup, restore)
+    # work even if the stack was never brought up with --build. Compose de-duplicates identical
+    # builds by the shared image tag — no second image is produced.
+    build:
+      context: ./postgres
+      dockerfile: Dockerfile
+    image: clinic-postgres-pitr:16
+    container_name: clinic-pitr-prod
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    entrypoint: ["/usr/local/bin/pitr-entrypoint.sh"]
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: ${POSTGRES_DB}
+      PGDATA: /var/lib/postgresql/data
+      # Same off-site destination + shared prefix as the postgres archive_command (AC-3).
+      WALG_S3_PREFIX: ${WALG_S3_PREFIX}
+      AWS_ENDPOINT: ${WALG_S3_ENDPOINT}
+      AWS_REGION: ${WALG_S3_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: ${WALG_S3_ACCESS_KEY}
+      AWS_SECRET_ACCESS_KEY: ${WALG_S3_SECRET_KEY}
+      AWS_S3_FORCE_PATH_STYLE: ${WALG_S3_FORCE_PATH_STYLE:-true}
+      PITR_BASE_BACKUP_CRON: ${PITR_BASE_BACKUP_CRON:-0 1 * * *}
+      PITR_RETAIN_BASE_BACKUPS: ${PITR_RETAIN_BASE_BACKUPS:-7}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data:ro   # read the data dir for backup-push (never writes it)
+    networks: [internal]
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  minio_data:
+  caddy_data:
+  caddy_config:
+  backups:
