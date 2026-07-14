@@ -89,12 +89,8 @@ export default function AppointmentsPage() {
 
   // Deep-link from a notification: open the referenced appointment — focus its day and open the edit
   // dialog. Graceful (spec Edge Cases): if the appointment no longer exists/is not visible, we simply
-  // stay on the list. Uses window.location.search + history.replaceState (no useSearchParams) so a
-  // refresh doesn't reopen it, matching the existing Google-auth-return pattern.
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const appointmentId = params.get("appointmentId")
-    if (!appointmentId) return
+  // stay on the list.
+  const openAppointmentById = useCallback((appointmentId: string) => {
     window.history.replaceState({}, "", "/appointments")
     appointmentsApi
       .get(appointmentId)
@@ -107,6 +103,24 @@ export default function AppointmentsPage() {
         // Target gone or not visible — land on the list, no broken/blank state.
       })
   }, [])
+
+  // On mount (cross-page navigation): read the query param. Uses window.location.search +
+  // history.replaceState (no useSearchParams) so a refresh doesn't reopen it, matching the existing
+  // Google-auth-return pattern.
+  useEffect(() => {
+    const appointmentId = new URLSearchParams(window.location.search).get("appointmentId")
+    if (appointmentId) openAppointmentById(appointmentId)
+  }, [openAppointmentById])
+
+  // Already on this page: a same-route push doesn't remount, so react to the header's deep-link event.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const id = (e as CustomEvent<{ appointmentId?: string }>).detail?.appointmentId
+      if (id) openAppointmentById(id)
+    }
+    window.addEventListener("clinic:deeplink", handler)
+    return () => window.removeEventListener("clinic:deeplink", handler)
+  }, [openAppointmentById])
 
   const handleAuthorizeGoogleCalendar = useCallback(() => {
     googleCalendarApi.authorize()

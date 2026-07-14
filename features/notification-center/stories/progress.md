@@ -8,7 +8,7 @@
 
 | Story | Status | Started | Completed |
 |-------|--------|---------|-----------|
-| Story 1: In-App Staff Notification Center (full vertical slice) | implemented | 2026-07-14 | 2026-07-14 |
+| Story 1: In-App Staff Notification Center (full vertical slice) | reviewed | 2026-07-14 | 2026-07-14 |
 
 ## Current Story: Story 1
 
@@ -77,3 +77,11 @@ _(captured as discovered)_
 - Scaffolded single-story wrapper (per `/next` directive: no `/break-plan`).
 - Group A done: domain (enums, `StaffNotification`, `NotificationRead`), EF configs, DbSets + global filter, repository, migration. Build 0 errors, no new warnings.
 - Starting Group B (read side).
+
+### Session 2 - 2026-07-14 (Story review — `/review-story`)
+**Story:** Story 1 → **reviewed**
+**Score:** 100/100. Report: [reviews/story-1.md](../reviews/story-1.md)
+**Findings:** 1 Minor, fixed.
+- **[Minor, fixed]** Same-page notification deep-link didn't open/highlight the target (a same-route `router.push` doesn't remount, so the mount-only effect never fired). Fixed with a `clinic:deeplink` `CustomEvent` the target pages listen for; kept off `useSearchParams` to preserve static prerendering (R-8). Files: `dashboard-header.tsx`, `app/appointments/page.tsx`, `app/stock/page.tsx`.
+**Quality gates:** backend build 0 err (57 pre-existing warnings, 0 in this feature); notification unit tests 22/22; `tsc --noEmit` clean; `npm run build` clean (target pages still static).
+**Observations:** spec uses narrative ACs; repository LINQ predicates untested (no integration harness — accepted per plan); 57 pre-existing warnings are the repo baseline (out of scope).

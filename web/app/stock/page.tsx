@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { DashboardSidebar } from "@/components/dashboard-sidebar"
 import { ClinicGuard } from "@/components/clinic-guard"
@@ -19,14 +19,26 @@ export default function StockPage() {
   // Deep-link from a low-stock notification: highlight the referenced item's row. Clears the query
   // param so a refresh doesn't re-trigger it. Graceful — if the item isn't in the list, nothing is
   // highlighted (the user still lands on the stock screen).
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const itemId = params.get("itemId")
-    if (itemId) {
-      setHighlightItemId(itemId)
-      window.history.replaceState({}, "", "/stock")
-    }
+  const highlightItem = useCallback((itemId: string) => {
+    setHighlightItemId(itemId)
+    window.history.replaceState({}, "", "/stock")
   }, [])
+
+  // On mount (cross-page navigation): read the query param.
+  useEffect(() => {
+    const itemId = new URLSearchParams(window.location.search).get("itemId")
+    if (itemId) highlightItem(itemId)
+  }, [highlightItem])
+
+  // Already on this page: a same-route push doesn't remount, so react to the header's deep-link event.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const id = (e as CustomEvent<{ itemId?: string }>).detail?.itemId
+      if (id) highlightItem(id)
+    }
+    window.addEventListener("clinic:deeplink", handler)
+    return () => window.removeEventListener("clinic:deeplink", handler)
+  }, [highlightItem])
 
   const handleAddNew = () => {
     setEditingItem(null)

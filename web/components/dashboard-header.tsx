@@ -31,10 +31,17 @@ export function DashboardHeader() {
   const handleNotificationClick = (notification: NotificationDto) => {
     setNotifOpen(false)
     void markRead(notification.id)
+    // router.push handles cross-page navigation (the target page reads the query param on mount). When
+    // the user is ALREADY on the target page, a same-route push does not remount it, so we also emit a
+    // deep-link event the target page listens for — see the "clinic:deeplink" handlers on those pages.
     if (notification.targetKind === "Appointment" && notification.appointmentId) {
       router.push(`/appointments?appointmentId=${notification.appointmentId}`)
+      window.dispatchEvent(
+        new CustomEvent("clinic:deeplink", { detail: { appointmentId: notification.appointmentId } }),
+      )
     } else if (notification.targetKind === "StockItem" && notification.stockItemId) {
       router.push(`/stock?itemId=${notification.stockItemId}`)
+      window.dispatchEvent(new CustomEvent("clinic:deeplink", { detail: { itemId: notification.stockItemId } }))
     }
   }
 
