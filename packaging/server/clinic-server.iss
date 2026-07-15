@@ -152,6 +152,8 @@ end;
 function SetupPostgres: Boolean;
 var
   Rc: Integer;
+  I: Integer;
+  DbReady: Boolean;
   PgBin, PgData, Psql, InitDb, PgCtl, PwFile, PgPassDir, PgPassFile, SqlFile, Sql, InitLog, CmdLine: string;
   LogText: AnsiString;
 begin
@@ -208,10 +210,24 @@ begin
   RunWait(PgCtl, 'register -N "{#ServiceDb}" -D "' + PgData + '" -S auto -o "-p {#DbPort} -h 127.0.0.1"', PgBin, Rc);
   Exec(ExpandConstant('{sys}\sc.exe'), 'start {#ServiceDb}', '', SW_HIDE, ewWaitUntilTerminated, Rc);
 
-  { Wait for readiness — hard-fail if the server never comes up. }
-  if not RunWait(PgBin + '\pg_isready.exe', '-h 127.0.0.1 -p {#DbPort} -t 30', PgBin, Rc) then
+  { Wait for readiness — POLL pg_isready in a loop. pg_isready does ONE connection attempt and returns
+    "no response" immediately when the port isn't open yet (the -t timeout only applies to a hanging
+    connect, not a refused one), so a single call races the service's startup — which can take many
+    seconds while Defender/SAC scans the freshly-extracted postgres.exe on first run. Retry ~60s; hard-fail
+    only if the server never comes up. }
+  DbReady := False;
+  for I := 1 to 60 do
   begin
-    MsgBox('PostgreSQL ne répond pas (pg_isready). Installation interrompue.', mbError, MB_OK);
+    if RunWait(PgBin + '\pg_isready.exe', '-h 127.0.0.1 -p {#DbPort} -t 2', PgBin, Rc) then
+    begin
+      DbReady := True;
+      Break;
+    end;
+    Sleep(1000);
+  end;
+  if not DbReady then
+  begin
+    MsgBox('PostgreSQL ne répond pas (pg_isready) après 60 s. Installation interrompue.', mbError, MB_OK);
     Exit;
   end;
 

@@ -4,6 +4,10 @@
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Phase 5 (S2): precompile IL to native on publish so the API's cold start is fast enough for the
+         Windows Service Control Manager's ~30s start timeout on first boot. Publish-only (ignored by a
+         plain `dotnet build`); behaviour is identical to JIT, only faster to start. -->
+    <PublishReadyToRun>true</PublishReadyToRun>
   </PropertyGroup>
 
   <ItemGroup>

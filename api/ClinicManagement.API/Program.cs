@@ -221,6 +221,16 @@ try
         config.UsePostgreSqlStorage(hangfireConnectionString));
     builder.Services.AddHangfireServer();
 
+    // Local installs run as a Windows service, where the SCM kills any service that does not report
+    // "running" within its ~30s start timeout. Applying the migrations synchronously on a fresh DB (see
+    // the migrate block below) exceeded that on first boot and the service was killed before Kestrel
+    // bound. In Local mode, defer migrations to a post-startup hosted service so the host reports
+    // "started" as soon as it binds; Cloud keeps the synchronous migrate (no service-start timeout).
+    if (isLocalAuthMode)
+    {
+        builder.Services.AddHostedService<ClinicManagement.API.Startup.DeferredStartupService>();
+    }
+
     // Add CORS
     // Note: When using credentials (cookies), we cannot use AllowAnyOrigin()
     // We must specify the exact origin(s) and use AllowCredentials().
@@ -416,21 +426,15 @@ try
     }
 
     // Ensure database is created (FR-F3: migrations apply automatically on startup).
-    using (var scope = app.Services.CreateScope())
+    // CLOUD: run migrations synchronously here (no Windows-service start timeout applies) — byte-for-byte
+    // as before. LOCAL: skip here — migrations are deferred to DeferredStartupService (registered above)
+    // so the Windows service reports "started" to the SCM before the migrations run; a fresh-DB first
+    // boot otherwise exceeds the ~30s service-start timeout and the API is killed mid-migration.
+    if (!isLocalAuthMode)
     {
+        using var scope = app.Services.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-        try
-        {
-            context.Database.Migrate();
-        }
-        catch (Exception ex) when (isLocalAuthMode && StartupDiagnostics.IsDatabaseConnectionFailure(ex))
-        {
-            // FR-F5 (Local): an unreachable database is an operator problem, not a stack trace. Surface a
-            // clear message (console + log + Event Log) and exit non-zero rather than crashing opaquely.
-            // Cloud keeps the fatal-rethrow below (the `when` filter is false), byte-for-byte (R-9).
-            StartupDiagnostics.ReportFatal(StartupDiagnostics.DatabaseUnreachableMessage(), ex);
-            return 1;
-        }
+        context.Database.Migrate();
     }
 
 
