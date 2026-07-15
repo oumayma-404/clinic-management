@@ -46,7 +46,7 @@ PrivilegesRequired=admin
 ; AppContext.BaseDirectory by the API — R-6), so a service whose CWD is System32 still finds them.
 
 [Dirs]
-Name: "{app}\.local";   Permissions: service-modify
+Name: "{app}\api\.local"; Permissions: service-modify
 Name: "{app}\api\Files"; Permissions: service-modify
 Name: "{app}\api\logs";  Permissions: service-modify
 Name: "{app}\pgdata";    Permissions: service-modify
@@ -112,6 +112,85 @@ begin
     RaiseException('Impossible de générer un mot de passe sécurisé (BCryptGenRandom a échoué).');
   for I := 1 to 24 do
     Result := Result + Copy(Chars, (Ord(Buf[I]) mod Length(Chars)) + 1, 1);
+end;
+
+{ Per-install file that persists the generated DB passwords (clinic_user on line 1, postgres superuser on
+  line 2) so a REINSTALL over an existing PostgreSQL cluster reuses them instead of regenerating and then
+  failing authentication against the existing role. Colocated in {app}\api\.local (gitignored, never
+  LAN-facing) — the SAME folder the API writes its other per-install secrets to (signing key, server.pfx,
+  ca.crt, google-refresh-token) via AppContext.BaseDirectory, so one .local backup covers them all. }
+function DbCredentialsFile: string;
+begin
+  Result := ExpandConstant('{app}\api\.local\db-credentials');
+end;
+
+{ Establish DbPassword + PgSuperPassword for this install. Returns False (with a clear operator message)
+  when it cannot safely proceed, so the caller aborts instead of bootstrapping against mismatched creds.
+
+  - Reinstall over an existing cluster: REUSE the persisted passwords (regenerating would break auth
+    against the existing role → the "Échec de la création du rôle/de la base" abort + a forced data wipe).
+  - Fresh install (no cluster, no usable credentials file): generate new random passwords and PERSIST them.
+  - Existing cluster but the credentials file is missing/unreadable: FAIL LOUD and abort — silently
+    generating new passwords would not match the existing cluster (recovery is documented in the README). }
+function EstablishDbCredentials: Boolean;
+var
+  CredFile, PgData: string;
+  Lines: TArrayOfString;
+  ClusterExists: Boolean;
+begin
+  Result := False;
+  CredFile := DbCredentialsFile;
+  PgData   := ExpandConstant('{app}\pgdata');
+  ClusterExists := FileExists(PgData + '\PG_VERSION');
+
+  if FileExists(CredFile) then
+  begin
+    { Reuse persisted credentials when the file has two non-empty lines. The index access is nested under
+      the length guard because Inno's Pascal Script does not guarantee short-circuit boolean evaluation. }
+    if LoadStringsFromFile(CredFile, Lines) and (GetArrayLength(Lines) >= 2) then
+    begin
+      if (Trim(Lines[0]) <> '') and (Trim(Lines[1]) <> '') then
+      begin
+        DbPassword      := Trim(Lines[0]);
+        PgSuperPassword := Trim(Lines[1]);
+        Result := True;
+        Exit;
+      end;
+    end;
+    { File present but unreadable/corrupt: if a cluster also exists we cannot recover the real passwords. }
+    if ClusterExists then
+    begin
+      MsgBox('Le fichier d''identifiants de la base (' + CredFile + ') est illisible ou incomplet, alors ' +
+             'qu''un cluster PostgreSQL existe déjà. Impossible de récupérer les mots de passe existants. ' +
+             'Installation interrompue.' + #13#10#13#10 +
+             'Restaurez ce fichier depuis une sauvegarde, ou supprimez volontairement le dossier "pgdata" ' +
+             'pour repartir de zéro (les données existantes seront perdues).', mbError, MB_OK);
+      Exit;
+    end;
+    { No cluster → the corrupt file is harmless; fall through and regenerate. }
+  end
+  else if ClusterExists then
+  begin
+    { Cluster exists but no persisted credentials — cannot derive the existing passwords. Fail loud. }
+    MsgBox('Un cluster PostgreSQL existe déjà (' + PgData + ') mais aucun fichier d''identifiants (' +
+           CredFile + ') n''a été trouvé. Impossible de réutiliser les mots de passe existants. ' +
+           'Installation interrompue.' + #13#10#13#10 +
+           'Restaurez le fichier d''identifiants depuis une sauvegarde, ou supprimez volontairement le ' +
+           'dossier "pgdata" pour repartir de zéro (les données existantes seront perdues).', mbError, MB_OK);
+    Exit;
+  end;
+
+  { Fresh install (no cluster, no usable credentials file): generate new random passwords and persist. }
+  DbPassword      := NewRandomPassword;
+  PgSuperPassword := NewRandomPassword;
+  ForceDirectories(ExpandConstant('{app}\api\.local'));
+  if not SaveStringToFile(CredFile, DbPassword + #13#10 + PgSuperPassword + #13#10, False) then
+  begin
+    MsgBox('Impossible d''écrire le fichier d''identifiants de la base (' + CredFile + '). ' +
+           'Installation interrompue.', mbError, MB_OK);
+    Exit;
+  end;
+  Result := True;
 end;
 
 { Write the machine-specific Local runtime config as appsettings.Production.json (the API service runs
@@ -337,19 +416,35 @@ begin
     '', SW_HIDE, ewWaitUntilTerminated, Rc);
 end;
 
-{ Start web then API; wait for the API to self-generate its cert, then export the CA for clients. }
+{ Provision the HTTPS cert at INSTALL time, start web then API, then export the CA for clients. }
 procedure StartAndExportCa;
 var
   Rc, Tries: Integer;
-  CaSrc, CaDst: string;
+  ApiExe, CaSrc, CaDst: string;
 begin
+  { Generate (or reuse) the CA + server cert NOW, before the API service starts. On a fresh install the
+    service's first boot would otherwise generate the cert on top of first-run JIT and can miss the ~30s
+    Windows SCM start window; provisioning here moves that work off the SCM clock. Idempotent (reuses an
+    existing set) and makes no DB connection. If it fails the service still self-generates on boot — at
+    the risk of the SCM timeout — so warn but do not abort. }
+  ApiExe := ExpandConstant('{app}\api\ClinicManagement.API.exe');
+  { Init to a non-zero sentinel: RunWait returns False without setting Rc if the exe fails to launch, and
+    Inno zero-inits locals — so an unset Rc would report a misleading "code 0" (reads as success). }
+  Rc := -1;
+  if not RunWait(ApiExe, 'provision-cert', ExpandConstant('{app}\api'), Rc) then
+    MsgBox('Avertissement : la génération du certificat HTTPS à l''installation a échoué (code ' +
+           IntToStr(Rc) + '). Le service API tentera de le générer à son premier démarrage.',
+           mbInformation, MB_OK);
+
   Exec(ExpandConstant('{sys}\sc.exe'), 'start {#ServiceWeb}', '', SW_HIDE, ewWaitUntilTerminated, Rc);
   Exec(ExpandConstant('{sys}\sc.exe'), 'start {#ServiceApi}', '', SW_HIDE, ewWaitUntilTerminated, Rc);
 
-  CaSrc := ExpandConstant('{app}\.local\ca.crt');
+  { The API writes .local/ next to its own exe (AppContext.BaseDirectory = {app}\api), so the CA is at
+    {app}\api\.local\ca.crt — NOT {app}\.local\ca.crt (which left %ProgramData%\...\ca.crt empty). }
+  CaSrc := ExpandConstant('{app}\api\.local\ca.crt');
   CaDst := ExpandConstant('{commonappdata}\ClinicManagement\ca.crt');
 
-  { The CA is generated on first API boot; poll briefly for it. }
+  { Provisioned above at install time; poll briefly as a fallback in case the service generated it. }
   Tries := 0;
   while (Tries < 30) and (not FileExists(CaSrc)) do
   begin
@@ -361,20 +456,20 @@ begin
     FileCopy(CaSrc, CaDst, False)
   else
     MsgBox('Le certificat CA n''est pas encore généré. Une fois le service API démarré, copiez ' +
-           '{app}\.local\ca.crt vers un support partagé pour l''installateur client (voir README).',
+           '{app}\api\.local\ca.crt vers un support partagé pour l''installateur client (voir README).',
            mbInformation, MB_OK);
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
-  if CurStep = ssInstall then
-  begin
-    DbPassword      := NewRandomPassword;
-    PgSuperPassword := NewRandomPassword;
-  end;
-
   if CurStep = ssPostInstall then
   begin
+    { Establish DB credentials FIRST — generate + persist on a fresh install, reuse on reinstall over an
+      existing cluster. Abort (skip the rest) if it cannot proceed safely. Runs before WriteProductionConfig
+      because the connection string bakes in DbPassword. The .local/ dir was already created by [Dirs]. }
+    if not EstablishDbCredentials then
+      Exit;
+
     WriteProductionConfig;
     if SetupPostgres then
     begin

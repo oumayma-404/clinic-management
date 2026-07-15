@@ -24,6 +24,16 @@ if (args.Length > 0 && string.Equals(args[0], AdminPasswordResetCommand.CommandN
     return await AdminPasswordResetCommand.RunAsync(args);
 }
 
+// Idempotent HTTPS-cert provisioning (Server Installer Reliability): a one-shot console command that
+// generates (or reuses) the CA + server cert into .local/ and exits, without starting the web server or
+// touching the DB. The installer runs this BEFORE starting the API service so the service's first boot
+// reuses the cert instead of generating it under the ~30s SCM start timeout. Usage:
+//   ClinicManagement.API.exe provision-cert
+if (args.Length > 0 && string.Equals(args[0], ProvisionCertCommand.CommandName, StringComparison.OrdinalIgnoreCase))
+{
+    return ProvisionCertCommand.Run(args);
+}
+
 // Determine auth mode early (before Serilog is configured) so Local installs can anchor the log file to
 // the install directory (R-6) — a Windows service's CWD is System32, where a relative "logs/" path would
 // scatter or fail. Cloud keeps its prior relative path, byte-for-byte. This early config is also the seam

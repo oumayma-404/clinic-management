@@ -159,21 +159,55 @@ Installs to `C:\Program Files\Clinic Management\` and, in one pass:
    and `pgdata/` (all under the install dir — the API resolves them via `AppContext.BaseDirectory`, so the
    service's `System32` CWD is irrelevant, R-6).
 2. **PostgreSQL** — `initdb` a fresh loopback-only cluster (skipped if `pgdata` already initialised),
-   registers it as the auto-start **`ClinicManagementDb`** service, and creates `clinic_user` (random
-   per-install password) + the `clinic_management` database.
-3. Writes **`appsettings.Production.json`** on the target with the machine's connection string (that
-   generated password), the `Hosting` ports, and `Backup:PgDumpPath` pointing at the bundled `pg_dump.exe`.
-   The signing key + HTTPS cert are **self-generated on first boot** into `.local/` — nothing secret is bundled.
+   registers it as the auto-start **`ClinicManagementDb`** service, and creates `clinic_user` +
+   the `clinic_management` database. On a **fresh install** the `clinic_user` + `postgres` passwords are
+   randomly generated and **persisted** to `.local/db-credentials`; on a **reinstall over an existing
+   cluster** those persisted passwords are **reused** so authentication keeps working and the data is kept
+   (see *Fresh install vs in-place reinstall* below).
+3. Writes **`appsettings.Production.json`** on the target with the machine's connection string (the
+   persisted password), the `Hosting` ports, and `Backup:PgDumpPath` pointing at the bundled `pg_dump.exe`.
+   The signing key is self-generated on first boot into `.local/`; the **HTTPS cert is provisioned at
+   install time** — the installer runs `api\ClinicManagement.API.exe provision-cert` (idempotent; no DB
+   connection) so the API service reuses it on first boot instead of generating it under the SCM start
+   timeout. Nothing secret is bundled.
 4. Registers the **`ClinicManagementApi`** (self-contained exe + `UseWindowsService`) and
    **`ClinicManagementWeb`** (Node via NSSM) services. **Dependency order: DB → Web → API.** The Node web
    server listens **HTTP on `localhost:3000` only**; **Kestrel is the sole LAN-facing endpoint**
    (**HTTPS `5001`**) and reverse-proxies non-`/api` routes to Node.
 5. Opens **only** TCP `5001` on the LAN firewall (`3000` and the API's plain-HTTP `5000` stay loopback-only).
-6. Starts the services and **exports the generated CA** (`.local/ca.crt`) to
+6. Starts the services and **exports the generated CA** (`api\.local\ca.crt`) to
    `%ProgramData%\ClinicManagement\ca.crt` for the client installer.
 
 First-run setup is served **localhost-only** (AC-1.2a, enforced by the API) — open `https://localhost:5001`
 on the server PC to create the clinic + first admin.
+
+### Fresh install vs in-place reinstall
+
+The server installer is safe to re-run over an existing install **without wiping the database**:
+
+- **Fresh install** (no `pgdata` cluster yet) — new random `clinic_user` + `postgres` passwords are
+  generated and written to **`{app}\api\.local\db-credentials`** (two lines: `clinic_user`, then
+  `postgres`). The HTTPS cert is provisioned at install time.
+- **In-place reinstall** (an existing `pgdata` cluster is present) — the installer **reuses** the passwords
+  from `db-credentials` instead of regenerating them, so the bundled role/DB step and the written
+  `appsettings.Production.json` match the existing cluster; the data is kept. The existing HTTPS cert set is
+  reused (idempotent `provision-cert`), so the CA that clients already trust stays stable.
+- **Existing cluster but `db-credentials` is missing or unreadable** — the installer **stops with a clear
+  message** rather than silently generating new passwords that would not match the cluster. Recover by
+  restoring `{app}\api\.local\db-credentials` from a backup, **or** — accepting data loss — delete the
+  `{app}\pgdata` folder to let the next install `initdb` a fresh cluster.
+  - **Upgrading from an older installer** (released before this credentials-persistence change) always
+    lands here on its first reinstall: that machine has a `pgdata` cluster but no `db-credentials` file, so
+    the installer stops by design. Before wiping data, note that the **`clinic_user`** password is still
+    recoverable in cleartext from the connection string in `{app}\api\appsettings.Production.json` — write
+    both passwords into a fresh `db-credentials` file (line 1 = `clinic_user`, line 2 = `postgres`) and
+    re-run. The **`postgres` superuser** password, however, is **not** recoverable if it was lost; in that
+    case wiping `{app}\pgdata` (accepting data loss) is the only path, which is exactly why the installer
+    fails loud instead of guessing.
+
+> Back up `{app}\api\.local\db-credentials` (or the whole `{app}\api\.local` folder — it also holds the
+> signing key, HTTPS cert, CA, and Google refresh token) alongside your database backups. It is gitignored
+> and generated on the target — losing it while keeping `pgdata` blocks a clean reinstall.
 
 ### Ports
 
