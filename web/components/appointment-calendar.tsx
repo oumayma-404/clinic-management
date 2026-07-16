@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import { ChevronLeft, ChevronRight, Calendar, Filter, CloudOff, UploadCloud } from "lucide-react"
-import { format, addDays, startOfWeek, addWeeks, subWeeks, subDays, startOfDay, endOfDay, isToday } from "date-fns"
+import { format, addDays, startOfWeek, addWeeks, subWeeks, subDays, startOfDay, endOfDay, isToday, startOfMonth, addMonths, subMonths, isSameMonth } from "date-fns"
 import { useMemo, useRef, useEffect, useState, type CSSProperties } from "react"
 import { toast } from "sonner"
 import { useAppointments } from "@/lib/hooks/use-appointments"
@@ -30,13 +30,17 @@ const timeSlots = generateHourlyTimeSlots()
 const HOUR_HEIGHT = 35
 // Minimum rendered height so a very short appointment still shows the patient name legibly (AC-4).
 const MIN_APPT_HEIGHT = 20
+// Month view: max appointment chips shown per day cell before collapsing the rest into "+N more" (AC-2).
+const MONTH_CELL_MAX_CHIPS = 3
 
 interface AppointmentCalendarProps {
-  view: "day" | "week"
+  view: "day" | "week" | "month"
   selectedDate: Date
   onDateChange: (date: Date) => void
   onTimeSlotClick?: (date: Date, time: string) => void
   onAppointmentClick?: (appointment: AppointmentDto) => void
+  /** Month view only: clicking a day cell's empty area / "+N more" focuses that date in Day view (AC-4). */
+  onSelectDay?: (date: Date) => void
   showCancelled?: boolean
   showCompleted?: boolean
   onShowCancelledChange?: (show: boolean) => void
@@ -45,7 +49,7 @@ interface AppointmentCalendarProps {
   onChanged?: () => void
 }
 
-export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSlotClick, onAppointmentClick, showCancelled = false, showCompleted = false, onShowCancelledChange, onShowCompletedChange, onChanged }: AppointmentCalendarProps) {
+export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSlotClick, onAppointmentClick, onSelectDay, showCancelled = false, showCompleted = false, onShowCancelledChange, onShowCompletedChange, onChanged }: AppointmentCalendarProps) {
   const { internetReachable } = useConnectivity()
   const [pushingId, setPushingId] = useState<string | null>(null)
 
@@ -105,17 +109,19 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
       </div>
     )
   }
-  // Memoized date range for API calls
+  // Memoized date range for API calls. Month view fetches the full visible grid (first visible day →
+  // last visible day = start of the first week through the end of the fixed 6-row grid) so leading/
+  // trailing days from adjacent months are populated too (AC-3).
   const startDate = useMemo(() => {
-    return view === "day"
-      ? startOfDay(selectedDate)
-      : startOfDay(startOfWeek(selectedDate, { weekStartsOn: 1 }))
+    if (view === "day") return startOfDay(selectedDate)
+    if (view === "month") return startOfDay(startOfWeek(startOfMonth(selectedDate), { weekStartsOn: 1 }))
+    return startOfDay(startOfWeek(selectedDate, { weekStartsOn: 1 }))
   }, [view, selectedDate])
 
   const endDate = useMemo(() => {
-    return view === "day"
-      ? endOfDay(selectedDate)
-      : endOfDay(addDays(startOfWeek(selectedDate, { weekStartsOn: 1 }), 6)) // 7 days (0-6)
+    if (view === "day") return endOfDay(selectedDate)
+    if (view === "month") return endOfDay(addDays(startOfWeek(startOfMonth(selectedDate), { weekStartsOn: 1 }), 41)) // 6 rows × 7 - 1
+    return endOfDay(addDays(startOfWeek(selectedDate, { weekStartsOn: 1 }), 6)) // 7 days (0-6)
   }, [view, selectedDate])
 
   const { appointments: allAppointments, loading } = useAppointments(startDate, endDate)
@@ -135,6 +141,14 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
     })
   }, [allAppointments, showCancelled, showCompleted])
 
+  // The 42 day cells (fixed 6 rows × 7 columns, weeks start Monday) covering the selected month plus
+  // the leading/trailing days that fill the first/last weeks. Fixed length keeps the grid height stable
+  // across months (Edge Cases: variable week count).
+  const monthGridDays = useMemo(() => {
+    const gridStart = startOfWeek(startOfMonth(selectedDate), { weekStartsOn: 1 })
+    return Array.from({ length: 42 }, (_, i) => addDays(gridStart, i))
+  }, [selectedDate])
+
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const [currentTime, setCurrentTime] = useState(new Date())
   const [currentTimePosition, setCurrentTimePosition] = useState<number | null>(null)
@@ -148,9 +162,9 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
     return () => clearInterval(interval)
   }, [])
 
-  // Calculate current time position based on actual DOM elements
+  // Calculate current time position based on actual DOM elements (day/week only — month has no time grid)
   useEffect(() => {
-    if (!loading && scrollContainerRef.current) {
+    if (!loading && view !== "month" && scrollContainerRef.current) {
       const now = currentTime
       const hours = now.getHours()
       const minutes = now.getMinutes()
@@ -195,7 +209,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
   // Initial scroll position (AC-1): when today falls in the visible range, center the current-time
   // line in the viewport (Google-Calendar-like); otherwise scroll so 8 AM is at the top, as before.
   useEffect(() => {
-    if (loading) return
+    if (loading || view === "month") return
 
     const positionScroll = () => {
       const container = scrollContainerRef.current
@@ -374,6 +388,8 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
   const handlePrevious = () => {
     if (view === "day") {
       onDateChange(subDays(selectedDate, 1))
+    } else if (view === "month") {
+      onDateChange(subMonths(selectedDate, 1))
     } else {
       onDateChange(subWeeks(selectedDate, 1))
     }
@@ -382,6 +398,8 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
   const handleNext = () => {
     if (view === "day") {
       onDateChange(addDays(selectedDate, 1))
+    } else if (view === "month") {
+      onDateChange(addMonths(selectedDate, 1))
     } else {
       onDateChange(addWeeks(selectedDate, 1))
     }
@@ -390,6 +408,104 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
   const handleToday = () => {
     onDateChange(new Date())
   }
+
+  // A compact month-cell chip: start time + patient name, colored by the shared status/procedure rules
+  // (AC-2). Clicking opens the edit dialog (AC-4); stopPropagation keeps the cell's day-navigation from
+  // firing too.
+  const renderMonthChip = (appointment: AppointmentDto) => {
+    const colorStyle = getStatusColor(appointment)
+    const start = format(new Date(appointment.appointmentDateTime), "HH:mm")
+
+    return (
+      <button
+        key={appointment.id}
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation()
+          onAppointmentClick?.(appointment)
+        }}
+        className={cn(
+          "flex w-full items-center gap-1 overflow-hidden rounded px-1 py-0.5 text-left text-[10px] leading-tight transition-shadow hover:shadow-sm",
+          colorStyle.className,
+        )}
+        style={colorStyle.style}
+        title={`${start} · ${appointment.patientName}`}
+      >
+        <span className="flex-shrink-0 font-semibold">{start}</span>
+        <span className="min-w-0 truncate">{appointment.patientName}</span>
+      </button>
+    )
+  }
+
+  // Month view (AC-1..AC-5): a fixed 6×7 day-cell grid (weeks start Monday). Adjacent-month days are
+  // dimmed, today is highlighted, each cell lists its appointments as chips with a "+N more" overflow,
+  // and clicking a cell's empty area / "+N more" navigates to Day view for that date. No time-of-day
+  // layout, current-time line, or scroll-centering (day/week only).
+  const renderMonthView = () => (
+    <div className="flex h-full flex-col min-h-0">
+      <div className="grid grid-cols-7 border-b bg-white dark:bg-background flex-shrink-0">
+        {monthGridDays.slice(0, 7).map((day) => (
+          <div
+            key={`dow-${day.toISOString()}`}
+            className="border-r py-2 text-center text-xs font-medium uppercase tracking-wider text-muted-foreground last:border-r-0"
+          >
+            {format(day, "EEE")}
+          </div>
+        ))}
+      </div>
+
+      {loading ? (
+        <div className="flex flex-1 items-center justify-center">
+          <p className="text-muted-foreground">Loading appointments...</p>
+        </div>
+      ) : (
+        <div className="grid flex-1 grid-cols-7 grid-rows-6 min-h-0">
+          {monthGridDays.map((day) => {
+            const dayAppointments = getAppointmentsForDay(day).sort(
+              (a, b) => new Date(a.appointmentDateTime).getTime() - new Date(b.appointmentDateTime).getTime(),
+            )
+            const inMonth = isSameMonth(day, selectedDate)
+            const visible = dayAppointments.slice(0, MONTH_CELL_MAX_CHIPS)
+            const overflow = dayAppointments.length - visible.length
+
+            return (
+              <div
+                key={day.toISOString()}
+                onClick={() => onSelectDay?.(day)}
+                className={cn(
+                  "flex min-w-0 cursor-pointer flex-col gap-0.5 overflow-hidden border-b border-r p-1 transition-colors last:border-r-0 hover:bg-blue-50/30 dark:hover:bg-muted/50",
+                  !inMonth && "bg-gray-50/40 dark:bg-muted/20",
+                )}
+              >
+                <div className="flex flex-shrink-0 justify-end">
+                  <span
+                    className={cn(
+                      "inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold",
+                      isToday(day)
+                        ? "bg-blue-600 text-white shadow-md"
+                        : inMonth
+                          ? "text-foreground"
+                          : "text-muted-foreground/60",
+                    )}
+                  >
+                    {format(day, "d")}
+                  </span>
+                </div>
+                <div className="flex min-h-0 flex-col gap-0.5 overflow-hidden">
+                  {visible.map((appointment) => renderMonthChip(appointment))}
+                  {overflow > 0 && (
+                    <span className="px-1 text-[10px] font-medium text-muted-foreground hover:text-foreground">
+                      +{overflow} more
+                    </span>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
 
   const weekDays = getWeekDays()
 
@@ -412,7 +528,9 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
           <div className="ml-2 text-xl font-semibold">
             {view === "week"
               ? `${format(weekDays[0], "MMM d")} - ${format(weekDays[6], "MMM d, yyyy")}`
-              : format(selectedDate, "EEEE, MMMM d, yyyy")}
+              : view === "month"
+                ? format(selectedDate, "MMMM yyyy")
+                : format(selectedDate, "EEEE, MMMM d, yyyy")}
           </div>
         </div>
 
@@ -470,6 +588,9 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
       </div>
 
       <Card className="flex-1 overflow-hidden shadow-sm min-h-0">
+        {view === "month" ? (
+          renderMonthView()
+        ) : (
         <div className="flex h-full flex-col min-h-0">
           <div
             className={cn(
@@ -552,10 +673,14 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
 
                   return (
                     <div key={time} className="contents">
-                      {/* Time label */}
+                      {/* Time label. `leading-none` is load-bearing: without it this div inherits
+                          the global line-height (1.5), inflating each grid row to ~41px. The
+                          appointment overlay positions blocks with the fixed HOUR_HEIGHT (35px), so
+                          any row taller than 35px makes appointments drift upward (e.g. a 17:00 block
+                          lands near 14:00). Keep rows exactly HOUR_HEIGHT tall. */}
                       <div
                         className={cn(
-                          "border-b border-r bg-gray-50 dark:bg-muted px-2 py-2 text-right",
+                          "border-b border-r bg-gray-50 dark:bg-muted px-2 py-2 text-right leading-none",
                           !isWorkingHours && "bg-gray-100/50 dark:bg-muted/50",
                         )}
                       >
@@ -607,6 +732,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
             </div>
           )}
         </div>
+        )}
       </Card>
     </div>
   )

@@ -19,7 +19,7 @@ import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 
 export default function AppointmentsPage() {
-  const [view, setView] = useState<"day" | "week">("day")
+  const [view, setView] = useState<"day" | "week" | "month">("day")
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [selectedAppointment, setSelectedAppointment] = useState<AppointmentDto | null>(null)
@@ -43,6 +43,12 @@ export default function AppointmentsPage() {
   const handleAppointmentClick = useCallback((appointment: AppointmentDto) => {
     setSelectedAppointment(appointment)
     setEditDialogOpen(true)
+  }, [])
+
+  // Month view: clicking a day cell's empty area / "+N more" focuses that date in Day view (AC-4).
+  const handleSelectDay = useCallback((date: Date) => {
+    setSelectedDate(date)
+    setView("day")
   }, [])
 
   const handleAppointmentCreated = useCallback(() => {
@@ -150,11 +156,12 @@ export default function AppointmentsPage() {
         <main className="flex-1 overflow-hidden p-4">
           <div className="mx-auto h-full max-w-[1400px] flex flex-col">
             {/* View Tabs */}
-            <Tabs value={view} onValueChange={(v) => setView(v as "day" | "week")} className="flex-1 flex flex-col min-h-0">
+            <Tabs value={view} onValueChange={(v) => setView(v as "day" | "week" | "month")} className="flex-1 flex flex-col min-h-0">
               <div className="flex items-center justify-between mb-3 flex-shrink-0">
                 <TabsList>
                   <TabsTrigger value="day">Day View</TabsTrigger>
                   <TabsTrigger value="week">Week View</TabsTrigger>
+                  <TabsTrigger value="month">Month View</TabsTrigger>
                 </TabsList>
                 <div className="flex items-center gap-2">
                   {!isGoogleCalendarAuthorized ? (
@@ -216,6 +223,22 @@ export default function AppointmentsPage() {
                   onDateChange={setSelectedDate}
                   onTimeSlotClick={handleTimeSlotClick}
                   onAppointmentClick={handleAppointmentClick}
+                  showCancelled={showCancelled}
+                  showCompleted={showCompleted}
+                  onShowCancelledChange={setShowCancelled}
+                  onShowCompletedChange={setShowCompleted}
+                  onChanged={handleAppointmentUpdated}
+                />
+              </TabsContent>
+
+              <TabsContent value="month" className="flex-1 min-h-0 mt-0">
+                <AppointmentCalendar
+                  key={refreshKey}
+                  view="month"
+                  selectedDate={selectedDate}
+                  onDateChange={setSelectedDate}
+                  onAppointmentClick={handleAppointmentClick}
+                  onSelectDay={handleSelectDay}
                   showCancelled={showCancelled}
                   showCompleted={showCompleted}
                   onShowCancelledChange={setShowCancelled}
