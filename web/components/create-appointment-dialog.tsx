@@ -470,7 +470,11 @@ export function CreateAppointmentDialog({
                       Select Patient *
                     </Label>
                     {/* Searchable patient picker (AC-5): type to filter patients by name. */}
-                    <Popover open={patientPickerOpen} onOpenChange={setPatientPickerOpen}>
+                    {/* modal: the parent Dialog is modal and disables pointer events outside its
+                        content; a non-modal Popover portals its list to <body> and inherits
+                        pointer-events:none, so suggestions can't be clicked (only keyboard-selected).
+                        modal makes the Popover manage its own pointer layer so clicks work. */}
+                    <Popover open={patientPickerOpen} onOpenChange={setPatientPickerOpen} modal>
                       <PopoverTrigger asChild>
                         <Button
                           id="patient"
@@ -550,7 +554,7 @@ export function CreateAppointmentDialog({
               {/* Date Picker */}
               <div className="space-y-2">
                 <Label className="text-sm">Date *</Label>
-                <Popover>
+                <Popover modal>
                   <PopoverTrigger asChild>
                     <Button
                       variant="outline"

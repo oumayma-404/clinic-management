@@ -409,7 +409,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                 {/* Date Picker */}
                 <div className="space-y-2">
                   <Label className="text-sm">Date *</Label>
-                  <Popover>
+                  <Popover modal>
                     <PopoverTrigger asChild>
                       <Button
                         variant="outline"
