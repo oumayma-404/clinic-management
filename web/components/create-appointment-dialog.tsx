@@ -31,7 +31,7 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { format } from "date-fns"
-import { CalendarIcon, Clock, User, Stethoscope, FileText, Check, ChevronsUpDown } from "lucide-react"
+import { CalendarIcon, Clock, User, Stethoscope, FileText, Check, ChevronsUpDown, Plus } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { appointmentsApi } from "@/lib/api/appointments"
 import { patientsApi } from "@/lib/api/patients"
@@ -40,6 +40,12 @@ import type { PatientDto, ProcedureTypeDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import { useDoctors } from "@/lib/hooks/use-doctors"
 import { useAppointmentOverlap } from "@/lib/hooks/use-appointment-overlap"
+
+// Sentinel value for the "custom procedure" option inside the procedure-type Select.
+const CUSTOM_PROCEDURE_VALUE = "__custom__"
+// Default colors for on-the-fly custom procedures — MUST be values the backend ColorHex value object
+// accepts (same curated palette as the procedure-type form). Rotated by catalog size for variety.
+const CUSTOM_PROCEDURE_COLORS = ["#4F83CC", "#2A9D8F", "#6BAA75", "#9B8EDC", "#E9A23B", "#E76F51"]
 
 interface CreateAppointmentDialogProps {
   open: boolean
@@ -69,6 +75,16 @@ export function CreateAppointmentDialog({
   const [procedureTypes, setProcedureTypes] = useState<ProcedureTypeDto[]>([])
   const [selectedProcedureTypeId, setSelectedProcedureTypeId] = useState<string | undefined>(undefined)
   const [loadingProcedureTypes, setLoadingProcedureTypes] = useState(false)
+
+  // Inline "custom procedure" creation: pick the custom option in the dropdown, enter a name (+ optional
+  // typical duration/amount); it's saved to the procedure catalog and selected. If no typical duration is
+  // given, the appointment's current duration is used; if given, the appointment duration follows it.
+  const [customProcedureMode, setCustomProcedureMode] = useState(false)
+  const [customProcedureName, setCustomProcedureName] = useState("")
+  const [customProcedureDuration, setCustomProcedureDuration] = useState("")
+  const [customProcedureCost, setCustomProcedureCost] = useState("")
+  const [creatingCustomProcedure, setCreatingCustomProcedure] = useState(false)
+  const [customProcedureError, setCustomProcedureError] = useState<string | null>(null)
 
   // Appointment details
   const [date, setDate] = useState<Date | undefined>(defaultDate || new Date())
@@ -154,6 +170,11 @@ export function CreateAppointmentDialog({
       setSelectedDoctorId("")
       setAppointmentType("")
       setSelectedProcedureTypeId(undefined)
+      setCustomProcedureMode(false)
+      setCustomProcedureName("")
+      setCustomProcedureDuration("")
+      setCustomProcedureCost("")
+      setCustomProcedureError(null)
       const initialTime = getInitialTime()
       setStartHour(initialTime.hour)
       setStartMinute(initialTime.minute)
@@ -359,6 +380,57 @@ export function CreateAppointmentDialog({
     }
   }
 
+  // Create a procedure on the fly from the custom-procedure panel, persist it to the catalog, and select
+  // it. Typical duration is optional — when omitted, the appointment's current duration is used as the
+  // procedure's default; when provided, selecting the procedure updates the appointment duration (via the
+  // procedure-selection effect, so we drop end-time mode to let the preset duration take effect).
+  const handleCreateCustomProcedure = async () => {
+    setCustomProcedureError(null)
+    const name = customProcedureName.trim()
+    if (!name) {
+      setCustomProcedureError("Le nom de la procédure est requis")
+      return
+    }
+    // Duplicate names are rejected by the backend (unique per clinic). Catch the common case up front
+    // with a clear message instead of a round-trip 400.
+    const existing = procedureTypes.find((pt) => pt.name.trim().toLowerCase() === name.toLowerCase())
+    if (existing) {
+      setCustomProcedureError(`Une procédure nommée « ${existing.name} » existe déjà. Choisissez-la dans la liste ou utilisez un autre nom.`)
+      return
+    }
+    const typedDuration = customProcedureDuration ? Number(customProcedureDuration) : NaN
+    const inferred = Number.isFinite(typedDuration) && typedDuration > 0 ? Math.floor(typedDuration) : calculatedDuration
+    const durationMinutes = Math.min(479, Math.max(1, inferred || 30))
+    const cost = customProcedureCost ? Number.parseFloat(customProcedureCost) : null
+    if (cost !== null && (Number.isNaN(cost) || cost < 0)) {
+      setCustomProcedureError("Le montant est invalide")
+      return
+    }
+
+    setCreatingCustomProcedure(true)
+    try {
+      const colorHex = CUSTOM_PROCEDURE_COLORS[procedureTypes.length % CUSTOM_PROCEDURE_COLORS.length]
+      const created = await procedureTypesApi.create({ name, defaultDurationMinutes: durationMinutes, defaultCost: cost, colorHex })
+      setProcedureTypes((prev) => [...prev, created])
+      setUseEndTime(false)
+      setSelectedProcedureTypeId(created.id)
+      setCustomProcedureMode(false)
+      setCustomProcedureName("")
+      setCustomProcedureDuration("")
+      setCustomProcedureCost("")
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : ""
+      // Backend also enforces uniqueness (e.g. an inactive procedure with the same name) — surface it in French.
+      if (/already exists|existe déjà/i.test(message)) {
+        setCustomProcedureError(`Une procédure nommée « ${name} » existe déjà. Choisissez-la dans la liste ou utilisez un autre nom.`)
+      } else {
+        setCustomProcedureError(message || "Échec de la création de la procédure")
+      }
+    } finally {
+      setCreatingCustomProcedure(false)
+    }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
@@ -390,8 +462,6 @@ export function CreateAppointmentDialog({
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-6 mt-4">
-          {error && <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-800 dark:bg-red-950 dark:border-red-800 dark:text-red-200">{error}</div>}
-
           {/* Patient Section */}
           <div className="space-y-4 p-4 rounded-lg border bg-muted/30">
             <div className="flex items-center justify-between">
@@ -411,6 +481,7 @@ export function CreateAppointmentDialog({
                       setNewPatientFirstName("")
                       setNewPatientLastName("")
                       setSelectedProcedureTypeId(undefined)
+                      setCustomProcedureMode(false)
                     }
                   }}
                 />
@@ -722,7 +793,7 @@ export function CreateAppointmentDialog({
                   onValueChange={setSelectedDoctorId}
                   disabled={loadingDoctors || loading}
                 >
-                  <SelectTrigger className="h-10" id="doctor">
+                  <SelectTrigger className="h-10 w-full" id="doctor">
                     <SelectValue placeholder={loadingDoctors ? "Loading doctors..." : doctors.length === 0 ? "No doctors found" : "Choose a doctor..."} />
                   </SelectTrigger>
                   <SelectContent className="max-h-[200px]">
@@ -744,33 +815,47 @@ export function CreateAppointmentDialog({
                   <Label htmlFor="procedureType" className="text-sm">
                     Procedure Type
                   </Label>
-                  <Select 
-                    value={selectedProcedureTypeId} 
-                    onValueChange={setSelectedProcedureTypeId}
+                  <Select
+                    value={selectedProcedureTypeId}
+                    onValueChange={(v) => {
+                      if (v === CUSTOM_PROCEDURE_VALUE) {
+                        // Open the inline creation panel instead of selecting a real procedure.
+                        setCustomProcedureMode(true)
+                        setCustomProcedureError(null)
+                      } else if (v) {
+                        // Ignore the spurious empty-string reset Radix Select fires right after a value is
+                        // set to a just-added item (before its internal collection registers it) — writing
+                        // that "" back would clear the freshly created custom procedure. Real ids are never "".
+                        setSelectedProcedureTypeId(v)
+                      }
+                    }}
                     disabled={loadingProcedureTypes}
                   >
-                    <SelectTrigger id="procedureType" className="h-10">
+                    <SelectTrigger id="procedureType" className="h-10 w-full">
                       <SelectValue placeholder={loadingProcedureTypes ? "Loading..." : "Select procedure type"} />
                     </SelectTrigger>
                     <SelectContent className="max-h-[200px]">
-                      {procedureTypes.length === 0 && !loadingProcedureTypes ? (
-                        <div className="px-2 py-1.5 text-sm text-muted-foreground">No procedure types available</div>
-                      ) : (
-                        procedureTypes.map((procedureType) => (
-                          <SelectItem key={procedureType.id} value={procedureType.id}>
-                            <div className="flex items-center gap-2">
-                              <div 
-                                className="w-3 h-3 rounded-full" 
-                                style={{ backgroundColor: procedureType.colorHex }}
-                              />
-                              {procedureType.name} ({procedureType.defaultDurationMinutes} min)
-                            </div>
-                          </SelectItem>
-                        ))
-                      )}
+                      {procedureTypes.map((procedureType) => (
+                        <SelectItem key={procedureType.id} value={procedureType.id}>
+                          <div className="flex items-center gap-2">
+                            <div
+                              className="w-3 h-3 rounded-full"
+                              style={{ backgroundColor: procedureType.colorHex }}
+                            />
+                            {procedureType.name} ({procedureType.defaultDurationMinutes} min)
+                          </div>
+                        </SelectItem>
+                      ))}
+                      <SelectItem value={CUSTOM_PROCEDURE_VALUE}>
+                        <div className="flex items-center gap-2 font-medium">
+                          <Plus className="h-3.5 w-3.5" />
+                          Procédure personnalisée…
+                        </div>
+                      </SelectItem>
                     </SelectContent>
                   </Select>
-                  {selectedProcedureTypeId && (
+
+                  {selectedProcedureTypeId && !customProcedureMode && (
                     <div className="flex items-center gap-2 mt-1">
                       <p className="text-xs text-muted-foreground">
                         Duration set to {procedureTypes.find(p => p.id === selectedProcedureTypeId)?.defaultDurationMinutes} minutes (you can change it)
@@ -786,14 +871,90 @@ export function CreateAppointmentDialog({
                       </Button>
                     </div>
                   )}
-                  {selectedProcedureTypeId && (
-                    <p className="text-xs text-muted-foreground">
-                      Duration set to {procedureTypes.find(p => p.id === selectedProcedureTypeId)?.defaultDurationMinutes} minutes (you can change it)
-                    </p>
-                  )}
                 </div>
               )}
             </div>
+
+            {/* Custom-procedure creation — full width below the row so it isn't cramped in one column. */}
+            {!isBusySlot && customProcedureMode && (
+              <div className="rounded-md border bg-background p-3 space-y-3">
+                <p className="text-sm font-medium">Nouvelle procédure personnalisée</p>
+                {customProcedureError && (
+                  <p className="text-xs text-red-600 dark:text-red-400">{customProcedureError}</p>
+                )}
+                <div className="grid gap-3 sm:grid-cols-[1fr_120px_140px]">
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Nom *</Label>
+                    <Input
+                      value={customProcedureName}
+                      onChange={(e) => setCustomProcedureName(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleCreateCustomProcedure() } }}
+                      placeholder="Nom de la procédure"
+                      className="h-9"
+                      disabled={creatingCustomProcedure}
+                      autoFocus
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Durée (min)</Label>
+                    <Input
+                      type="number"
+                      min="1"
+                      max="479"
+                      value={customProcedureDuration}
+                      onChange={(e) => setCustomProcedureDuration(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleCreateCustomProcedure() } }}
+                      placeholder="auto"
+                      className="h-9"
+                      disabled={creatingCustomProcedure}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Montant</Label>
+                    <div className="relative">
+                      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">DT</span>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={customProcedureCost}
+                        onChange={(e) => setCustomProcedureCost(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleCreateCustomProcedure() } }}
+                        placeholder="0.00"
+                        className="h-9 pl-8"
+                        disabled={creatingCustomProcedure}
+                      />
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-[11px] text-muted-foreground">
+                    Durée et montant optionnels. Sans durée, celle du rendez-vous ({calculatedDuration} min) est utilisée.
+                  </p>
+                  <div className="flex flex-shrink-0 gap-2">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8"
+                      onClick={() => { setCustomProcedureMode(false); setCustomProcedureError(null) }}
+                      disabled={creatingCustomProcedure}
+                    >
+                      Annuler
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-8"
+                      onClick={handleCreateCustomProcedure}
+                      disabled={creatingCustomProcedure}
+                    >
+                      {creatingCustomProcedure ? "Ajout…" : "Ajouter"}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Notes Section */}
@@ -809,6 +970,14 @@ export function CreateAppointmentDialog({
               className="min-h-[80px] resize-none"
             />
           </div>
+
+          {/* Validation error shown next to the submit button — the dialog is tall and scrollable, so an
+              error at the top would be off-screen when the user submits from the bottom. */}
+          {error && (
+            <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-800 dark:bg-red-950 dark:border-red-800 dark:text-red-200">
+              {error}
+            </div>
+          )}
 
           <DialogFooter className="gap-2 pt-2">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
