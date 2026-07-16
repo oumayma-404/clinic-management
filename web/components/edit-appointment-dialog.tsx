@@ -31,29 +31,19 @@ import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { format, parseISO } from "date-fns"
 import { CalendarIcon, Clock, User, Stethoscope, FileText, X, Save } from "lucide-react"
-import { cn } from "@/lib/utils"
+import { cn, parseDurationToMinutes } from "@/lib/utils"
 import { appointmentsApi } from "@/lib/api/appointments"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
 import type { AppointmentDto, ProcedureTypeDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import { useDoctors } from "@/lib/hooks/use-doctors"
+import { useAppointmentOverlap } from "@/lib/hooks/use-appointment-overlap"
 
 interface EditAppointmentDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   appointment: AppointmentDto | null
   onSuccess?: () => void
-}
-
-// Helper function to parse TimeSpan string to minutes
-function parseDurationToMinutes(duration: string): number {
-  const parts = duration.split(':')
-  if (parts.length === 3) {
-    const hours = parseInt(parts[0], 10)
-    const minutes = parseInt(parts[1], 10)
-    return hours * 60 + minutes
-  }
-  return 60 // Default to 1 hour
 }
 
 export function EditAppointmentDialog({ open, onOpenChange, appointment, onSuccess }: EditAppointmentDialogProps) {
@@ -84,6 +74,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showCancelDialog, setShowCancelDialog] = useState(false)
+  const [showPastTimeConfirm, setShowPastTimeConfirm] = useState(false)
 
   // Calculate duration from end time
   const calculatedDuration = useMemo(() => {
@@ -104,6 +95,24 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
     if (hours > 0) return `${hours}h`
     return `${mins}m`
   }, [calculatedDuration])
+
+  // Advisory overlap warning (AC-3): excludes the appointment being edited; non-blocking.
+  const overlapWarning = useAppointmentOverlap({
+    enabled: open,
+    date,
+    startHour,
+    startMinute,
+    durationMinutes: calculatedDuration,
+    excludeAppointmentId: appointment?.id,
+  })
+
+  // Build the appointment start Date from the current date + start time, or null if no date.
+  const buildAppointmentDateTime = (): Date | null => {
+    if (!date) return null
+    const dt = new Date(date)
+    dt.setHours(Number.parseInt(startHour), Number.parseInt(startMinute), 0, 0)
+    return dt
+  }
 
   // Load procedure types when dialog opens
   useEffect(() => {
@@ -200,48 +209,53 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
       setError(null)
       setUseEndTime(false)
       setShowCancelDialog(false)
+      setShowPastTimeConfirm(false)
     }
   }, [open])
 
-  const handleUpdate = async (e: React.FormEvent) => {
-    e.preventDefault()
+  // Synchronous validation; sets an error message and returns false on the first failure.
+  const validateForm = (): boolean => {
+    if (!appointment) {
+      setError("No appointment selected")
+      return false
+    }
+
+    if (useEndTime) {
+      const startTotalMinutes = Number.parseInt(startHour) * 60 + Number.parseInt(startMinute)
+      const endTotalMinutes = Number.parseInt(endHour) * 60 + Number.parseInt(endMinute)
+      if (endTotalMinutes <= startTotalMinutes) {
+        setError("End time must be after start time")
+        return false
+      }
+    }
+
+    if (calculatedDuration <= 0) {
+      setError("Duration must be greater than 0")
+      return false
+    }
+
+    if (!date) {
+      setError("Please select a date")
+      return false
+    }
+
+    return true
+  }
+
+  // Performs the actual update. Called directly, or from the past-time confirmation dialog once the
+  // user confirms (AC-2).
+  const performUpdate = async () => {
+    if (!appointment) return
     setError(null)
     setLoading(true)
 
     try {
-      if (!appointment) {
-        setError("No appointment selected")
-        setLoading(false)
-        return
-      }
-
-      // Validate time
-      if (useEndTime) {
-        const startTotalMinutes = Number.parseInt(startHour) * 60 + Number.parseInt(startMinute)
-        const endTotalMinutes = Number.parseInt(endHour) * 60 + Number.parseInt(endMinute)
-        if (endTotalMinutes <= startTotalMinutes) {
-          setError("End time must be after start time")
-          setLoading(false)
-          return
-        }
-      }
-
-      if (calculatedDuration <= 0) {
-        setError("Duration must be greater than 0")
-        setLoading(false)
-        return
-      }
-
-      // Validate date
-      if (!date) {
+      const appointmentDateTime = buildAppointmentDateTime()
+      if (!appointmentDateTime) {
         setError("Please select a date")
         setLoading(false)
         return
       }
-
-      // Build appointment date/time
-      const appointmentDateTime = new Date(date)
-      appointmentDateTime.setHours(Number.parseInt(startHour), Number.parseInt(startMinute), 0, 0)
 
       // Combine appointment type and notes
       let appointmentNotes = notes.trim()
@@ -272,6 +286,35 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
     } finally {
       setLoading(false)
     }
+  }
+
+  const handleUpdate = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError(null)
+
+    if (!validateForm()) return
+
+    // Past-time guard (AC-2): only nag when the start is *moved* to a past time. Editing an
+    // already-past appointment without changing its start does not trigger the confirmation.
+    // Compare on minute granularity: buildAppointmentDateTime zeroes seconds, so normalize
+    // originalStart (which keeps the stored seconds, e.g. from a Google-synced appointment) and
+    // floor "now" to the current minute — otherwise a no-op save on a sub-minute start would
+    // spuriously nag, and re-selecting the current minute would be treated as past.
+    const appointmentDateTime = buildAppointmentDateTime()
+    const originalStart = appointment ? parseISO(appointment.appointmentDateTime) : null
+    originalStart?.setSeconds(0, 0)
+    const nowFloored = new Date()
+    nowFloored.setSeconds(0, 0)
+    const movedToPast =
+      appointmentDateTime !== null &&
+      appointmentDateTime.getTime() < nowFloored.getTime() &&
+      (originalStart === null || appointmentDateTime.getTime() !== originalStart.getTime())
+    if (movedToPast) {
+      setShowPastTimeConfirm(true)
+      return
+    }
+
+    await performUpdate()
   }
 
   const handleCancelAppointment = async () => {
@@ -513,6 +556,11 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                   </div>
                 )}
               </div>
+
+              {/* Overlap warning (AC-3): non-blocking amber text naming the conflicting appointment. */}
+              {overlapWarning && (
+                <p className="text-sm text-amber-600 dark:text-amber-400">⚠ {overlapWarning}</p>
+              )}
             </div>
 
             {/* Additional Details Section */}
@@ -679,6 +727,30 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {loading ? "Cancelling..." : "Yes, cancel appointment"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Past-time confirmation (AC-2): only shown when the start is moved to a past time. */}
+      <AlertDialog open={showPastTimeConfirm} onOpenChange={setShowPastTimeConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Heure dans le passé</AlertDialogTitle>
+            <AlertDialogDescription>
+              L&apos;heure sélectionnée est déjà passée. Voulez-vous quand même enregistrer ce rendez-vous ?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={loading}>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setShowPastTimeConfirm(false)
+                performUpdate()
+              }}
+              disabled={loading}
+            >
+              Continuer
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

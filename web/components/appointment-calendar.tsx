@@ -6,15 +6,15 @@ import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import { ChevronLeft, ChevronRight, Calendar, Filter, CloudOff, UploadCloud } from "lucide-react"
-import { format, addDays, startOfWeek, addWeeks, subWeeks, subDays, startOfDay, endOfDay, setHours, setMinutes, isToday, isSameDay } from "date-fns"
-import { useMemo, useRef, useEffect, useState } from "react"
+import { format, addDays, startOfWeek, addWeeks, subWeeks, subDays, startOfDay, endOfDay, isToday } from "date-fns"
+import { useMemo, useRef, useEffect, useState, type CSSProperties } from "react"
 import { toast } from "sonner"
 import { useAppointments } from "@/lib/hooks/use-appointments"
 import { googleCalendarApi } from "@/lib/api/google-calendar"
 import { ApiError } from "@/lib/api/client"
 import { useConnectivity } from "@/lib/connectivity/connectivity"
 import type { AppointmentDto } from "@/lib/api/types"
-import { cn } from "@/lib/utils"
+import { cn, parseDurationToMinutes } from "@/lib/utils"
 
 // Generate all 24 hours with hourly intervals
 const generateHourlyTimeSlots = (): string[] => {
@@ -26,16 +26,10 @@ const generateHourlyTimeSlots = (): string[] => {
 }
 const timeSlots = generateHourlyTimeSlots()
 
-// Helper function to parse TimeSpan string to minutes
-function parseDurationToMinutes(duration: string): number {
-  const parts = duration.split(':')
-  if (parts.length === 3) {
-    const hours = parseInt(parts[0], 10)
-    const minutes = parseInt(parts[1], 10)
-    return hours * 60 + minutes
-  }
-  return 60 // Default to 1 hour
-}
+// Fixed pixel height of one hour row; appointment blocks are positioned/sized against it.
+const HOUR_HEIGHT = 35
+// Minimum rendered height so a very short appointment still shows the patient name legibly (AC-4).
+const MIN_APPT_HEIGHT = 20
 
 interface AppointmentCalendarProps {
   view: "day" | "week"
@@ -183,37 +177,6 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
     return { currentHour: hours, currentMinute: minutes }
   }, [currentTime])
 
-  // Auto-scroll to show 8 AM as the first visible slot on initial load
-  useEffect(() => {
-    if (!loading) {
-      const scrollTo8AM = () => {
-        if (scrollContainerRef.current) {
-          const container = scrollContainerRef.current
-          const hourHeight = 35 // height per hour slot in pixels
-          const eightAMPosition = 8 * hourHeight // Position of 8 AM slot
-          
-          // Check if content is rendered by checking if we have time slots
-          if (container.querySelector('[data-time-slot]')) {
-            container.scrollTop = eightAMPosition
-            return true
-          }
-          return false
-        }
-        return false
-      }
-      
-      // Try immediately
-      if (!scrollTo8AM()) {
-        // If not ready, try after a short delay
-        const timer = setTimeout(() => {
-          scrollTo8AM()
-        }, 150)
-        
-        return () => clearTimeout(timer)
-      }
-    }
-  }, [view, selectedDate, loading])
-
   // Check if current time is in the visible date range
   const isCurrentTimeVisible = useMemo(() => {
     const now = currentTime
@@ -229,40 +192,111 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
     }
   }, [view, selectedDate, currentTime])
 
-  // Helper to calculate appointment style (top, height) for proportional display
-  const getAppointmentStyle = (appointment: AppointmentDto, slotTime: string) => {
-    const aptStart = new Date(appointment.appointmentDateTime)
-    const aptDurationMinutes = parseDurationToMinutes(appointment.duration)
-    const [slotHour] = slotTime.split(':').map(Number)
+  // Initial scroll position (AC-1): when today falls in the visible range, center the current-time
+  // line in the viewport (Google-Calendar-like); otherwise scroll so 8 AM is at the top, as before.
+  useEffect(() => {
+    if (loading) return
 
-    const startMinutesInHour = aptStart.getMinutes()
-    const topPercentage = (startMinutesInHour / 60) * 100
-    const heightPercentage = (aptDurationMinutes / 60) * 100
+    const positionScroll = () => {
+      const container = scrollContainerRef.current
+      if (!container || !container.querySelector('[data-time-slot]')) return false
 
-    return {
-      top: `${topPercentage}%`,
-      height: `${heightPercentage}%`,
+      if (isCurrentTimeVisible) {
+        const now = new Date()
+        const currentHourSlot = `${String(now.getHours()).padStart(2, '0')}:00`
+        const slotElement = container.querySelector(`[data-time-slot="${currentHourSlot}"]`) as HTMLElement | null
+        if (slotElement) {
+          const nowPosition = slotElement.offsetTop + (now.getMinutes() / 60) * HOUR_HEIGHT
+          container.scrollTop = Math.max(0, nowPosition - container.clientHeight / 2)
+          return true
+        }
+      }
+
+      container.scrollTop = 8 * HOUR_HEIGHT // 8 AM at the top
+      return true
     }
+
+    if (!positionScroll()) {
+      const timer = setTimeout(positionScroll, 150)
+      return () => clearTimeout(timer)
+    }
+  }, [view, selectedDate, loading, isCurrentTimeVisible])
+
+  // All appointments starting on the given day (already status-filtered). Each is rendered exactly
+  // once by the overlay below (AC-4), replacing the old per-hour-slot duplication.
+  const getAppointmentsForDay = (date: Date): AppointmentDto[] => {
+    const dayStr = format(date, "yyyy-MM-dd")
+    return appointments.filter((apt) => format(new Date(apt.appointmentDateTime), "yyyy-MM-dd") === dayStr)
   }
 
-  // Helper function to get appointments that overlap with an hourly time slot
-  const getAppointmentsForHourSlot = (date: Date, hourSlot: string): AppointmentDto[] => {
-    const [slotHour] = hourSlot.split(':').map(Number)
-    const slotStart = setMinutes(setHours(date, slotHour), 0)
-    const slotEnd = setMinutes(setHours(date, slotHour), 59)
+  // Absolute left/width for a week-view day column (over the shared 60px time gutter + 7 equal columns).
+  const weekColumnStyle = (dayIndex: number): CSSProperties => ({
+    left: `calc(60px + ((100% - 60px) / 7) * ${dayIndex} + 2px)`,
+    width: `calc((100% - 60px) / 7 - 4px)`,
+  })
 
-    return appointments.filter((apt) => {
-      const aptStart = new Date(apt.appointmentDateTime)
-      const aptDuration = parseDurationToMinutes(apt.duration)
-      const aptEnd = new Date(aptStart.getTime() + aptDuration * 60000)
+  // Render an appointment as a single continuous block, positioned by its start minute and sized
+  // proportionally to its true duration, with a minimum height for legibility (AC-4). The block is an
+  // absolute child of the scroll container (like the current-time line), so it scrolls with content.
+  const renderAppointmentBlock = (appointment: AppointmentDto, positionStyle: CSSProperties) => {
+    const aptStart = new Date(appointment.appointmentDateTime)
+    const durationMinutes = parseDurationToMinutes(appointment.duration)
+    const startMinutesOfDay = aptStart.getHours() * 60 + aptStart.getMinutes()
+    const top = (startMinutesOfDay / 60) * HOUR_HEIGHT
+    const height = Math.max((durationMinutes / 60) * HOUR_HEIGHT, MIN_APPT_HEIGHT)
+    const isVerySmall = height < 30
+    const isSmall = height < 48
+    const colorStyle = getStatusColor(appointment)
 
-      const aptDateOnly = format(aptStart, "yyyy-MM-dd")
-      const slotDateOnly = format(slotStart, "yyyy-MM-dd")
-
-      return aptDateOnly === slotDateOnly &&
-             ((aptStart < slotEnd && aptEnd > slotStart) || // Overlaps
-              (format(aptStart, "HH:mm") === hourSlot && aptEnd > slotStart)) // Starts exactly at the hour
-    })
+    return (
+      <div
+        key={appointment.id}
+        className={cn(
+          "absolute z-20 rounded transition-shadow hover:shadow-md overflow-hidden flex flex-col cursor-pointer pointer-events-auto",
+          colorStyle.className,
+          isVerySmall ? "px-1 py-0" : isSmall ? "p-1" : "p-1.5",
+        )}
+        style={{ top: `${top}px`, height: `${height}px`, ...positionStyle, ...colorStyle.style }}
+        onClick={(e) => {
+          e.stopPropagation()
+          onAppointmentClick?.(appointment)
+        }}
+        title={`${appointment.patientName} · ${durationMinutes}m`}
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          <span
+            className={cn(
+              "font-semibold truncate flex-1 min-w-0",
+              isVerySmall ? "text-[10px] leading-[1.1]" : isSmall ? "text-xs leading-[1.2]" : "text-sm leading-[1.3]",
+            )}
+          >
+            {appointment.patientName}
+          </span>
+          {!isVerySmall && (
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              <Badge
+                variant="secondary"
+                className="border-0 bg-white/50 dark:bg-background/50 text-[10px] h-4 leading-none px-1.5"
+              >
+                {durationMinutes}m
+              </Badge>
+              {view === "day" && appointment.procedureTypeName && (
+                <Badge
+                  variant="secondary"
+                  className="border-0 bg-white/50 dark:bg-background/50 text-[10px] h-4 leading-none px-1.5"
+                >
+                  {appointment.procedureTypeName}
+                </Badge>
+              )}
+            </div>
+          )}
+        </div>
+        {appointment.notes && !isVerySmall && !isSmall && (
+          <div className="mt-0.5 truncate text-xs opacity-75 leading-tight flex-shrink-0">{appointment.notes}</div>
+        )}
+        {!isVerySmall && renderSyncControls(appointment)}
+      </div>
+    )
   }
 
   const getWeekDays = () => {
@@ -510,6 +544,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                   </div>
                 </>
               )}
+              {/* Hour grid: time labels + empty clickable cells (gridlines + click-to-create). */}
               <div className={cn("grid min-w-full", view === "week" ? "grid-cols-[60px_repeat(7,minmax(0,1fr))]" : "grid-cols-[60px_1fr]")}>
                 {timeSlots.map((time) => {
                   const hour = Number.parseInt(time.split(":")[0])
@@ -529,139 +564,46 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                         </span>
                       </div>
 
-                      {/* Day columns */}
+                      {/* Day columns (empty — appointments render in the overlay below) */}
                       {view === "week"
-                        ? weekDays.map((day) => {
-                            const slotAppointments = getAppointmentsForHourSlot(day, time)
-
-                            return (
-                              <div
-                                key={`${day.toISOString()}-${time}`}
-                                className={cn(
-                                  "min-h-[35px] cursor-pointer border-b border-r p-0.5 transition-colors hover:bg-blue-50/30 dark:hover:bg-muted/50 last:border-r-0 min-w-0 relative",
-                                  !isWorkingHours && "bg-gray-50/50 dark:bg-muted/30 opacity-70",
-                                )}
-                                onClick={() => !slotAppointments.length && onTimeSlotClick && onTimeSlotClick(day, time)}
-                                data-time-slot={time}
-                              >
-                                {slotAppointments.length > 0 ? (
-                                  slotAppointments.map((appointment) => {
-                                    const style = getAppointmentStyle(appointment, time)
-                                    const durationMinutes = parseDurationToMinutes(appointment.duration)
-                                    const heightPercent = parseFloat(style.height?.replace('%', '') || '100')
-                                    const isVerySmall = heightPercent < 40
-                                    const isSmall = heightPercent < 60
-                                    const colorStyle = getStatusColor(appointment)
-                                    return (
-                                      <div
-                                        key={appointment.id}
-                                        className={cn(
-                                          "absolute left-0.5 right-0.5 rounded transition-shadow hover:shadow-md overflow-hidden flex flex-col cursor-pointer",
-                                          colorStyle.className,
-                                          isVerySmall ? "p-0.5" : isSmall ? "p-1" : "p-1.5",
-                                        )}
-                                        style={{ ...style, ...colorStyle.style }}
-                                        onClick={(e) => {
-                                          e.stopPropagation()
-                                          onAppointmentClick?.(appointment)
-                                        }}
-                                      >
-                                        <div className={cn(
-                                          "truncate font-semibold flex-shrink-0",
-                                          isVerySmall ? "text-[9px] leading-[1.1]" : isSmall ? "text-[10px] leading-[1.2]" : "text-xs leading-[1.3]"
-                                        )}>
-                                          {appointment.patientName}
-                                        </div>
-                                        {appointment.notes && !isVerySmall && !isSmall && (
-                                          <div className="mt-0.5 truncate text-[10px] opacity-75 leading-tight flex-shrink-0">{appointment.notes}</div>
-                                        )}
-                                        {!isVerySmall && !isSmall && (
-                                          <Badge
-                                            variant="secondary"
-                                            className="mt-0.5 h-3 border-0 bg-white/50 dark:bg-background/50 px-1 text-[9px] font-medium leading-none flex-shrink-0"
-                                          >
-                                            {durationMinutes}m
-                                          </Badge>
-                                        )}
-                                        {!isVerySmall && renderSyncControls(appointment)}
-                                      </div>
-                                    )
-                                  })
-                                ) : null}
-                              </div>
-                            )
-                          })
-                        : (() => {
-                            const slotAppointments = getAppointmentsForHourSlot(selectedDate, time)
-                            return (
-                              <div
-                                className={cn(
-                                  "min-h-[35px] cursor-pointer border-b border-r p-1 transition-colors hover:bg-blue-50/30 dark:hover:bg-muted/50 relative",
-                                  !isWorkingHours && "bg-gray-50/50 dark:bg-muted/30 opacity-70",
-                                )}
-                                onClick={() => !slotAppointments.length && onTimeSlotClick && onTimeSlotClick(selectedDate, time)}
-                                data-time-slot={time}
-                              >
-                                {slotAppointments.length > 0 ? (
-                                  slotAppointments.map((appointment) => {
-                                    const style = getAppointmentStyle(appointment, time)
-                                    const durationMinutes = parseDurationToMinutes(appointment.duration)
-                                    const heightPercent = parseFloat(style.height?.replace('%', '') || '100')
-                                    const isVerySmall = heightPercent < 40
-                                    const isSmall = heightPercent < 60
-                                    const colorStyle = getStatusColor(appointment)
-                                    return (
-                                      <div
-                                        key={appointment.id}
-                                        className={cn(
-                                          "absolute left-1 right-1 rounded transition-shadow hover:shadow-md overflow-hidden flex flex-col cursor-pointer",
-                                          colorStyle.className,
-                                          isVerySmall ? "p-0.5" : isSmall ? "p-1" : "p-2",
-                                        )}
-                                        style={{ ...style, ...colorStyle.style }}
-                                        onClick={(e) => {
-                                          e.stopPropagation()
-                                          onAppointmentClick?.(appointment)
-                                        }}
-                                      >
-                                        {/* Patient name with labels on the right (day view only) */}
-                                        <div className={cn(
-                                          "flex items-center gap-2 flex-shrink-0",
-                                          isVerySmall ? "text-[10px] leading-[1.1]" : isSmall ? "text-xs leading-[1.2]" : "text-sm leading-[1.3]"
-                                        )}>
-                                          <span className={cn(
-                                            "font-semibold truncate flex-1 min-w-0",
-                                          )}>
-                                            {appointment.patientName}
-                                          </span>
-                                          {view === "day" && !isVerySmall && (
-                                            <div className="flex items-center gap-1.5 flex-shrink-0">
-                                              <Badge variant="secondary" className="border-0 bg-white/50 dark:bg-background/50 text-[10px] h-4 leading-none px-1.5">
-                                                {durationMinutes}m
-                                              </Badge>
-                                              {appointment.procedureTypeName && (
-                                                <Badge variant="secondary" className="border-0 bg-white/50 dark:bg-background/50 text-[10px] h-4 leading-none px-1.5">
-                                                  {appointment.procedureTypeName}
-                                                </Badge>
-                                              )}
-                                            </div>
-                                          )}
-                                        </div>
-                                        {appointment.notes && !isVerySmall && !isSmall && (
-                                          <div className="mt-0.5 truncate text-xs opacity-75 leading-tight flex-shrink-0">{appointment.notes}</div>
-                                        )}
-                                        {!isVerySmall && renderSyncControls(appointment)}
-                                      </div>
-                                    )
-                                  })
-                                ) : null}
-                              </div>
-                            )
-                          })()}
+                        ? weekDays.map((day) => (
+                            <div
+                              key={`${day.toISOString()}-${time}`}
+                              className={cn(
+                                "min-h-[35px] cursor-pointer border-b border-r transition-colors hover:bg-blue-50/30 dark:hover:bg-muted/50 last:border-r-0 min-w-0",
+                                !isWorkingHours && "bg-gray-50/50 dark:bg-muted/30 opacity-70",
+                              )}
+                              onClick={() => onTimeSlotClick?.(day, time)}
+                              data-time-slot={time}
+                            />
+                          ))
+                        : (
+                            <div
+                              className={cn(
+                                "min-h-[35px] cursor-pointer border-b border-r transition-colors hover:bg-blue-50/30 dark:hover:bg-muted/50",
+                                !isWorkingHours && "bg-gray-50/50 dark:bg-muted/30 opacity-70",
+                              )}
+                              onClick={() => onTimeSlotClick?.(selectedDate, time)}
+                              data-time-slot={time}
+                            />
+                          )}
                     </div>
                   )
                 })}
               </div>
+
+              {/* Appointment overlay (AC-4): each appointment rendered exactly once, positioned by its
+                  start minute and sized proportionally to its duration. Absolute children of the scroll
+                  container so they scroll with the grid; the empty cells above keep gridlines + clicks. */}
+              {view === "week"
+                ? weekDays.map((day, dayIndex) =>
+                    getAppointmentsForDay(day).map((appointment) =>
+                      renderAppointmentBlock(appointment, weekColumnStyle(dayIndex)),
+                    ),
+                  )
+                : getAppointmentsForDay(selectedDate).map((appointment) =>
+                    renderAppointmentBlock(appointment, { left: "64px", right: "6px" }),
+                  )}
             </div>
           )}
         </div>

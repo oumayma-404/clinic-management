@@ -10,17 +10,28 @@ import {
   DialogFooter,
   DialogDescription,
 } from "@/components/ui/dialog"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { format } from "date-fns"
-import { CalendarIcon, Clock, User, Stethoscope, FileText } from "lucide-react"
+import { CalendarIcon, Clock, User, Stethoscope, FileText, Check, ChevronsUpDown } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { appointmentsApi } from "@/lib/api/appointments"
 import { patientsApi } from "@/lib/api/patients"
@@ -28,6 +39,7 @@ import { procedureTypesApi } from "@/lib/api/procedure-types"
 import type { PatientDto, ProcedureTypeDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import { useDoctors } from "@/lib/hooks/use-doctors"
+import { useAppointmentOverlap } from "@/lib/hooks/use-appointment-overlap"
 
 interface CreateAppointmentDialogProps {
   open: boolean
@@ -102,6 +114,8 @@ export function CreateAppointmentDialog({
   const [notes, setNotes] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [patientPickerOpen, setPatientPickerOpen] = useState(false)
+  const [showPastTimeConfirm, setShowPastTimeConfirm] = useState(false)
 
   // Load patients and procedure types when dialog opens
   useEffect(() => {
@@ -149,6 +163,8 @@ export function CreateAppointmentDialog({
       setDuration("30")
       setNotes("")
       setError(null)
+      setPatientPickerOpen(false)
+      setShowPastTimeConfirm(false)
       // Reset date to defaultDate or new Date
       setDate(defaultDate || new Date())
     }
@@ -215,51 +231,72 @@ export function CreateAppointmentDialog({
     return `${mins}m`
   }, [calculatedDuration])
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  // Display name of the currently-selected patient (for the searchable picker trigger).
+  const selectedPatientName = useMemo(() => {
+    const patient = patients.find((p) => p.id === selectedPatientId)
+    return patient ? `${patient.firstName} ${patient.lastName}` : ""
+  }, [patients, selectedPatientId])
+
+  // Advisory overlap warning (AC-3): non-blocking, always visible while the dialog is open.
+  const overlapWarning = useAppointmentOverlap({
+    enabled: open,
+    date,
+    startHour,
+    startMinute,
+    durationMinutes: calculatedDuration,
+  })
+
+  // Build the appointment start Date from the current date + start time, or null if no date.
+  const buildAppointmentDateTime = (): Date | null => {
+    if (!date) return null
+    const dt = new Date(date)
+    dt.setHours(Number.parseInt(startHour), Number.parseInt(startMinute), 0, 0)
+    return dt
+  }
+
+  // Synchronous validation; sets an error message and returns false on the first failure.
+  const validateForm = (): boolean => {
+    if (!isBusySlot) {
+      if (isNewPatient) {
+        if (!newPatientFirstName.trim() || !newPatientLastName.trim()) {
+          setError("Please enter both first name and last name for the new patient")
+          return false
+        }
+      } else if (!selectedPatientId) {
+        setError("Please select a patient")
+        return false
+      }
+    }
+
+    if (!date) {
+      setError("Please select a date")
+      return false
+    }
+
+    if (useEndTime) {
+      const startTotalMinutes = Number.parseInt(startHour) * 60 + Number.parseInt(startMinute)
+      const endTotalMinutes = Number.parseInt(endHour) * 60 + Number.parseInt(endMinute)
+      if (endTotalMinutes <= startTotalMinutes) {
+        setError("End time must be after start time")
+        return false
+      }
+    }
+
+    if (calculatedDuration <= 0) {
+      setError("Duration must be greater than 0")
+      return false
+    }
+
+    return true
+  }
+
+  // Performs the actual create (patient creation + appointment). Called directly, or from the
+  // past-time confirmation dialog once the user confirms (AC-2).
+  const performCreate = async () => {
     setError(null)
     setLoading(true)
 
     try {
-      // Validate patient (only if not a busy slot)
-      if (!isBusySlot) {
-        if (isNewPatient) {
-          if (!newPatientFirstName.trim() || !newPatientLastName.trim()) {
-            setError("Please enter both first name and last name for the new patient")
-            setLoading(false)
-            return
-          }
-        } else if (!selectedPatientId) {
-          setError("Please select a patient")
-          setLoading(false)
-          return
-        }
-      }
-
-      // Validate date
-      if (!date) {
-        setError("Please select a date")
-        setLoading(false)
-        return
-      }
-
-      // Validate time
-      if (useEndTime) {
-        const startTotalMinutes = Number.parseInt(startHour) * 60 + Number.parseInt(startMinute)
-        const endTotalMinutes = Number.parseInt(endHour) * 60 + Number.parseInt(endMinute)
-        if (endTotalMinutes <= startTotalMinutes) {
-          setError("End time must be after start time")
-          setLoading(false)
-          return
-        }
-      }
-
-      if (calculatedDuration <= 0) {
-        setError("Duration must be greater than 0")
-        setLoading(false)
-        return
-      }
-
       let patientId: string | null = null
 
       // Create new patient if needed (only if not a busy slot)
@@ -284,9 +321,12 @@ export function CreateAppointmentDialog({
         }
       }
 
-      // Create appointment date time
-      const appointmentDateTime = new Date(date)
-      appointmentDateTime.setHours(Number.parseInt(startHour), Number.parseInt(startMinute), 0, 0)
+      const appointmentDateTime = buildAppointmentDateTime()
+      if (!appointmentDateTime) {
+        setError("Please select a date")
+        setLoading(false)
+        return
+      }
 
       // Combine appointment type and notes if both exist
       let appointmentNotes = notes.trim()
@@ -319,7 +359,29 @@ export function CreateAppointmentDialog({
     }
   }
 
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError(null)
+
+    if (!validateForm()) return
+
+    // Past-time guard (AC-2): warn before creating an appointment in the past; the form stays intact
+    // so the user can cancel and adjust. Confirming proceeds via performCreate(). Floor "now" to the
+    // current minute so booking the current slot (buildAppointmentDateTime zeroes seconds) isn't
+    // treated as past.
+    const appointmentDateTime = buildAppointmentDateTime()
+    const nowFloored = new Date()
+    nowFloored.setSeconds(0, 0)
+    if (appointmentDateTime && appointmentDateTime.getTime() < nowFloored.getTime()) {
+      setShowPastTimeConfirm(true)
+      return
+    }
+
+    await performCreate()
+  }
+
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
@@ -407,27 +469,61 @@ export function CreateAppointmentDialog({
                     <Label htmlFor="patient" className="text-sm">
                       Select Patient *
                     </Label>
-                    <Select 
-                      value={selectedPatientId} 
-                      onValueChange={setSelectedPatientId}
-                      disabled={loadingPatients || loading}
-                      required
-                    >
-                      <SelectTrigger id="patient" className="h-10">
-                        <SelectValue placeholder={loadingPatients ? "Loading patients..." : patients.length === 0 ? "No patients found" : "Choose a patient..."} />
-                      </SelectTrigger>
-                      <SelectContent className="max-h-[200px]">
-                        {patients.length === 0 && !loadingPatients ? (
-                          <div className="px-2 py-1.5 text-sm text-muted-foreground">No patients available</div>
-                        ) : (
-                          patients.map((patient) => (
-                            <SelectItem key={patient.id} value={patient.id}>
-                              {patient.firstName} {patient.lastName}
-                            </SelectItem>
-                          ))
-                        )}
-                      </SelectContent>
-                    </Select>
+                    {/* Searchable patient picker (AC-5): type to filter patients by name. */}
+                    <Popover open={patientPickerOpen} onOpenChange={setPatientPickerOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          id="patient"
+                          type="button"
+                          variant="outline"
+                          role="combobox"
+                          aria-expanded={patientPickerOpen}
+                          disabled={loadingPatients || loading}
+                          className="w-full h-10 justify-between font-normal"
+                        >
+                          <span className={cn("truncate", !selectedPatientId && "text-muted-foreground")}>
+                            {selectedPatientName ||
+                              (loadingPatients
+                                ? "Loading patients..."
+                                : patients.length === 0
+                                  ? "No patients found"
+                                  : "Choose a patient...")}
+                          </span>
+                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="p-0" align="start" style={{ width: "var(--radix-popover-trigger-width)" }}>
+                        <Command>
+                          <CommandInput placeholder="Rechercher un patient..." />
+                          <CommandList>
+                            <CommandEmpty>Aucun patient trouvé.</CommandEmpty>
+                            <CommandGroup>
+                              {patients.map((patient) => {
+                                const fullName = `${patient.firstName} ${patient.lastName}`
+                                return (
+                                  <CommandItem
+                                    key={patient.id}
+                                    value={fullName}
+                                    onSelect={() => {
+                                      setSelectedPatientId(patient.id)
+                                      setPatientPickerOpen(false)
+                                    }}
+                                  >
+                                    <Check
+                                      className={cn(
+                                        "mr-2 h-4 w-4",
+                                        selectedPatientId === patient.id ? "opacity-100" : "opacity-0",
+                                      )}
+                                    />
+                                    {fullName}
+                                  </CommandItem>
+                                )
+                              })}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
                     {patients.length === 0 && !loadingPatients && (
                       <p className="text-xs text-muted-foreground">Create a new patient using the toggle above</p>
                     )}
@@ -598,6 +694,11 @@ export function CreateAppointmentDialog({
                 </div>
               )}
             </div>
+
+            {/* Overlap warning (AC-3): non-blocking amber text naming the conflicting appointment. */}
+            {overlapWarning && (
+              <p className="text-sm text-amber-600 dark:text-amber-400">⚠ {overlapWarning}</p>
+            )}
           </div>
 
           {/* Additional Details Section */}
@@ -716,5 +817,30 @@ export function CreateAppointmentDialog({
         </form>
       </DialogContent>
     </Dialog>
+
+    {/* Past-time confirmation (AC-2): blocking; confirming proceeds, cancelling leaves the form intact. */}
+    <AlertDialog open={showPastTimeConfirm} onOpenChange={setShowPastTimeConfirm}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Heure dans le passé</AlertDialogTitle>
+          <AlertDialogDescription>
+            L&apos;heure sélectionnée est déjà passée. Voulez-vous quand même créer ce rendez-vous ?
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={loading}>Annuler</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={() => {
+              setShowPastTimeConfirm(false)
+              performCreate()
+            }}
+            disabled={loading}
+          >
+            Continuer
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   )
 }
