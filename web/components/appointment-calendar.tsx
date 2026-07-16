@@ -243,11 +243,76 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
     return appointments.filter((apt) => format(new Date(apt.appointmentDateTime), "yyyy-MM-dd") === dayStr)
   }
 
-  // Absolute left/width for a week-view day column (over the shared 60px time gutter + 7 equal columns).
-  const weekColumnStyle = (dayIndex: number): CSSProperties => ({
-    left: `calc(60px + ((100% - 60px) / 7) * ${dayIndex} + 2px)`,
-    width: `calc((100% - 60px) / 7 - 4px)`,
-  })
+  // Horizontal band (as CSS calc expressions, without the wrapping `calc()`) for a day's appointment
+  // column. Day view uses the full width right of the 60px time gutter; week view uses one of 7 equal
+  // day columns. `laneStyle` splits this band into side-by-side lanes when appointments overlap.
+  const dayBandLeftExpr = "64px"
+  const dayBandWidthExpr = "100% - 70px"
+  const weekBandLeftExpr = (dayIndex: number) => `60px + ((100% - 60px) / 7) * ${dayIndex} + 2px`
+  const weekBandWidthExpr = `(100% - 60px) / 7 - 4px`
+
+  // Split a day's column band into `colCount` equal side-by-side lanes; `colCount === 1` fills the band.
+  const laneStyle = (leftExpr: string, widthExpr: string, colIndex: number, colCount: number): CSSProperties => {
+    if (colCount <= 1) {
+      return { left: `calc(${leftExpr})`, width: `calc(${widthExpr})` }
+    }
+    return {
+      left: `calc((${leftExpr}) + (${widthExpr}) * ${colIndex} / ${colCount})`,
+      width: `calc((${widthExpr}) / ${colCount} - 2px)`,
+    }
+  }
+
+  // Assign overlapping appointments to side-by-side columns (Google-Calendar style) so simultaneous
+  // appointments share the slot width instead of stacking on top of each other. Appointments are packed
+  // into the first free column (a column frees once its last appointment ends); each cluster of
+  // chain-overlapping appointments gets `colCount` = the max columns it ever needed, so widths are
+  // consistent within the cluster. Works for any number of overlaps. Non-overlapping appointments get
+  // `colCount === 1` (full width). Order of the returned lanes is irrelevant (absolute-positioned).
+  type AppointmentLane = { appointment: AppointmentDto; colIndex: number; colCount: number }
+  const computeOverlapLanes = (dayAppointments: AppointmentDto[]): AppointmentLane[] => {
+    const items = dayAppointments
+      .map((a) => {
+        const start = new Date(a.appointmentDateTime)
+        const startMin = start.getHours() * 60 + start.getMinutes()
+        const endMin = startMin + Math.max(parseDurationToMinutes(a.duration), 1)
+        return { appointment: a, startMin, endMin }
+      })
+      .sort((x, y) => x.startMin - y.startMin || x.endMin - y.endMin)
+
+    const lanes: AppointmentLane[] = []
+    let cluster: { appointment: AppointmentDto; startMin: number; endMin: number }[] = []
+    let colEnds: number[] = []
+    const colOf = new Map<AppointmentDto, number>()
+    let clusterMaxEnd = -1
+
+    const flush = () => {
+      const colCount = colEnds.length
+      for (const it of cluster) {
+        lanes.push({ appointment: it.appointment, colIndex: colOf.get(it.appointment) ?? 0, colCount })
+      }
+      cluster = []
+      colEnds = []
+      colOf.clear()
+      clusterMaxEnd = -1
+    }
+
+    for (const it of items) {
+      // A gap with no active appointment closes the current cluster.
+      if (cluster.length > 0 && it.startMin >= clusterMaxEnd) flush()
+      let col = colEnds.findIndex((end) => end <= it.startMin)
+      if (col === -1) {
+        col = colEnds.length
+        colEnds.push(it.endMin)
+      } else {
+        colEnds[col] = it.endMin
+      }
+      colOf.set(it.appointment, col)
+      cluster.push(it)
+      clusterMaxEnd = Math.max(clusterMaxEnd, it.endMin)
+    }
+    flush()
+    return lanes
+  }
 
   // Render an appointment as a single continuous block, positioned by its start minute and sized
   // proportionally to its true duration, with a minimum height for legibility (AC-4). The block is an
@@ -722,12 +787,18 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                   container so they scroll with the grid; the empty cells above keep gridlines + clicks. */}
               {view === "week"
                 ? weekDays.map((day, dayIndex) =>
-                    getAppointmentsForDay(day).map((appointment) =>
-                      renderAppointmentBlock(appointment, weekColumnStyle(dayIndex)),
+                    computeOverlapLanes(getAppointmentsForDay(day)).map(({ appointment, colIndex, colCount }) =>
+                      renderAppointmentBlock(
+                        appointment,
+                        laneStyle(weekBandLeftExpr(dayIndex), weekBandWidthExpr, colIndex, colCount),
+                      ),
                     ),
                   )
-                : getAppointmentsForDay(selectedDate).map((appointment) =>
-                    renderAppointmentBlock(appointment, { left: "64px", right: "6px" }),
+                : computeOverlapLanes(getAppointmentsForDay(selectedDate)).map(({ appointment, colIndex, colCount }) =>
+                    renderAppointmentBlock(
+                      appointment,
+                      laneStyle(dayBandLeftExpr, dayBandWidthExpr, colIndex, colCount),
+                    ),
                   )}
             </div>
           )}
