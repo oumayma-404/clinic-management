@@ -580,7 +580,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                     onValueChange={setSelectedDoctorId}
                     disabled={loadingDoctors || loading}
                   >
-                    <SelectTrigger className="h-10" id="doctor">
+                    <SelectTrigger className="h-10 w-full" id="doctor">
                       <SelectValue placeholder={loadingDoctors ? "Loading doctors..." : doctors.length === 0 ? "No doctors found" : "Choose a doctor..."} />
                     </SelectTrigger>
                     <SelectContent className="max-h-[200px]">
@@ -606,7 +606,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                     onValueChange={setSelectedProcedureTypeId}
                     disabled={loadingProcedureTypes || loading}
                   >
-                    <SelectTrigger id="procedureType" className="h-10">
+                    <SelectTrigger id="procedureType" className="h-10 w-full">
                       <SelectValue placeholder={loadingProcedureTypes ? "Loading..." : "Select procedure type"} />
                     </SelectTrigger>
                     <SelectContent className="max-h-[200px]">
