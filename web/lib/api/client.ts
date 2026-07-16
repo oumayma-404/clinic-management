@@ -16,14 +16,22 @@ async function handleResponse<T>(response: Response): Promise<T> {
     let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
     try {
       const errorData = await response.json();
-      if (errorData.title || errorData.message) {
-        errorMessage = errorData.title || errorData.message;
-      }
-      if (errorData.errors) {
-        const validationErrors = Object.entries(errorData.errors)
-          .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : value}`)
-          .join('; ');
-        errorMessage = `${errorMessage} - ${validationErrors}`;
+      // Some endpoints return the failure reason as a bare JSON string (e.g. BadRequest(result.Error)).
+      // Surface it instead of falling back to the generic "HTTP 400: ..." message.
+      if (typeof errorData === 'string') {
+        if (errorData.trim()) {
+          errorMessage = errorData;
+        }
+      } else if (errorData) {
+        if (errorData.title || errorData.message) {
+          errorMessage = errorData.title || errorData.message;
+        }
+        if (errorData.errors) {
+          const validationErrors = Object.entries(errorData.errors)
+            .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : value}`)
+            .join('; ');
+          errorMessage = `${errorMessage} - ${validationErrors}`;
+        }
       }
     } catch {
       // If response is not JSON, use status text
