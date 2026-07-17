@@ -27,6 +27,7 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
     private readonly IClinicContext _clinicContext;
     private readonly IUnitOfWork _unitOfWork;
     private readonly INotificationGenerator _notificationGenerator;
+    private readonly IReminderScheduler _reminderScheduler;
 
     public CreateAppointmentCommandHandler(
         IAppointmentRepository appointmentRepository,
@@ -35,7 +36,8 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
         IUserRepository userRepository,
         IClinicContext clinicContext,
         IUnitOfWork unitOfWork,
-        INotificationGenerator notificationGenerator)
+        INotificationGenerator notificationGenerator,
+        IReminderScheduler reminderScheduler)
     {
         _appointmentRepository = appointmentRepository;
         _patientRepository = patientRepository;
@@ -44,6 +46,7 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
         _clinicContext = clinicContext;
         _unitOfWork = unitOfWork;
         _notificationGenerator = notificationGenerator;
+        _reminderScheduler = reminderScheduler;
     }
 
     public async Task<Result<AppointmentDto>> Handle(CreateAppointmentCommand request, CancellationToken cancellationToken)
@@ -140,6 +143,11 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
                 await _notificationGenerator.EnsurePostVisitReviewAsync(
                     clinicId, appointment.Id, appointment.DoctorId, patientName,
                     appointment.AppointmentDateTime + appointment.Duration, cancellationToken);
+
+                // Outbound SMS/WhatsApp reminder(s): enqueued to the Notification outbox per configured
+                // channel, sent later by the connectivity-gated dispatcher. Best-effort, never fails create.
+                await _reminderScheduler.ScheduleForAppointmentAsync(
+                    clinicId, appointment.Id, patient.Id, patientName, appointment.AppointmentDateTime, cancellationToken);
             }
 
             var dto = new AppointmentDto

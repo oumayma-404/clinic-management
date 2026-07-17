@@ -10,6 +10,7 @@ public interface INotificationRepository
     Task<IEnumerable<Notification>> GetByAppointmentIdAsync(Guid appointmentId, CancellationToken cancellationToken = default);
     Task<Notification> AddAsync(Notification notification, CancellationToken cancellationToken = default);
     Task UpdateAsync(Notification notification, CancellationToken cancellationToken = default);
+    Task RemoveAsync(Notification notification, CancellationToken cancellationToken = default);
 }
 
 

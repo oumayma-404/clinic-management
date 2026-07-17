@@ -30,6 +30,7 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
     private readonly IUnitOfWork _unitOfWork;
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly INotificationGenerator _notificationGenerator;
+    private readonly IReminderScheduler _reminderScheduler;
     private readonly ILogger<UpdateAppointmentCommandHandler> _logger;
 
     public UpdateAppointmentCommandHandler(
@@ -40,6 +41,7 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
         IUnitOfWork unitOfWork,
         IServiceScopeFactory serviceScopeFactory,
         INotificationGenerator notificationGenerator,
+        IReminderScheduler reminderScheduler,
         ILogger<UpdateAppointmentCommandHandler> logger)
     {
         _appointmentRepository = appointmentRepository;
@@ -49,6 +51,7 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
         _unitOfWork = unitOfWork;
         _serviceScopeFactory = serviceScopeFactory;
         _notificationGenerator = notificationGenerator;
+        _reminderScheduler = reminderScheduler;
         _logger = logger;
     }
 
@@ -267,6 +270,27 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                     await _notificationGenerator.EnsurePostVisitReviewAsync(
                         appointment.ClinicId, appointment.Id, appointment.DoctorId, patientName,
                         appointment.AppointmentDateTime + appointment.Duration, cancellationToken);
+                }
+
+                // Outbound SMS/WhatsApp reminders mirror the branches above: void unsent reminders on
+                // cancel/no-show, void + re-enqueue on a reschedule (date change), and re-enqueue on
+                // reactivation (the cancel had already voided them). Best-effort, never fails the update.
+                var patientId = appointment.PatientId.Value;
+                if (becameCancelled || appointment.Status == AppointmentStatus.NoShow)
+                {
+                    await _reminderScheduler.VoidForAppointmentAsync(appointment.Id, cancellationToken);
+                }
+                else if (dateChanged)
+                {
+                    await _reminderScheduler.RescheduleForAppointmentAsync(
+                        appointment.ClinicId, appointment.Id, patientId, patientName,
+                        appointment.AppointmentDateTime, cancellationToken);
+                }
+                else if (becameReactivated)
+                {
+                    await _reminderScheduler.ScheduleForAppointmentAsync(
+                        appointment.ClinicId, appointment.Id, patientId, patientName,
+                        appointment.AppointmentDateTime, cancellationToken);
                 }
             }
 
