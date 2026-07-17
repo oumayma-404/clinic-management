@@ -50,6 +50,10 @@ public static class Extensions
         services.AddMemoryCache();
         services.AddSingleton<IInternetProbe, InternetProbe>();
 
+        // CNAM dental nomenclature — static, in-code reference data (no DB). Singleton: immutable and
+        // shared across clinics. Backs GET /api/cnam-nomenclature (the bulletin acts-table lookup).
+        services.AddSingleton<ICnamNomenclatureProvider, CnamNomenclatureProvider>();
+
         // File storage base path (used by the Local-mode disk backend below). Resolved against the install
         // directory (R-6) so it is stable whether launched from a console or as a Windows service.
         var fileStoragePath = LocalInstallPaths.Resolve(configuration["FileStorage:BasePath"] ?? "Files");

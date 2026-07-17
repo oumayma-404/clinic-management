@@ -15,6 +15,7 @@ public class Patient : AggregateRoot<Guid>
     public PhoneNumber PhoneNumber { get; private set; }
     public Address? Address { get; private set; }
     public InsuranceInfo? InsuranceInfo { get; private set; }
+    public CnamInfo? CnamInfo { get; private set; }
     public string? MedicalHistory { get; private set; }
     public string? Allergies { get; private set; }
     public string? EmergencyContactName { get; private set; }
@@ -88,6 +89,13 @@ public class Patient : AggregateRoot<Guid>
     public void UpdateInsuranceInfo(InsuranceInfo? insuranceInfo)
     {
         InsuranceInfo = insuranceInfo;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    // A null (or all-empty) CnamInfo clears the stored CNAM identity — mirrors UpdateInsuranceInfo.
+    public void UpdateCnamInfo(CnamInfo? cnamInfo)
+    {
+        CnamInfo = cnamInfo is { IsEmpty: true } ? null : cnamInfo;
         UpdatedAt = DateTime.UtcNow;
     }
 

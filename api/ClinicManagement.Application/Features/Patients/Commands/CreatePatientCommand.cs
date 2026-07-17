@@ -20,6 +20,7 @@ public class CreatePatientCommand : IRequest<Result<PatientDto>>
     public string? Allergies { get; set; }
     public AddressDto? Address { get; set; }
     public InsuranceInfoDto? InsuranceInfo { get; set; }
+    public CnamInfoDto? CnamInfo { get; set; }
     public List<MedicalHistoryEntryDto>? MedicalHistoryEntries { get; set; }
     public List<FamilyHistoryEntryDto>? FamilyHistoryEntries { get; set; }
 }
@@ -143,6 +144,9 @@ public class CreatePatientCommandHandler : IRequestHandler<CreatePatientCommand,
                 patient.UpdateMedicalHistory(request.MedicalHistory, request.Allergies);
             }
 
+            // Optional CNAM identity (ToDomain returns null for an omitted/empty block).
+            patient.UpdateCnamInfo(request.CnamInfo.ToDomain());
+
             await _patientRepository.AddAsync(patient, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -229,6 +233,8 @@ public class CreatePatientCommandHandler : IRequestHandler<CreatePatientCommand,
                     ExpiryDate = patient.InsuranceInfo.ExpiryDate
                 };
             }
+
+            dto.CnamInfo = patient.CnamInfo.ToDto();
 
             return Result<PatientDto>.Success(dto);
         }

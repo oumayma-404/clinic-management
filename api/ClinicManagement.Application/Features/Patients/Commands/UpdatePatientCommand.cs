@@ -19,6 +19,7 @@ public class UpdatePatientCommand : IRequest<Result<PatientDto>>
     public string? PhoneNumber { get; set; }
     public AddressDto? Address { get; set; }
     public InsuranceInfoDto? InsuranceInfo { get; set; }
+    public CnamInfoDto? CnamInfo { get; set; }
     public string? MedicalHistory { get; set; }
     public string? Allergies { get; set; }
 }
@@ -121,6 +122,13 @@ public class UpdatePatientCommandHandler : IRequestHandler<UpdatePatientCommand,
                 patient.UpdateInsuranceInfo(null);
             }
 
+            // CNAM identity. Unlike insurance, a null/omitted block LEAVES it unchanged (DEV-1) — the edit
+            // dialog always sends a present block, so a present-but-empty block still clears the stored value.
+            if (request.CnamInfo != null)
+            {
+                patient.UpdateCnamInfo(request.CnamInfo.ToDomain());
+            }
+
             // Update medical history if provided
             if (request.MedicalHistory != null || request.Allergies != null)
             {
@@ -163,6 +171,7 @@ public class UpdatePatientCommandHandler : IRequestHandler<UpdatePatientCommand,
                     GroupNumber = patient.InsuranceInfo.GroupNumber,
                     ExpiryDate = patient.InsuranceInfo.ExpiryDate
                 } : null,
+                CnamInfo = patient.CnamInfo.ToDto(),
                 Flags = patient.Flags.Select(f => new PatientFlagDto
                 {
                     Id = f.Id,

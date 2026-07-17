@@ -39,6 +39,9 @@ public class DoctorConfiguration : IEntityTypeConfiguration<Doctor>
         builder.Property(d => d.UserId)
             .HasMaxLength(200);
 
+        builder.Property(d => d.CodeProfessionnelSante)
+            .HasMaxLength(50);
+
         builder.Property(d => d.CreatedAt)
             .IsRequired();
 

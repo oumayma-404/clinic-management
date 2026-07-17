@@ -1,0 +1,163 @@
+using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.Features.Patients.Commands;
+using ClinicManagement.Domain.Entities;
+using ClinicManagement.Domain.Enums;
+using ClinicManagement.Domain.Repositories;
+using ClinicManagement.Domain.ValueObjects;
+using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
+using Xunit;
+
+namespace ClinicManagement.UnitTests.Features.Patients;
+
+/// <summary>
+/// The post-visit completion side-effect on dental-record creation (feature
+/// <c>post-visit-review-patient-record</c>, AC-3..AC-7): a <see cref="CreateDentalRecordCommand"/> that
+/// carries an <c>AppointmentId</c> completes the documented appointment and clears its pending review —
+/// best-effort and post-commit, mirroring <c>CreateMedicalDocumentCommand</c>. Without an
+/// <c>AppointmentId</c> the flow is byte-for-byte the old behaviour (AC-6).
+/// The <see cref="Appointment.MarkVisitCompleted"/> domain transition itself is covered by
+/// <c>PostVisitReviewCompletionTests</c>; here we exercise the handler's orchestration.
+/// </summary>
+public class DentalRecordPostVisitCompletionTests
+{
+    private static readonly Guid ClinicId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+    private static readonly Guid OtherClinicId = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+
+    private static Patient PatientIn(Guid clinicId) => new(
+        Guid.NewGuid(), clinicId, "Jean", "Dupont",
+        new DateTime(1990, 1, 1, 0, 0, 0, DateTimeKind.Utc), "M",
+        new Email("jean.dupont@example.com"), new PhoneNumber("+21620123456"));
+
+    private sealed class DentalHarness
+    {
+        public Mock<IPatientRepository> Patients { get; } = new();
+        public Mock<IDentalRecordRepository> Records { get; } = new();
+        public Mock<IAppointmentRepository> Appointments { get; } = new();
+        public Mock<ICurrentClinicResolver> Resolver { get; } = new();
+        public Mock<INotificationGenerator> Generator { get; } = new();
+        public Mock<IRealtimeNotifier> Realtime { get; } = new();
+        public Mock<IUnitOfWork> Uow { get; } = new();
+        public Patient Patient { get; }
+
+        public DentalHarness()
+        {
+            Patient = PatientIn(ClinicId);
+            Patients.Setup(r => r.GetByIdAsync(Patient.Id, It.IsAny<CancellationToken>())).ReturnsAsync(Patient);
+            Resolver.Setup(r => r.GetClinicIdAsync(It.IsAny<CancellationToken>()))
+                .ReturnsAsync(Result<Guid>.Success(ClinicId));
+            Uow.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
+        }
+
+        public CreateDentalRecordCommandHandler Handler() =>
+            new(Patients.Object, Records.Object, Appointments.Object, Resolver.Object,
+                Generator.Object, Realtime.Object, Uow.Object,
+                NullLogger<CreateDentalRecordCommandHandler>.Instance);
+
+        public CreateDentalRecordCommand Command(Guid? appointmentId) => new()
+        {
+            PatientId = Patient.Id,
+            InterventionDate = DateTime.UtcNow,
+            ProcedureType = "Détartrage",
+            Cost = 120m,
+            AmountPaid = 120m,
+            IsAdultTeeth = true,
+            ToothNumbers = new(),
+            Notes = new(),
+            ImportantNotes = new(),
+            AppointmentId = appointmentId
+        };
+    }
+
+    // [AC-3 / AC-7] A record carrying an AppointmentId completes the (active) appointment, clears its review,
+    // and broadcasts "appointments" so calendar/appointment views refetch the now-Completed status.
+    [Fact]
+    public async Task Create_With_AppointmentId_Completes_Appointment_And_Cancels_Review()
+    {
+        var h = new DentalHarness();
+        var appt = new Appointment(Guid.NewGuid(), ClinicId, h.Patient.Id, null, DateTime.UtcNow, TimeSpan.FromMinutes(30));
+        h.Appointments.Setup(r => r.GetByIdAsync(appt.Id, It.IsAny<CancellationToken>())).ReturnsAsync(appt);
+
+        var result = await h.Handler().Handle(h.Command(appt.Id), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(AppointmentStatus.Completed, appt.Status); // persisted via EF change tracking (no explicit UpdateAsync)
+        h.Generator.Verify(g => g.CancelPostVisitReviewAsync(ClinicId, appt.Id, It.IsAny<CancellationToken>()), Times.Once);
+        h.Realtime.Verify(r => r.NotifyEntityChangedAsync(ClinicId, "appointments", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    // [AC-5] A cross-clinic appointment is left untouched (silent no-op); the record still succeeds.
+    [Fact]
+    public async Task Create_With_CrossClinic_AppointmentId_Leaves_It_Unchanged()
+    {
+        var h = new DentalHarness();
+        var appt = new Appointment(Guid.NewGuid(), OtherClinicId, h.Patient.Id, null, DateTime.UtcNow, TimeSpan.FromMinutes(30));
+        h.Appointments.Setup(r => r.GetByIdAsync(appt.Id, It.IsAny<CancellationToken>())).ReturnsAsync(appt);
+
+        var result = await h.Handler().Handle(h.Command(appt.Id), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(AppointmentStatus.Scheduled, appt.Status);
+        h.Generator.Verify(g => g.CancelPostVisitReviewAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+        h.Realtime.Verify(r => r.NotifyEntityChangedAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    // [AC-5] An unknown appointment id (not found) is a silent no-op; the record still succeeds.
+    [Fact]
+    public async Task Create_With_Unknown_AppointmentId_Is_No_Op()
+    {
+        var h = new DentalHarness();
+        var appointmentId = Guid.NewGuid();
+        h.Appointments.Setup(r => r.GetByIdAsync(appointmentId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Appointment?)null);
+
+        var result = await h.Handler().Handle(h.Command(appointmentId), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        h.Generator.Verify(g => g.CancelPostVisitReviewAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+        h.Realtime.Verify(r => r.NotifyEntityChangedAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    // [AC-6] Without an AppointmentId the completion side-effect never runs — the normal "Add Record" flow is unchanged.
+    [Fact]
+    public async Task Create_Without_AppointmentId_Runs_No_Completion_SideEffect()
+    {
+        var h = new DentalHarness();
+
+        var result = await h.Handler().Handle(h.Command(null), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        h.Appointments.Verify(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+        h.Generator.Verify(g => g.CancelPostVisitReviewAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+        h.Realtime.Verify(r => r.NotifyEntityChangedAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    // [AC-4] A failure inside the completion side-effect must NOT fail the (already committed) record creation.
+    [Fact]
+    public async Task Create_Succeeds_Even_If_Completion_SideEffect_Throws()
+    {
+        var h = new DentalHarness();
+        var appointmentId = Guid.NewGuid();
+        h.Appointments.Setup(r => r.GetByIdAsync(appointmentId, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("db down"));
+
+        var result = await h.Handler().Handle(h.Command(appointmentId), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+    }
+
+    // [AC-3] The created record echoes its AppointmentId back in the DTO.
+    [Fact]
+    public async Task Create_With_AppointmentId_Echoes_It_In_The_Dto()
+    {
+        var h = new DentalHarness();
+        var appt = new Appointment(Guid.NewGuid(), ClinicId, h.Patient.Id, null, DateTime.UtcNow, TimeSpan.FromMinutes(30));
+        h.Appointments.Setup(r => r.GetByIdAsync(appt.Id, It.IsAny<CancellationToken>())).ReturnsAsync(appt);
+
+        var result = await h.Handler().Handle(h.Command(appt.Id), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(appt.Id, result.Value!.AppointmentId);
+    }
+}

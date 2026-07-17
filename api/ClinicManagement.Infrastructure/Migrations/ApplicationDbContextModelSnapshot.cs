@@ -237,6 +237,10 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<Guid>("ClinicId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("CodeProfessionnelSante")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -1287,6 +1291,59 @@ namespace ClinicManagement.Infrastructure.Migrations
                                 .HasForeignKey("PatientId");
                         });
 
+                    b.OwnsOne("ClinicManagement.Domain.ValueObjects.CnamInfo", "CnamInfo", b1 =>
+                        {
+                            b1.Property<Guid>("PatientId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<string>("AssureAddress")
+                                .HasMaxLength(300)
+                                .HasColumnType("character varying(300)")
+                                .HasColumnName("CnamAssureAddress");
+
+                            b1.Property<string>("AssureFirstName")
+                                .HasMaxLength(100)
+                                .HasColumnType("character varying(100)")
+                                .HasColumnName("CnamAssureFirstName");
+
+                            b1.Property<string>("AssureLastName")
+                                .HasMaxLength(100)
+                                .HasColumnType("character varying(100)")
+                                .HasColumnName("CnamAssureLastName");
+
+                            b1.Property<string>("AssurePostalCode")
+                                .HasMaxLength(20)
+                                .HasColumnType("character varying(20)")
+                                .HasColumnName("CnamAssurePostalCode");
+
+                            b1.Property<string>("IdentifiantUnique")
+                                .HasMaxLength(50)
+                                .HasColumnType("character varying(50)")
+                                .HasColumnName("CnamIdentifiantUnique");
+
+                            b1.Property<string>("MaladeLien")
+                                .HasMaxLength(50)
+                                .HasColumnType("character varying(50)")
+                                .HasColumnName("CnamMaladeLien");
+
+                            b1.Property<string>("MaladeLienRang")
+                                .HasMaxLength(50)
+                                .HasColumnType("character varying(50)")
+                                .HasColumnName("CnamMaladeLienRang");
+
+                            b1.Property<string>("Regime")
+                                .HasMaxLength(50)
+                                .HasColumnType("character varying(50)")
+                                .HasColumnName("CnamRegime");
+
+                            b1.HasKey("PatientId");
+
+                            b1.ToTable("Patients");
+
+                            b1.WithOwner()
+                                .HasForeignKey("PatientId");
+                        });
+
                     b.OwnsOne("ClinicManagement.Domain.ValueObjects.InsuranceInfo", "InsuranceInfo", b1 =>
                         {
                             b1.Property<Guid>("PatientId")
@@ -1327,6 +1384,8 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                     b.Navigation("Email")
                         .IsRequired();
+
+                    b.Navigation("CnamInfo");
 
                     b.Navigation("EmergencyContactPhone");
 

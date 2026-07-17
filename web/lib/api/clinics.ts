@@ -24,6 +24,7 @@ export interface DoctorDto {
   specialty: string;
   phone?: string;
   email?: string;
+  codeProfessionnelSante?: string | null;
 }
 
 export interface UserStatusDto {

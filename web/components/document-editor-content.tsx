@@ -9,6 +9,7 @@ import { Card } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import { Printer, RotateCcw, Save, Search, ArrowLeft, FileText, Download, Loader2, Plus, X } from "lucide-react"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useRouter, useParams, useSearchParams } from "next/navigation"
 import { patientsApi } from "@/lib/api/patients"
@@ -16,7 +17,9 @@ import { appointmentsApi } from "@/lib/api/appointments"
 import { medicalDocumentsApi } from "@/lib/api/medical-documents"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
 import { clinicsApi } from "@/lib/api/clinics"
-import type { PatientDto, MedicalDocumentDto, ProcedureTypeDto } from "@/lib/api/types"
+import { dentalRecordsApi } from "@/lib/api/dental-records"
+import { cnamNomenclatureApi, estimateReimbursement } from "@/lib/api/cnam-nomenclature"
+import type { PatientDto, MedicalDocumentDto, ProcedureTypeDto, DentalRecordDto, CnamNomenclatureEntryDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import { useDoctors } from "@/lib/hooks/use-doctors"
 import { format, parseISO } from "date-fns"
@@ -300,6 +303,18 @@ export function DocumentEditorContent() {
   const [availableProcedures, setAvailableProcedures] = useState<ProcedureTypeDto[]>([])
   const [loadingProcedures, setLoadingProcedures] = useState(false)
 
+  // Bulletin de soins CNAM (BS1) — care type + acts table (pre-filled from the patient's dental records).
+  const [bulletinFields, setBulletinFields] = useState<{
+    careType: string
+    apciCode: string
+    actsFrom: string
+    actsTo: string
+    acts: Array<{ date: string; teeth: string; codeActe: string; cotation: string; honoraires: string }>
+  }>({ careType: "APCI", apciCode: "", actsFrom: "", actsTo: "", acts: [] })
+  const [dentalRecords, setDentalRecords] = useState<DentalRecordDto[]>([])
+  const [cnamNomenclature, setCnamNomenclature] = useState<CnamNomenclatureEntryDto[]>([])
+  const [openActLookup, setOpenActLookup] = useState<number | null>(null)
+
   const documentRef = useRef<HTMLDivElement>(null)
 
   // Load clinic and doctor info
@@ -497,6 +512,23 @@ export function DocumentEditorContent() {
             doctorOrderNumber: content.doctorOrderNumber || "",
             startDate: content.startDate || "",
           })
+
+          // Bulletin CNAM: restore care type + acts (acts stored as a JSON string in ContentJson).
+          if (documentType === "bulletin-cnam") {
+            let parsedActs: Array<{ date: string; teeth: string; codeActe: string; cotation: string; honoraires: string }> = []
+            try {
+              parsedActs = typeof content.acts === "string" ? JSON.parse(content.acts) : (Array.isArray(content.acts) ? content.acts : [])
+            } catch {
+              parsedActs = []
+            }
+            setBulletinFields({
+              careType: content.careType || "APCI",
+              apciCode: content.apciCode || "",
+              actsFrom: "",
+              actsTo: "",
+              acts: Array.isArray(parsedActs) ? parsedActs : [],
+            })
+          }
         } catch (error) {
           console.error("Failed to load document for editing:", error)
           toast.error("Échec du chargement du document", {
@@ -522,6 +554,39 @@ export function DocumentEditorContent() {
     }
   }, [formFields.procedures, documentType, formFields.totalCost])
 
+  // Load the selected patient's dental records — the source for pre-filling the CNAM bulletin acts table.
+  useEffect(() => {
+    if (documentType !== "bulletin-cnam" || !selectedPatient) {
+      setDentalRecords([])
+      return
+    }
+    let cancelled = false
+    ;(async () => {
+      try {
+        const records = await dentalRecordsApi.list(selectedPatient)
+        if (!cancelled) setDentalRecords(records)
+      } catch {
+        if (!cancelled) setDentalRecords([])
+      }
+    })()
+    return () => { cancelled = true }
+  }, [documentType, selectedPatient])
+
+  // Load the curated CNAM nomenclature once when editing a bulletin (full list; searched client-side).
+  useEffect(() => {
+    if (documentType !== "bulletin-cnam") return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const entries = await cnamNomenclatureApi.list()
+        if (!cancelled) setCnamNomenclature(entries)
+      } catch {
+        if (!cancelled) setCnamNomenclature([])
+      }
+    })()
+    return () => { cancelled = true }
+  }, [documentType])
+
   const resetForm = () => {
     setSelectedPatient("")
     setSelectedRecipientDoctorId("")
@@ -538,6 +603,81 @@ export function DocumentEditorContent() {
     doctorOrderNumber: "", // Numéro d'ordre des médecins
     startDate: "", // Date de début du repos médical
   })
+    setBulletinFields({ careType: "APCI", apciCode: "", actsFrom: "", actsTo: "", acts: [] })
+  }
+
+  // ---- CNAM bulletin helpers ----
+  // Pre-fill the acts table from the patient's dental records within the chosen date range. Code acte +
+  // Cotation are left blank for the doctor to fill (or pick from the nomenclature); honoraires = record cost.
+  const prefillActsFromRecords = () => {
+    const from = bulletinFields.actsFrom ? new Date(bulletinFields.actsFrom) : null
+    const to = bulletinFields.actsTo ? new Date(bulletinFields.actsTo) : null
+    const inRange = dentalRecords.filter((r) => {
+      if (!r.interventionDate) return true
+      const d = new Date(r.interventionDate)
+      if (from && d < from) return false
+      if (to && d > to) return false
+      return true
+    })
+    const acts = inRange.map((r) => ({
+      date: r.interventionDate ? r.interventionDate.split("T")[0] : "",
+      teeth: (r.toothNumbers || []).join(", "),
+      codeActe: "",
+      cotation: "",
+      honoraires: r.cost != null ? r.cost.toFixed(3) : "",
+    }))
+    setBulletinFields((prev) => ({ ...prev, acts }))
+  }
+
+  const updateBulletinAct = (
+    index: number,
+    field: "date" | "teeth" | "codeActe" | "cotation" | "honoraires",
+    value: string,
+  ) => {
+    setBulletinFields((prev) => ({
+      ...prev,
+      acts: prev.acts.map((act, i) => (i === index ? { ...act, [field]: value } : act)),
+    }))
+  }
+
+  // Pick a catalog act: fills Code acte + Cotation ("<lettreCle> <coefficient>"). Both stay editable.
+  const selectNomenclatureEntry = (index: number, entry: CnamNomenclatureEntryDto) => {
+    setBulletinFields((prev) => ({
+      ...prev,
+      acts: prev.acts.map((act, i) =>
+        i === index ? { ...act, codeActe: entry.codeActe, cotation: `${entry.lettreCle} ${entry.coefficient}` } : act,
+      ),
+    }))
+    setOpenActLookup(null)
+  }
+
+  // Indicative reimbursement total (catalog-backed acts only). Editor-only — never persisted / never on the PDF.
+  const bulletinEstimateTotal = bulletinFields.acts.reduce((sum, act) => {
+    const e = estimateReimbursement(act.cotation, bulletinFields.careType)
+    return e != null ? sum + e : sum
+  }, 0)
+  const hasAnyBulletinEstimate = bulletinFields.acts.some(
+    (act) => estimateReimbursement(act.cotation, bulletinFields.careType) != null,
+  )
+
+  // Shared bulletin ContentJson (also the PDF data). When the malade is the insured, the assuré identity
+  // defaults to the patient's own name (spec edge case — no double entry).
+  const buildBulletinContent = (patient: PatientDto): Record<string, string> => {
+    const cnam = patient.cnamInfo
+    const isSelf = (cnam?.maladeLien || "") === "Assuré lui-même"
+    return {
+      careType: bulletinFields.careType,
+      apciCode: bulletinFields.apciCode || "",
+      acts: JSON.stringify(bulletinFields.acts),
+      identifiantUnique: cnam?.identifiantUnique || "",
+      regime: cnam?.regime || "",
+      assureFirstName: (isSelf ? patient.firstName : cnam?.assureFirstName) || "",
+      assureLastName: (isSelf ? patient.lastName : cnam?.assureLastName) || "",
+      assureAddress: cnam?.assureAddress || "",
+      assurePostalCode: cnam?.assurePostalCode || "",
+      maladeLien: cnam?.maladeLien || "",
+      maladeLienRang: cnam?.maladeLienRang || "",
+    }
   }
 
   // Build structured document data for PDF generation
@@ -569,6 +709,8 @@ export function DocumentEditorContent() {
       if (patientData?.dateOfBirth) {
         content.patientDateOfBirth = patientData.dateOfBirth;
       }
+    } else if (documentType === "bulletin-cnam") {
+      Object.assign(content, buildBulletinContent(patientData));
     }
 
     // Format patient date of birth for PDF
@@ -1071,6 +1213,8 @@ export function DocumentEditorContent() {
         content.reason = formFields.reason
         content.duration = formFields.duration
         content.notes = formFields.notes
+      } else if (documentType === "bulletin-cnam") {
+        Object.assign(content, buildBulletinContent(patientData))
       }
 
       const contentJson = JSON.stringify(content)
@@ -1153,6 +1297,8 @@ export function DocumentEditorContent() {
         return "Note d'honoraires"
       case "certificat":
         return "Certificat médical"
+      case "bulletin-cnam":
+        return "Bulletin de soins CNAM"
       default:
         return "Document"
     }
@@ -1499,6 +1645,120 @@ export function DocumentEditorContent() {
               </>
             )}
 
+            {documentType === "bulletin-cnam" && (
+              <div className="space-y-5">
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold text-foreground">Type de prise en charge</Label>
+                  <Select value={bulletinFields.careType} onValueChange={(v) => setBulletinFields((p) => ({ ...p, careType: v }))}>
+                    <SelectTrigger className="h-11 w-full"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="APCI">APCI (affection prise en charge intégralement)</SelectItem>
+                      <SelectItem value="MO">Maladie ordinaire (MO)</SelectItem>
+                      <SelectItem value="Hospitalisation">Hospitalisation</SelectItem>
+                      <SelectItem value="Suivi de grossesse">Suivi de grossesse</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {bulletinFields.careType === "APCI" && (
+                  <div className="space-y-2">
+                    <Label htmlFor="apciCode" className="text-sm font-semibold text-foreground">Code APCI</Label>
+                    <Input id="apciCode" value={bulletinFields.apciCode} onChange={(e) => setBulletinFields((p) => ({ ...p, apciCode: e.target.value }))} className="h-11" placeholder="Ex: 12" />
+                  </div>
+                )}
+
+                <div className="space-y-3">
+                  <Label className="text-sm font-semibold text-foreground">Actes (depuis les soins dentaires)</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="flex flex-col gap-1">
+                      <Label className="text-xs text-muted-foreground">Du</Label>
+                      <Input type="date" value={bulletinFields.actsFrom} onChange={(e) => setBulletinFields((p) => ({ ...p, actsFrom: e.target.value }))} className="h-10" />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <Label className="text-xs text-muted-foreground">Au</Label>
+                      <Input type="date" value={bulletinFields.actsTo} onChange={(e) => setBulletinFields((p) => ({ ...p, actsTo: e.target.value }))} className="h-10" />
+                    </div>
+                  </div>
+                  <Button type="button" variant="outline" size="sm" className="w-full" onClick={prefillActsFromRecords} disabled={!selectedPatient || dentalRecords.length === 0}>
+                    <Search className="w-4 h-4 mr-2" />
+                    Pré-remplir depuis les soins ({dentalRecords.length})
+                  </Button>
+
+                  {bulletinFields.acts.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-4">Aucun acte. Pré-remplissez depuis les soins ou ajoutez une ligne.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {bulletinFields.acts.map((act, index) => {
+                        const actEstimate = estimateReimbursement(act.cotation, bulletinFields.careType)
+                        return (
+                        <div key={index} className="p-3 border rounded-lg space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-medium text-muted-foreground">Acte {index + 1}</span>
+                            <Button type="button" variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setBulletinFields((p) => ({ ...p, acts: p.acts.filter((_, i) => i !== index) }))}>
+                              <X className="w-4 h-4" />
+                            </Button>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <Input type="date" value={act.date} onChange={(e) => updateBulletinAct(index, "date", e.target.value)} className="h-9 text-sm" />
+                            <Input placeholder="Dent(s)" value={act.teeth} onChange={(e) => updateBulletinAct(index, "teeth", e.target.value)} className="h-9 text-sm" />
+                            <div className="col-span-2 flex gap-2">
+                              <Input placeholder="Code acte" value={act.codeActe} onChange={(e) => updateBulletinAct(index, "codeActe", e.target.value)} className="h-9 text-sm flex-1" />
+                              <Popover open={openActLookup === index} onOpenChange={(o) => setOpenActLookup(o ? index : null)} modal>
+                                <PopoverTrigger asChild>
+                                  <Button type="button" variant="outline" size="sm" className="h-9 px-3 shrink-0" title="Rechercher un acte CNAM">
+                                    <Search className="w-4 h-4" />
+                                    <span className="sr-only">Rechercher un acte CNAM</span>
+                                  </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="p-0 w-80" align="end">
+                                  <Command>
+                                    <CommandInput placeholder="Rechercher un acte CNAM..." />
+                                    <CommandList>
+                                      <CommandEmpty>Aucun acte trouvé.</CommandEmpty>
+                                      <CommandGroup>
+                                        {cnamNomenclature.map((entry) => (
+                                          <CommandItem key={entry.codeActe} value={`${entry.codeActe} ${entry.designationFr} ${entry.lettreCle}`} onSelect={() => selectNomenclatureEntry(index, entry)}>
+                                            <div className="flex flex-col">
+                                              <span className="text-sm font-medium">{entry.designationFr}</span>
+                                              <span className="text-xs text-muted-foreground">{entry.codeActe} · {entry.lettreCle} {entry.coefficient} · {entry.category}</span>
+                                            </div>
+                                          </CommandItem>
+                                        ))}
+                                      </CommandGroup>
+                                    </CommandList>
+                                  </Command>
+                                </PopoverContent>
+                              </Popover>
+                            </div>
+                            <Input placeholder="Cotation" value={act.cotation} onChange={(e) => updateBulletinAct(index, "cotation", e.target.value)} className="h-9 text-sm" />
+                            <Input placeholder="Honoraires (TND)" value={act.honoraires} onChange={(e) => updateBulletinAct(index, "honoraires", e.target.value)} className="h-9 text-sm" />
+                          </div>
+                          {actEstimate != null && (
+                            <p className="text-xs text-muted-foreground">Remb. indicatif&nbsp;: <span className="font-medium text-foreground">{actEstimate.toFixed(3)} TND</span></p>
+                          )}
+                        </div>
+                        )
+                      })}
+                    </div>
+                  )}
+
+                  <Button type="button" variant="outline" size="sm" className="w-full" onClick={() => setBulletinFields((p) => ({ ...p, acts: [...p.acts, { date: "", teeth: "", codeActe: "", cotation: "", honoraires: "" }] }))}>
+                    <Plus className="w-4 h-4 mr-2" />
+                    Ajouter un acte
+                  </Button>
+
+                  {hasAnyBulletinEstimate && (
+                    <div className="rounded-lg border border-dashed p-3 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium text-foreground">Remboursement indicatif (total)</span>
+                        <span className="text-sm font-semibold text-foreground">{bulletinEstimateTotal.toFixed(3)} TND</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">Estimation indicative — montant réel fixé par la CNAM.{bulletinFields.careType === "APCI" ? " Taux APCI (100%)." : " Taux standard."}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             <Separator />
 
             {/* Actions */}
@@ -1777,6 +2037,45 @@ export function DocumentEditorContent() {
                             : "[date]"}
                         </span> Ce certificat est délivré à la demande de l'intéressé(e) pour servir et valoir ce que de droit.
                       </p>
+                    </div>
+                  )}
+
+                  {documentType === "bulletin-cnam" && (
+                    <div style={{ fontSize: '11pt' }} className="space-y-3">
+                      <p className="font-semibold text-center" style={{ fontSize: '13pt' }}>BULLETIN DE SOINS CNAM (BS1)</p>
+                      <p>
+                        <span className="font-semibold">Prise en charge :</span> {bulletinFields.careType}
+                        {bulletinFields.careType === "APCI" && bulletinFields.apciCode ? ` — code ${bulletinFields.apciCode}` : ""}
+                      </p>
+                      {patientData?.cnamInfo?.identifiantUnique && (
+                        <p><span className="font-semibold">Identifiant unique :</span> {patientData.cnamInfo.identifiantUnique}</p>
+                      )}
+                      <table className="w-full border-collapse" style={{ fontSize: '10pt' }}>
+                        <thead>
+                          <tr>
+                            <th className="border p-1 text-left">Date</th>
+                            <th className="border p-1 text-left">Dent(s)</th>
+                            <th className="border p-1 text-left">Code acte</th>
+                            <th className="border p-1 text-left">Cotation</th>
+                            <th className="border p-1 text-right">Honoraires</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {bulletinFields.acts.length === 0 ? (
+                            <tr><td className="border p-2 text-center text-muted-foreground" colSpan={5}>Aucun acte</td></tr>
+                          ) : (
+                            bulletinFields.acts.map((act, idx) => (
+                              <tr key={idx}>
+                                <td className="border p-1">{act.date || "—"}</td>
+                                <td className="border p-1">{act.teeth || "—"}</td>
+                                <td className="border p-1">{act.codeActe || "—"}</td>
+                                <td className="border p-1">{act.cotation || "—"}</td>
+                                <td className="border p-1 text-right">{act.honoraires || "—"}</td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
                     </div>
                   )}
                 </div>

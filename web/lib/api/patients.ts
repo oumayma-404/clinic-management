@@ -32,6 +32,16 @@ export const patientsApi = {
       groupNumber?: string;
       expiryDate?: string;
     };
+    cnamInfo?: {
+      identifiantUnique?: string | null;
+      regime?: string | null;
+      assureFirstName?: string | null;
+      assureLastName?: string | null;
+      assureAddress?: string | null;
+      assurePostalCode?: string | null;
+      maladeLien?: string | null;
+      maladeLienRang?: string | null;
+    };
     medicalHistoryEntries?: Array<{
       description: string;
       date?: string;

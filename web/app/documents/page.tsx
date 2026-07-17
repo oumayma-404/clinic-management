@@ -45,6 +45,14 @@ const documentTemplates = [
     color: "text-purple-600 dark:text-purple-400",
     bgColor: "bg-gradient-to-br from-purple-500 to-purple-600",
   },
+  {
+    type: "bulletin-cnam",
+    title: "Bulletin de soins CNAM",
+    description: "Bulletin de remboursement des frais de soins (BS1) à déposer à la CNAM",
+    icon: FileText,
+    color: "text-rose-600 dark:text-rose-400",
+    bgColor: "bg-gradient-to-br from-rose-500 to-rose-600",
+  },
 ]
 
 const getDocumentTypeName = (type: string) => {
@@ -53,6 +61,7 @@ const getDocumentTypeName = (type: string) => {
     liaison: "Lettre de liaison",
     honoraires: "Note d'honoraires",
     certificat: "Certificat médical",
+    "bulletin-cnam": "Bulletin de soins CNAM",
   }
   return names[type] || type
 }

@@ -21,5 +21,6 @@ public class DoctorDto
     public string Specialty { get; set; } = string.Empty;
     public string? Phone { get; set; }
     public string? Email { get; set; }
+    public string? CodeProfessionnelSante { get; set; } // CNAM provider code (prints on the bulletin)
 }
 

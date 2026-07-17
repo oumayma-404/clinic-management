@@ -64,7 +64,8 @@ public class GetUserStatusQueryHandler : IRequestHandler<GetUserStatusQuery, Res
                 LastName = d.LastName,
                 Specialty = d.Specialty,
                 Phone = d.Phone,
-                Email = d.Email
+                Email = d.Email,
+                CodeProfessionnelSante = d.CodeProfessionnelSante
             }).ToList();
             
             var dto = new UserStatusDto

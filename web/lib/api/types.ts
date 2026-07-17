@@ -113,6 +113,28 @@ export interface AppointmentDto {
   isSyncedToGoogle: boolean;
 }
 
+// Optional CNAM identity block on a patient (spec AC-1). Every field is optional.
+export interface CnamInfo {
+  identifiantUnique?: string | null;
+  regime?: string | null;
+  assureFirstName?: string | null;
+  assureLastName?: string | null;
+  assureAddress?: string | null;
+  assurePostalCode?: string | null;
+  maladeLien?: string | null;
+  maladeLienRang?: string | null;
+}
+
+// A CNAM dental nomenclature entry (static reference data from GET /api/cnam-nomenclature).
+// Used by the bulletin editor to fill Code acte + Cotation and compute an indicative estimate.
+export interface CnamNomenclatureEntryDto {
+  codeActe: string;
+  designationFr: string;
+  lettreCle: string;
+  coefficient: number;
+  category: string;
+}
+
 export interface PatientDto {
   id: string;
   firstName: string;
@@ -138,6 +160,7 @@ export interface PatientDto {
     groupNumber?: string;
     expiryDate?: string;
   };
+  cnamInfo?: CnamInfo | null;
   flags?: Array<{
     id: string;
     flagType: string;

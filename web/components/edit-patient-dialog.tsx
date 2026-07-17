@@ -74,6 +74,12 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
   const [insuranceNumber, setInsuranceNumber] = useState("")
   const [policyHolder, setPolicyHolder] = useState("")
 
+  // CNAM identity (optional — pre-fills the Bulletin de soins BS1).
+  const [cnam, setCnam] = useState({
+    identifiantUnique: "", regime: "", assureFirstName: "", assureLastName: "",
+    assureAddress: "", assurePostalCode: "", maladeLien: "", maladeLienRang: "",
+  })
+
   // Flags State
   const [flagged, setFlagged] = useState(false)
   const [flagNotes, setFlagNotes] = useState("")
@@ -111,6 +117,18 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
       setInsuranceNumber(patient.insuranceInfo?.policyNumber || "")
       setPolicyHolder(patient.insuranceInfo?.groupNumber || "")
 
+      // CNAM identity
+      setCnam({
+        identifiantUnique: patient.cnamInfo?.identifiantUnique || "",
+        regime: patient.cnamInfo?.regime || "",
+        assureFirstName: patient.cnamInfo?.assureFirstName || "",
+        assureLastName: patient.cnamInfo?.assureLastName || "",
+        assureAddress: patient.cnamInfo?.assureAddress || "",
+        assurePostalCode: patient.cnamInfo?.assurePostalCode || "",
+        maladeLien: patient.cnamInfo?.maladeLien || "",
+        maladeLienRang: patient.cnamInfo?.maladeLienRang || "",
+      })
+
       // Medical info - parse from strings
       setAllergies(patient.allergies || "")
       setChronicDiseases(patient.medicalHistory || "")
@@ -146,6 +164,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
         setAllergies("")
         setInsuranceProvider("")
         setInsuranceNumber("")
+        setCnam({ identifiantUnique: "", regime: "", assureFirstName: "", assureLastName: "", assureAddress: "", assurePostalCode: "", maladeLien: "", maladeLienRang: "" })
         setPolicyHolder("")
         setFlagged(false)
         setFlagNotes("")
@@ -359,6 +378,16 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
             policyNumber: insuranceNumber.trim() || "Unknown",
             groupNumber: policyHolder.trim() || undefined,
           } : undefined,
+          cnamInfo: {
+            identifiantUnique: cnam.identifiantUnique.trim() || null,
+            regime: cnam.regime.trim() || null,
+            assureFirstName: cnam.assureFirstName.trim() || null,
+            assureLastName: cnam.assureLastName.trim() || null,
+            assureAddress: cnam.assureAddress.trim() || null,
+            assurePostalCode: cnam.assurePostalCode.trim() || null,
+            maladeLien: cnam.maladeLien.trim() || null,
+            maladeLienRang: cnam.maladeLienRang.trim() || null,
+          },
         }
 
         await patientsApi.update(patient.id, updateData)
@@ -443,6 +472,16 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
             policyNumber: insuranceNumber.trim() || "Unknown",
             groupNumber: policyHolder.trim() || undefined,
           } : undefined,
+          cnamInfo: {
+            identifiantUnique: cnam.identifiantUnique.trim() || null,
+            regime: cnam.regime.trim() || null,
+            assureFirstName: cnam.assureFirstName.trim() || null,
+            assureLastName: cnam.assureLastName.trim() || null,
+            assureAddress: cnam.assureAddress.trim() || null,
+            assurePostalCode: cnam.assurePostalCode.trim() || null,
+            maladeLien: cnam.maladeLien.trim() || null,
+            maladeLienRang: cnam.maladeLienRang.trim() || null,
+          },
           medicalHistoryEntries: medicalHistoryEntriesToSend.length > 0 ? medicalHistoryEntriesToSend : undefined,
           familyHistoryEntries: familyHistoryEntriesToSend.length > 0 ? familyHistoryEntriesToSend : undefined,
         })
@@ -812,6 +851,63 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                       ))}
                     </div>
                   )}
+                </div>
+              </div>
+            </div>
+
+            {/* CNAM Identity Section */}
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 pb-2">
+                <CreditCard className="h-5 w-5 text-primary" />
+                <h3 className="text-lg font-semibold">Identité CNAM</h3>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 rounded-lg border bg-muted/30">
+                <div className="space-y-2">
+                  <Label htmlFor="cnamIdentifiant">Identifiant Unique</Label>
+                  <Input id="cnamIdentifiant" value={cnam.identifiantUnique} onChange={(e) => setCnam({ ...cnam, identifiantUnique: e.target.value })} placeholder="Ex: 12345678" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="cnamRegime">Régime</Label>
+                  <Select value={cnam.regime || undefined} onValueChange={(v) => setCnam({ ...cnam, regime: v })}>
+                    <SelectTrigger id="cnamRegime"><SelectValue placeholder="Choisir…" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="CNSS">CNSS</SelectItem>
+                      <SelectItem value="CNRPS">CNRPS</SelectItem>
+                      <SelectItem value="Convention bilatérale">Convention bilatérale</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="cnamMaladeLien">Lien du malade à l'assuré</Label>
+                  <Select value={cnam.maladeLien || undefined} onValueChange={(v) => setCnam({ ...cnam, maladeLien: v })}>
+                    <SelectTrigger id="cnamMaladeLien"><SelectValue placeholder="Choisir…" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Assuré lui-même">Assuré lui-même</SelectItem>
+                      <SelectItem value="Conjoint">Conjoint</SelectItem>
+                      <SelectItem value="Enfant">Enfant</SelectItem>
+                      <SelectItem value="Ascendant">Ascendant</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="cnamRang">Rang enfant / Père-Mère (ascendant)</Label>
+                  <Input id="cnamRang" value={cnam.maladeLienRang} onChange={(e) => setCnam({ ...cnam, maladeLienRang: e.target.value })} placeholder="Ex: 1 — ou père/mère" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="cnamAssureFirst">Prénom de l'assuré</Label>
+                  <Input id="cnamAssureFirst" value={cnam.assureFirstName} onChange={(e) => setCnam({ ...cnam, assureFirstName: e.target.value })} placeholder="Si différent du patient" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="cnamAssureLast">Nom de l'assuré</Label>
+                  <Input id="cnamAssureLast" value={cnam.assureLastName} onChange={(e) => setCnam({ ...cnam, assureLastName: e.target.value })} placeholder="Si différent du patient" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="cnamAssureAddr">Adresse de l'assuré</Label>
+                  <Input id="cnamAssureAddr" value={cnam.assureAddress} onChange={(e) => setCnam({ ...cnam, assureAddress: e.target.value })} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="cnamAssureCp">Code postal de l'assuré</Label>
+                  <Input id="cnamAssureCp" value={cnam.assurePostalCode} onChange={(e) => setCnam({ ...cnam, assurePostalCode: e.target.value })} />
                 </div>
               </div>
             </div>

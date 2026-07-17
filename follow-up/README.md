@@ -1,0 +1,34 @@
+# Follow-up Items
+
+Track incomplete work, bugs, and technical debt across all features.
+
+## Open Items
+
+| Item | Feature | Type | Priority | Created |
+|------|---------|------|----------|---------|
+| [Verify/regenerate the CNAM EF migration with the EF tool](./cnam-migration-ef-verify.md) | cnam-bulletin-soins | debt | high | 2026-07-17 |
+| [Validate & correct the BS1 PDF against the official form](./cnam-bs1-pdf-fidelity.md) | cnam-bulletin-soins | incomplete | high | 2026-07-17 |
+| [Admin editing of CNAM nomenclature + reimbursement rates](./cnam-nomenclature-admin-editing.md) | cnam-nomenclature-lookup | enhancement | medium | 2026-07-17 |
+| [Prosthesis (Prothèses dentaires) flow on the bulletin](./cnam-prosthesis-flow.md) | cnam-bulletin-soins | enhancement | medium | 2026-07-17 |
+| [BS1 bulletin lifecycle status tracking](./cnam-bulletin-lifecycle-status.md) | cnam-bulletin-soins | enhancement | medium | 2026-07-17 |
+| [CNAM identity backfill for existing patients](./cnam-identity-backfill.md) | cnam-bulletin-soins | enhancement | low | 2026-07-17 |
+| [Complete bilingual FR/AR labels (CNAM UI + PDF)](./cnam-bilingual-fr-ar.md) | cnam-bulletin-soins | enhancement | low | 2026-07-17 |
+| [Conventionné pathway: bordereau + télétransmission](./cnam-conventionne-bordereau.md) | cnam-bulletin-soins | enhancement | low | 2026-07-17 |
+
+## Completed Items
+
+| Item | Feature | Type | Completed |
+|------|---------|------|-----------|
+
+## How to Work on These
+
+Start a fresh session and say:
+```
+Work on follow-up: follow-up/[item].md
+```
+(or run `/follow` and pick the item). Claude reads the context and continues from where you left off.
+
+> These items were consciously scoped out of the CNAM bulletin work (see
+> `features/cnam-bulletin-soins/spec.md` and `features/cnam-nomenclature-lookup/spec.md` — "Out of Scope").
+> Roughly ordered: the two **high** items are pre-merge / correctness; the **medium** items are the next
+> feature increments; the **low** items are polish or pathway-dependent (bordereau is conventionné-only).

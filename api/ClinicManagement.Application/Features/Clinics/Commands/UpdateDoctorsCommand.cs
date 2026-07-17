@@ -76,7 +76,7 @@ public class UpdateDoctorsCommandHandler : IRequestHandler<UpdateDoctorsCommand,
                         var firstName = doctorDto.FirstName ?? (doctorDto.Name?.Split(' ', 2)[0] ?? "");
                         var lastName = doctorDto.LastName ?? (doctorDto.Name?.Split(' ', 2).Length > 1 ? doctorDto.Name.Split(' ', 2)[1] : "");
                         
-                        existingDoctor.Update(firstName, lastName, doctorDto.Specialty, doctorDto.Phone, doctorDto.Email);
+                        existingDoctor.Update(firstName, lastName, doctorDto.Specialty, doctorDto.Phone, doctorDto.Email, doctorDto.CodeProfessionnelSante);
                         _doctorRepository.Update(existingDoctor);
                         doctorIdsToKeep.Add(existingDoctor.Id);
                     }
@@ -113,7 +113,8 @@ public class UpdateDoctorsCommandHandler : IRequestHandler<UpdateDoctorsCommand,
                         lastName,
                         doctorDto.Specialty,
                         doctorDto.Phone,
-                        doctorDto.Email);
+                        doctorDto.Email,
+                        doctorDto.CodeProfessionnelSante);
                     await _doctorRepository.AddAsync(newDoctor, cancellationToken);
                     doctorIdsToKeep.Add(newDoctor.Id);
                 }
@@ -138,7 +139,8 @@ public class UpdateDoctorsCommandHandler : IRequestHandler<UpdateDoctorsCommand,
                 LastName = d.LastName,
                 Specialty = d.Specialty,
                 Phone = d.Phone,
-                Email = d.Email
+                Email = d.Email,
+                CodeProfessionnelSante = d.CodeProfessionnelSante
             }).ToList();
 
             return Result<List<DoctorDto>>.Success(doctorDtos);

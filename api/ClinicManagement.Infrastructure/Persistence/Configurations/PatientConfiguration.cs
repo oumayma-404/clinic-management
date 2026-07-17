@@ -65,6 +65,20 @@ public class PatientConfiguration : IEntityTypeConfiguration<Patient>
             insurance.Property(i => i.ExpiryDate).HasColumnName("InsuranceExpiryDate");
         });
 
+        // Optional CNAM identity (spec AC-1) — owned, all columns nullable. An all-null owned instance
+        // reads back as a null navigation, i.e. "no CNAM identity", which is exactly the desired behavior.
+        builder.OwnsOne(p => p.CnamInfo, cnam =>
+        {
+            cnam.Property(c => c.IdentifiantUnique).HasColumnName("CnamIdentifiantUnique").HasMaxLength(50);
+            cnam.Property(c => c.Regime).HasColumnName("CnamRegime").HasMaxLength(50);
+            cnam.Property(c => c.AssureFirstName).HasColumnName("CnamAssureFirstName").HasMaxLength(100);
+            cnam.Property(c => c.AssureLastName).HasColumnName("CnamAssureLastName").HasMaxLength(100);
+            cnam.Property(c => c.AssureAddress).HasColumnName("CnamAssureAddress").HasMaxLength(300);
+            cnam.Property(c => c.AssurePostalCode).HasColumnName("CnamAssurePostalCode").HasMaxLength(20);
+            cnam.Property(c => c.MaladeLien).HasColumnName("CnamMaladeLien").HasMaxLength(50);
+            cnam.Property(c => c.MaladeLienRang).HasColumnName("CnamMaladeLienRang").HasMaxLength(50);
+        });
+
         builder.Property(p => p.MedicalHistory)
             .HasColumnType("text");
 

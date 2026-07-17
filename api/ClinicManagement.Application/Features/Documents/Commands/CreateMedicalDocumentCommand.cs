@@ -272,6 +272,7 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
             "liaison" => "lettre-de-liaison",
             "honoraires" => "note-d-honoraires",
             "certificat" => "certificat-medical",
+            "bulletin-cnam" => "bulletin-de-soins-cnam",
             _ => documentType.ToLowerInvariant()
         };
     }

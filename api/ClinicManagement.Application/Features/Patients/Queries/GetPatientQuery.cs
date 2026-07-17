@@ -108,6 +108,8 @@ public class GetPatientQueryHandler : IRequestHandler<GetPatientQuery, Result<Pa
             };
         }
 
+        dto.CnamInfo = patient.CnamInfo.ToDto();
+
         return Result<PatientDto>.Success(dto);
         }
         catch (Exception ex)

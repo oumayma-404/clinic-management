@@ -16,6 +16,7 @@ public class PatientDto
     public string? EmergencyContactPhone { get; set; }
     public AddressDto? Address { get; set; }
     public InsuranceInfoDto? InsuranceInfo { get; set; }
+    public CnamInfoDto? CnamInfo { get; set; }
     public List<PatientFlagDto> Flags { get; set; } = new();
     public DateTime CreatedAt { get; set; }
 }

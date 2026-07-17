@@ -78,6 +78,7 @@ interface Doctor {
   specialty: string
   phone?: string
   email?: string
+  codeProfessionnelSante?: string
 }
 
 interface WorkingHoursInput {
@@ -207,6 +208,7 @@ export default function ClinicSettings() {
               specialty: d.specialty,
               phone: d.phone || "",
               email: d.email || "",
+              codeProfessionnelSante: d.codeProfessionnelSante || "",
             })),
           )
         }
@@ -362,6 +364,9 @@ export default function ClinicSettings() {
           if (d.email?.trim()) {
             doctor.email = d.email.trim()
           }
+          if (d.codeProfessionnelSante?.trim()) {
+            doctor.codeProfessionnelSante = d.codeProfessionnelSante.trim()
+          }
 
           return doctor
         })
@@ -383,6 +388,7 @@ export default function ClinicSettings() {
           specialty: d.specialty,
           phone: d.phone || "",
           email: d.email || "",
+          codeProfessionnelSante: d.codeProfessionnelSante || "",
         })),
       )
 
@@ -795,6 +801,15 @@ export default function ClinicSettings() {
                             type="email"
                             value={doctor.email || ""}
                             onChange={(e) => updateDoctor(doctor.id, "email", e.target.value)}
+                            disabled={!isEditingDoctors}
+                            className="h-7 text-sm"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">Code prof. santé (CNAM)</Label>
+                          <Input
+                            value={doctor.codeProfessionnelSante || ""}
+                            onChange={(e) => updateDoctor(doctor.id, "codeProfessionnelSante", e.target.value)}
                             disabled={!isEditingDoctors}
                             className="h-7 text-sm"
                           />
