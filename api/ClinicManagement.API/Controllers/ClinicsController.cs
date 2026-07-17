@@ -229,6 +229,44 @@ public class ClinicsController : ApiControllerBase
     }
 
     /// <summary>
+    /// Get the current clinic's reminder settings (admin-only, AC-1). Secret-masked — never returns the
+    /// stored SMS API key / WhatsApp access token, only per-secret configured flags.
+    /// </summary>
+    [HttpGet("reminder-settings")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<IActionResult> GetReminderSettings(CancellationToken cancellationToken = default)
+    {
+        var result = await _mediator.Send(new GetClinicReminderSettingsQuery(), cancellationToken);
+
+        if (!result.IsSuccess)
+        {
+            return BadRequest(result);
+        }
+
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Update the current clinic's reminder settings (admin-only, AC-2). Secrets are write-only — an
+    /// omitted/blank secret leaves the stored value unchanged; a provided one is encrypted and replaces it.
+    /// </summary>
+    [HttpPut("reminder-settings")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<IActionResult> UpdateReminderSettings(
+        [FromBody] UpdateReminderSettingsRequest request, CancellationToken cancellationToken = default)
+    {
+        var command = new UpdateClinicReminderSettingsCommand { Settings = request };
+        var result = await _mediator.Send(command, cancellationToken);
+
+        if (!result.IsSuccess)
+        {
+            return BadRequest(result);
+        }
+
+        return Ok(result);
+    }
+
+    /// <summary>
     /// Download clinic logo
     /// </summary>
     [HttpGet("logo")]

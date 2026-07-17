@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Domain.Enums;
 
 namespace ClinicManagement.Infrastructure.Services;
@@ -26,11 +27,14 @@ public sealed record ReminderSendResult(ReminderSendOutcome Outcome, string? Err
 /// <summary>
 /// Channel-generic sender for one reminder message. Implementations are matched to a reminder row by their
 /// <see cref="Channel"/> (the row's <c>NotificationType</c>). The phone is already normalized to E.164 and
-/// the message is pre-rendered by the enqueuer; a sender only performs the outbound call.
+/// the message is pre-rendered by the enqueuer; a sender only performs the outbound call, reading its endpoint,
+/// sender identity, secret and template from the <paramref name="settings"/> resolved for the row's clinic
+/// (per-clinic override or the per-install fallback) — never from config directly.
 /// </summary>
 public interface IReminderChannelSender
 {
     NotificationType Channel { get; }
 
-    Task<ReminderSendResult> SendAsync(string phoneE164, string message, CancellationToken cancellationToken = default);
+    Task<ReminderSendResult> SendAsync(
+        string phoneE164, string message, ResolvedReminderSettings settings, CancellationToken cancellationToken = default);
 }

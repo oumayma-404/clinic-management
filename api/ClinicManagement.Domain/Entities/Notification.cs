@@ -5,6 +5,12 @@ namespace ClinicManagement.Domain.Entities;
 
 public class Notification : Entity<Guid>
 {
+    /// <summary>
+    /// The clinic that owns this reminder, set by the scheduler at enqueue so the dispatcher can resolve
+    /// that clinic's channel credentials at send time. Nullable: legacy/global rows enqueued before per-clinic
+    /// settings existed keep it null and fall back to the per-install config.
+    /// </summary>
+    public Guid? ClinicId { get; private set; }
     public Guid? AppointmentId { get; private set; }
     public Guid? PatientId { get; private set; }
     public NotificationType Type { get; private set; }
@@ -30,7 +36,8 @@ public class Notification : Entity<Guid>
         string message,
         DateTime scheduledFor,
         Guid? appointmentId = null,
-        Guid? patientId = null)
+        Guid? patientId = null,
+        Guid? clinicId = null)
     {
         Id = id;
         Type = type;
@@ -39,6 +46,7 @@ public class Notification : Entity<Guid>
         ScheduledFor = scheduledFor;
         AppointmentId = appointmentId;
         PatientId = patientId;
+        ClinicId = clinicId;
         Status = NotificationStatus.Pending;
         CreatedAt = DateTime.UtcNow;
     }

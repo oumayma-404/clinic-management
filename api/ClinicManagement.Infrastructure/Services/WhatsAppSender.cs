@@ -1,5 +1,5 @@
+using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Domain.Enums;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
 namespace ClinicManagement.Infrastructure.Services;
@@ -7,42 +7,42 @@ namespace ClinicManagement.Infrastructure.Services;
 /// <summary>
 /// Sends WhatsApp reminders via the WhatsApp Business (Graph API) using a pre-approved <b>utility template</b>
 /// whose single body parameter (<c>{{1}}</c>) carries the rendered reminder text — WhatsApp free-text is
-/// never sent. Disabled (→ <c>NotConfigured</c>) unless the API URL, phone-number id, template name and
-/// access token are all set.
+/// never sent. Endpoint/identity/template/token come from the resolved settings for the row's clinic; disabled
+/// (→ <c>NotConfigured</c>) unless the API URL, phone-number id, template name and access token are all present.
 /// </summary>
 public class WhatsAppSender : HttpReminderChannelSender, IReminderChannelSender
 {
-    private readonly IConfiguration _configuration;
+    // Matches RemindersConfig's per-install default; used when the resolved settings carry no template language.
+    private const string DefaultTemplateLanguage = "fr";
+
     private readonly ILogger<WhatsAppSender> _logger;
 
     public WhatsAppSender(
         IHttpClientFactory httpClientFactory,
-        IConfiguration configuration,
         ILogger<WhatsAppSender> logger)
         : base(httpClientFactory)
     {
-        _configuration = configuration;
         _logger = logger;
     }
 
     public NotificationType Channel => NotificationType.WhatsApp;
 
-    public Task<ReminderSendResult> SendAsync(string phoneE164, string message, CancellationToken cancellationToken = default)
+    public Task<ReminderSendResult> SendAsync(
+        string phoneE164, string message, ResolvedReminderSettings settings, CancellationToken cancellationToken = default)
     {
-        var apiUrl = RemindersConfig.WhatsAppApiUrl(_configuration);
-        var phoneNumberId = RemindersConfig.WhatsAppPhoneNumberId(_configuration);
-        var templateName = RemindersConfig.WhatsAppTemplateName(_configuration);
-        var accessToken = RemindersConfig.WhatsAppAccessToken(_configuration);
-        var templateLanguage = RemindersConfig.WhatsAppTemplateLanguage(_configuration);
-
-        if (string.IsNullOrWhiteSpace(apiUrl) || string.IsNullOrWhiteSpace(phoneNumberId) ||
-            string.IsNullOrWhiteSpace(templateName) || string.IsNullOrWhiteSpace(accessToken))
+        if (string.IsNullOrWhiteSpace(settings.WhatsAppApiUrl) ||
+            string.IsNullOrWhiteSpace(settings.WhatsAppPhoneNumberId) ||
+            string.IsNullOrWhiteSpace(settings.WhatsAppTemplateName) ||
+            string.IsNullOrWhiteSpace(settings.WhatsAppAccessToken))
         {
             _logger.LogDebug("WhatsApp Business API not configured; skipping WhatsApp reminder to {Phone}.", ReminderPhone.Mask(phoneE164));
             return Task.FromResult(ReminderSendResult.NotConfigured);
         }
 
-        var endpoint = $"{apiUrl.TrimEnd('/')}/{phoneNumberId}/messages";
+        var endpoint = $"{settings.WhatsAppApiUrl.TrimEnd('/')}/{settings.WhatsAppPhoneNumberId}/messages";
+        var templateLanguage = string.IsNullOrWhiteSpace(settings.WhatsAppTemplateLanguage)
+            ? DefaultTemplateLanguage
+            : settings.WhatsAppTemplateLanguage;
 
         // Graph API "to" wants the E.164 number without the leading '+'.
         var payload = new
@@ -52,7 +52,7 @@ public class WhatsAppSender : HttpReminderChannelSender, IReminderChannelSender
             type = "template",
             template = new
             {
-                name = templateName,
+                name = settings.WhatsAppTemplateName,
                 language = new { code = templateLanguage },
                 components = new[]
                 {
@@ -68,6 +68,6 @@ public class WhatsAppSender : HttpReminderChannelSender, IReminderChannelSender
             }
         };
 
-        return PostJsonAsync(endpoint, payload, accessToken, "WhatsApp", cancellationToken);
+        return PostJsonAsync(endpoint, payload, settings.WhatsAppAccessToken, "WhatsApp", cancellationToken);
     }
 }
