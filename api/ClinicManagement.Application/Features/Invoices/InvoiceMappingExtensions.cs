@@ -27,6 +27,15 @@ public static class InvoiceMappingExtensions
         Outstanding = invoice.Outstanding,
         CreatedAt = invoice.CreatedAt,
         UpdatedAt = invoice.UpdatedAt,
+        EInvoiceStatus = invoice.EInvoiceStatus.ToString(),
+        TtnIdentifier = invoice.TtnIdentifier,
+        EInvoiceSubmittedAt = invoice.EInvoiceSubmittedAt,
+        EInvoiceValidatedAt = invoice.EInvoiceValidatedAt,
+        EInvoiceLastError = invoice.EInvoiceLastError,
+        EInvoiceAttemptCount = invoice.EInvoiceAttemptCount,
+        CanSubmitToElFatoora = invoice.CanSubmitToElFatoora,
+        HasSignedXml = !string.IsNullOrWhiteSpace(invoice.SignedXmlStorageKey),
+        HasTtnReceipt = !string.IsNullOrWhiteSpace(invoice.TtnReceiptStorageKey),
         Lines = invoice.Lines
             .Select(l => new InvoiceLineDto
             {

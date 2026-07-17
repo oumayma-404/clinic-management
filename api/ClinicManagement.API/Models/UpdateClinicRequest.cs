@@ -16,6 +16,10 @@ public class UpdateClinicRequest
     public decimal? VatRate { get; set; }
     public bool? StampDutyEnabled { get; set; }
     public decimal? StampDutyAmount { get; set; }
+
+    // TTN « El Fatoora » e-invoicing settings (optional; null leaves the current value unchanged).
+    public bool? TtnEInvoicingEnabled { get; set; }
+    public string? TtnEnvironment { get; set; }
 }
 
 

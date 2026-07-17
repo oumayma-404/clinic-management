@@ -51,6 +51,16 @@ public class ClinicConfiguration : IEntityTypeConfiguration<Clinic>
             .HasColumnType("decimal(18,3)")
             .HasDefaultValue(1.000m);
 
+        // TTN « El Fatoora » e-invoicing settings (non-secret).
+        builder.Property(c => c.TtnEInvoicingEnabled)
+            .IsRequired()
+            .HasDefaultValue(false);
+
+        builder.Property(c => c.TtnEnvironment)
+            .IsRequired()
+            .HasMaxLength(20)
+            .HasDefaultValue(Clinic.TtnEnvironmentSandbox);
+
         builder.HasIndex(c => c.Code)
             .IsUnique()
             .HasFilter("\"Code\" IS NOT NULL");

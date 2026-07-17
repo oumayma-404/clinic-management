@@ -86,6 +86,17 @@ export interface InvoiceDto {
   outstanding: number;
   createdAt: string;
   updatedAt?: string | null;
+  // TTN « El Fatoora » e-invoicing state.
+  /** NotSubmitted | Queued | Signed | Submitted | Validating | Valid | Rejected | Failed */
+  eInvoiceStatus: string;
+  ttnIdentifier?: string | null;
+  eInvoiceSubmittedAt?: string | null;
+  eInvoiceValidatedAt?: string | null;
+  eInvoiceLastError?: string | null;
+  eInvoiceAttemptCount: number;
+  canSubmitToElFatoora: boolean;
+  hasSignedXml: boolean;
+  hasTtnReceipt: boolean;
   lines: InvoiceLineDto[];
   payments: PaymentDto[];
 }

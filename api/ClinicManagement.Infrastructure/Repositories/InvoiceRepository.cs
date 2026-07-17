@@ -95,6 +95,19 @@ public class InvoiceRepository : IInvoiceRepository
             .SumAsync(p => (decimal?)p.Amount, cancellationToken) ?? 0m;
     }
 
+    public async Task<IEnumerable<Invoice>> GetDueForElFatooraDispatchAsync(int maxCount, DateTime now, CancellationToken cancellationToken = default)
+    {
+        return await _context.Invoices
+            .Include(i => i.Lines)
+            .Include(i => i.Payments)
+            .Where(i => i.EInvoiceStatus == EInvoiceStatus.Queued
+                        && i.EInvoiceNextAttemptAt != null
+                        && i.EInvoiceNextAttemptAt <= now)
+            .OrderBy(i => i.EInvoiceNextAttemptAt)
+            .Take(maxCount)
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<Invoice> AddAsync(Invoice invoice, CancellationToken cancellationToken = default)
     {
         await _context.Invoices.AddAsync(invoice, cancellationToken);

@@ -3,6 +3,7 @@ using System;
 using ClinicManagement.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,10 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace ClinicManagement.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260717180000_AddEInvoicing")]
+    partial class AddEInvoicing
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -171,51 +173,6 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasFilter("\"Code\" IS NOT NULL");
 
                     b.ToTable("Clinics", (string)null);
-                });
-
-            modelBuilder.Entity("ClinicManagement.Domain.Entities.ClinicReminderSettings", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uuid")
-                        .HasColumnName("ClinicId");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("SmsApiKeyEncrypted")
-                        .HasColumnType("text");
-
-                    b.Property<bool?>("SmsEnabled")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("SmsSenderId")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("WhatsAppAccessTokenEncrypted")
-                        .HasColumnType("text");
-
-                    b.Property<bool?>("WhatsAppEnabled")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("WhatsAppPhoneNumberId")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<string>("WhatsAppTemplateLanguage")
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
-                    b.Property<string>("WhatsAppTemplateName")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("ClinicReminderSettings", (string)null);
                 });
 
             modelBuilder.Entity("ClinicManagement.Domain.Entities.DentalRecord", b =>
@@ -576,9 +533,6 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<Guid?>("AppointmentId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid?>("ClinicId")
                         .HasColumnType("uuid");
 
                     b.Property<DateTime>("CreatedAt")
@@ -1204,15 +1158,6 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Navigation("Patient");
 
                     b.Navigation("ProcedureType");
-                });
-
-            modelBuilder.Entity("ClinicManagement.Domain.Entities.ClinicReminderSettings", b =>
-                {
-                    b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
-                        .WithOne()
-                        .HasForeignKey("ClinicManagement.Domain.Entities.ClinicReminderSettings", "Id")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
                 });
 
             modelBuilder.Entity("ClinicManagement.Domain.Entities.DentalRecord", b =>

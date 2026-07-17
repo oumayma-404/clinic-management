@@ -66,7 +66,35 @@ export const invoicesApi = {
   cancel: async (id: string, reason: string): Promise<InvoiceDto> =>
     apiPost<InvoiceDto>(`/invoices/${id}/cancel`, { reason }),
 
+  // Send (or retry sending) an issued invoice to TTN « El Fatoora ». Idempotent per invoice.
+  submitToElFatoora: async (id: string): Promise<InvoiceDto> =>
+    apiPost<InvoiceDto>(`/invoices/${id}/e-invoice/submit`, {}),
+
   delete: async (id: string): Promise<void> => apiDelete<void>(`/invoices/${id}`),
+
+  // e-invoicing artifacts are binary — drop to raw fetch and attach the bearer token ourselves.
+  downloadEInvoiceArtifact: async (id: string, artifact: 'xml' | 'receipt'): Promise<Blob> => {
+    const token = await getAccessToken();
+    const headers: HeadersInit = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const base = typeof window !== 'undefined' ? window.location.origin : undefined;
+    const url = new URL(`${API_BASE_URL}/invoices/${id}/e-invoice/${artifact}`, base);
+
+    const response = await fetch(url.toString(), {
+      method: 'GET',
+      headers,
+      credentials: 'include',
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      // The API returns the { error } JSON contract — surface that message, not the raw JSON body.
+      let message = text;
+      try { message = JSON.parse(text)?.error ?? text; } catch { /* body is not JSON */ }
+      throw new Error(message || `Échec du téléchargement (HTTP ${response.status})`);
+    }
+    return response.blob();
+  },
 
   // PDF is a binary blob — drop to raw fetch and attach the bearer token ourselves.
   downloadPdf: async (id: string): Promise<Blob> => {

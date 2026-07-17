@@ -18,6 +18,16 @@ public class Clinic : AggregateRoot<Guid>
     public bool StampDutyEnabled { get; private set; }
     public decimal StampDutyAmount { get; private set; }
 
+    // TTN « El Fatoora » electronic-invoicing settings (FR-8). Non-secret only: the on/off toggle + target
+    // environment. Credentials/endpoint + the qualified certificate live in the per-install .local/ store,
+    // never in the DB.
+    public bool TtnEInvoicingEnabled { get; private set; }
+    /// <summary>Target TTN environment: "Sandbox" (default, safe) or "Production".</summary>
+    public string TtnEnvironment { get; private set; } = TtnEnvironmentSandbox;
+
+    public const string TtnEnvironmentSandbox = "Sandbox";
+    public const string TtnEnvironmentProduction = "Production";
+
     public DateTime CreatedAt { get; private set; }
     public DateTime? UpdatedAt { get; private set; }
 
@@ -52,6 +62,8 @@ public class Clinic : AggregateRoot<Guid>
         VatRate = 7m;
         StampDutyEnabled = true;
         StampDutyAmount = 1.000m;
+        TtnEInvoicingEnabled = false;
+        TtnEnvironment = TtnEnvironmentSandbox;
         CreatedAt = DateTime.UtcNow;
     }
 
@@ -82,6 +94,21 @@ public class Clinic : AggregateRoot<Guid>
         VatRate = vatApplicable ? vatRate : 0m;
         StampDutyEnabled = stampDutyEnabled;
         StampDutyAmount = stampDutyEnabled ? stampDutyAmount : 0m;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Enable/disable TTN « El Fatoora » e-invoicing for this clinic and set the target environment (FR-8).
+    /// The environment must be "Sandbox" or "Production"; anything else falls back to the safe sandbox.
+    /// </summary>
+    public void SetElFatooraSettings(bool enabled, string? environment)
+    {
+        var normalized = string.Equals(environment?.Trim(), TtnEnvironmentProduction, StringComparison.OrdinalIgnoreCase)
+            ? TtnEnvironmentProduction
+            : TtnEnvironmentSandbox;
+
+        TtnEInvoicingEnabled = enabled;
+        TtnEnvironment = normalized;
         UpdatedAt = DateTime.UtcNow;
     }
 

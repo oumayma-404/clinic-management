@@ -184,6 +184,23 @@ public class PdfGenerationService : IPdfGenerationService
                                 totals.Item().PaddingTop(3).Text($"Total TTC : {FormatDt(data.TotalTtc)}").FontSize(13).Bold().FontColor(Colors.Blue.Darken2).FontFamily("Helvetica");
                             });
 
+                            // TTN « cachet électronique visible » — only present once the invoice is validated (FR-7).
+                            if (data.QrCodePng != null && data.QrCodePng.Length > 0)
+                            {
+                                column.Item().PaddingTop(12).Row(qrRow =>
+                                {
+                                    qrRow.ConstantItem(110).Image(data.QrCodePng);
+                                    qrRow.RelativeItem().PaddingLeft(12).AlignMiddle().Column(info =>
+                                    {
+                                        info.Spacing(2);
+                                        info.Item().Text("Cachet électronique — TTN « El Fatoora »").FontSize(9).Bold().FontFamily("Helvetica");
+                                        if (!string.IsNullOrWhiteSpace(data.TtnIdentifier))
+                                            info.Item().Text($"Référence TTN : {data.TtnIdentifier}").FontSize(9).FontFamily("Helvetica");
+                                        info.Item().Text("Facture électronique enregistrée auprès de TTN.").FontSize(8).FontColor(Colors.Grey.Darken1).FontFamily("Helvetica");
+                                    });
+                                });
+                            }
+
                             column.Item().ExtendVertical();
                         });
 

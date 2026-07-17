@@ -24,6 +24,11 @@ public class InvoicePdfData
 
     public bool IsCancelled { get; set; }
 
+    // TTN « El Fatoora » cachet (FR-7): only populated once the invoice is validated. A null QR ⇒ render
+    // as before (pre-validation PDFs carry no cachet).
+    public string? TtnIdentifier { get; set; }
+    public byte[]? QrCodePng { get; set; }
+
     public List<InvoicePdfLine> Lines { get; set; } = new();
 }
 

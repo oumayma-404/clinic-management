@@ -58,6 +58,9 @@ export interface ClinicDto {
   vatRate?: number;
   stampDutyEnabled?: boolean;
   stampDutyAmount?: number;
+  // TTN « El Fatoora » e-invoicing settings.
+  ttnEInvoicingEnabled?: boolean;
+  ttnEnvironment?: string;
   createdAt: string;
 }
 
@@ -208,6 +211,8 @@ export const clinicsApi = {
     vatRate?: number;
     stampDutyEnabled?: boolean;
     stampDutyAmount?: number;
+    ttnEInvoicingEnabled?: boolean;
+    ttnEnvironment?: string;
   }): Promise<ClinicDto> => {
     const formData = new FormData();
     formData.append('name', data.name);
@@ -221,6 +226,9 @@ export const clinicsApi = {
     if (data.vatRate !== undefined) formData.append('vatRate', String(data.vatRate));
     if (data.stampDutyEnabled !== undefined) formData.append('stampDutyEnabled', String(data.stampDutyEnabled));
     if (data.stampDutyAmount !== undefined) formData.append('stampDutyAmount', String(data.stampDutyAmount));
+    // TTN e-invoicing settings (optional).
+    if (data.ttnEInvoicingEnabled !== undefined) formData.append('ttnEInvoicingEnabled', String(data.ttnEInvoicingEnabled));
+    if (data.ttnEnvironment !== undefined) formData.append('ttnEnvironment', data.ttnEnvironment);
 
     const result = await apiPutFormData<Result<ClinicDto>>('/clinics', formData);
     if (!result.isSuccess || !result.value) {
