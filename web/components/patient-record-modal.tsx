@@ -143,9 +143,10 @@ export function PatientRecordModal({
     }
   }, [procedureType, procedureTypes, loadingProcedureTypes])
 
-  // Auto-fill amount paid when cost changes
+  // Prefill amount paid to the full cost only when it hasn't been entered yet — a partial advance
+  // (amountPaid < cost) must not be silently overwritten to the full cost on save (AC-3).
   useEffect(() => {
-    if (cost) {
+    if (cost && !amountPaid) {
       setAmountPaid(cost)
     }
   }, [cost])
@@ -378,6 +379,17 @@ export function PatientRecordModal({
                     min="0"
                   />
                 </div>
+                {(() => {
+                  const reste = Math.max(0, (Number.parseFloat(cost) || 0) - (Number.parseFloat(amountPaid) || 0))
+                  return (
+                    <p className="text-xs text-muted-foreground">
+                      Reste à payer&nbsp;:{" "}
+                      <span className={reste > 0 ? "font-semibold text-amber-600" : "font-medium text-foreground"}>
+                        ${reste.toFixed(2)}
+                      </span>
+                    </p>
+                  )
+                })()}
               </div>
             </div>
 

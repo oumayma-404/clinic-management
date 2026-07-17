@@ -44,6 +44,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { patientsApi } from "@/lib/api/patients"
+import { useConnectivity } from "@/lib/connectivity/connectivity"
 import { appointmentsApi } from "@/lib/api/appointments"
 import { patientMedicalHistoryApi } from "@/lib/api/patient-medical-history"
 import { patientFamilyHistoryApi } from "@/lib/api/patient-family-history"
@@ -144,6 +145,38 @@ export default function PatientDetailsPage() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [aiSummary, setAiSummary] = useState("")
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiError, setAiError] = useState(false)
+  const { internetReachable } = useConnectivity()
+
+  // Real AI summary (HuggingFace via GET /patients/{id}/ai-summary). Offline (Local) → skip + FR fallback.
+  const loadAiSummary = async () => {
+    if (!internetReachable) {
+      setAiSummary("")
+      setAiError(true)
+      return
+    }
+    setAiLoading(true)
+    setAiError(false)
+    try {
+      const res = await patientsApi.getAiSummary(patientId)
+      setAiSummary(res.summary || "")
+      setAiError(!res.summary)
+    } catch {
+      setAiSummary("")
+      setAiError(true)
+    } finally {
+      setAiLoading(false)
+    }
+  }
+
+  // Auto-generate on page open; re-run automatically when internet becomes reachable again (AC-5/AC-7).
+  useEffect(() => {
+    if (patientId) {
+      loadAiSummary()
+    }
+  }, [patientId, internetReachable])
 
   // Real-time: when any client of this clinic edits this patient's record, appointments, or files, the
   // server signals the resource and we re-run the loader below (bump refreshKey). Additive (AC-5).
@@ -360,8 +393,6 @@ export default function PatientDetailsPage() {
   // Parse medical history (if it contains structured data, otherwise show as text)
   const medicalHistoryText = patient.medicalHistory || "None reported"
   
-  // Generate AI summary from available data (placeholder for now)
-  const aiSummary = `Patient ${patientName}${age ? `, ${age} years old` : ''}, ${patient.gender || 'Unknown gender'}. ${patient.allergies ? `Allergies: ${patient.allergies}. ` : ''}${patient.medicalHistory ? `Medical history: ${patient.medicalHistory}. ` : ''}${appointments.length > 0 ? `Has ${appointments.length} appointment(s) recorded.` : 'No appointments recorded yet.'}`
 
   return (
     <ClinicGuard>
@@ -421,185 +452,28 @@ export default function PatientDetailsPage() {
                 <CardDescription>Automatically generated overview based on patient records</CardDescription>
               </CardHeader>
               <CardContent>
-                <p className="text-sm leading-relaxed text-foreground">{aiSummary}</p>
-                <div className="mt-4 flex items-center gap-2 text-xs text-muted-foreground">
-                  <Sparkles className="h-3 w-3" />
-                  <span>Last updated: {formatDate(new Date().toISOString())}</span>
+                {aiLoading ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Génération du résumé…
+                  </div>
+                ) : aiError || !aiSummary ? (
+                  <p className="text-sm text-muted-foreground">
+                    {internetReachable
+                      ? "Résumé indisponible pour le moment. Cliquez sur « Régénérer » pour réessayer."
+                      : "Connexion internet requise pour générer le résumé."}
+                  </p>
+                ) : (
+                  <div className="text-sm leading-relaxed text-foreground whitespace-pre-line">{aiSummary}</div>
+                )}
+                <div className="mt-4 flex items-center gap-2">
+                  <Button variant="outline" size="sm" onClick={loadAiSummary} disabled={aiLoading} className="gap-2">
+                    <Sparkles className="h-3 w-3" />
+                    Régénérer
+                  </Button>
                 </div>
               </CardContent>
             </Card>
-
-            <div className="grid gap-6 lg:grid-cols-3">
-              {/* Personal Information */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <User className="h-5 w-5 text-muted-foreground" />
-                    Personal Information
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div>
-                    <p className="text-xs font-medium text-muted-foreground">Full Name</p>
-                    <p className="text-sm text-foreground">{patientName}</p>
-                  </div>
-                  <Separator />
-                  <div>
-                    <p className="text-xs font-medium text-muted-foreground">Date of Birth</p>
-                    <p className="text-sm text-foreground">
-                      {formatDate(patient.dateOfBirth)} {age !== null && `(${age} years old)`}
-                    </p>
-                  </div>
-                  <Separator />
-                  <div>
-                    <p className="text-xs font-medium text-muted-foreground">Gender</p>
-                    <p className="text-sm text-foreground">{patient.gender || "Not provided"}</p>
-                  </div>
-                  <Separator />
-                  <div>
-                    <p className="text-xs font-medium text-muted-foreground">Mobile</p>
-                    <p className="text-sm text-foreground">{patient.phoneNumber || "Not provided"}</p>
-                  </div>
-                  <Separator />
-                  <div>
-                    <p className="text-xs font-medium text-muted-foreground">Email</p>
-                    <p className="text-sm text-foreground">{patient.email || "Not provided"}</p>
-                  </div>
-                  <Separator />
-                  <div>
-                    <p className="text-xs font-medium text-muted-foreground">Address</p>
-                    <p className="text-sm text-foreground">{formatAddress(patient.address)}</p>
-                  </div>
-                  {patient.emergencyContactName && (
-                    <>
-                      <Separator />
-                      <div>
-                        <p className="text-xs font-medium text-muted-foreground">Emergency Contact</p>
-                        <p className="text-sm text-foreground">
-                          {patient.emergencyContactName}
-                          {patient.emergencyContactPhone && ` - ${patient.emergencyContactPhone}`}
-                        </p>
-                      </div>
-                    </>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Medical Information */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <Activity className="h-5 w-5 text-muted-foreground" />
-                    Medical Information
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div>
-                    <p className="text-xs font-medium text-muted-foreground">Chronic Diseases / Conditions</p>
-                    <p className="text-sm text-foreground whitespace-pre-wrap">
-                      {medicalHistoryText}
-                    </p>
-                  </div>
-                  <Separator />
-                  <div>
-                    <p className="text-xs font-medium text-muted-foreground mb-2">Medical History</p>
-                    {medicalHistoryEntries.length > 0 ? (
-                      <div className="space-y-2">
-                        {medicalHistoryEntries.map((entry) => (
-                          <div key={entry.id} className="rounded-lg border bg-muted/30 p-2">
-                            <p className="text-sm font-medium text-foreground">{entry.description}</p>
-                            {entry.date && (
-                              <p className="text-xs text-muted-foreground mt-1">
-                                Date: {formatDate(entry.date)}
-                              </p>
-                            )}
-                            {entry.notes && (
-                              <p className="text-xs text-muted-foreground mt-1">{entry.notes}</p>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">No medical history entries</p>
-                    )}
-                  </div>
-                  <Separator />
-                  <div>
-                    <p className="text-xs font-medium text-muted-foreground mb-2">Family Medical History</p>
-                    {familyHistoryEntries.length > 0 ? (
-                      <div className="space-y-2">
-                        {familyHistoryEntries.map((entry) => (
-                          <div key={entry.id} className="rounded-lg border bg-muted/30 p-2">
-                            <p className="text-sm font-medium text-foreground">
-                              {entry.relationship}: {entry.condition}
-                            </p>
-                            {entry.notes && (
-                              <p className="text-xs text-muted-foreground mt-1">{entry.notes}</p>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">No family history entries</p>
-                    )}
-                  </div>
-                  <Separator />
-                  <div>
-                    <p className="text-xs font-medium text-muted-foreground">Allergies</p>
-                    {allergiesList.length > 0 ? (
-                      <div className="mt-1 flex flex-wrap gap-1">
-                        {allergiesList.map((allergy: string, index: number) => (
-                          <Badge key={index} variant="destructive" className="text-xs">
-                            {allergy}
-                          </Badge>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">None reported</p>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Administrative Information */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <CreditCard className="h-5 w-5 text-muted-foreground" />
-                    Administrative Information
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div>
-                    <p className="text-xs font-medium text-muted-foreground">Insurance Provider</p>
-                    <p className="text-sm text-foreground">{patient.insuranceInfo?.provider || "Not provided"}</p>
-                  </div>
-                  <Separator />
-                  <div>
-                    <p className="text-xs font-medium text-muted-foreground">Policy Number</p>
-                    <p className="font-mono text-sm text-foreground">{patient.insuranceInfo?.policyNumber || "Not provided"}</p>
-                  </div>
-                  {patient.insuranceInfo?.groupNumber && (
-                    <>
-                      <Separator />
-                      <div>
-                        <p className="text-xs font-medium text-muted-foreground">Group Number</p>
-                        <p className="text-sm text-foreground">{patient.insuranceInfo.groupNumber}</p>
-                      </div>
-                    </>
-                  )}
-                  {patient.insuranceInfo?.expiryDate && (
-                    <>
-                      <Separator />
-                      <div>
-                        <p className="text-xs font-medium text-muted-foreground">Expiry Date</p>
-                        <p className="text-sm text-foreground">{formatDate(patient.insuranceInfo.expiryDate)}</p>
-                      </div>
-                    </>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
 
             <Tabs defaultValue="medical-records" className="space-y-4">
               <TabsList className="grid w-full grid-cols-5">
@@ -659,6 +533,7 @@ export default function PatientDetailsPage() {
                               <TableHead>Teeth Type</TableHead>
                               <TableHead>Teeth</TableHead>
                               <TableHead>Amount Paid</TableHead>
+                              <TableHead>Reste</TableHead>
                               <TableHead>Notes</TableHead>
                               <TableHead className="text-right">Actions</TableHead>
                             </TableRow>
@@ -689,6 +564,14 @@ export default function PatientDetailsPage() {
                                   )}
                                 </TableCell>
                                 <TableCell>${record.amountPaid.toFixed(2)}</TableCell>
+                                <TableCell>
+                                  {(() => {
+                                    const reste = Math.max(0, record.balance ?? (record.cost - record.amountPaid))
+                                    return reste > 0
+                                      ? <span className="font-semibold text-amber-600">${reste.toFixed(2)}</span>
+                                      : <span className="text-muted-foreground">$0.00</span>
+                                  })()}
+                                </TableCell>
                                 <TableCell className="max-w-xs">
                                   {(() => {
                                     const hasNotes = (record.notes && record.notes.length > 0) || (record.importantNotes && record.importantNotes.length > 0)
@@ -1210,6 +1093,179 @@ export default function PatientDetailsPage() {
               </TabsContent>
 
             </Tabs>
+
+            <div className="grid gap-6 lg:grid-cols-3">
+              {/* Personal Information */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <User className="h-5 w-5 text-muted-foreground" />
+                    Personal Information
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground">Full Name</p>
+                    <p className="text-sm text-foreground">{patientName}</p>
+                  </div>
+                  <Separator />
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground">Date of Birth</p>
+                    <p className="text-sm text-foreground">
+                      {formatDate(patient.dateOfBirth)} {age !== null && `(${age} years old)`}
+                    </p>
+                  </div>
+                  <Separator />
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground">Gender</p>
+                    <p className="text-sm text-foreground">{patient.gender || "Not provided"}</p>
+                  </div>
+                  <Separator />
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground">Mobile</p>
+                    <p className="text-sm text-foreground">{patient.phoneNumber || "Not provided"}</p>
+                  </div>
+                  <Separator />
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground">Email</p>
+                    <p className="text-sm text-foreground">{patient.email || "Not provided"}</p>
+                  </div>
+                  <Separator />
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground">Address</p>
+                    <p className="text-sm text-foreground">{formatAddress(patient.address)}</p>
+                  </div>
+                  {patient.emergencyContactName && (
+                    <>
+                      <Separator />
+                      <div>
+                        <p className="text-xs font-medium text-muted-foreground">Emergency Contact</p>
+                        <p className="text-sm text-foreground">
+                          {patient.emergencyContactName}
+                          {patient.emergencyContactPhone && ` - ${patient.emergencyContactPhone}`}
+                        </p>
+                      </div>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Medical Information */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <Activity className="h-5 w-5 text-muted-foreground" />
+                    Medical Information
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground">Chronic Diseases / Conditions</p>
+                    <p className="text-sm text-foreground whitespace-pre-wrap">
+                      {medicalHistoryText}
+                    </p>
+                  </div>
+                  <Separator />
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground mb-2">Medical History</p>
+                    {medicalHistoryEntries.length > 0 ? (
+                      <div className="space-y-2">
+                        {medicalHistoryEntries.map((entry) => (
+                          <div key={entry.id} className="rounded-lg border bg-muted/30 p-2">
+                            <p className="text-sm font-medium text-foreground">{entry.description}</p>
+                            {entry.date && (
+                              <p className="text-xs text-muted-foreground mt-1">
+                                Date: {formatDate(entry.date)}
+                              </p>
+                            )}
+                            {entry.notes && (
+                              <p className="text-xs text-muted-foreground mt-1">{entry.notes}</p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">No medical history entries</p>
+                    )}
+                  </div>
+                  <Separator />
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground mb-2">Family Medical History</p>
+                    {familyHistoryEntries.length > 0 ? (
+                      <div className="space-y-2">
+                        {familyHistoryEntries.map((entry) => (
+                          <div key={entry.id} className="rounded-lg border bg-muted/30 p-2">
+                            <p className="text-sm font-medium text-foreground">
+                              {entry.relationship}: {entry.condition}
+                            </p>
+                            {entry.notes && (
+                              <p className="text-xs text-muted-foreground mt-1">{entry.notes}</p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">No family history entries</p>
+                    )}
+                  </div>
+                  <Separator />
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground">Allergies</p>
+                    {allergiesList.length > 0 ? (
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {allergiesList.map((allergy: string, index: number) => (
+                          <Badge key={index} variant="destructive" className="text-xs">
+                            {allergy}
+                          </Badge>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">None reported</p>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Administrative Information */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <CreditCard className="h-5 w-5 text-muted-foreground" />
+                    Administrative Information
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground">Insurance Provider</p>
+                    <p className="text-sm text-foreground">{patient.insuranceInfo?.provider || "Not provided"}</p>
+                  </div>
+                  <Separator />
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground">Policy Number</p>
+                    <p className="font-mono text-sm text-foreground">{patient.insuranceInfo?.policyNumber || "Not provided"}</p>
+                  </div>
+                  {patient.insuranceInfo?.groupNumber && (
+                    <>
+                      <Separator />
+                      <div>
+                        <p className="text-xs font-medium text-muted-foreground">Group Number</p>
+                        <p className="text-sm text-foreground">{patient.insuranceInfo.groupNumber}</p>
+                      </div>
+                    </>
+                  )}
+                  {patient.insuranceInfo?.expiryDate && (
+                    <>
+                      <Separator />
+                      <div>
+                        <p className="text-xs font-medium text-muted-foreground">Expiry Date</p>
+                        <p className="text-sm text-foreground">{formatDate(patient.insuranceInfo.expiryDate)}</p>
+                      </div>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
           </div>
         </main>
       </div>

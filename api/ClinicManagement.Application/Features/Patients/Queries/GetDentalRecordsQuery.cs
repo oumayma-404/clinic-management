@@ -56,6 +56,7 @@ public class GetDentalRecordsQueryHandler : IRequestHandler<GetDentalRecordsQuer
                 ProcedureType = dr.ProcedureType,
                 Cost = dr.Cost,
                 AmountPaid = dr.AmountPaid,
+                Balance = dr.Cost - dr.AmountPaid,
                 Notes = dr.Notes.ToList(),
                 ImportantNotes = dr.ImportantNotes.ToList(),
                 IsAdultTeeth = dr.IsAdultTeeth,

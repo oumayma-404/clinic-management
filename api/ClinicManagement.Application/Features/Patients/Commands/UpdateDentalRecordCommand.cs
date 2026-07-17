@@ -120,6 +120,7 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
                 ProcedureType = dentalRecord.ProcedureType,
                 Cost = dentalRecord.Cost,
                 AmountPaid = dentalRecord.AmountPaid,
+                Balance = dentalRecord.Cost - dentalRecord.AmountPaid,
                 Notes = dentalRecord.Notes.ToList(),
                 ImportantNotes = dentalRecord.ImportantNotes.ToList(),
                 IsAdultTeeth = dentalRecord.IsAdultTeeth,

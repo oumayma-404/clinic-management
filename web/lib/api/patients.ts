@@ -10,6 +10,11 @@ export const patientsApi = {
     return apiGet<PatientDto>(`/patients/${id}`);
   },
 
+  // Live, AI-generated French summary (not persisted). 404 = missing/other-clinic; 400 = AI unavailable.
+  getAiSummary: async (patientId: string): Promise<{ summary: string }> => {
+    return apiGet<{ summary: string }>(`/patients/${patientId}/ai-summary`);
+  },
+
   create: async (data: {
     firstName: string;
     lastName: string;

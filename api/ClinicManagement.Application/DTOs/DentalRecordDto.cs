@@ -8,6 +8,7 @@ public class DentalRecordDto
     public string ProcedureType { get; set; } = string.Empty;
     public decimal Cost { get; set; }
     public decimal AmountPaid { get; set; }
+    public decimal Balance { get; set; } // derived: Cost − AmountPaid (read-only, set in handler mappings)
     public List<string> Notes { get; set; } = new();
     public List<string> ImportantNotes { get; set; } = new();
     public bool IsAdultTeeth { get; set; }

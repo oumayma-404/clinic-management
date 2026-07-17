@@ -86,4 +86,21 @@ public class PatientsController : ApiControllerBase
 
         return Ok(result.Value);
     }
+
+    /// <summary>
+    /// Get a live, AI-generated French summary of the patient (not persisted). Cross-clinic/missing
+    /// patient → 404 (thrown NotFoundException); AI backend unavailable → 400 { error } (FR fallback on FE).
+    /// </summary>
+    [HttpGet("{patientId}/ai-summary")]
+    public async Task<ActionResult<PatientAiSummaryDto>> GetAiSummary(Guid patientId)
+    {
+        var result = await _mediator.Send(new GetPatientAiSummaryQuery { PatientId = patientId });
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+
+        return Ok(result.Value);
+    }
 }

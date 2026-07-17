@@ -298,6 +298,7 @@ export function PatientSummaryModal({ open, onOpenChange, patient, dentalRecords
                         <TableHead className="min-w-[120px]">Teeth</TableHead>
                         <TableHead className="min-w-[80px]">Cost</TableHead>
                         <TableHead className="min-w-[100px]">Amount Paid</TableHead>
+                        <TableHead className="min-w-[90px]">Reste</TableHead>
                         <TableHead className="min-w-[150px] max-w-[200px]">Notes</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -328,6 +329,14 @@ export function PatientSummaryModal({ open, onOpenChange, patient, dentalRecords
                           </TableCell>
                           <TableCell className="whitespace-nowrap">${record.cost.toFixed(2)}</TableCell>
                           <TableCell className="whitespace-nowrap">${record.amountPaid.toFixed(2)}</TableCell>
+                          <TableCell className="whitespace-nowrap">
+                            {(() => {
+                              const reste = Math.max(0, record.balance ?? (record.cost - record.amountPaid))
+                              return reste > 0
+                                ? <span className="font-semibold text-amber-600">${reste.toFixed(2)}</span>
+                                : <span className="text-muted-foreground">$0.00</span>
+                            })()}
+                          </TableCell>
                           <TableCell className="max-w-[200px]">
                             {(() => {
                               const hasNotes = (record.notes && record.notes.length > 0) || (record.importantNotes && record.importantNotes.length > 0)
