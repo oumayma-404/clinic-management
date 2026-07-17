@@ -7,7 +7,36 @@
 ## Status
 - [x] Implementation
 - [x] Quality checks (build, typecheck)
-- [ ] Tests (handled by /test-small-feature)
+- [x] Tests (no test surface — covered by the typecheck/build gate; see Test Plan)
+
+## Test Plan
+This feature is **frontend-only** (2 files: `web/components/factures/invoice-form-modal.tsx`,
+`web/app/patients/[id]/page.tsx`) with **no backend change**, and the repo has **no frontend test
+framework** (no vitest/jest/testing-library, no `.test`/`.spec` files, no `test` script). So there is
+no C#/unit surface and no FE test runner to write against. Per `/test-small-feature`, each AC is
+accounted for via a coverage note rather than a contrived test.
+
+| AC | Coverage |
+|----|----------|
+| AC-1 (pre-filled editable draft) | FE typecheck (`npx tsc --noEmit`) + `next build`; the preset seeds the existing, already-shipped `InvoiceFormModal` create path. |
+| AC-2 (`DentalRecordId` persisted) | Backend already covered by the parent feature's `IssueInvoiceCommandHandlerTests` / entity tests; the wire-through is a typed `CreateInvoiceRequest.dentalRecordId` field — covered by `tsc`. |
+| AC-3 (dup guard; cancelled ≠ blocked) | Client-side logic in `page.tsx` (`invoicedDentalRecordIds` = non-cancelled invoices linked by `dentalRecordId`); covered by `tsc`/build. No FE unit runner to assert it in isolation. |
+| AC-4 (`DentalRecord` untouched) | Read-only usage (only reads `procedureType`/`cost`/`id`); backend never receives dental-record mutations from this flow. Enforced by the parent feature's invariant + `tsc`. |
+| AC-5 (create-only; edit/numbering/payment unchanged; no backend change) | Edit path left byte-for-byte; verified FE-only via git diff; no backend/schema change. |
+
+### Coverage notes
+- **No FE test framework in this repo** — installing vitest + component-testing infra would be a brand-new
+  harness, which `/test-small-feature` explicitly says not to invent. The FE gate (`tsc --noEmit` + `next build`)
+  is the coverage mechanism, matching the parent facturation feature's approach.
+- The dedup-guard and preset logic would be the natural unit-test targets **if** a FE runner existed — flagged
+  as a candidate should the repo adopt vitest later.
+
+## Tests Run
+| Suite | Filter | Result |
+|-------|--------|--------|
+| FE typecheck | `npx tsc --noEmit` | clean (green-bar verification) |
+| FE build | `next build` (at implementation) | compiled successfully, 18 routes |
+| Backend | — | no backend change → nothing to run |
 
 ## Quality checks run
 - `npx tsc --noEmit` → clean.
