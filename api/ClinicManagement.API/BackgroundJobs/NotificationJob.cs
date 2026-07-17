@@ -21,6 +21,7 @@ public class NotificationJob
     private readonly IPatientRepository _patientRepository;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IInternetProbe _internetProbe;
+    private readonly IReminderSettingsProvider _settingsProvider;
     private readonly IConfiguration _configuration;
     private readonly IReadOnlyDictionary<NotificationType, IReminderChannelSender> _senders;
     private readonly ILogger<NotificationJob> _logger;
@@ -30,6 +31,7 @@ public class NotificationJob
         IPatientRepository patientRepository,
         IUnitOfWork unitOfWork,
         IInternetProbe internetProbe,
+        IReminderSettingsProvider settingsProvider,
         IConfiguration configuration,
         IEnumerable<IReminderChannelSender> senders,
         ILogger<NotificationJob> logger)
@@ -38,6 +40,7 @@ public class NotificationJob
         _patientRepository = patientRepository;
         _unitOfWork = unitOfWork;
         _internetProbe = internetProbe;
+        _settingsProvider = settingsProvider;
         _configuration = configuration;
         _senders = senders.ToDictionary(s => s.Channel);
         _logger = logger;
@@ -101,7 +104,22 @@ public class NotificationJob
             return;
         }
 
-        var result = await sender.SendAsync(phone, notification.Message);
+        // AC-5: resolve the effective settings for this row's clinic (per-clinic override or per-install
+        // fallback; a null ClinicId → per-install), then send under that clinic's identity/credentials.
+        var settings = await _settingsProvider.ResolveAsync(notification.ClinicId);
+
+        // A channel disabled (per-clinic toggle or install default) after this row was enqueued must not send.
+        // Treat it like NotConfigured: send nothing and leave the row Pending (no Failed spam) — same contract
+        // as a channel with missing credentials.
+        if (!settings.EnabledChannels.Contains(notification.Type))
+        {
+            _logger.LogDebug(
+                "Channel {Channel} is not enabled for notification {NotificationId}; leaving it pending.",
+                notification.Type, notification.Id);
+            return;
+        }
+
+        var result = await sender.SendAsync(phone, notification.Message, settings);
         switch (result.Outcome)
         {
             case ReminderSendOutcome.Sent:

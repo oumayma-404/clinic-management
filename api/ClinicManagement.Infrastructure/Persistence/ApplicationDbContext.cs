@@ -47,6 +47,7 @@ public class ApplicationDbContext : DbContext
     public DbSet<StaffNotification> StaffNotifications { get; set; }
     public DbSet<NotificationRead> NotificationReads { get; set; }
     public DbSet<Invoice> Invoices { get; set; }
+    public DbSet<ClinicReminderSettings> ClinicReminderSettings { get; set; }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -78,6 +79,9 @@ public class ApplicationDbContext : DbContext
         // Invoice is directly clinic-owned → filtered like the other aggregate roots. Its children
         // (InvoiceLine/Payment) are reached only through the invoice, so they need no filter of their own.
         modelBuilder.Entity<Invoice>().HasQueryFilter(i => !IsClinicScoped || i.ClinicId == ScopedClinicId);
+        // ClinicReminderSettings is keyed by the clinic id (shared PK) → filter on Id. The reminder dispatcher
+        // runs with no clinic in scope (filter inactive) so it can still resolve any clinic's settings by id.
+        modelBuilder.Entity<ClinicReminderSettings>().HasQueryFilter(s => !IsClinicScoped || s.Id == ScopedClinicId);
 
         // Apply a value converter for all DateTime and DateTime? properties to ensure UTC
         // This is required for PostgreSQL which only accepts UTC DateTime values

@@ -26,6 +26,7 @@ public class ReminderScheduler : IReminderScheduler
 
     private readonly INotificationRepository _notifications;
     private readonly IClinicRepository _clinics;
+    private readonly IReminderSettingsProvider _settingsProvider;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IConfiguration _configuration;
     private readonly ILogger<ReminderScheduler> _logger;
@@ -33,12 +34,14 @@ public class ReminderScheduler : IReminderScheduler
     public ReminderScheduler(
         INotificationRepository notifications,
         IClinicRepository clinics,
+        IReminderSettingsProvider settingsProvider,
         IUnitOfWork unitOfWork,
         IConfiguration configuration,
         ILogger<ReminderScheduler> logger)
     {
         _notifications = notifications;
         _clinics = clinics;
+        _settingsProvider = settingsProvider;
         _unitOfWork = unitOfWork;
         _configuration = configuration;
         _logger = logger;
@@ -76,7 +79,8 @@ public class ReminderScheduler : IReminderScheduler
         Guid clinicId, Guid appointmentId, Guid patientId, string patientName, DateTime appointmentDateTimeUtc,
         CancellationToken cancellationToken)
     {
-        var channels = RemindersConfig.Channels(_configuration);
+        // AC-4: which channels to enqueue is per-clinic (its toggles where set, else the install default).
+        var channels = await _settingsProvider.ResolveEnabledChannelsAsync(clinicId, cancellationToken);
         if (channels.Count == 0)
         {
             return;
@@ -100,7 +104,7 @@ public class ReminderScheduler : IReminderScheduler
         {
             var reminder = new Notification(
                 Guid.NewGuid(), channel, ReminderSubject, message, sendTime.Value,
-                appointmentId: appointmentId, patientId: patientId);
+                appointmentId: appointmentId, patientId: patientId, clinicId: clinicId);
             await _notifications.AddAsync(reminder, cancellationToken);
         }
     }

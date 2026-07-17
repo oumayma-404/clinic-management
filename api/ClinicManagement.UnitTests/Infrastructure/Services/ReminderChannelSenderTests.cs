@@ -1,7 +1,8 @@
 using System.Net;
 using System.Text.Json;
+using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Domain.Enums;
 using ClinicManagement.Infrastructure.Services;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 
@@ -11,9 +12,13 @@ namespace ClinicManagement.UnitTests.Infrastructure.Services;
 /// The reminder channel senders (spec AC-7): SMS via the configured HTTP gateway with the alphanumeric
 /// sender id, WhatsApp via the Business API using the pre-approved utility template (single body parameter,
 /// never free-text). A channel with missing credentials reports NotConfigured; a non-2xx is transient.
+/// Senders now read their endpoint/identity/secret from the resolved <see cref="ResolvedReminderSettings"/>
+/// passed by the dispatcher (per-clinic override or per-install fallback), not from config directly.
 /// </summary>
 public class ReminderChannelSenderTests
 {
+    private static readonly IReadOnlyList<NotificationType> NoChannels = Array.Empty<NotificationType>();
+
     private static IHttpClientFactory Factory(StubHandler handler)
     {
         var factory = new Mock<IHttpClientFactory>();
@@ -22,9 +27,6 @@ public class ReminderChannelSenderTests
         return factory.Object;
     }
 
-    private static IConfiguration Config(Dictionary<string, string?> values) =>
-        new ConfigurationBuilder().AddInMemoryCollection(values).Build();
-
     // ---- SMS ----------------------------------------------------------------
 
     [Fact]
@@ -32,10 +34,10 @@ public class ReminderChannelSenderTests
     {
         var sender = new HttpSmsSender(
             Factory(new StubHandler(_ => new HttpResponseMessage(HttpStatusCode.OK))),
-            Config(new Dictionary<string, string?>()),
             NullLogger<HttpSmsSender>.Instance);
 
-        var result = await sender.SendAsync("+21620123456", "Rappel");
+        var result = await sender.SendAsync(
+            "+21620123456", "Rappel", new ResolvedReminderSettings { EnabledChannels = NoChannels });
 
         Assert.Equal(ReminderSendOutcome.NotConfigured, result.Outcome);
     }
@@ -51,14 +53,15 @@ public class ReminderChannelSenderTests
             body = ReadBody(req);
             return new HttpResponseMessage(HttpStatusCode.OK);
         });
-        var sender = new HttpSmsSender(Factory(handler), Config(new Dictionary<string, string?>
-        {
-            ["Reminders:Sms:ApiUrl"] = "https://sms.test/send",
-            ["Reminders:Sms:SenderId"] = "MaClinique",
-            ["Reminders:Sms:ApiKey"] = "secret-key",
-        }), NullLogger<HttpSmsSender>.Instance);
+        var sender = new HttpSmsSender(Factory(handler), NullLogger<HttpSmsSender>.Instance);
 
-        var result = await sender.SendAsync("+21620123456", "Rappel RDV");
+        var result = await sender.SendAsync("+21620123456", "Rappel RDV", new ResolvedReminderSettings
+        {
+            EnabledChannels = NoChannels,
+            SmsApiUrl = "https://sms.test/send",
+            SmsSenderId = "MaClinique",
+            SmsApiKey = "secret-key",
+        });
 
         Assert.Equal(ReminderSendOutcome.Sent, result.Outcome);
         using var doc = JsonDocument.Parse(body!);
@@ -73,15 +76,15 @@ public class ReminderChannelSenderTests
     {
         var sender = new HttpSmsSender(
             Factory(new StubHandler(_ => new HttpResponseMessage(HttpStatusCode.InternalServerError))),
-            Config(new Dictionary<string, string?>
-            {
-                ["Reminders:Sms:ApiUrl"] = "https://sms.test/send",
-                ["Reminders:Sms:SenderId"] = "MaClinique",
-                ["Reminders:Sms:ApiKey"] = "secret-key",
-            }),
             NullLogger<HttpSmsSender>.Instance);
 
-        var result = await sender.SendAsync("+21620123456", "Rappel");
+        var result = await sender.SendAsync("+21620123456", "Rappel", new ResolvedReminderSettings
+        {
+            EnabledChannels = NoChannels,
+            SmsApiUrl = "https://sms.test/send",
+            SmsSenderId = "MaClinique",
+            SmsApiKey = "secret-key",
+        });
 
         Assert.Equal(ReminderSendOutcome.TransientFailure, result.Outcome);
         Assert.NotNull(result.Error);
@@ -94,10 +97,10 @@ public class ReminderChannelSenderTests
     {
         var sender = new WhatsAppSender(
             Factory(new StubHandler(_ => new HttpResponseMessage(HttpStatusCode.OK))),
-            Config(new Dictionary<string, string?>()),
             NullLogger<WhatsAppSender>.Instance);
 
-        var result = await sender.SendAsync("+21620123456", "Rappel");
+        var result = await sender.SendAsync(
+            "+21620123456", "Rappel", new ResolvedReminderSettings { EnabledChannels = NoChannels });
 
         Assert.Equal(ReminderSendOutcome.NotConfigured, result.Outcome);
     }
@@ -113,16 +116,17 @@ public class ReminderChannelSenderTests
             body = ReadBody(req);
             return new HttpResponseMessage(HttpStatusCode.OK);
         });
-        var sender = new WhatsAppSender(Factory(handler), Config(new Dictionary<string, string?>
-        {
-            ["Reminders:WhatsApp:ApiUrl"] = "https://graph.test/v21.0",
-            ["Reminders:WhatsApp:PhoneNumberId"] = "PN123",
-            ["Reminders:WhatsApp:TemplateName"] = "appointment_reminder",
-            ["Reminders:WhatsApp:TemplateLanguage"] = "fr",
-            ["Reminders:WhatsApp:AccessToken"] = "wa-token",
-        }), NullLogger<WhatsAppSender>.Instance);
+        var sender = new WhatsAppSender(Factory(handler), NullLogger<WhatsAppSender>.Instance);
 
-        var result = await sender.SendAsync("+21620123456", "Rappel RDV le 03/01");
+        var result = await sender.SendAsync("+21620123456", "Rappel RDV le 03/01", new ResolvedReminderSettings
+        {
+            EnabledChannels = NoChannels,
+            WhatsAppApiUrl = "https://graph.test/v21.0",
+            WhatsAppPhoneNumberId = "PN123",
+            WhatsAppTemplateName = "appointment_reminder",
+            WhatsAppTemplateLanguage = "fr",
+            WhatsAppAccessToken = "wa-token",
+        });
 
         Assert.Equal(ReminderSendOutcome.Sent, result.Outcome);
         Assert.Equal("https://graph.test/v21.0/PN123/messages", uri!.ToString());

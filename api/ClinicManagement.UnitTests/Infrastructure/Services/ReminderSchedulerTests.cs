@@ -22,6 +22,7 @@ public class ReminderSchedulerTests
     {
         public Mock<INotificationRepository> Notifications { get; } = new();
         public Mock<IClinicRepository> Clinics { get; } = new();
+        public Mock<IReminderSettingsProvider> SettingsProvider { get; } = new();
         public Mock<IUnitOfWork> Uow { get; } = new();
         public List<Notification> Added { get; } = new();
         public List<Notification> Removed { get; } = new();
@@ -40,6 +41,30 @@ public class ReminderSchedulerTests
                 .Returns(Task.CompletedTask);
             Clinics.Setup(r => r.GetByIdAsync(ClinicId, It.IsAny<CancellationToken>()))
                 .ReturnsAsync(new Clinic(ClinicId, "Clinique Test"));
+
+            // The scheduler now resolves the enabled channels through the provider (per-clinic override or
+            // per-install default). Mirror the configured channels so these enqueue tests stay focused.
+            SettingsProvider
+                .Setup(p => p.ResolveEnabledChannelsAsync(It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(ParseChannels(channels));
+        }
+
+        private static IReadOnlyList<NotificationType> ParseChannels(string[] channels)
+        {
+            var result = new List<NotificationType>();
+            foreach (var channel in channels)
+            {
+                if (string.Equals(channel, "Sms", StringComparison.OrdinalIgnoreCase))
+                {
+                    result.Add(NotificationType.SMS);
+                }
+                else if (string.Equals(channel, "WhatsApp", StringComparison.OrdinalIgnoreCase))
+                {
+                    result.Add(NotificationType.WhatsApp);
+                }
+            }
+
+            return result;
         }
 
         public void HasExistingReminders(Guid appointmentId, params Notification[] existing) =>
@@ -63,7 +88,8 @@ public class ReminderSchedulerTests
         }
 
         public ReminderScheduler Scheduler() =>
-            new(Notifications.Object, Clinics.Object, Uow.Object, Config(), NullLogger<ReminderScheduler>.Instance);
+            new(Notifications.Object, Clinics.Object, SettingsProvider.Object, Uow.Object, Config(),
+                NullLogger<ReminderScheduler>.Instance);
     }
 
     private static Notification PendingReminder(Guid appointmentId, NotificationType type = NotificationType.SMS) =>
@@ -93,6 +119,20 @@ public class ReminderSchedulerTests
             Assert.Contains("Jean Dupont", n.Message);
             Assert.Contains("Clinique Test", n.Message);
         });
+    }
+
+    // [AC-4] Each enqueued reminder records the owning clinic id so the dispatcher can later resolve that
+    // clinic's channel credentials at send time.
+    [Fact]
+    public async Task Schedule_Stamps_The_ClinicId_On_Each_Reminder()
+    {
+        var h = new Harness("Sms", "WhatsApp");
+        var appt = DateTime.SpecifyKind(DateTime.UtcNow.AddDays(2), DateTimeKind.Utc);
+
+        await h.Scheduler().ScheduleForAppointmentAsync(ClinicId, Guid.NewGuid(), Guid.NewGuid(), "Jean Dupont", appt);
+
+        Assert.NotEmpty(h.Added);
+        Assert.All(h.Added, n => Assert.Equal(ClinicId, n.ClinicId));
     }
 
     // [AC-9] No channels configured → nothing is enqueued (no failure noise).

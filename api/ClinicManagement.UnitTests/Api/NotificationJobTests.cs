@@ -1,5 +1,6 @@
 using ClinicManagement.API.BackgroundJobs;
 using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
@@ -34,11 +35,14 @@ public class NotificationJobTests
         public NotificationType Channel { get; }
         public int Calls { get; private set; }
         public string? LastPhone { get; private set; }
+        public ResolvedReminderSettings? LastSettings { get; private set; }
 
-        public Task<ReminderSendResult> SendAsync(string phoneE164, string message, CancellationToken cancellationToken = default)
+        public Task<ReminderSendResult> SendAsync(
+            string phoneE164, string message, ResolvedReminderSettings settings, CancellationToken cancellationToken = default)
         {
             Calls++;
             LastPhone = phoneE164;
+            LastSettings = settings;
             return Task.FromResult(_result);
         }
     }
@@ -66,12 +70,22 @@ public class NotificationJobTests
         var probe = new Mock<IInternetProbe>();
         probe.Setup(p => p.IsInternetReachableAsync(It.IsAny<CancellationToken>())).ReturnsAsync(online);
 
+        // The dispatcher resolves each row's clinic settings before sending; the FakeSender ignores them, so a
+        // permissive stub (both channels enabled) keeps these routing/lifecycle tests focused on the job.
+        var settingsProvider = new Mock<IReminderSettingsProvider>();
+        settingsProvider
+            .Setup(p => p.ResolveAsync(It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ResolvedReminderSettings
+            {
+                EnabledChannels = new[] { NotificationType.SMS, NotificationType.WhatsApp }
+            });
+
         var config = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?> { ["Reminders:MaxRetries"] = maxRetries.ToString() })
             .Build();
 
         return new NotificationJob(
-            notifications.Object, patients.Object, uow.Object, probe.Object, config, senders,
+            notifications.Object, patients.Object, uow.Object, probe.Object, settingsProvider.Object, config, senders,
             NullLogger<NotificationJob>.Instance);
     }
 
@@ -237,5 +251,90 @@ public class NotificationJobTests
         Assert.Equal(NotificationStatus.Sent, smsReminder.Status);
         Assert.Equal(NotificationStatus.Sent, waReminder.Status);
         uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Exactly(2)); // one commit per row
+    }
+
+    // [AC-5] The dispatcher resolves the effective settings for the row's own ClinicId and hands them to the
+    // sender (so each clinic sends under its own resolved identity/credentials).
+    [Fact]
+    public async Task Resolves_Settings_For_The_Rows_Clinic_And_Passes_Them_To_The_Sender()
+    {
+        var clinicId = Guid.NewGuid();
+        var patientId = Guid.NewGuid();
+        var reminder = new Notification(
+            Guid.NewGuid(), NotificationType.SMS, "Rappel de rendez-vous", "Rappel : Jean le 03/01.",
+            DateTime.UtcNow.AddMinutes(-1), appointmentId: Guid.NewGuid(), patientId: patientId, clinicId: clinicId);
+
+        var notifications = new Mock<INotificationRepository>();
+        notifications.Setup(r => r.GetPendingNotificationsAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new[] { reminder });
+        notifications.Setup(r => r.UpdateAsync(It.IsAny<Notification>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+
+        var patients = new Mock<IPatientRepository>();
+        patients.Setup(r => r.GetByIdAsync(patientId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PatientWithPhone(patientId, "20123456"));
+
+        var probe = new Mock<IInternetProbe>();
+        probe.Setup(p => p.IsInternetReachableAsync(It.IsAny<CancellationToken>())).ReturnsAsync(true);
+
+        var resolved = new ResolvedReminderSettings
+        {
+            EnabledChannels = new[] { NotificationType.SMS },
+            SmsSenderId = "ClinicSms",
+        };
+        var provider = new Mock<IReminderSettingsProvider>();
+        provider.Setup(p => p.ResolveAsync(clinicId, It.IsAny<CancellationToken>())).ReturnsAsync(resolved);
+
+        var sender = new FakeSender(NotificationType.SMS, ReminderSendResult.Sent);
+        var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>()).Build();
+        var job = new NotificationJob(
+            notifications.Object, patients.Object, new Mock<IUnitOfWork>().Object, probe.Object, provider.Object,
+            config, new IReminderChannelSender[] { sender }, NullLogger<NotificationJob>.Instance);
+
+        await job.ProcessPendingNotifications();
+
+        provider.Verify(p => p.ResolveAsync(clinicId, It.IsAny<CancellationToken>()), Times.Once);
+        Assert.Same(resolved, sender.LastSettings);
+    }
+
+    // [AC-4/AC-7] A channel disabled (per-clinic or install) after the row was enqueued must not send: the
+    // dispatcher skips a row whose channel isn't in the resolved EnabledChannels, leaving it Pending (no send,
+    // no Failed) — same contract as a NotConfigured channel.
+    [Fact]
+    public async Task Disabled_Channel_At_Dispatch_Leaves_Row_Pending_Without_Sending()
+    {
+        var clinicId = Guid.NewGuid();
+        var patientId = Guid.NewGuid();
+        var reminder = new Notification(
+            Guid.NewGuid(), NotificationType.SMS, "Rappel de rendez-vous", "Rappel : Jean le 03/01.",
+            DateTime.UtcNow.AddMinutes(-1), appointmentId: Guid.NewGuid(), patientId: patientId, clinicId: clinicId);
+
+        var notifications = new Mock<INotificationRepository>();
+        notifications.Setup(r => r.GetPendingNotificationsAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new[] { reminder });
+        notifications.Setup(r => r.UpdateAsync(It.IsAny<Notification>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+
+        var patients = new Mock<IPatientRepository>();
+        patients.Setup(r => r.GetByIdAsync(patientId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PatientWithPhone(patientId, "20123456"));
+
+        var probe = new Mock<IInternetProbe>();
+        probe.Setup(p => p.IsInternetReachableAsync(It.IsAny<CancellationToken>())).ReturnsAsync(true);
+
+        // SMS row, but the clinic now has only WhatsApp enabled → the SMS row must be skipped.
+        var provider = new Mock<IReminderSettingsProvider>();
+        provider.Setup(p => p.ResolveAsync(clinicId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ResolvedReminderSettings { EnabledChannels = new[] { NotificationType.WhatsApp } });
+
+        var sender = new FakeSender(NotificationType.SMS, ReminderSendResult.Sent);
+        var uow = new Mock<IUnitOfWork>();
+        var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>()).Build();
+        var job = new NotificationJob(
+            notifications.Object, patients.Object, uow.Object, probe.Object, provider.Object,
+            config, new IReminderChannelSender[] { sender }, NullLogger<NotificationJob>.Instance);
+
+        await job.ProcessPendingNotifications();
+
+        Assert.Equal(0, sender.Calls);
+        Assert.Equal(NotificationStatus.Pending, reminder.Status);
+        Assert.Equal(0, reminder.RetryCount);
+        uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 }

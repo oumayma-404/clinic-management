@@ -16,6 +16,8 @@ public class NotificationConfiguration : IEntityTypeConfiguration<Notification>
         builder.Property(n => n.Id)
             .ValueGeneratedNever();
 
+        builder.Property(n => n.ClinicId);
+
         builder.Property(n => n.AppointmentId);
 
         builder.Property(n => n.PatientId);

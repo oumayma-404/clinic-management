@@ -32,6 +32,7 @@ import { clinicsApi, type ClinicDto } from "@/lib/api/clinics"
 import { useAuthToken } from "@/lib/hooks/use-auth-token"
 import { useSession } from "@/lib/auth/session"
 import { BackupSettings } from "@/components/backup-settings"
+import { ReminderSettings } from "@/components/reminder-settings"
 
 const tunisianGovernorates = [
   "Tunis",
@@ -1052,6 +1053,8 @@ export default function ClinicSettings() {
         </Card>
 
         {/* Admin-only backup card — Local mode only (US-8 / FR-G). */}
+        {user?.role === "admin" && <ReminderSettings />}
+
         {mode === "local" && user?.role === "admin" && <BackupSettings />}
 
         <Card className="border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20">
