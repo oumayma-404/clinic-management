@@ -7,7 +7,36 @@
 ## Status
 - [x] Implementation
 - [x] Quality checks (build, lint, typecheck)
-- [ ] Tests (handled by /test-small-feature)
+- [x] Tests (added — see Test Plan + Tests Run below)
+
+## Test Plan
+| AC | Action | Target file | Notes |
+|----|--------|-------------|-------|
+| AC-1 | New | `ReminderSchedulerTests.cs` + `ReminderScheduleTests.cs` | one Pending/channel at computed send time; tiered timing rule |
+| AC-2 | New | `ReminderSchedulerTests.cs` | persistence failure swallowed (best-effort) |
+| AC-3 | New | `ReminderSchedulerTests.cs` | reschedule voids unsent + re-enqueues (incl. into-soon-window edge) |
+| AC-4 | New | `ReminderSchedulerTests.cs` | void removes only Pending, leaves Sent |
+| AC-5 | New | `Api/NotificationJobTests.cs` | offline → nothing sent, no retry increment, no commit |
+| AC-6 | New | `Api/NotificationJobTests.cs` + `ReminderPhoneTests.cs` | +216 normalization; missing patient/bad phone → Failed; transient below cap → Pending+retry; at cap → Failed; success → Sent |
+| AC-7 | New | `ReminderChannelSenderTests.cs` | SMS sends with sender id + bearer key; WhatsApp posts approved template w/ single body param to `{ApiUrl}/{PhoneNumberId}/messages`; non-2xx → transient |
+| AC-8 | Coverage note | — | Secrets read via `IConfiguration` (env vars); no unit surface. Verified by build + the appsettings placeholder review (no committed secret values). |
+| AC-9 | New | `ReminderSchedulerTests.cs` + `Api/NotificationJobTests.cs` | no channels → nothing enqueued; NotConfigured → left Pending (no Failed spam); per-row commit (one SaveChanges per row) |
+| AC-10 | Coverage note | — | Cloud path == the online path in `NotificationJobTests` (probe reachable → sends); no separate Cloud-only unit surface. |
+
+Test-class count note: 5 new classes (over the ~5 "too big" heuristic by design) — this IS genuinely new
+feature surface, but each class is targeted and there is no user flow to E2E, so no full-pipeline escalation
+(per the skill's breadth-not-count carve-out).
+
+## Tests Run
+| Suite | Filter | Result |
+|-------|--------|--------|
+| Unit (new) | `ReminderScheduleTests\|ReminderPhoneTests\|ReminderSchedulerTests\|ReminderChannelSenderTests\|NotificationJobTests` | **38 passed, 0 failed** |
+| Unit (related existing) | `AppointmentSyncMappingTests\|AppointmentTenantIsolationTests\|NotificationGenerationTests` | **32 passed, 0 failed** (no regression from the ctor-arg change) |
+
+Run via the Smart-App-Control workaround (SAC is ON): `dotnet build ...UnitTests.csproj -p:OutDir=<scratch>`
+then `dotnet vstest <scratch>/ClinicManagement.UnitTests.dll --TestCaseFilter:"..."`. Build 0 errors, 0
+warnings in new/changed test files (fixed 2 xUnit1031 blocking-call warnings by reading the stubbed request
+body via `ReadAsStream()` instead of `.Result`). No Postman/Newman (user preference); no E2E (small feature).
 
 ## Quality check result
 `dotnet build ClinicManagement.sln --no-incremental` → **Build succeeded, 0 errors**. No new warnings in any
