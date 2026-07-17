@@ -16,7 +16,7 @@ namespace ClinicManagement.API.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/auth")]
-public class AuthController : ControllerBase
+public class AuthController : ApiControllerBase
 {
     private readonly IMediator _mediator;
     private readonly IConfiguration _configuration;

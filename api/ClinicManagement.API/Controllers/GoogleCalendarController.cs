@@ -14,7 +14,7 @@ namespace ClinicManagement.API.Controllers;
 [ApiController]
 [Authorize]
 [Route("api/[controller]")]
-public class GoogleCalendarController : ControllerBase
+public class GoogleCalendarController : ApiControllerBase
 {
     // Short-lived server-side store of issued OAuth `state` values for CSRF protection on the callback.
     private const string OAuthStateCachePrefix = "google_oauth_state:";

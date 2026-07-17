@@ -11,7 +11,7 @@ namespace ClinicManagement.API.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [Authorize]
-public class AppointmentsController : ControllerBase
+public class AppointmentsController : ApiControllerBase
 {
     private readonly IMediator _mediator;
 
@@ -37,7 +37,7 @@ public class AppointmentsController : ControllerBase
 
         if (result.IsFailure)
         {
-            return BadRequest(result.Error);
+            return HandleFailure(result);
         }
 
         return Ok(result.Value);
@@ -54,7 +54,7 @@ public class AppointmentsController : ControllerBase
 
         if (result.IsFailure)
         {
-            return NotFound(result.Error);
+            return HandleFailure(result, StatusCodes.Status404NotFound);
         }
 
         return Ok(result.Value);
@@ -70,7 +70,7 @@ public class AppointmentsController : ControllerBase
 
         if (result.IsFailure)
         {
-            return BadRequest(result.Error);
+            return HandleFailure(result);
         }
 
         return CreatedAtAction(nameof(GetAppointments), new { id = result.Value.Id }, result.Value);
@@ -87,7 +87,7 @@ public class AppointmentsController : ControllerBase
 
         if (result.IsFailure)
         {
-            return BadRequest(result.Error);
+            return HandleFailure(result);
         }
 
         return Ok(result.Value);

@@ -10,7 +10,7 @@ namespace ClinicManagement.API.Controllers;
 [ApiController]
 [Route("api/patients/{patientId}/files")]
 [Authorize]
-public class PatientFilesController : ControllerBase
+public class PatientFilesController : ApiControllerBase
 {
     private readonly IMediator _mediator;
     private readonly ILogger<PatientFilesController> _logger;
@@ -35,7 +35,7 @@ public class PatientFilesController : ControllerBase
 
         if (!result.IsSuccess)
         {
-            return BadRequest(result.Error);
+            return HandleFailure(result);
         }
 
         return Ok(result.Value);
@@ -57,7 +57,7 @@ public class PatientFilesController : ControllerBase
 
         if (!result.IsSuccess)
         {
-            return BadRequest(result.Error);
+            return HandleFailure(result);
         }
 
         return Ok(result.Value);
@@ -79,7 +79,7 @@ public class PatientFilesController : ControllerBase
 
         if (!result.IsSuccess)
         {
-            return BadRequest(result.Error);
+            return HandleFailure(result);
         }
 
         return Ok(result.Value);
@@ -98,7 +98,7 @@ public class PatientFilesController : ControllerBase
 
         if (!result.IsSuccess)
         {
-            return BadRequest(result.Error);
+            return HandleFailure(result);
         }
 
         return CreatedAtAction(nameof(GetFolders), new { patientId }, result.Value);
@@ -133,7 +133,7 @@ public class PatientFilesController : ControllerBase
 
         if (!result.IsSuccess)
         {
-            return BadRequest(result.Error);
+            return HandleFailure(result);
         }
 
         return CreatedAtAction(nameof(GetFiles), new { patientId }, result.Value);
@@ -155,7 +155,7 @@ public class PatientFilesController : ControllerBase
 
         if (!result.IsSuccess)
         {
-            return BadRequest(result.Error);
+            return HandleFailure(result);
         }
 
         var fileDto = result.Value!;
@@ -178,7 +178,7 @@ public class PatientFilesController : ControllerBase
 
         if (!result.IsSuccess)
         {
-            return BadRequest(result.Error);
+            return HandleFailure(result);
         }
 
         return NoContent();
@@ -200,7 +200,7 @@ public class PatientFilesController : ControllerBase
 
         if (!result.IsSuccess)
         {
-            return BadRequest(result.Error);
+            return HandleFailure(result);
         }
 
         return NoContent();

@@ -10,7 +10,7 @@ namespace ClinicManagement.API.Controllers;
 [ApiController]
 [Route("api/procedure-types")]
 [Authorize]
-public class ProcedureTypesController : ControllerBase
+public class ProcedureTypesController : ApiControllerBase
 {
     private readonly IMediator _mediator;
     private readonly ILogger<ProcedureTypesController> _logger;
@@ -32,7 +32,7 @@ public class ProcedureTypesController : ControllerBase
 
         if (result.IsFailure)
         {
-            return BadRequest(result.Error);
+            return HandleFailure(result);
         }
 
         return Ok(result.Value);
@@ -49,7 +49,7 @@ public class ProcedureTypesController : ControllerBase
 
         if (result.IsFailure)
         {
-            return NotFound(result.Error);
+            return HandleFailure(result, StatusCodes.Status404NotFound);
         }
 
         return Ok(result.Value);
@@ -65,7 +65,7 @@ public class ProcedureTypesController : ControllerBase
 
         if (result.IsFailure)
         {
-            return BadRequest(result.Error);
+            return HandleFailure(result);
         }
 
         return CreatedAtAction(nameof(GetProcedureType), new { id = result.Value.Id }, result.Value);
@@ -82,7 +82,7 @@ public class ProcedureTypesController : ControllerBase
 
         if (result.IsFailure)
         {
-            return BadRequest(result.Error);
+            return HandleFailure(result);
         }
 
         return Ok(result.Value);
@@ -99,7 +99,7 @@ public class ProcedureTypesController : ControllerBase
 
         if (result.IsFailure)
         {
-            return BadRequest(result.Error);
+            return HandleFailure(result);
         }
 
         return NoContent();

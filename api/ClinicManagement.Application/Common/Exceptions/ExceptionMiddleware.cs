@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Net;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
@@ -44,6 +45,11 @@ public class ExceptionMiddleware
             case NotFoundException:
                 code = HttpStatusCode.NotFound;
                 result = JsonSerializer.Serialize(new { error = exception.Message });
+                break;
+            case FluentValidation.ValidationException validationException:
+                code = HttpStatusCode.BadRequest;
+                var validationMessage = string.Join(" ", validationException.Errors.Select(e => e.ErrorMessage));
+                result = JsonSerializer.Serialize(new { error = string.IsNullOrWhiteSpace(validationMessage) ? exception.Message : validationMessage });
                 break;
             default:
                 result = JsonSerializer.Serialize(new { error = "An error occurred while processing your request." });

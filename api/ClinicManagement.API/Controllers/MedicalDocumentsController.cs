@@ -19,7 +19,7 @@ namespace ClinicManagement.API.Controllers;
 // policy (FR-E3); in Cloud it now requires the Auth0 bearer the frontend already sends (verified: the
 // one raw-fetch caller attaches the token).
 [Authorize]
-public class MedicalDocumentsController : ControllerBase
+public class MedicalDocumentsController : ApiControllerBase
 {
     private readonly IMediator _mediator;
 
@@ -44,7 +44,7 @@ public class MedicalDocumentsController : ControllerBase
 
         if (!result.IsSuccess)
         {
-            return BadRequest(result.Error);
+            return HandleFailure(result);
         }
 
         return Ok(result.Value);
@@ -60,7 +60,7 @@ public class MedicalDocumentsController : ControllerBase
 
         if (!result.IsSuccess)
         {
-            return NotFound(result.Error);
+            return HandleFailure(result, StatusCodes.Status404NotFound);
         }
 
         return Ok(result.Value);
@@ -154,7 +154,7 @@ public class MedicalDocumentsController : ControllerBase
 
         if (!result.IsSuccess)
         {
-            return BadRequest(result.Error);
+            return HandleFailure(result);
         }
 
         return CreatedAtAction(nameof(GetDocument), new { id = result.Value.Id }, result.Value);
@@ -215,7 +215,7 @@ public class MedicalDocumentsController : ControllerBase
 
         if (!result.IsSuccess)
         {
-            return BadRequest(result.Error);
+            return HandleFailure(result);
         }
 
         return Ok(result.Value);
@@ -231,7 +231,7 @@ public class MedicalDocumentsController : ControllerBase
 
         if (!result.IsSuccess)
         {
-            return BadRequest(result.Error);
+            return HandleFailure(result);
         }
 
         return NoContent();

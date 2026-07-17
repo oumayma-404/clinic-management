@@ -13,7 +13,7 @@ namespace ClinicManagement.API.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [Authorize]
-public class ClinicsController : ControllerBase
+public class ClinicsController : ApiControllerBase
 {
     private readonly IMediator _mediator;
 
@@ -239,7 +239,7 @@ public class ClinicsController : ControllerBase
         
         if (!result.IsSuccess)
         {
-            return NotFound(result.Error);
+            return HandleFailure(result, StatusCodes.Status404NotFound);
         }
         
         var logoDto = result.Value!;

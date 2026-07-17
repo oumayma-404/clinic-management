@@ -17,7 +17,7 @@ namespace ClinicManagement.API.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/connectivity")]
-public class ConnectivityController : ControllerBase
+public class ConnectivityController : ApiControllerBase
 {
     private readonly IMediator _mediator;
     private readonly IConfiguration _configuration;

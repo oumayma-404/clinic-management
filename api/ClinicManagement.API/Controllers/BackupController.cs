@@ -17,7 +17,7 @@ namespace ClinicManagement.API.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
-public class BackupController : ControllerBase
+public class BackupController : ApiControllerBase
 {
     private readonly IMediator _mediator;
 
@@ -38,7 +38,7 @@ public class BackupController : ControllerBase
 
         if (result.IsFailure)
         {
-            return BadRequest(result.Error);
+            return HandleFailure(result);
         }
 
         return Ok(result.Value);

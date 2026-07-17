@@ -15,7 +15,7 @@ namespace ClinicManagement.API.Controllers;
 [ApiController]
 [Route("api/invoices")]
 [Authorize]
-public class InvoicesController : ControllerBase
+public class InvoicesController : ApiControllerBase
 {
     private readonly IMediator _mediator;
 
@@ -38,7 +38,7 @@ public class InvoicesController : ControllerBase
 
         if (result.IsFailure)
         {
-            return BadRequest(result.Error);
+            return HandleFailure(result);
         }
 
         return Ok(result.Value);
@@ -56,7 +56,7 @@ public class InvoicesController : ControllerBase
 
         if (result.IsFailure)
         {
-            return BadRequest(result.Error);
+            return HandleFailure(result);
         }
 
         return Ok(result.Value);
@@ -70,7 +70,7 @@ public class InvoicesController : ControllerBase
 
         if (result.IsFailure)
         {
-            return NotFound(result.Error);
+            return HandleFailure(result, StatusCodes.Status404NotFound);
         }
 
         return Ok(result.Value);
@@ -84,7 +84,7 @@ public class InvoicesController : ControllerBase
 
         if (result.IsFailure)
         {
-            return BadRequest(result.Error);
+            return HandleFailure(result);
         }
 
         return File(result.Value!.Content, "application/pdf", result.Value.FileName);
@@ -98,7 +98,7 @@ public class InvoicesController : ControllerBase
 
         if (result.IsFailure)
         {
-            return BadRequest(result.Error);
+            return HandleFailure(result);
         }
 
         return CreatedAtAction(nameof(GetInvoice), new { id = result.Value!.Id }, result.Value);
@@ -113,7 +113,7 @@ public class InvoicesController : ControllerBase
 
         if (result.IsFailure)
         {
-            return BadRequest(result.Error);
+            return HandleFailure(result);
         }
 
         return Ok(result.Value);
@@ -127,7 +127,7 @@ public class InvoicesController : ControllerBase
 
         if (result.IsFailure)
         {
-            return BadRequest(result.Error);
+            return HandleFailure(result);
         }
 
         return Ok(result.Value);
@@ -142,7 +142,7 @@ public class InvoicesController : ControllerBase
 
         if (result.IsFailure)
         {
-            return BadRequest(result.Error);
+            return HandleFailure(result);
         }
 
         return Ok(result.Value);
@@ -158,7 +158,7 @@ public class InvoicesController : ControllerBase
 
         if (result.IsFailure)
         {
-            return BadRequest(result.Error);
+            return HandleFailure(result);
         }
 
         return Ok(result.Value);
@@ -172,7 +172,7 @@ public class InvoicesController : ControllerBase
 
         if (result.IsFailure)
         {
-            return BadRequest(result.Error);
+            return HandleFailure(result);
         }
 
         return NoContent();

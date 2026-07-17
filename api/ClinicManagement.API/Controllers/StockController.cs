@@ -10,7 +10,7 @@ namespace ClinicManagement.API.Controllers;
 [ApiController]
 [Route("api/stock")]
 [Authorize]
-public class StockController : ControllerBase
+public class StockController : ApiControllerBase
 {
     private readonly IMediator _mediator;
 
@@ -29,7 +29,7 @@ public class StockController : ControllerBase
 
         if (result.IsFailure)
         {
-            return BadRequest(result.Error);
+            return HandleFailure(result);
         }
 
         return Ok(result.Value);
@@ -45,7 +45,7 @@ public class StockController : ControllerBase
 
         if (result.IsFailure)
         {
-            return BadRequest(result.Error);
+            return HandleFailure(result);
         }
 
         return Ok(result.Value);
@@ -62,7 +62,7 @@ public class StockController : ControllerBase
 
         if (result.IsFailure)
         {
-            return BadRequest(result.Error);
+            return HandleFailure(result);
         }
 
         return Ok(result.Value);
@@ -78,7 +78,7 @@ public class StockController : ControllerBase
 
         if (result.IsFailure)
         {
-            return BadRequest(result.Error);
+            return HandleFailure(result);
         }
 
         return NoContent();

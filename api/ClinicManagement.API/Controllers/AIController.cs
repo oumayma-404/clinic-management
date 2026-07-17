@@ -8,7 +8,7 @@ namespace ClinicManagement.API.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [Authorize]
-public class AIController : ControllerBase
+public class AIController : ApiControllerBase
 {
     private readonly IMediator _mediator;
     private readonly ILogger<AIController> _logger;
@@ -29,7 +29,7 @@ public class AIController : ControllerBase
 
         if (result.IsFailure)
         {
-            return BadRequest(result.Error);
+            return HandleFailure(result);
         }
 
         return Ok(result.Value);

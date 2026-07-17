@@ -10,7 +10,7 @@ namespace ClinicManagement.API.Controllers;
 [ApiController]
 [Route("api/patients/{patientId}/family-history")]
 [Authorize]
-public class PatientFamilyHistoryController : ControllerBase
+public class PatientFamilyHistoryController : ApiControllerBase
 {
     private readonly IMediator _mediator;
 
@@ -27,7 +27,7 @@ public class PatientFamilyHistoryController : ControllerBase
 
         if (result.IsFailure)
         {
-            return BadRequest(result.Error);
+            return HandleFailure(result);
         }
 
         return Ok(result.Value);
@@ -43,7 +43,7 @@ public class PatientFamilyHistoryController : ControllerBase
 
         if (result.IsFailure)
         {
-            return BadRequest(result.Error);
+            return HandleFailure(result);
         }
 
         return Ok(result.Value);
@@ -61,7 +61,7 @@ public class PatientFamilyHistoryController : ControllerBase
 
         if (result.IsFailure)
         {
-            return BadRequest(result.Error);
+            return HandleFailure(result);
         }
 
         return Ok(result.Value);
@@ -79,7 +79,7 @@ public class PatientFamilyHistoryController : ControllerBase
 
         if (result.IsFailure)
         {
-            return BadRequest(result.Error);
+            return HandleFailure(result);
         }
 
         return NoContent();

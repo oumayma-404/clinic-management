@@ -10,7 +10,7 @@ namespace ClinicManagement.API.Controllers;
 [ApiController]
 [Route("api/notifications")]
 [Authorize]
-public class NotificationsController : ControllerBase
+public class NotificationsController : ApiControllerBase
 {
     private readonly IMediator _mediator;
 
@@ -30,7 +30,7 @@ public class NotificationsController : ControllerBase
 
         if (result.IsFailure)
         {
-            return BadRequest(result.Error);
+            return HandleFailure(result);
         }
 
         return Ok(result.Value);
@@ -47,7 +47,7 @@ public class NotificationsController : ControllerBase
 
         if (result.IsFailure)
         {
-            return BadRequest(result.Error);
+            return HandleFailure(result);
         }
 
         return Ok(result.Value);
@@ -63,7 +63,7 @@ public class NotificationsController : ControllerBase
 
         if (result.IsFailure)
         {
-            return BadRequest(result.Error);
+            return HandleFailure(result);
         }
 
         return Ok(new { unreadCount = result.Value });
@@ -81,7 +81,7 @@ public class NotificationsController : ControllerBase
         {
             // The only non-auth failure is the tenant-mismatch/missing case, which the command
             // treats as "not found" — surface it as 404 (matches AppointmentsController.GetAppointment).
-            return NotFound(result.Error);
+            return HandleFailure(result, StatusCodes.Status404NotFound);
         }
 
         return NoContent();
@@ -97,7 +97,7 @@ public class NotificationsController : ControllerBase
 
         if (result.IsFailure)
         {
-            return BadRequest(result.Error);
+            return HandleFailure(result);
         }
 
         return NoContent();
