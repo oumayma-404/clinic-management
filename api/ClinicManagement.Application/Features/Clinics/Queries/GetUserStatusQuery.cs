@@ -97,6 +97,8 @@ public class GetUserStatusQueryHandler : IRequestHandler<GetUserStatusQuery, Res
                     VatRate = clinic.VatRate,
                     StampDutyEnabled = clinic.StampDutyEnabled,
                     StampDutyAmount = clinic.StampDutyAmount,
+                    TtnEInvoicingEnabled = clinic.TtnEInvoicingEnabled,
+                    TtnEnvironment = clinic.TtnEnvironment,
                     CreatedAt = clinic.CreatedAt
                 } : null,
                 Doctors = doctorDtos

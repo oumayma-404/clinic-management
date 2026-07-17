@@ -169,6 +169,18 @@ public static class Extensions
         // PDF Generation Service
         services.AddScoped<IPdfGenerationService, PdfGenerationService>();
 
+        // TTN « El Fatoora » electronic invoicing (feature facturation-einvoicing-ttn):
+        //   - TEIF XML generation + XAdES/XMLDSig signing (cert from .local/) + QR cachet rendering.
+        //   - ITtnClient registered as a set (sandbox + production); EInvoiceService picks the one matching
+        //     the clinic's configured environment (mirrors the reminder-sender pattern).
+        //   - EInvoiceService orchestrates the whole dispatch; the outbox job + submit command call it.
+        services.AddScoped<ITeifXmlGenerator, TeifXmlGenerator>();
+        services.AddScoped<IEInvoiceSigner, XadesEInvoiceSigner>();
+        services.AddSingleton<IQrCodeGenerator, QrCodeGenerator>();
+        services.AddScoped<ITtnClient, SandboxTtnClient>();
+        services.AddScoped<ITtnClient, HttpTtnClient>();
+        services.AddScoped<IEInvoiceService, EInvoiceService>();
+
         // Hugging Face AI Service
         services.AddScoped<IHuggingFaceAIService, HuggingFaceAIService>();
 

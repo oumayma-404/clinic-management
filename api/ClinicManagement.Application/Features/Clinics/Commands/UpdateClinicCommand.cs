@@ -22,6 +22,10 @@ public class UpdateClinicCommand : IRequest<Result<ClinicDto>>
     public decimal? VatRate { get; set; }
     public bool? StampDutyEnabled { get; set; }
     public decimal? StampDutyAmount { get; set; }
+
+    // TTN « El Fatoora » e-invoicing settings (null = leave the current value unchanged).
+    public bool? TtnEInvoicingEnabled { get; set; }
+    public string? TtnEnvironment { get; set; }
 }
 
 public class UpdateClinicCommandHandler : IRequestHandler<UpdateClinicCommand, Result<ClinicDto>>
@@ -122,6 +126,11 @@ public class UpdateClinicCommandHandler : IRequestHandler<UpdateClinicCommand, R
                     request.StampDutyEnabled ?? clinic.StampDutyEnabled,
                     request.StampDutyAmount ?? clinic.StampDutyAmount);
 
+                // TTN e-invoicing settings: apply provided values, keeping the current value where null.
+                clinic.SetElFatooraSettings(
+                    request.TtnEInvoicingEnabled ?? clinic.TtnEInvoicingEnabled,
+                    request.TtnEnvironment ?? clinic.TtnEnvironment);
+
                 await _clinicRepository.UpdateAsync(clinic, cancellationToken);
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
             }
@@ -152,7 +161,9 @@ public class UpdateClinicCommandHandler : IRequestHandler<UpdateClinicCommand, R
                 VatApplicable = clinic.VatApplicable,
                 VatRate = clinic.VatRate,
                 StampDutyEnabled = clinic.StampDutyEnabled,
-                StampDutyAmount = clinic.StampDutyAmount
+                StampDutyAmount = clinic.StampDutyAmount,
+                TtnEInvoicingEnabled = clinic.TtnEInvoicingEnabled,
+                TtnEnvironment = clinic.TtnEnvironment
             };
 
             return Result<ClinicDto>.Success(clinicDto);

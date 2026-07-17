@@ -457,6 +457,14 @@ try
         job => job.ProcessPendingNotifications(),
         Cron.Minutely);
 
+    // TTN « El Fatoora » outbox dispatcher — minutely, connectivity-gated (see EInvoiceOutboxJob). Sends
+    // queued e-invoices only when the server has internet; otherwise no-ops and leaves them queued. Safe to
+    // run unconditionally (does nothing until a clinic enables e-invoicing and queues an invoice).
+    RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.EInvoiceOutboxJob>(
+        "dispatch-einvoices",
+        job => job.DispatchQueuedInvoices(),
+        Cron.Minutely);
+
     // AI summary generation stays DISABLED (PatientSummaryService is a placeholder, not a real AI call).
     /*RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.AISummaryJob>(
         "generate-ai-summaries",

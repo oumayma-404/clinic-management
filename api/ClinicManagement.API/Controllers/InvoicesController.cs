@@ -164,6 +164,53 @@ public class InvoicesController : ApiControllerBase
         return Ok(result.Value);
     }
 
+    /// <summary>
+    /// Send (or retry sending) an issued invoice to TTN « El Fatoora ». Queues it into the offline outbox
+    /// and dispatches inline when the server has internet; idempotent per invoice.
+    /// </summary>
+    [HttpPost("{id}/e-invoice/submit")]
+    public async Task<ActionResult<InvoiceDto>> SubmitToElFatoora(Guid id, CancellationToken cancellationToken = default)
+    {
+        var result = await _mediator.Send(new SubmitInvoiceToElFatooraCommand { Id = id }, cancellationToken);
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+
+        return Ok(result.Value);
+    }
+
+    /// <summary>Download the signed TEIF XML of a submitted/validated invoice.</summary>
+    [HttpGet("{id}/e-invoice/xml")]
+    public async Task<IActionResult> GetSignedTeif(Guid id, CancellationToken cancellationToken = default)
+    {
+        var result = await _mediator.Send(
+            new GetEInvoiceArtifactQuery { Id = id, ArtifactType = EInvoiceArtifactType.SignedXml }, cancellationToken);
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result, StatusCodes.Status404NotFound);
+        }
+
+        return File(result.Value!.Content, result.Value.ContentType, result.Value.FileName);
+    }
+
+    /// <summary>Download the TTN receipt/acknowledgement of a validated invoice.</summary>
+    [HttpGet("{id}/e-invoice/receipt")]
+    public async Task<IActionResult> GetTtnReceipt(Guid id, CancellationToken cancellationToken = default)
+    {
+        var result = await _mediator.Send(
+            new GetEInvoiceArtifactQuery { Id = id, ArtifactType = EInvoiceArtifactType.TtnReceipt }, cancellationToken);
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result, StatusCodes.Status404NotFound);
+        }
+
+        return File(result.Value!.Content, result.Value.ContentType, result.Value.FileName);
+    }
+
     /// <summary>Delete a draft invoice (an issued invoice cannot be deleted).</summary>
     [HttpDelete("{id}")]
     public async Task<IActionResult> DeleteInvoice(Guid id, CancellationToken cancellationToken = default)

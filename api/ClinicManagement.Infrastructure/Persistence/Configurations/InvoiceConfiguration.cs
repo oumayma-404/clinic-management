@@ -60,6 +60,26 @@ public class InvoiceConfiguration : IEntityTypeConfiguration<Invoice>
         builder.Property(i => i.CreatedAt).IsRequired();
         builder.Property(i => i.UpdatedAt);
 
+        // TTN « El Fatoora » electronic-invoicing state (FR-5). Additive; existing invoices default to
+        // NotSubmitted. Signed XML + receipt are stored as blobs (file storage) — only their keys live here.
+        builder.Property(i => i.EInvoiceStatus)
+            .IsRequired()
+            .HasConversion<int>()
+            .HasDefaultValue(Domain.Enums.EInvoiceStatus.NotSubmitted);
+
+        builder.Property(i => i.TtnIdentifier).HasMaxLength(100);
+        builder.Property(i => i.SignedXmlStorageKey).HasMaxLength(500);
+        builder.Property(i => i.TtnReceiptStorageKey).HasMaxLength(500);
+        builder.Property(i => i.QrPayload).HasMaxLength(2000);
+        builder.Property(i => i.EInvoiceSubmittedAt);
+        builder.Property(i => i.EInvoiceValidatedAt);
+        builder.Property(i => i.EInvoiceLastError).HasMaxLength(2000);
+        builder.Property(i => i.EInvoiceAttemptCount).IsRequired().HasDefaultValue(0);
+        builder.Property(i => i.EInvoiceNextAttemptAt);
+
+        // Outbox dispatch query: due queued invoices (EInvoiceNextAttemptAt <= now), oldest-due first.
+        builder.HasIndex(i => new { i.EInvoiceStatus, i.EInvoiceNextAttemptAt });
+
         // Aggregate children: cascade-deleted with the invoice (a draft delete removes its lines).
         builder.HasMany(i => i.Lines)
             .WithOne()

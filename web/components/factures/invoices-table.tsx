@@ -14,7 +14,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { FileDown, Pencil, Trash2, Send, CreditCard, Ban, Plus, Loader2 } from "lucide-react"
+import { FileDown, Pencil, Trash2, Send, CreditCard, Ban, Plus, Loader2, Landmark, FileCode2, ReceiptText } from "lucide-react"
 import { toast } from "sonner"
 import { invoicesApi } from "@/lib/api/invoices"
 import { ApiError } from "@/lib/api/client"
@@ -22,9 +22,10 @@ import type { InvoiceDto } from "@/lib/api/types"
 import { formatDT, formatDateFr } from "@/lib/format"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
+import { useConnectivity } from "@/lib/connectivity/connectivity"
 import { InvoiceFormModal } from "./invoice-form-modal"
 import { PaymentModal } from "./payment-modal"
-import { invoiceStatusLabel } from "./invoice-labels"
+import { invoiceStatusLabel, eInvoiceStatusLabel, eInvoiceStatusBadgeClass } from "./invoice-labels"
 
 interface InvoicesTableProps {
   patientId?: string
@@ -70,6 +71,7 @@ export function InvoicesTable({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
+  const { internetReachable } = useConnectivity()
 
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState<InvoiceDto | null>(null)
@@ -134,6 +136,48 @@ export function InvoicesTable({
     }
   }
 
+  const handleSubmitEInvoice = async (invoice: InvoiceDto) => {
+    setBusyId(invoice.id)
+    try {
+      const updated = await invoicesApi.submitToElFatoora(invoice.id)
+      // Offline installs queue the invoice; the outbox sends it when internet returns (US-2).
+      if (updated.eInvoiceStatus === "Valid") {
+        toast.success("Facture enregistrée auprès de El Fatoora")
+      } else if (updated.eInvoiceStatus === "Rejected" || updated.eInvoiceStatus === "Failed") {
+        toast.error(updated.eInvoiceLastError || "Envoi à El Fatoora refusé.")
+      } else {
+        toast.success(internetReachable
+          ? "Envoi à El Fatoora en cours…"
+          : "Facture mise en file d'attente — elle sera envoyée dès le retour d'internet.")
+      }
+      afterMutation()
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Échec de l'envoi à El Fatoora.")
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  const handleDownloadArtifact = async (invoice: InvoiceDto, artifact: "xml" | "receipt") => {
+    setBusyId(invoice.id)
+    try {
+      const blob = await invoicesApi.downloadEInvoiceArtifact(invoice.id, artifact)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      const suffix = artifact === "xml" ? "teif" : "recu-ttn"
+      a.download = `${suffix}-${invoice.number ?? invoice.id}.xml`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Échec du téléchargement.")
+    } finally {
+      setBusyId(null)
+    }
+  }
+
   const confirmDelete = async () => {
     if (!deleteTarget) return
     setBusyId(deleteTarget.id)
@@ -179,7 +223,7 @@ export function InvoicesTable({
     setFormOpen(true)
   }
 
-  const colSpan = showPatientColumn ? 8 : 7
+  const colSpan = showPatientColumn ? 9 : 8
 
   return (
     <div className="space-y-3">
@@ -203,6 +247,7 @@ export function InvoicesTable({
               {showPatientColumn && <TableHead>Patient</TableHead>}
               <TableHead>Date</TableHead>
               <TableHead>Statut</TableHead>
+              <TableHead>El Fatoora</TableHead>
               <TableHead className="text-right">Total TTC</TableHead>
               <TableHead className="text-right">Encaissé</TableHead>
               <TableHead className="text-right">Reste</TableHead>
@@ -238,6 +283,19 @@ export function InvoicesTable({
                         {invoiceStatusLabel(invoice.status)}
                       </Badge>
                     </TableCell>
+                    <TableCell>
+                      {isDraft ? (
+                        <span className="text-muted-foreground">—</span>
+                      ) : (
+                        <Badge
+                          variant="secondary"
+                          className={eInvoiceStatusBadgeClass(invoice.eInvoiceStatus)}
+                          title={invoice.eInvoiceLastError ?? undefined}
+                        >
+                          {eInvoiceStatusLabel(invoice.eInvoiceStatus)}
+                        </Badge>
+                      )}
+                    </TableCell>
                     <TableCell className="text-right">{formatDT(invoice.totalTtc)}</TableCell>
                     <TableCell className="text-right">{formatDT(invoice.amountCollected)}</TableCell>
                     <TableCell className="text-right">{formatDT(invoice.outstanding)}</TableCell>
@@ -260,6 +318,33 @@ export function InvoicesTable({
                         {isPayable && (
                           <Button variant="ghost" size="icon" title="Enregistrer un paiement" onClick={() => setPaymentTarget(invoice)} disabled={isBusy}>
                             <CreditCard className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {!isDraft && invoice.canSubmitToElFatoora && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title={
+                              invoice.eInvoiceStatus === "Rejected" || invoice.eInvoiceStatus === "Failed"
+                                ? "Renvoyer à El Fatoora"
+                                : internetReachable
+                                  ? "Envoyer à El Fatoora"
+                                  : "Mettre en file d'attente (envoi au retour d'internet)"
+                            }
+                            onClick={() => handleSubmitEInvoice(invoice)}
+                            disabled={isBusy}
+                          >
+                            <Landmark className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {invoice.hasSignedXml && (
+                          <Button variant="ghost" size="icon" title="Télécharger le TEIF signé" onClick={() => handleDownloadArtifact(invoice, "xml")} disabled={isBusy}>
+                            <FileCode2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {invoice.hasTtnReceipt && (
+                          <Button variant="ghost" size="icon" title="Télécharger le reçu TTN" onClick={() => handleDownloadArtifact(invoice, "receipt")} disabled={isBusy}>
+                            <ReceiptText className="h-4 w-4" />
                           </Button>
                         )}
                         {!isDraft && (

@@ -21,6 +21,19 @@ public class InvoiceDto
     public decimal Outstanding { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
+
+    // TTN « El Fatoora » electronic-invoicing state (FR-5). Secrets/blobs are never exposed — only status,
+    // the public TTN reference, timestamps, the last error, and download-availability flags.
+    public string EInvoiceStatus { get; set; } = string.Empty;
+    public string? TtnIdentifier { get; set; }
+    public DateTime? EInvoiceSubmittedAt { get; set; }
+    public DateTime? EInvoiceValidatedAt { get; set; }
+    public string? EInvoiceLastError { get; set; }
+    public int EInvoiceAttemptCount { get; set; }
+    public bool CanSubmitToElFatoora { get; set; }
+    public bool HasSignedXml { get; set; }
+    public bool HasTtnReceipt { get; set; }
+
     public List<InvoiceLineDto> Lines { get; set; } = new();
     public List<PaymentDto> Payments { get; set; } = new();
 }

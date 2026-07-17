@@ -26,6 +26,13 @@ public interface IInvoiceRepository
     /// <summary>Sum of payments received in [from, to] across the clinic's non-cancelled invoices.</summary>
     Task<decimal> GetCollectedBetweenAsync(Guid clinicId, DateTime from, DateTime to, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// El Fatoora outbox: invoices <c>Queued</c> for e-invoicing and due for a dispatch attempt
+    /// (<c>EInvoiceNextAttemptAt &lt;= now</c>), across all clinics, oldest-due first, capped at
+    /// <paramref name="maxCount"/>. Loaded with lines + payments for TEIF generation.
+    /// </summary>
+    Task<IEnumerable<Invoice>> GetDueForElFatooraDispatchAsync(int maxCount, DateTime now, CancellationToken cancellationToken = default);
+
     Task<Invoice> AddAsync(Invoice invoice, CancellationToken cancellationToken = default);
     Task UpdateAsync(Invoice invoice, CancellationToken cancellationToken = default);
     Task DeleteAsync(Guid id, CancellationToken cancellationToken = default);

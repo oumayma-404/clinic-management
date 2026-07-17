@@ -17,6 +17,10 @@ public class ClinicDto
     public bool StampDutyEnabled { get; set; }
     public decimal StampDutyAmount { get; set; }
 
+    // TTN « El Fatoora » e-invoicing settings (non-secret).
+    public bool TtnEInvoicingEnabled { get; set; }
+    public string TtnEnvironment { get; set; } = "Sandbox";
+
     public DateTime CreatedAt { get; set; }
 }
 

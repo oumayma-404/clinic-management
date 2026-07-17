@@ -197,7 +197,9 @@ public class ClinicsController : ApiControllerBase
             VatApplicable = request.VatApplicable,
             VatRate = request.VatRate,
             StampDutyEnabled = request.StampDutyEnabled,
-            StampDutyAmount = request.StampDutyAmount
+            StampDutyAmount = request.StampDutyAmount,
+            TtnEInvoicingEnabled = request.TtnEInvoicingEnabled,
+            TtnEnvironment = request.TtnEnvironment
         };
         
         var result = await _mediator.Send(command);
