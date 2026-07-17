@@ -7,7 +7,17 @@
 ## Status
 - [x] Implementation
 - [x] Quality checks (build, lint, typecheck)
-- [ ] Tests (handled by /test-small-feature)
+- [x] Tests (added — see Test Plan + Tests Run)
+
+## Tests Run
+Windows Smart App Control (`0x800711C7`) + the running app's bin lock block plain `dotnet test`; ran via the
+confirmed isolated-`OutDir` build + `dotnet vstest` recipe.
+| Suite | Filter | Result |
+|-------|--------|--------|
+| Unit (new) | `InvoiceEInvoiceTests \| ClinicEInvoiceSettingsTests \| TeifXmlGeneratorTests \| SandboxTtnClientTests \| XadesEInvoiceSignerTests \| QrCodeGeneratorTests` | **30 passed, 0 failed** |
+| Unit (regression) | `InvoiceEntityTests \| IssueInvoiceCommandHandlerTests \| InvoiceTenantIsolationTests \| InvoiceCalculatorTests` | **29 passed, 0 failed** |
+
+Test project built clean to a scratch `OutDir` (0 errors, 0 new warnings in the new test files).
 
 ## Quality check results
 - **Backend `dotnet build ClinicManagement.sln`:** 0 compile errors; 0 new warnings in changed files
@@ -60,6 +70,33 @@ Unrelated uncommitted changes present at start (excluded from this feature's sta
 `BackgroundJobs/EInvoiceOutboxJob.cs` (new), `Program.cs` (recurring job).
 **Frontend:** `lib/api/types.ts` + `lib/api/invoices.ts` + `lib/api/clinics.ts`, `components/factures/invoice-labels.ts`,
 `components/factures/invoices-table.tsx` (status column + actions + connectivity gating), `components/clinic-settings.tsx` (TTN settings).
+
+## Test Plan
+Spec has no `Acceptance Criteria` block — FRs + Edge Cases are the criteria. Repo has a single xUnit
+`ClinicManagement.UnitTests` project (xUnit + Moq, plain `Assert.*`); no integration/Testcontainers project,
+no FE test framework. Strategy: unit-test the **pure units** the orchestrator composes; note orchestration /
+controllers / FE as integration/manual (targeted, per the skill's "test what changed").
+
+| Criterion | Action | Target file | Notes |
+|-----------|--------|-------------|-------|
+| FR-4/FR-5 queue + lifecycle + idempotency (US-1/2/3, edges: duplicate, cancelled) | New class | `Domain/InvoiceEInvoiceTests.cs` | Queue guards, Signed/Submitted/Validated/Rejected, `CanSubmitToElFatoora` |
+| FR-4 retry with backoff (edge: transient) | (same class) | `Domain/InvoiceEInvoiceTests.cs` | `RecordEInvoiceFailure` → Queued until max → Failed |
+| FR-8 per-clinic settings | New class | `Domain/ClinicEInvoiceSettingsTests.cs` | `SetElFatooraSettings` enable + env normalization |
+| FR-1 TEIF XML generation + FR-6 B2C buyer | New class | `Infrastructure/Services/TeifXmlGeneratorTests.cs` | Root/version, type 380, seller MF, consumer buyer, totals, valid XML |
+| FR-3 TTN submission (sandbox path) | New class | `Infrastructure/Services/SandboxTtnClientTests.cs` | Signed→Validated (+ deterministic id/receipt), unsigned→Rejected, env=Sandbox |
+| FR-2 signing — cert-missing fails fast (edge) | New class | `Infrastructure/Services/XadesEInvoiceSignerTests.cs` | Missing cert → `InvalidOperationException` with operator message |
+| FR-7 QR cachet rendering | New class | `Infrastructure/Services/QrCodeGeneratorTests.cs` | `GeneratePng` returns a non-empty PNG (magic bytes) |
+
+**Coverage notes (accounted for, no unit test):**
+- **FR-2 signing positive path** — needs a real qualified PFX; integration/manual. Only the guard is unit-tested.
+- **`EInvoiceService` orchestration, `SubmitInvoiceToElFatooraCommandHandler`, `EInvoiceOutboxJob`, controllers** —
+  compose the units above over real DB/file-storage/HTTP; integration/operator-verified (sandbox path). The domain
+  lifecycle they drive IS unit-covered.
+- **`HttpTtnClient`** — real TTN endpoint, unverified (OQ #1); manual/integration only.
+- **Frontend** (status column, actions, settings) — no FE test framework in repo; covered by `tsc --noEmit` (clean).
+
+Class count (7) reflects the forced-small **full vertical slice**, not new-flow breadth — each class is thin and
+mirrors a sibling; no E2E/full-regression warranted (per the skill's hardening carve-out).
 
 ## Auto-Approved Deviations
 | Deviation | Reason |
