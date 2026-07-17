@@ -28,7 +28,11 @@ public class MedicalDocument : Entity<Guid>
     
     public bool IsDraft { get; private set; }
     public Guid? FileId { get; private set; } // Reference to PatientFile if saved as file
-    
+
+    // Optional link to the appointment this record documents. When set, creating the record marks that
+    // appointment Completed (post-visit review flow). No FK — deleting the appointment leaves the record.
+    public Guid? AppointmentId { get; private set; }
+
     public DateTime CreatedAt { get; private set; }
     public DateTime? UpdatedAt { get; private set; }
     
@@ -53,7 +57,8 @@ public class MedicalDocument : Entity<Guid>
         bool isDraft = false,
         string? recipientDoctorName = null,
         string? recipientDoctorSpecialty = null,
-        Guid? fileId = null)
+        Guid? fileId = null,
+        Guid? appointmentId = null)
     {
         if (string.IsNullOrWhiteSpace(documentType))
             throw new ArgumentException("Document type cannot be null or empty", nameof(documentType));
@@ -80,6 +85,7 @@ public class MedicalDocument : Entity<Guid>
         RecipientDoctorSpecialty = recipientDoctorSpecialty;
         IsDraft = isDraft;
         FileId = fileId;
+        AppointmentId = appointmentId;
         CreatedAt = DateTime.UtcNow;
     }
     

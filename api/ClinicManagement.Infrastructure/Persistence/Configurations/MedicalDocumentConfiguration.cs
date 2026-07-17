@@ -64,6 +64,11 @@ public class MedicalDocumentConfiguration : IEntityTypeConfiguration<MedicalDocu
 
         builder.Property(d => d.UpdatedAt);
 
+        // Optional, unenforced link to the documented appointment (no FK — see entity). Indexed for the
+        // completion lookup path.
+        builder.Property(d => d.AppointmentId);
+        builder.HasIndex(d => d.AppointmentId);
+
         // Relationships
         builder.HasOne(d => d.Patient)
             .WithMany()

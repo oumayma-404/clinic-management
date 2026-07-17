@@ -97,6 +97,25 @@ public class Appointment : AggregateRoot<Guid>
         UpdatedAt = DateTime.UtcNow;
     }
 
+    /// <summary>
+    /// Records that the visit happened (a medical record was filled for it). Allowed from
+    /// <see cref="AppointmentStatus.Scheduled"/>/<see cref="AppointmentStatus.Confirmed"/>/<see cref="AppointmentStatus.InProgress"/>;
+    /// a Cancelled/Completed/NoShow appointment is left unchanged (idempotent no-op, so a second staff
+    /// member filling a record is harmless — spec AC-7).
+    /// </summary>
+    public void MarkVisitCompleted()
+    {
+        if (Status != AppointmentStatus.Scheduled &&
+            Status != AppointmentStatus.Confirmed &&
+            Status != AppointmentStatus.InProgress)
+        {
+            return;
+        }
+
+        Status = AppointmentStatus.Completed;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
     public void Cancel(string? reason = null)
     {
         if (Status == AppointmentStatus.Completed)

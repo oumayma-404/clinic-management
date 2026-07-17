@@ -6,6 +6,7 @@ using ClinicManagement.Application.Features.Stock.Commands;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
+using ClinicManagement.Domain.ValueObjects;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -28,6 +29,7 @@ public class NotificationGenerationTests
     private sealed class GeneratorHarness
     {
         public Mock<IStaffNotificationRepository> Repo { get; } = new();
+        public Mock<IDoctorRepository> Doctors { get; } = new();
         public Mock<IUnitOfWork> Uow { get; } = new();
         public Mock<IRealtimeNotifier> Realtime { get; } = new();
         public List<StaffNotification> Added { get; } = new();
@@ -40,7 +42,7 @@ public class NotificationGenerationTests
         }
 
         public NotificationGenerator Generator() =>
-            new(Repo.Object, Uow.Object, Realtime.Object, NullLogger<NotificationGenerator>.Instance);
+            new(Repo.Object, Doctors.Object, Uow.Object, Realtime.Object, NullLogger<NotificationGenerator>.Instance);
     }
 
     // [US-2] A created notification records the actor (to exclude) and deep-link target, and broadcasts.
@@ -56,6 +58,7 @@ public class NotificationGenerationTests
         Assert.Equal(NotificationCategory.AppointmentCreated, n.Category);
         Assert.Equal("local|actor", n.ActorUserId);
         Assert.Equal(NotificationTargetKind.Appointment, n.TargetKind);
+        Assert.Null(n.TargetUserId); // [AC-8] existing categories stay clinic-wide (no per-user targeting)
         h.Realtime.Verify(r => r.NotifyEntityChangedAsync(ClinicId, "notifications", It.IsAny<CancellationToken>()), Times.Once);
     }
 
@@ -269,6 +272,9 @@ public class NotificationGenerationTests
         Assert.True(result.IsSuccess);
         gen.Verify(g => g.AppointmentCancelledAsync(appointment.ClinicId, appointment.Id, "local|actor", It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Once);
         gen.Verify(g => g.AppointmentRescheduledAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Never);
+        // [AC-4] Cancelling removes the pending post-visit review (and never keeps it in sync).
+        gen.Verify(g => g.CancelPostVisitReviewAsync(appointment.ClinicId, appointment.Id, It.IsAny<CancellationToken>()), Times.Once);
+        gen.Verify(g => g.EnsurePostVisitReviewAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     // [US-3] Changing the date fires a rescheduled notification.
@@ -283,6 +289,10 @@ public class NotificationGenerationTests
 
         Assert.True(result.IsSuccess);
         gen.Verify(g => g.AppointmentRescheduledAsync(appointment.ClinicId, appointment.Id, "local|actor", It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Once);
+        // [AC-4] Rescheduling keeps the post-visit review in sync — moved to the new end (start + 30-min duration).
+        gen.Verify(g => g.EnsurePostVisitReviewAsync(
+            appointment.ClinicId, appointment.Id, It.IsAny<string>(), It.IsAny<string>(),
+            It.Is<DateTime>(d => d == newDate + TimeSpan.FromMinutes(30)), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     // [US-3 / R-3] Reactivating a cancelled appointment (status → Scheduled, same date) must never emit a
@@ -300,6 +310,193 @@ public class NotificationGenerationTests
 
         gen.Verify(g => g.AppointmentRescheduledAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Never);
         gen.Verify(g => g.AppointmentCancelledAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    // ---- NotificationGenerator: post-visit review (EnsurePostVisitReviewAsync / CancelPostVisitReviewAsync) ----
+
+    // [AC-1 / AC-3] A created post-visit review is future-dated at the appointment END time and carries no
+    // actor (it is a prompt TO the doctor). Future-dated → nothing visible yet, so no realtime broadcast.
+    [Fact]
+    public async Task EnsurePostVisitReview_Creates_Review_Due_At_Appointment_End()
+    {
+        var h = new GeneratorHarness();
+        var end = DateTime.UtcNow.AddHours(2);
+
+        await h.Generator().EnsurePostVisitReviewAsync(
+            ClinicId, appointmentId: Guid.NewGuid(), doctorId: null, patientName: "Jean Dupont", appointmentEndUtc: end);
+
+        var n = Assert.Single(h.Added);
+        Assert.Equal(NotificationCategory.PostVisitReview, n.Category);
+        Assert.Equal(end, n.EffectiveFeedTime, TimeSpan.FromSeconds(1));
+        Assert.Null(n.ActorUserId);
+        Assert.Equal(NotificationTargetKind.Appointment, n.TargetKind);
+        // Future-dated → not visible in any feed yet → no client refetch triggered.
+        h.Realtime.Verify(
+            r => r.NotifyEntityChangedAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    // [AC-2] A DoctorId that resolves to a Doctor with a linked user targets ONLY that user.
+    [Fact]
+    public async Task EnsurePostVisitReview_Targets_The_Linked_Doctor_User()
+    {
+        var h = new GeneratorHarness();
+        var doctorId = Guid.NewGuid();
+        var doctor = new Doctor(doctorId, ClinicId, "Alice", "Martin", "Dentiste");
+        doctor.LinkToUser("local|doc-user");
+        h.Doctors.Setup(d => d.GetByIdAsync(doctorId, It.IsAny<CancellationToken>())).ReturnsAsync(doctor);
+
+        await h.Generator().EnsurePostVisitReviewAsync(
+            ClinicId, Guid.NewGuid(), doctorId.ToString(), "Jean Dupont", DateTime.UtcNow.AddHours(1));
+
+        Assert.Equal("local|doc-user", Assert.Single(h.Added).TargetUserId);
+    }
+
+    // [AC-2] Doctor exists but has no linked user → visible to all staff (null target).
+    [Fact]
+    public async Task EnsurePostVisitReview_Targets_All_Staff_When_Doctor_Has_No_User()
+    {
+        var h = new GeneratorHarness();
+        var doctorId = Guid.NewGuid();
+        var doctor = new Doctor(doctorId, ClinicId, "Alice", "Martin", "Dentiste"); // not linked to a user
+        h.Doctors.Setup(d => d.GetByIdAsync(doctorId, It.IsAny<CancellationToken>())).ReturnsAsync(doctor);
+
+        await h.Generator().EnsurePostVisitReviewAsync(
+            ClinicId, Guid.NewGuid(), doctorId.ToString(), "Jean Dupont", DateTime.UtcNow.AddHours(1));
+
+        Assert.Null(Assert.Single(h.Added).TargetUserId);
+    }
+
+    // [AC-2] Null or unparsable DoctorId → visible to all staff (null target); no doctor lookup is attempted.
+    [Theory]
+    [InlineData(null)]
+    [InlineData("not-a-guid")]
+    public async Task EnsurePostVisitReview_Targets_All_Staff_When_DoctorId_Missing_Or_Invalid(string? doctorId)
+    {
+        var h = new GeneratorHarness();
+
+        await h.Generator().EnsurePostVisitReviewAsync(
+            ClinicId, Guid.NewGuid(), doctorId, "Jean Dupont", DateTime.UtcNow.AddHours(1));
+
+        Assert.Null(Assert.Single(h.Added).TargetUserId);
+        h.Doctors.Verify(d => d.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    // [AC-4] Rescheduling MOVES the existing review to the new end time and recomputes its target (here the
+    // doctor is cleared → back to all staff) instead of adding a second row.
+    [Fact]
+    public async Task EnsurePostVisitReview_Moves_Existing_Review_Instead_Of_Adding()
+    {
+        var h = new GeneratorHarness();
+        var appointmentId = Guid.NewGuid();
+        var existing = new StaffNotification(
+            Guid.NewGuid(), ClinicId, NotificationCategory.PostVisitReview, "Compte rendu", "…",
+            DateTime.UtcNow.AddHours(1), NotificationTargetKind.Appointment,
+            appointmentId: appointmentId, targetUserId: "local|old-doc");
+        h.Repo.Setup(r => r.GetPostVisitReviewByAppointmentAsync(appointmentId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(existing);
+        var newEnd = DateTime.UtcNow.AddHours(5);
+
+        await h.Generator().EnsurePostVisitReviewAsync(
+            ClinicId, appointmentId, doctorId: null, "Jean Dupont", newEnd);
+
+        Assert.Empty(h.Added); // moved in place, not added
+        Assert.Equal(newEnd, existing.EffectiveFeedTime, TimeSpan.FromSeconds(1));
+        Assert.Null(existing.TargetUserId); // recomputed from the (now-null) doctor
+    }
+
+    // [AC-4] Cancelling removes the pending review.
+    [Fact]
+    public async Task CancelPostVisitReview_Removes_Existing()
+    {
+        var h = new GeneratorHarness();
+        var appointmentId = Guid.NewGuid();
+        var existing = new StaffNotification(
+            Guid.NewGuid(), ClinicId, NotificationCategory.PostVisitReview, "Compte rendu", "…",
+            DateTime.UtcNow.AddHours(1), NotificationTargetKind.Appointment, appointmentId: appointmentId);
+        h.Repo.Setup(r => r.GetPostVisitReviewByAppointmentAsync(appointmentId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(existing);
+
+        await h.Generator().CancelPostVisitReviewAsync(ClinicId, appointmentId);
+
+        h.Repo.Verify(r => r.RemoveAsync(existing, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    // [AC-4] Cancelling when there is no review is a harmless no-op.
+    [Fact]
+    public async Task CancelPostVisitReview_No_Op_When_None_Exists()
+    {
+        var h = new GeneratorHarness();
+
+        await h.Generator().CancelPostVisitReviewAsync(ClinicId, Guid.NewGuid());
+
+        h.Repo.Verify(r => r.RemoveAsync(It.IsAny<StaffNotification>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    // ---- CreateAppointmentCommandHandler: post-visit scheduling trigger decision (AC-1) ----
+
+    private static Patient PatientIn(Guid clinicId) => new(
+        Guid.NewGuid(), clinicId, "Jean", "Dupont",
+        new DateTime(1990, 1, 1, 0, 0, 0, DateTimeKind.Utc), "M",
+        new Email("jean.dupont@example.com"), new PhoneNumber("+21620123456"));
+
+    private static (CreateAppointmentCommandHandler handler, Mock<INotificationGenerator> gen) CreateHandler(Patient? patient)
+    {
+        var appointments = new Mock<IAppointmentRepository>();
+        var patients = new Mock<IPatientRepository>();
+        if (patient != null)
+        {
+            patients.Setup(r => r.GetByIdAsync(patient.Id, It.IsAny<CancellationToken>())).ReturnsAsync(patient);
+        }
+        var procedures = new Mock<IProcedureTypeRepository>();
+        var users = new Mock<IUserRepository>();
+        var user = User.CreateLocalUser(ClinicId, "secretary", "sec@clinic.com", "HASH", "Sec");
+        users.Setup(r => r.GetByAuth0SubAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+        var context = new Mock<IClinicContext>();
+        context.Setup(c => c.GetUserId()).Returns(user.Id);
+        var uow = new Mock<IUnitOfWork>();
+        uow.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
+        var gen = new Mock<INotificationGenerator>();
+
+        var handler = new CreateAppointmentCommandHandler(
+            appointments.Object, patients.Object, procedures.Object, users.Object,
+            context.Object, uow.Object, gen.Object);
+        return (handler, gen);
+    }
+
+    // [AC-1] Creating an appointment WITH a patient schedules a post-visit review due at start + duration.
+    [Fact]
+    public async Task Create_With_Patient_Schedules_PostVisitReview_At_End()
+    {
+        var patient = PatientIn(ClinicId);
+        var (handler, gen) = CreateHandler(patient);
+        var start = DateTime.SpecifyKind(DateTime.UtcNow.AddDays(2), DateTimeKind.Utc);
+
+        var result = await handler.Handle(
+            new CreateAppointmentCommand { PatientId = patient.Id, AppointmentDateTime = start, DurationMinutes = 30 },
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        gen.Verify(g => g.EnsurePostVisitReviewAsync(
+            ClinicId, It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>(),
+            start + TimeSpan.FromMinutes(30), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    // [AC-1] A patient-less "busy slot" appointment schedules NOTHING (no post-visit review).
+    [Fact]
+    public async Task Create_Without_Patient_Schedules_No_PostVisitReview()
+    {
+        var (handler, gen) = CreateHandler(null);
+        var start = DateTime.SpecifyKind(DateTime.UtcNow.AddDays(2), DateTimeKind.Utc);
+
+        var result = await handler.Handle(
+            new CreateAppointmentCommand { PatientId = null, AppointmentDateTime = start, DurationMinutes = 30 },
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        gen.Verify(g => g.EnsurePostVisitReviewAsync(
+            It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     private static IServiceScopeFactory ScopeFactory()

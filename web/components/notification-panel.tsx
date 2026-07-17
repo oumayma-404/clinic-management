@@ -7,6 +7,7 @@ import {
   CalendarClock,
   CalendarPlus,
   CalendarX,
+  ClipboardPlus,
   Clock,
   Loader2,
   type LucideIcon,
@@ -29,6 +30,7 @@ const CATEGORY_ICON: Record<string, LucideIcon> = {
   AppointmentRescheduled: CalendarClock,
   Reminder: Clock,
   LowStock: AlertTriangle,
+  PostVisitReview: ClipboardPlus,
 }
 
 function relativeTime(iso: string): string {

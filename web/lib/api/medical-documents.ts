@@ -14,6 +14,8 @@ export interface CreateMedicalDocumentRequest {
   doctorName: string;
   doctorSpecialty: string;
   pdfFile?: File;
+  /** Optional link to the documented appointment — filling the record marks it Completed (post-visit review). */
+  appointmentId?: string;
 }
 
 export interface UpdateMedicalDocumentRequest {
@@ -52,6 +54,7 @@ export const medicalDocumentsApi = {
       formData.append('clinicPhone', data.clinicPhone);
       formData.append('doctorName', data.doctorName);
       formData.append('doctorSpecialty', data.doctorSpecialty);
+      if (data.appointmentId) formData.append('appointmentId', data.appointmentId);
       formData.append('pdfFile', data.pdfFile);
       const result = await apiPostFormData<MedicalDocumentDto>('/medical-documents', formData);
       return result;

@@ -135,6 +135,11 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
                     clinicId, appointment.Id, userId, patientName, appointment.AppointmentDateTime, cancellationToken);
                 await _notificationGenerator.ScheduleAppointmentReminderAsync(
                     clinicId, appointment.Id, patientName, appointment.AppointmentDateTime, cancellationToken);
+                // Post-visit review: becomes visible at the appointment end (start + duration), targeted at
+                // the linked doctor if any (else all staff). Deferred visibility replaces a background job.
+                await _notificationGenerator.EnsurePostVisitReviewAsync(
+                    clinicId, appointment.Id, appointment.DoctorId, patientName,
+                    appointment.AppointmentDateTime + appointment.Duration, cancellationToken);
             }
 
             var dto = new AppointmentDto

@@ -26,17 +26,20 @@ public class NotificationGenerator : INotificationGenerator
     private static readonly TimeZoneInfo TunisiaTimeZone = ResolveTunisiaTimeZone();
 
     private readonly IStaffNotificationRepository _notifications;
+    private readonly IDoctorRepository _doctors;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IRealtimeNotifier _realtimeNotifier;
     private readonly ILogger<NotificationGenerator> _logger;
 
     public NotificationGenerator(
         IStaffNotificationRepository notifications,
+        IDoctorRepository doctors,
         IUnitOfWork unitOfWork,
         IRealtimeNotifier realtimeNotifier,
         ILogger<NotificationGenerator> logger)
     {
         _notifications = notifications;
+        _doctors = doctors;
         _unitOfWork = unitOfWork;
         _realtimeNotifier = realtimeNotifier;
         _logger = logger;
@@ -176,6 +179,81 @@ public class NotificationGenerator : INotificationGenerator
         }, cancellationToken);
     }
 
+    public async Task EnsurePostVisitReviewAsync(
+        Guid clinicId, Guid appointmentId, string? doctorId, string patientName, DateTime appointmentEndUtc,
+        CancellationToken cancellationToken = default)
+    {
+        await SafelyAsync(clinicId, async () =>
+        {
+            var targetUserId = await ResolveTargetUserIdAsync(clinicId, doctorId, cancellationToken);
+            var title = PostVisitReviewTitle;
+            var message = PostVisitReviewMessage(patientName);
+
+            var existing = await _notifications.GetPostVisitReviewByAppointmentAsync(appointmentId, cancellationToken);
+            if (existing != null)
+            {
+                existing.MovePostVisitReview(appointmentEndUtc, targetUserId, title, message);
+            }
+            else
+            {
+                var notification = new StaffNotification(
+                    Guid.NewGuid(), clinicId, NotificationCategory.PostVisitReview,
+                    title, message,
+                    appointmentEndUtc, // effective feed time = appointment end; surfaces only once it passes
+                    NotificationTargetKind.Appointment,
+                    actorUserId: null, // it is a prompt TO the doctor, so no actor is excluded
+                    appointmentId: appointmentId,
+                    stockItemId: null,
+                    targetUserId: targetUserId);
+                await _notifications.AddAsync(notification, cancellationToken);
+            }
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            // Future-dated (visible only once the end time passes) → no client refetch needed unless the
+            // end is already in the past (appointment created/updated with an end already behind us).
+            return appointmentEndUtc <= DateTime.UtcNow;
+        }, cancellationToken);
+    }
+
+    public async Task CancelPostVisitReviewAsync(
+        Guid clinicId, Guid appointmentId, CancellationToken cancellationToken = default)
+    {
+        await SafelyAsync(clinicId, async () =>
+        {
+            var existing = await _notifications.GetPostVisitReviewByAppointmentAsync(appointmentId, cancellationToken);
+            if (existing == null)
+            {
+                return false;
+            }
+
+            var wasVisible = existing.EffectiveFeedTime <= DateTime.UtcNow;
+            await _notifications.RemoveAsync(existing, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return wasVisible; // only make clients refetch if it was actually showing
+        }, cancellationToken);
+    }
+
+    // Resolves the post-visit target: the appointment's DoctorId (a Doctor id when set) → its linked User.
+    // Any miss (no doctor id, unparsable, unknown doctor, or doctor with no linked user) → null = all staff.
+    // The doctor must belong to the appointment's own clinic: the feed/pending queries filter on this clinic
+    // AND the target user, so a foreign-clinic doctor's user would make the review invisible to everyone —
+    // degrade a cross-clinic (or missing) resolution to the all-staff fallback instead.
+    private async Task<string?> ResolveTargetUserIdAsync(Guid clinicId, string? doctorId, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(doctorId) || !Guid.TryParse(doctorId, out var doctorGuid))
+        {
+            return null;
+        }
+
+        var doctor = await _doctors.GetByIdAsync(doctorGuid, cancellationToken);
+        if (doctor == null || doctor.ClinicId != clinicId)
+        {
+            return null;
+        }
+
+        return doctor.UserId;
+    }
+
     // Runs the write and broadcasts the realtime key only when the write reports that something became
     // visible in the feed (returns true) — a future-dated reminder or a no-op schedule returns false, so
     // clients aren't made to refetch for no visible change. Best-effort: never throws to the caller (the
@@ -194,6 +272,11 @@ public class NotificationGenerator : INotificationGenerator
             _logger.LogError(ex, "Failed to generate staff notification(s) for clinic {ClinicId}", clinicId);
         }
     }
+
+    private const string PostVisitReviewTitle = "Compte rendu de visite";
+
+    private static string PostVisitReviewMessage(string patientName) =>
+        $"La visite de {patientName} est terminée. Ajoutez son dossier médical.";
 
     private const string ReminderTitle = "Rappel de rendez-vous";
 

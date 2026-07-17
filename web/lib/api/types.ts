@@ -29,6 +29,16 @@ export interface NotificationDto {
   stockItemId?: string | null;
 }
 
+/** A due, unread post-visit review surfaced by the popup (GET /notifications/pending-reviews). */
+export interface PendingReviewDto {
+  id: string;
+  title: string;
+  message: string;
+  appointmentId?: string | null;
+  /** Effective feed time (ISO) — the appointment end, i.e. when the review became due. */
+  visibleAt: string;
+}
+
 export interface DashboardStats {
   todaysAppointments: number;
   totalPatients: number;
@@ -176,6 +186,7 @@ export interface MedicalDocumentDto {
   doctorSpecialty: string;
   isDraft: boolean;
   fileId?: string;
+  appointmentId?: string | null;
   createdAt: string;
   updatedAt?: string;
 }

@@ -24,6 +24,7 @@ public class CreateMedicalDocumentCommand : IRequest<Result<MedicalDocumentDto>>
     public string DoctorName { get; set; } = string.Empty;
     public string DoctorSpecialty { get; set; } = string.Empty;
     public byte[]? PdfFile { get; set; } // PDF file as byte array (optional, generated on frontend)
+    public Guid? AppointmentId { get; set; } // Optional link to the documented appointment (post-visit review)
 }
 
 public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedicalDocumentCommand, Result<MedicalDocumentDto>>
@@ -33,6 +34,10 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
     private readonly IPatientFolderRepository _folderRepository;
     private readonly IPatientFileRepository _fileRepository;
     private readonly IFileStorage _fileStorage;
+    private readonly IAppointmentRepository _appointmentRepository;
+    private readonly ICurrentClinicResolver _clinicResolver;
+    private readonly INotificationGenerator _notificationGenerator;
+    private readonly IRealtimeNotifier _realtimeNotifier;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<CreateMedicalDocumentCommandHandler> _logger;
 
@@ -42,6 +47,10 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
         IPatientFolderRepository folderRepository,
         IPatientFileRepository fileRepository,
         IFileStorage fileStorage,
+        IAppointmentRepository appointmentRepository,
+        ICurrentClinicResolver clinicResolver,
+        INotificationGenerator notificationGenerator,
+        IRealtimeNotifier realtimeNotifier,
         IUnitOfWork unitOfWork,
         ILogger<CreateMedicalDocumentCommandHandler> logger)
     {
@@ -50,6 +59,10 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
         _folderRepository = folderRepository;
         _fileRepository = fileRepository;
         _fileStorage = fileStorage;
+        _appointmentRepository = appointmentRepository;
+        _clinicResolver = clinicResolver;
+        _notificationGenerator = notificationGenerator;
+        _realtimeNotifier = realtimeNotifier;
         _unitOfWork = unitOfWork;
         _logger = logger;
     }
@@ -166,10 +179,19 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
                 isDraft: false, // Always set to false
                 request.RecipientDoctorName,
                 request.RecipientDoctorSpecialty,
-                fileId);
+                fileId,
+                request.AppointmentId);
 
             await _documentRepository.AddAsync(document, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            // Post-visit review completion (best-effort, post-commit): filling a record for an appointment
+            // marks that appointment Completed and clears its pending review. A failure here must never fail
+            // the record creation (spec AC-7 + the "best-effort side-effects" learning).
+            if (request.AppointmentId.HasValue)
+            {
+                await CompleteReviewedAppointmentAsync(request.AppointmentId.Value, cancellationToken);
+            }
 
             var dto = new MedicalDocumentDto
             {
@@ -189,6 +211,7 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
                 DoctorSpecialty = document.DoctorSpecialty,
                 IsDraft = document.IsDraft,
                 FileId = document.FileId,
+                AppointmentId = document.AppointmentId,
                 CreatedAt = document.CreatedAt,
                 UpdatedAt = document.UpdatedAt
             };
@@ -199,6 +222,45 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
         {
             _logger.LogError(ex, "Error creating medical document for patient {PatientId}", request.PatientId);
             return Result<MedicalDocumentDto>.Failure("Error creating medical document.");
+        }
+    }
+
+    // Marks the documented appointment Completed (if it resolves in the caller's clinic) and removes its
+    // pending post-visit review. Clinic is resolved from the DB (not the fail-open global query filter),
+    // so a cross-clinic/missing id is a silent no-op. Wrapped so any failure only logs — never rolls back
+    // the already-committed medical record.
+    private async Task CompleteReviewedAppointmentAsync(Guid appointmentId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
+            if (clinicResult.IsFailure)
+            {
+                return;
+            }
+
+            var appointment = await _appointmentRepository.GetByIdAsync(appointmentId, cancellationToken);
+            if (appointment == null || appointment.ClinicId != clinicResult.Value)
+            {
+                return; // cross-clinic or unknown id → leave everything unchanged
+            }
+
+            appointment.MarkVisitCompleted(); // idempotent no-op if already terminal
+            // No explicit UpdateAsync: the appointment is change-tracked from GetByIdAsync, so SaveChanges
+            // persists MarkVisitCompleted() on its own (repo "rely on EF change tracking" convention).
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            // The review is fulfilled — remove it so the popup/panel stops prompting.
+            await _notificationGenerator.CancelPostVisitReviewAsync(appointment.ClinicId, appointmentId, cancellationToken);
+
+            // The completion is driven from the "documents" command, so RealtimeBroadcastBehavior only tells
+            // "documents" consumers to refetch — broadcast "appointments" too so calendar/appointment views
+            // reflect the now-Completed status instead of staying stale until the next unrelated refetch.
+            await _realtimeNotifier.NotifyEntityChangedAsync(appointment.ClinicId, "appointments", cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Post-visit completion side-effect failed for appointment {AppointmentId}", appointmentId);
         }
     }
 

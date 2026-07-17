@@ -37,6 +37,23 @@ public class NotificationsController : ControllerBase
     }
 
     /// <summary>
+    /// The current user's due, unread post-visit review notifications (drives the "how was the visit"
+    /// popup; the frontend polls this periodically).
+    /// </summary>
+    [HttpGet("pending-reviews")]
+    public async Task<ActionResult<IEnumerable<PendingReviewDto>>> GetPendingReviews()
+    {
+        var result = await _mediator.Send(new GetPendingReviewsQuery());
+
+        if (result.IsFailure)
+        {
+            return BadRequest(result.Error);
+        }
+
+        return Ok(result.Value);
+    }
+
+    /// <summary>
     /// The current user's total unread count for the bell badge (may exceed the 50 shown).
     /// </summary>
     [HttpGet("unread-count")]

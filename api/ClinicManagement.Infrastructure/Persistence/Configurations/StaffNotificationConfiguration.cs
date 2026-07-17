@@ -41,6 +41,9 @@ public class StaffNotificationConfiguration : IEntityTypeConfiguration<StaffNoti
         builder.Property(n => n.ActorUserId)
             .HasMaxLength(255);
 
+        builder.Property(n => n.TargetUserId)
+            .HasMaxLength(255);
+
         builder.Property(n => n.TargetKind)
             .IsRequired()
             .HasConversion<int>();

@@ -38,4 +38,19 @@ public interface INotificationGenerator
     Task LowStockAsync(
         Guid clinicId, Guid stockItemId, string itemName, int currentStock, int minimumStockLevel,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Ensures a "post-visit review" notification for an appointment matches its current state — created if
+    /// missing, otherwise moved. It becomes visible at the appointment's end (<paramref name="appointmentEndUtc"/> =
+    /// start + duration; deferred visibility). The target user is resolved from <paramref name="doctorId"/>
+    /// (→ Doctor → linked User): if a linked user exists, only they see it; otherwise all clinic staff do.
+    /// Idempotent — safe to call on create, reschedule, duration/doctor change and reactivation.
+    /// </summary>
+    Task EnsurePostVisitReviewAsync(
+        Guid clinicId, Guid appointmentId, string? doctorId, string patientName, DateTime appointmentEndUtc,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Removes the post-visit review notification for an appointment, if one exists (cancel / fulfilled).</summary>
+    Task CancelPostVisitReviewAsync(
+        Guid clinicId, Guid appointmentId, CancellationToken cancellationToken = default);
 }

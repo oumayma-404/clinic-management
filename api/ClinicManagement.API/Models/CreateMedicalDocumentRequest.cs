@@ -14,6 +14,7 @@ public class CreateMedicalDocumentRequest
     public string DoctorName { get; set; } = string.Empty;
     public string DoctorSpecialty { get; set; } = string.Empty;
     public IFormFile? PdfFile { get; set; }
+    public Guid? AppointmentId { get; set; }
 }
 
 

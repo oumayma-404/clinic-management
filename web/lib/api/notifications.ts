@@ -1,5 +1,5 @@
 import { apiGet, apiPut } from './client';
-import type { NotificationDto } from './types';
+import type { NotificationDto, PendingReviewDto } from './types';
 
 /**
  * In-app staff notification feed. All endpoints are scoped server-side to the caller's clinic and
@@ -12,6 +12,10 @@ export const notificationsApi = {
 
   unreadCount: async (): Promise<{ unreadCount: number }> => {
     return apiGet<{ unreadCount: number }>('/notifications/unread-count');
+  },
+
+  pendingReviews: async (): Promise<PendingReviewDto[]> => {
+    return apiGet<PendingReviewDto[]>('/notifications/pending-reviews');
   },
 
   markRead: async (id: string): Promise<void> => {

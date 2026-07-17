@@ -189,6 +189,7 @@ public class UpdateMedicalDocumentCommandHandler : IRequestHandler<UpdateMedical
                 DoctorSpecialty = document.DoctorSpecialty,
                 IsDraft = document.IsDraft,
                 FileId = document.FileId,
+                AppointmentId = document.AppointmentId,
                 CreatedAt = document.CreatedAt,
                 UpdatedAt = document.UpdatedAt
             };

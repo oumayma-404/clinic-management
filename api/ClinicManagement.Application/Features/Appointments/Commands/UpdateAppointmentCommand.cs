@@ -250,6 +250,24 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                         appointment.ClinicId, appointment.Id, patientName,
                         appointment.AppointmentDateTime, cancellationToken);
                 }
+
+                // Post-visit review (independent of the reminder branches above): remove it on cancel or
+                // no-show (a visit that never happened has no record to document), otherwise keep it in
+                // sync with the current end time + doctor while the appointment is still active. This
+                // covers reschedule, duration change, doctor change and reactivation.
+                if (becameCancelled || appointment.Status == AppointmentStatus.NoShow)
+                {
+                    await _notificationGenerator.CancelPostVisitReviewAsync(
+                        appointment.ClinicId, appointment.Id, cancellationToken);
+                }
+                else if (appointment.Status == AppointmentStatus.Scheduled
+                         || appointment.Status == AppointmentStatus.Confirmed
+                         || appointment.Status == AppointmentStatus.InProgress)
+                {
+                    await _notificationGenerator.EnsurePostVisitReviewAsync(
+                        appointment.ClinicId, appointment.Id, appointment.DoctorId, patientName,
+                        appointment.AppointmentDateTime + appointment.Duration, cancellationToken);
+                }
             }
 
             var dto = new AppointmentDto

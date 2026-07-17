@@ -35,12 +35,13 @@ public class StaffNotificationRepository : IStaffNotificationRepository
     public async Task<IReadOnlyList<StaffNotification>> GetRecentForUserAsync(
         Guid clinicId, string userId, DateTime nowUtc, int take, CancellationToken cancellationToken = default)
     {
-        // Due, in this clinic, and NOT actor-excluded (the viewer never sees their own action's
-        // notification). Newest first, capped. Null-actor rows are visible to everyone.
+        // Due, in this clinic, NOT actor-excluded (the viewer never sees their own action's notification),
+        // and targeted at everyone or at this viewer. Newest first, capped.
         return await _context.StaffNotifications
             .Where(n => n.ClinicId == clinicId
                         && n.EffectiveFeedTime <= nowUtc
-                        && (n.ActorUserId == null || n.ActorUserId != userId))
+                        && (n.ActorUserId == null || n.ActorUserId != userId)
+                        && (n.TargetUserId == null || n.TargetUserId == userId))
             .OrderByDescending(n => n.EffectiveFeedTime)
             .Take(take)
             .ToListAsync(cancellationToken);
@@ -68,8 +69,9 @@ public class StaffNotificationRepository : IStaffNotificationRepository
             .ToListAsync(cancellationToken);
     }
 
-    // The single definition of "unread for this viewer": due, in-clinic, not actor-excluded, effective
-    // at/after the viewer's join time (late-joiner baseline), and with no read marker.
+    // The single definition of "unread for this viewer": due, in-clinic, not actor-excluded, targeted at
+    // everyone or this viewer, effective at/after the viewer's join time (late-joiner baseline), and with
+    // no read marker.
     private IQueryable<StaffNotification> UnreadQuery(Guid clinicId, string userId, DateTime userCreatedAtUtc, DateTime nowUtc)
     {
         return _context.StaffNotifications
@@ -77,6 +79,7 @@ public class StaffNotificationRepository : IStaffNotificationRepository
                         && n.EffectiveFeedTime <= nowUtc
                         && n.EffectiveFeedTime >= userCreatedAtUtc
                         && (n.ActorUserId == null || n.ActorUserId != userId)
+                        && (n.TargetUserId == null || n.TargetUserId == userId)
                         && !_context.NotificationReads.Any(r => r.NotificationId == n.Id && r.UserId == userId));
     }
 
@@ -111,5 +114,22 @@ public class StaffNotificationRepository : IStaffNotificationRepository
             .FirstOrDefaultAsync(
                 n => n.AppointmentId == appointmentId && n.Category == NotificationCategory.Reminder,
                 cancellationToken);
+    }
+
+    public async Task<StaffNotification?> GetPostVisitReviewByAppointmentAsync(Guid appointmentId, CancellationToken cancellationToken = default)
+    {
+        return await _context.StaffNotifications
+            .FirstOrDefaultAsync(
+                n => n.AppointmentId == appointmentId && n.Category == NotificationCategory.PostVisitReview,
+                cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<StaffNotification>> GetPendingReviewsForUserAsync(
+        Guid clinicId, string userId, DateTime userCreatedAtUtc, DateTime nowUtc, CancellationToken cancellationToken = default)
+    {
+        return await UnreadQuery(clinicId, userId, userCreatedAtUtc, nowUtc)
+            .Where(n => n.Category == NotificationCategory.PostVisitReview)
+            .OrderByDescending(n => n.EffectiveFeedTime)
+            .ToListAsync(cancellationToken);
     }
 }

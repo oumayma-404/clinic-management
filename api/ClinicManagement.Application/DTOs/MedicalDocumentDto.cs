@@ -18,6 +18,7 @@ public class MedicalDocumentDto
     public string DoctorSpecialty { get; set; } = string.Empty;
     public bool IsDraft { get; set; }
     public Guid? FileId { get; set; }
+    public Guid? AppointmentId { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
 }

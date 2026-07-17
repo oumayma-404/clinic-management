@@ -48,4 +48,14 @@ public interface IStaffNotificationRepository
 
     /// <summary>The (single) reminder notification for an appointment, if one exists.</summary>
     Task<StaffNotification?> GetReminderByAppointmentAsync(Guid appointmentId, CancellationToken cancellationToken = default);
+
+    /// <summary>The (single) post-visit review notification for an appointment, if one exists.</summary>
+    Task<StaffNotification?> GetPostVisitReviewByAppointmentAsync(Guid appointmentId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The viewer's due, unread post-visit review notifications (same unread predicate as
+    /// <see cref="CountUnreadAsync"/>, restricted to the <c>PostVisitReview</c> category). Drives the popup.
+    /// </summary>
+    Task<IReadOnlyList<StaffNotification>> GetPendingReviewsForUserAsync(
+        Guid clinicId, string userId, DateTime userCreatedAtUtc, DateTime nowUtc, CancellationToken cancellationToken = default);
 }

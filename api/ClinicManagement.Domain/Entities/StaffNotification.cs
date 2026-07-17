@@ -33,6 +33,14 @@ public class StaffNotification : AggregateRoot<Guid>
     public NotificationTargetKind TargetKind { get; private set; }
     public Guid? AppointmentId { get; private set; }
     public Guid? StockItemId { get; private set; }
+
+    /// <summary>
+    /// When set, only this user sees the row (a doctor-targeted post-visit review); when null, the row
+    /// stays clinic-wide (all existing categories). Repository predicates honor this in addition to
+    /// <see cref="ActorUserId"/> exclusion.
+    /// </summary>
+    public string? TargetUserId { get; private set; }
+
     public DateTime CreatedAt { get; private set; }
 
     private StaffNotification() { } // For EF Core
@@ -47,7 +55,8 @@ public class StaffNotification : AggregateRoot<Guid>
         NotificationTargetKind targetKind,
         string? actorUserId = null,
         Guid? appointmentId = null,
-        Guid? stockItemId = null)
+        Guid? stockItemId = null,
+        string? targetUserId = null)
     {
         Id = id;
         ClinicId = clinicId;
@@ -59,6 +68,7 @@ public class StaffNotification : AggregateRoot<Guid>
         ActorUserId = actorUserId;
         AppointmentId = appointmentId;
         StockItemId = stockItemId;
+        TargetUserId = targetUserId;
         CreatedAt = DateTime.UtcNow;
     }
 
@@ -69,6 +79,18 @@ public class StaffNotification : AggregateRoot<Guid>
     public void MoveReminder(DateTime newDueTimeUtc, string title, string message)
     {
         EffectiveFeedTime = newDueTimeUtc;
+        Title = title ?? throw new ArgumentNullException(nameof(title));
+        Message = message ?? throw new ArgumentNullException(nameof(message));
+    }
+
+    /// <summary>
+    /// Repoints a pending post-visit review to a new visible-at time (the appointment's new end) and
+    /// recomputes its target user (the doctor may have changed on reschedule/update), refreshing text.
+    /// </summary>
+    public void MovePostVisitReview(DateTime newEffectiveFeedTimeUtc, string? targetUserId, string title, string message)
+    {
+        EffectiveFeedTime = newEffectiveFeedTimeUtc;
+        TargetUserId = targetUserId;
         Title = title ?? throw new ArgumentNullException(nameof(title));
         Message = message ?? throw new ArgumentNullException(nameof(message));
     }

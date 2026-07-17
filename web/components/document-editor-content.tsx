@@ -12,6 +12,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useRouter, useParams, useSearchParams } from "next/navigation"
 import { patientsApi } from "@/lib/api/patients"
+import { appointmentsApi } from "@/lib/api/appointments"
 import { medicalDocumentsApi } from "@/lib/api/medical-documents"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
 import { clinicsApi } from "@/lib/api/clinics"
@@ -267,6 +268,9 @@ export function DocumentEditorContent() {
   const searchParams = useSearchParams()
   const documentType = params.type as string
   const urlDocumentId = searchParams.get('id')
+  // Post-visit review deep-link: pre-select this appointment's patient and associate the new record with
+  // it (so saving marks the appointment Completed). Only used when creating (no urlDocumentId).
+  const urlAppointmentId = searchParams.get('appointmentId')
 
   const [selectedPatient, setSelectedPatient] = useState<string>("")
   const [selectedRecipientDoctorId, setSelectedRecipientDoctorId] = useState<string>("")
@@ -387,6 +391,27 @@ export function DocumentEditorContent() {
     }
     loadPatients()
   }, [])
+
+  // Post-visit review deep-link: resolve the appointment's patient and pre-select it. Skipped when editing
+  // an existing document (that flow sets the patient from the loaded document).
+  useEffect(() => {
+    if (!urlAppointmentId || urlDocumentId) return
+    let cancelled = false
+    const preselectFromAppointment = async () => {
+      try {
+        const appointment = await appointmentsApi.get(urlAppointmentId)
+        if (!cancelled && appointment.patientId) {
+          setSelectedPatient(appointment.patientId)
+        }
+      } catch {
+        // Non-blocking — the user can still pick the patient manually.
+      }
+    }
+    preselectFromAppointment()
+    return () => {
+      cancelled = true
+    }
+  }, [urlAppointmentId, urlDocumentId])
 
   // Load procedure types from API (for honoraires documents)
   useEffect(() => {
@@ -1080,6 +1105,7 @@ export function DocumentEditorContent() {
           clinicPhone: formData.clinicPhone,
           doctorName: formData.doctorName,
           doctorSpecialty: formData.doctorSpecialty,
+          appointmentId: urlAppointmentId || undefined,
         })
         savedDocumentId = result.id;
         setDocumentId(result.id)

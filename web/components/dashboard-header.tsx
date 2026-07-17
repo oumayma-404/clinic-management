@@ -17,6 +17,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { ConnectivityIndicator } from "@/components/connectivity-indicator"
 import { NotificationPanel } from "@/components/notification-panel"
+import { PostVisitReviewPopup } from "@/components/post-visit-review-popup"
 import { useNotifications } from "@/lib/hooks/use-notifications"
 import type { NotificationDto } from "@/lib/api/types"
 import { Bell, Search, LogOut, KeyRound } from "lucide-react"
@@ -60,6 +61,8 @@ export function DashboardHeader() {
   const userPicture = user?.picture
 
   return (
+    <>
+    <PostVisitReviewPopup />
     <header className="flex h-16 items-center justify-between border-b border-border bg-card px-6">
       <div className="flex flex-1 items-center gap-4">
         <div className="relative w-full max-w-md">
@@ -145,5 +148,6 @@ export function DashboardHeader() {
         )}
       </div>
     </header>
+    </>
   )
 }

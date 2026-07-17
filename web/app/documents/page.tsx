@@ -1,6 +1,5 @@
 "use client"
 
-import { useState, useEffect } from "react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { FileText, Mail, FileBarChart, Shield, FolderOpen, Edit, Trash2 } from "lucide-react"
@@ -61,6 +60,16 @@ const getDocumentTypeName = (type: string) => {
 export default function DocumentsPage() {
   const router = useRouter()
 
+  // A post-visit review deep-links here with ?appointmentId=… so the chosen template's editor can
+  // associate the new record with that visit. Read from the URL at click time (avoids useSearchParams,
+  // which would force this page out of static prerendering — see the notification-center deep-link
+  // learning — and avoids a mount-effect race that could drop the id on a very early click).
+  const openTemplate = (type: string) => {
+    const appointmentId = new URLSearchParams(window.location.search).get("appointmentId")
+    const suffix = appointmentId ? `?appointmentId=${encodeURIComponent(appointmentId)}` : ""
+    router.push(`/documents/${type}${suffix}`)
+  }
+
   return (
     <ClinicGuard>
       <div className="flex h-screen bg-background">
@@ -92,7 +101,7 @@ export default function DocumentsPage() {
               <Card
                 key={template.type}
                 className="group cursor-pointer transition-all duration-300 hover:shadow-xl hover:scale-105 hover:ring-2 hover:ring-blue-200 dark:hover:ring-blue-800 overflow-hidden"
-                onClick={() => router.push(`/documents/${template.type}`)}
+                onClick={() => openTemplate(template.type)}
               >
                 <div className="p-6 space-y-4 flex flex-col h-full">
                   {/* Icon */}

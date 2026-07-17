@@ -11,5 +11,6 @@ public enum NotificationCategory
     AppointmentCancelled = 2,
     AppointmentRescheduled = 3,
     Reminder = 4,
-    LowStock = 5
+    LowStock = 5,
+    PostVisitReview = 6
 }

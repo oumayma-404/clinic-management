@@ -101,6 +101,7 @@ public class MedicalDocumentsController : ControllerBase
                 ClinicPhone = GetFormValue("clinicPhone") ?? throw new ArgumentException("clinicPhone is required"),
                 DoctorName = GetFormValue("doctorName") ?? throw new ArgumentException("doctorName is required"),
                 DoctorSpecialty = GetFormValue("doctorSpecialty") ?? throw new ArgumentException("doctorSpecialty is required"),
+                AppointmentId = Guid.TryParse(GetFormValue("appointmentId"), out var appointmentIdValue) ? appointmentIdValue : null,
                 PdfFile = null // Will be set separately
             };
             
@@ -137,7 +138,8 @@ public class MedicalDocumentsController : ControllerBase
             ClinicAddress = request.ClinicAddress,
             ClinicPhone = request.ClinicPhone,
             DoctorName = request.DoctorName,
-            DoctorSpecialty = request.DoctorSpecialty
+            DoctorSpecialty = request.DoctorSpecialty,
+            AppointmentId = request.AppointmentId
         };
 
         // Read PDF file if provided

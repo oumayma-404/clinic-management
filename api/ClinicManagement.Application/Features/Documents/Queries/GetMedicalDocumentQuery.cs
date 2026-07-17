@@ -68,6 +68,7 @@ public class GetMedicalDocumentQueryHandler : IRequestHandler<GetMedicalDocument
                 DoctorSpecialty = document.DoctorSpecialty,
                 IsDraft = document.IsDraft,
                 FileId = document.FileId,
+                AppointmentId = document.AppointmentId,
                 CreatedAt = document.CreatedAt,
                 UpdatedAt = document.UpdatedAt
             };
