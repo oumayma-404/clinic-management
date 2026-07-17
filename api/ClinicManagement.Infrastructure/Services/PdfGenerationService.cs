@@ -87,6 +87,138 @@ public class PdfGenerationService : IPdfGenerationService
         }
     }
 
+    public async Task<byte[]> GenerateInvoicePdfAsync(InvoicePdfData data, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            _logger.LogInformation("Generating invoice PDF for {Number}", data.Number);
+
+            var pdfBytes = await Task.Run(() =>
+            {
+                return Document.Create(container =>
+                {
+                    container.Page(page =>
+                    {
+                        page.Size(PageSizes.A4);
+                        page.Margin(2, Unit.Centimetre);
+                        page.PageColor(Colors.White);
+                        page.DefaultTextStyle(x => x.FontSize(11).FontFamily("Helvetica"));
+
+                        page.Content().Column(column =>
+                        {
+                            column.Spacing(16);
+
+                            // Clinic identity header (incl. matricule fiscal)
+                            column.Item().Column(header =>
+                            {
+                                header.Spacing(3);
+                                header.Item().Text(data.ClinicName).FontSize(14).Bold().FontColor(Colors.Blue.Darken2).FontFamily("Helvetica");
+                                if (!string.IsNullOrWhiteSpace(data.ClinicAddress))
+                                    header.Item().Text(data.ClinicAddress).FontSize(10).FontFamily("Helvetica");
+                                if (!string.IsNullOrWhiteSpace(data.ClinicPhone))
+                                    header.Item().Text($"Tél : {data.ClinicPhone}").FontSize(10).FontFamily("Helvetica");
+                                if (!string.IsNullOrWhiteSpace(data.MatriculeFiscal))
+                                    header.Item().Text($"Matricule fiscal : {data.MatriculeFiscal}").FontSize(10).FontFamily("Helvetica");
+                            });
+
+                            // Title
+                            column.Item().PaddingTop(4).AlignCenter().Text("NOTE D'HONORAIRES").FontSize(16).Bold().FontFamily("Helvetica");
+
+                            if (data.IsCancelled)
+                            {
+                                column.Item().AlignCenter().Text("FACTURE ANNULÉE").FontSize(12).Bold().FontColor(Colors.Red.Darken2).FontFamily("Helvetica");
+                            }
+
+                            // Number + date + patient
+                            column.Item().Row(row =>
+                            {
+                                row.RelativeItem().Column(col =>
+                                {
+                                    col.Item().Text($"N° {data.Number}").FontSize(12).Bold().FontFamily("Helvetica");
+                                    col.Item().Text($"Patient : {data.PatientName}").FontSize(11).FontFamily("Helvetica");
+                                });
+                                row.RelativeItem().AlignRight().Text($"Le {data.IssueDate:dd/MM/yyyy}").FontSize(11).FontFamily("Helvetica");
+                            });
+
+                            // Lines table
+                            column.Item().Table(table =>
+                            {
+                                table.ColumnsDefinition(cols =>
+                                {
+                                    cols.RelativeColumn(5);
+                                    cols.RelativeColumn(1);
+                                    cols.RelativeColumn(2);
+                                    cols.RelativeColumn(2);
+                                });
+
+                                table.Header(h =>
+                                {
+                                    h.Cell().Element(HeaderCell).Text("Désignation");
+                                    h.Cell().Element(HeaderCell).AlignRight().Text("Qté");
+                                    h.Cell().Element(HeaderCell).AlignRight().Text("P.U. HT");
+                                    h.Cell().Element(HeaderCell).AlignRight().Text("Total HT");
+                                });
+
+                                foreach (var line in data.Lines)
+                                {
+                                    table.Cell().Element(BodyCell).Text(line.Designation);
+                                    table.Cell().Element(BodyCell).AlignRight().Text(line.Quantity.ToString());
+                                    table.Cell().Element(BodyCell).AlignRight().Text(FormatDt(line.UnitPriceHt));
+                                    table.Cell().Element(BodyCell).AlignRight().Text(FormatDt(line.LineTotalHt));
+                                }
+                            });
+
+                            // Totals
+                            column.Item().AlignRight().Column(totals =>
+                            {
+                                totals.Spacing(3);
+                                totals.Item().Text($"Total HT : {FormatDt(data.TotalHt)}").FontSize(11).FontFamily("Helvetica");
+                                if (data.VatApplicable && data.TotalVat > 0)
+                                {
+                                    totals.Item().Text($"TVA ({data.VatRate:0.##} %) : {FormatDt(data.TotalVat)}").FontSize(11).FontFamily("Helvetica");
+                                }
+                                if (data.StampDutyAmount > 0)
+                                {
+                                    totals.Item().Text($"Timbre fiscal : {FormatDt(data.StampDutyAmount)}").FontSize(11).FontFamily("Helvetica");
+                                }
+                                totals.Item().PaddingTop(3).Text($"Total TTC : {FormatDt(data.TotalTtc)}").FontSize(13).Bold().FontColor(Colors.Blue.Darken2).FontFamily("Helvetica");
+                            });
+
+                            column.Item().ExtendVertical();
+                        });
+
+                        page.Footer().PaddingTop(20).Column(footer =>
+                        {
+                            footer.Item().LineHorizontal(0.5f).LineColor(Colors.Grey.Medium);
+                            footer.Item().PaddingTop(6).Text("Note d'honoraires soumise au timbre fiscal — Montants exprimés en dinars tunisiens (DT).")
+                                .FontSize(8).FontColor(Colors.Grey.Darken1).FontFamily("Helvetica");
+                        });
+                    });
+                }).GeneratePdf();
+            }, cancellationToken);
+
+            _logger.LogInformation("Invoice PDF generated, size: {Size} bytes", pdfBytes.Length);
+            return pdfBytes;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error generating invoice PDF for {Number}", data.Number);
+            throw;
+        }
+    }
+
+    // Format a TND amount to millimes (3 decimals) with the "DT" suffix, French grouping.
+    private static string FormatDt(decimal amount) =>
+        amount.ToString("#,##0.000", System.Globalization.CultureInfo.GetCultureInfo("fr-FR")) + " DT";
+
+    private static IContainer HeaderCell(IContainer container) =>
+        container.PaddingVertical(5).PaddingHorizontal(4).Background(Colors.Grey.Lighten3)
+            .BorderBottom(1).BorderColor(Colors.Grey.Medium).DefaultTextStyle(x => x.Bold().FontSize(10).FontFamily("Helvetica"));
+
+    private static IContainer BodyCell(IContainer container) =>
+        container.PaddingVertical(4).PaddingHorizontal(4).BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2)
+            .DefaultTextStyle(x => x.FontSize(10).FontFamily("Helvetica"));
+
     private Action<IContainer> ComposeHeader(MedicalDocumentPdfData data)
     {
         return container =>

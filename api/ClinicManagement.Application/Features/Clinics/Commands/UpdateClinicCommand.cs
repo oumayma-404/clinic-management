@@ -15,6 +15,13 @@ public class UpdateClinicCommand : IRequest<Result<ClinicDto>>
     public string? Email { get; set; }
     public Stream? LogoFile { get; set; }
     public string? LogoContentType { get; set; }
+
+    // Billing / note-d'honoraires settings. Null = leave the current value unchanged.
+    public string? MatriculeFiscal { get; set; }
+    public bool? VatApplicable { get; set; }
+    public decimal? VatRate { get; set; }
+    public bool? StampDutyEnabled { get; set; }
+    public decimal? StampDutyAmount { get; set; }
 }
 
 public class UpdateClinicCommandHandler : IRequestHandler<UpdateClinicCommand, Result<ClinicDto>>
@@ -107,6 +114,14 @@ public class UpdateClinicCommandHandler : IRequestHandler<UpdateClinicCommand, R
                     request.Email,
                     logoUrl);
 
+                // Billing settings: apply provided values, keeping the current value where a field is null.
+                clinic.SetBillingSettings(
+                    request.MatriculeFiscal ?? clinic.MatriculeFiscal,
+                    request.VatApplicable ?? clinic.VatApplicable,
+                    request.VatRate ?? clinic.VatRate,
+                    request.StampDutyEnabled ?? clinic.StampDutyEnabled,
+                    request.StampDutyAmount ?? clinic.StampDutyAmount);
+
                 await _clinicRepository.UpdateAsync(clinic, cancellationToken);
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
             }
@@ -132,7 +147,12 @@ public class UpdateClinicCommandHandler : IRequestHandler<UpdateClinicCommand, R
                 Phone = clinic.Phone,
                 Email = clinic.Email,
                 Code = clinic.Code,
-                LogoUrl = clinic.LogoUrl
+                LogoUrl = clinic.LogoUrl,
+                MatriculeFiscal = clinic.MatriculeFiscal,
+                VatApplicable = clinic.VatApplicable,
+                VatRate = clinic.VatRate,
+                StampDutyEnabled = clinic.StampDutyEnabled,
+                StampDutyAmount = clinic.StampDutyAmount
             };
 
             return Result<ClinicDto>.Success(clinicDto);

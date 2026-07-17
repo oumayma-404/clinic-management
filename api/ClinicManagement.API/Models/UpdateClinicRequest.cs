@@ -9,6 +9,13 @@ public class UpdateClinicRequest
     public string? Phone { get; set; }
     public string? Email { get; set; }
     public IFormFile? Logo { get; set; }
+
+    // Billing / note-d'honoraires settings (optional; null leaves the current value unchanged).
+    public string? MatriculeFiscal { get; set; }
+    public bool? VatApplicable { get; set; }
+    public decimal? VatRate { get; set; }
+    public bool? StampDutyEnabled { get; set; }
+    public decimal? StampDutyAmount { get; set; }
 }
 
 

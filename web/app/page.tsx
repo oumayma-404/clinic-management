@@ -6,9 +6,10 @@ import { DashboardHeader } from "@/components/dashboard-header"
 import { DashboardSidebar } from "@/components/dashboard-sidebar"
 import { StatsCard } from "@/components/stats-card"
 import { AppointmentList } from "@/components/appointment-list"
-import { Calendar, CalendarDays, Users, Clock, AlertCircle } from "lucide-react"
+import { Calendar, CalendarDays, Users, Clock, AlertCircle, Wallet } from "lucide-react"
 import { ClinicGuard } from "@/components/clinic-guard"
 import { useDashboardStats } from "@/lib/hooks/use-dashboard-stats"
+import { formatDT } from "@/lib/format"
 
 export default function DashboardPage() {
   const { stats, loading, error } = useDashboardStats()
@@ -38,7 +39,7 @@ export default function DashboardPage() {
               </div>
 
               {/* Stats Grid */}
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
                 <StatsCard
                   title="Today's Appointments"
                   value={display(stats?.todaysAppointments)}
@@ -74,6 +75,13 @@ export default function DashboardPage() {
                   icon={AlertCircle}
                   description="Flagged patients"
                   variant="urgent"
+                />
+                <StatsCard
+                  title="Recettes (mois)"
+                  value={stats ? formatDT(stats.monthlyRevenueCollected) : "—"}
+                  loading={loading}
+                  icon={Wallet}
+                  description="Encaissé ce mois-ci"
                 />
               </div>
 

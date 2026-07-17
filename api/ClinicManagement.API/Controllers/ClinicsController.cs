@@ -192,7 +192,12 @@ public class ClinicsController : ControllerBase
             Phone = request.Phone,
             Email = request.Email,
             LogoFile = request.Logo?.OpenReadStream(),
-            LogoContentType = request.Logo?.ContentType
+            LogoContentType = request.Logo?.ContentType,
+            MatriculeFiscal = request.MatriculeFiscal,
+            VatApplicable = request.VatApplicable,
+            VatRate = request.VatRate,
+            StampDutyEnabled = request.StampDutyEnabled,
+            StampDutyAmount = request.StampDutyAmount
         };
         
         var result = await _mediator.Send(command);

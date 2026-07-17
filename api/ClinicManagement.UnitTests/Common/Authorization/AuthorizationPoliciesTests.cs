@@ -1,4 +1,5 @@
 using ClinicManagement.Application.Common.Authorization;
+using ClinicManagement.Application.Common.Authorization.Requirements;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authorization.Infrastructure;
 using Xunit;
@@ -47,6 +48,21 @@ public class AuthorizationPoliciesTests
             Assert.NotNull(options.GetPolicy(AuthorizationPolicies.DoctorOrSecretary));
             Assert.NotNull(options.GetPolicy(AuthorizationPolicies.DoctorOnly));
             Assert.NotNull(options.GetPolicy(AuthorizationPolicies.SecretaryOnly));
+            Assert.NotNull(options.GetPolicy(AuthorizationPolicies.AdminOrDoctor));
         }
+    }
+
+    // [AC-6] Cancelling an invoice is limited to admin/doctor — the AdminOrDoctor policy allows exactly those roles.
+    [Fact]
+    public void AdminOrDoctor_policy_allows_admin_and_doctor_roles()
+    {
+        var options = Configure(isLocalMode: true);
+        var policy = options.GetPolicy(AuthorizationPolicies.AdminOrDoctor);
+
+        Assert.NotNull(policy);
+        var roleRequirement = Assert.Single(policy!.Requirements.OfType<RoleRequirement>());
+        Assert.Contains("admin", roleRequirement.AllowedRoles);
+        Assert.Contains("doctor", roleRequirement.AllowedRoles);
+        Assert.DoesNotContain("secretary", roleRequirement.AllowedRoles);
     }
 }

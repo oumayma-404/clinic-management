@@ -7,6 +7,7 @@ using ClinicManagement.Application.Features.Backup.Commands;
 using ClinicManagement.Application.Features.Clinics.Commands;
 using ClinicManagement.Application.Features.Documents.Commands;
 using ClinicManagement.Application.Features.Files.Commands;
+using ClinicManagement.Application.Features.Invoices.Commands;
 using ClinicManagement.Application.Features.Notifications.Commands;
 using ClinicManagement.Application.Features.Patients.Commands;
 using ClinicManagement.Application.Features.ProcedureTypes.Commands;
@@ -42,6 +43,7 @@ public class RealtimeResourceResolverTests
     [InlineData(typeof(SetUserActiveCommand), "users")]
     [InlineData(typeof(CreateStockItemCommand), "stock")]
     [InlineData(typeof(MarkNotificationReadCommand), "notifications")]
+    [InlineData(typeof(CreateInvoiceCommand), "invoices")]
     public void Resolve_Maps_MutatingCommand_To_ExpectedResourceKey(Type command, string expected)
         => Assert.Equal(expected, RealtimeResourceResolver.Resolve(command));
 

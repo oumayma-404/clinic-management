@@ -27,14 +27,18 @@ public class DashboardController : ControllerBase
         [FromQuery] DateTime? todayStart,
         [FromQuery] DateTime? todayEnd,
         [FromQuery] DateTime? weekStart,
-        [FromQuery] DateTime? weekEnd)
+        [FromQuery] DateTime? weekEnd,
+        [FromQuery] DateTime? monthStart,
+        [FromQuery] DateTime? monthEnd)
     {
         var query = new GetDashboardStatsQuery
         {
             TodayStart = todayStart,
             TodayEnd = todayEnd,
             WeekStart = weekStart,
-            WeekEnd = weekEnd
+            WeekEnd = weekEnd,
+            MonthStart = monthStart,
+            MonthEnd = monthEnd
         };
         var result = await _mediator.Send(query);
 

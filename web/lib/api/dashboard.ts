@@ -7,6 +7,8 @@ export const dashboardApi = {
     todayEnd?: string;
     weekStart?: string;
     weekEnd?: string;
+    monthStart?: string;
+    monthEnd?: string;
   }): Promise<DashboardStats> => {
     return apiGet<DashboardStats>('/dashboard/stats', params);
   },

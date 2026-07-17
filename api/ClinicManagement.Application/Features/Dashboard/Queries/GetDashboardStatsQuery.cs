@@ -16,6 +16,8 @@ public class GetDashboardStatsQuery : IRequest<Result<DashboardStatsDto>>
     public DateTime? TodayEnd { get; set; }
     public DateTime? WeekStart { get; set; }
     public DateTime? WeekEnd { get; set; }
+    public DateTime? MonthStart { get; set; }
+    public DateTime? MonthEnd { get; set; }
 }
 
 public class GetDashboardStatsQueryHandler : IRequestHandler<GetDashboardStatsQuery, Result<DashboardStatsDto>>
@@ -28,17 +30,20 @@ public class GetDashboardStatsQueryHandler : IRequestHandler<GetDashboardStatsQu
     private readonly IAppointmentRepository _appointmentRepository;
     private readonly IPatientRepository _patientRepository;
     private readonly IUserRepository _userRepository;
+    private readonly IInvoiceRepository _invoiceRepository;
     private readonly IClinicContext _clinicContext;
 
     public GetDashboardStatsQueryHandler(
         IAppointmentRepository appointmentRepository,
         IPatientRepository patientRepository,
         IUserRepository userRepository,
+        IInvoiceRepository invoiceRepository,
         IClinicContext clinicContext)
     {
         _appointmentRepository = appointmentRepository;
         _patientRepository = patientRepository;
         _userRepository = userRepository;
+        _invoiceRepository = invoiceRepository;
         _clinicContext = clinicContext;
     }
 
@@ -79,13 +84,19 @@ public class GetDashboardStatsQueryHandler : IRequestHandler<GetDashboardStatsQu
 
             var urgentPatients = await _patientRepository.CountFlaggedByClinicIdAsync(clinicId, cancellationToken);
 
+            var monthStart = request.MonthStart ?? new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+            var monthEnd = request.MonthEnd ?? monthStart.AddMonths(1).AddTicks(-1);
+            var monthlyRevenueCollected = await _invoiceRepository.GetCollectedBetweenAsync(
+                clinicId, monthStart, monthEnd, cancellationToken);
+
             var dto = new DashboardStatsDto
             {
                 TodaysAppointments = todaysAppointments,
                 TotalPatients = totalPatients,
                 UpcomingPending = upcomingPending,
                 ThisWeekAppointments = thisWeekAppointments,
-                UrgentPatients = urgentPatients
+                UrgentPatients = urgentPatients,
+                MonthlyRevenueCollected = monthlyRevenueCollected
             };
 
             return Result<DashboardStatsDto>.Success(dto);

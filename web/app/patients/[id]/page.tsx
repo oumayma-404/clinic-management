@@ -56,6 +56,8 @@ import { EditPatientDialog } from "@/components/edit-patient-dialog"
 import { PatientRecordModal } from "@/components/patient-record-modal"
 import { PatientSummaryModal } from "@/components/patient-summary-modal"
 import { Edit } from "lucide-react"
+import { Receipt } from "lucide-react"
+import { InvoicesTable } from "@/components/factures/invoices-table"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 
@@ -600,7 +602,7 @@ export default function PatientDetailsPage() {
             </div>
 
             <Tabs defaultValue="medical-records" className="space-y-4">
-              <TabsList className="grid w-full grid-cols-4">
+              <TabsList className="grid w-full grid-cols-5">
                 <TabsTrigger value="medical-records" className="gap-2">
                   <FileCheck className="h-4 w-4" />
                   Medical Records
@@ -616,6 +618,10 @@ export default function PatientDetailsPage() {
                 <TabsTrigger value="files" className="gap-2">
                   <FileText className="h-4 w-4" />
                   Files
+                </TabsTrigger>
+                <TabsTrigger value="factures" className="gap-2">
+                  <Receipt className="h-4 w-4" />
+                  Factures
                 </TabsTrigger>
               </TabsList>
 
@@ -1183,6 +1189,22 @@ export default function PatientDetailsPage() {
                         )}
                       </div>
                     )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              {/* Factures Tab */}
+              <TabsContent value="factures" className="space-y-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Receipt className="h-5 w-5" />
+                      Factures
+                    </CardTitle>
+                    <CardDescription>Notes d'honoraires du patient — création, émission, paiement et PDF.</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <InvoicesTable patientId={patientId} patientName={patientName} showPatientColumn={false} />
                   </CardContent>
                 </Card>
               </TabsContent>

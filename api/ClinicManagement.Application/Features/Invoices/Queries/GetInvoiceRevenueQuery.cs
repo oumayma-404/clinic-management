@@ -1,0 +1,72 @@
+using MediatR;
+using Microsoft.Extensions.Logging;
+using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.DTOs;
+using ClinicManagement.Domain.Enums;
+using ClinicManagement.Domain.Repositories;
+
+namespace ClinicManagement.Application.Features.Invoices.Queries;
+
+/// <summary>Aggregate revenue over a period: invoiced / collected / outstanding. Cancelled invoices excluded.</summary>
+public class GetInvoiceRevenueQuery : IRequest<Result<InvoiceRevenueDto>>
+{
+    public DateTime? From { get; set; }
+    public DateTime? To { get; set; }
+}
+
+public class GetInvoiceRevenueQueryHandler : IRequestHandler<GetInvoiceRevenueQuery, Result<InvoiceRevenueDto>>
+{
+    private readonly IInvoiceRepository _invoiceRepository;
+    private readonly ICurrentClinicResolver _clinicResolver;
+    private readonly ILogger<GetInvoiceRevenueQueryHandler> _logger;
+
+    public GetInvoiceRevenueQueryHandler(
+        IInvoiceRepository invoiceRepository,
+        ICurrentClinicResolver clinicResolver,
+        ILogger<GetInvoiceRevenueQueryHandler> logger)
+    {
+        _invoiceRepository = invoiceRepository;
+        _clinicResolver = clinicResolver;
+        _logger = logger;
+    }
+
+    public async Task<Result<InvoiceRevenueDto>> Handle(GetInvoiceRevenueQuery request, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
+            if (clinicResult.IsFailure)
+            {
+                return Result<InvoiceRevenueDto>.Failure(clinicResult.Error ?? "Cabinet introuvable.");
+            }
+            var clinicId = clinicResult.Value;
+
+            var invoices = await _invoiceRepository.GetFilteredAsync(
+                clinicId, request.From, request.To, null, null, cancellationToken);
+
+            // Only issued (numbered) invoices count; drafts carry no number and cancelled ones are excluded
+            // from invoiced/outstanding.
+            var billable = invoices
+                .Where(i => i.Status != InvoiceStatus.Draft && i.Status != InvoiceStatus.Cancelled)
+                .ToList();
+
+            var totalInvoiced = billable.Sum(i => i.TotalTtc);
+            var totalCollected = billable.Sum(i => i.AmountCollected);
+
+            var dto = new InvoiceRevenueDto
+            {
+                TotalInvoiced = totalInvoiced,
+                TotalCollected = totalCollected,
+                Outstanding = totalInvoiced - totalCollected
+            };
+
+            return Result<InvoiceRevenueDto>.Success(dto);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error computing invoice revenue");
+            return Result<InvoiceRevenueDto>.Failure("Erreur lors du calcul des recettes.");
+        }
+    }
+}

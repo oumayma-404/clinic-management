@@ -45,6 +45,55 @@ export interface DashboardStats {
   upcomingPending: number;
   thisWeekAppointments: number;
   urgentPatients: number;
+  /** Total collected (encaissé) in the current month, in TND. */
+  monthlyRevenueCollected: number;
+}
+
+export interface InvoiceLineDto {
+  id: string;
+  designation: string;
+  quantity: number;
+  unitPriceHt: number;
+  lineTotalHt: number;
+}
+
+export interface PaymentDto {
+  id: string;
+  amount: number;
+  /** Cash | Cheque | Card | Transfer */
+  method: string;
+  paidOn: string;
+}
+
+export interface InvoiceDto {
+  id: string;
+  patientId: string;
+  patientName?: string | null;
+  dentalRecordId?: string | null;
+  appointmentId?: string | null;
+  number?: string | null;
+  issueDate?: string | null;
+  /** Draft | Issued | PartiallyPaid | Paid | Cancelled */
+  status: string;
+  vatApplicable: boolean;
+  vatRate: number;
+  stampDutyAmount: number;
+  cancellationReason?: string | null;
+  totalHt: number;
+  totalVat: number;
+  totalTtc: number;
+  amountCollected: number;
+  outstanding: number;
+  createdAt: string;
+  updatedAt?: string | null;
+  lines: InvoiceLineDto[];
+  payments: PaymentDto[];
+}
+
+export interface InvoiceRevenueDto {
+  totalInvoiced: number;
+  totalCollected: number;
+  outstanding: number;
 }
 
 export interface AppointmentDto {
