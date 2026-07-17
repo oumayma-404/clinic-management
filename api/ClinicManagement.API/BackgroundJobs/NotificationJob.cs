@@ -43,6 +43,9 @@ public class NotificationJob
         _logger = logger;
     }
 
+    // Serialize runs: a batch that outlasts the minutely tick (each send has a bounded timeout) must not be
+    // picked up concurrently by the next tick, or two runs could read the same row as Pending and both send.
+    [DisableConcurrentExecution(timeoutInSeconds: 600)]
     [AutomaticRetry(Attempts = 3)]
     public async Task ProcessPendingNotifications()
     {
@@ -109,6 +112,18 @@ public class NotificationJob
             case ReminderSendOutcome.TransientFailure:
                 // Keep Pending and retry on later ticks; only cross to Failed once the cap is reached.
                 notification.RecordFailedAttempt(result.Error, maxRetries);
+                if (notification.Status == NotificationStatus.Failed)
+                {
+                    _logger.LogWarning(
+                        "Reminder {NotificationId} failed permanently after {RetryCount} attempt(s): {Error}",
+                        notification.Id, notification.RetryCount, result.Error);
+                }
+                else
+                {
+                    _logger.LogWarning(
+                        "Reminder {NotificationId} transient send failure (attempt {RetryCount}/{MaxRetries}): {Error}",
+                        notification.Id, notification.RetryCount, maxRetries, result.Error);
+                }
                 await SaveAsync(notification);
                 break;
 
@@ -126,8 +141,11 @@ public class NotificationJob
         await SaveAsync(notification);
     }
 
-    // Commits after each row so a row leaves Pending on its own attempt's commit — a later tick can never
-    // double-send it (AC-9), and a crash mid-batch never loses already-sent progress.
+    // Commits after each row so a row leaves Pending on its own attempt's commit, and a crash mid-batch never
+    // loses already-sent progress. Combined with [DisableConcurrentExecution] on the job, this stops one
+    // tick's rows from being re-dispatched by an overlapping tick (AC-9). Delivery remains at-least-once,
+    // not exactly-once: if a send succeeds but this commit then fails, the row stays Pending and a later tick
+    // re-sends it — true dedup would need a provider idempotency key (out of scope).
     private async Task SaveAsync(Notification notification)
     {
         await _notificationRepository.UpdateAsync(notification);

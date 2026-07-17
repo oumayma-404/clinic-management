@@ -54,7 +54,7 @@
 | `PatientFolder` | `Entities/PatientFolder.cs` | Nestable folder (`ParentFolderId`) holding sub-folders & files; enforces same-patient invariant. |
 | `MedicalDocument` | `Entities/MedicalDocument.cs` | Generated document (prescription / liaison / honoraires / certificat). Stores `ContentJson` plus **snapshots** of patient/clinic/doctor info; `IsDraft`, optional `FileId`. |
 | `RecurringAppointment` | `Entities/RecurringAppointment.cs` | Recurrence template (pattern, interval, start/end) for a patient. |
-| `Notification` | `Entities/Notification.cs` | Scheduled **email/SMS** reminder (dormant outbound pipeline). Status lifecycle `MarkAsSent/MarkAsFailed/Retry`; tracks `RetryCount`. Not the in-app feed — that is `StaffNotification`. |
+| `Notification` | `Entities/Notification.cs` | Scheduled outbound **SMS/WhatsApp** reminder outbox (revived — the live appointment-reminder pipeline; Email still dormant). Status lifecycle `MarkAsSent`/`MarkAsFailed` (terminal) / `RecordFailedAttempt` (transient: stays `Pending`, increments `RetryCount`, → `Failed` at the cap) / `Retry`. Not the in-app feed — that is `StaffNotification`. |
 | `NotificationRead` | `Entities/NotificationRead.cs` | Per-user read marker for a `StaffNotification` (`NotificationId` + `UserId`, timestamp). Existence = "this user read it". Scoped by `UserId` only (a user belongs to one clinic) — no `ClinicId` column, so it is **not** in the global clinic query filter; every query filters it by the current `UserId`. |
 
 ## Value Objects (`ValueObjects/`)
@@ -85,7 +85,7 @@ All implement `IDomainEvent` (carry `OccurredOn = DateTime.UtcNow`). Handlers ar
 | `AppointmentStatus` | Scheduled, Confirmed, InProgress, Completed, Cancelled, NoShow |
 | `PatientFlagType` | HighPriority, SpecialCondition, Alert, Critical, Allergy |
 | `FileType` | LabResult, Scan, Prescription, MedicalRecord, Insurance, Other |
-| `NotificationType` | Email, SMS, Both (outbound `Notification` only) |
+| `NotificationType` | Email, SMS, Both, WhatsApp (outbound `Notification` only; SMS/WhatsApp are the live reminder channels, Email/Both remain dormant) |
 | `NotificationStatus` | Pending, Sent, Failed (outbound `Notification` only) |
 | `NotificationCategory` | AppointmentCreated, AppointmentCancelled, AppointmentRescheduled, Reminder, LowStock (in-app `StaffNotification`) |
 | `NotificationTargetKind` | None, Appointment, StockItem (drives the panel deep-link) |

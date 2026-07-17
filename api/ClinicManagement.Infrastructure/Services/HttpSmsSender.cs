@@ -34,7 +34,7 @@ public class HttpSmsSender : HttpReminderChannelSender, IReminderChannelSender
 
         if (string.IsNullOrWhiteSpace(apiUrl) || string.IsNullOrWhiteSpace(senderId) || string.IsNullOrWhiteSpace(apiKey))
         {
-            _logger.LogDebug("SMS gateway not configured; skipping SMS reminder to {Phone}.", phoneE164);
+            _logger.LogDebug("SMS gateway not configured; skipping SMS reminder to {Phone}.", ReminderPhone.Mask(phoneE164));
             return Task.FromResult(ReminderSendResult.NotConfigured);
         }
 

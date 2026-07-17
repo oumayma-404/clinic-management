@@ -38,7 +38,7 @@ public class WhatsAppSender : HttpReminderChannelSender, IReminderChannelSender
         if (string.IsNullOrWhiteSpace(apiUrl) || string.IsNullOrWhiteSpace(phoneNumberId) ||
             string.IsNullOrWhiteSpace(templateName) || string.IsNullOrWhiteSpace(accessToken))
         {
-            _logger.LogDebug("WhatsApp Business API not configured; skipping WhatsApp reminder to {Phone}.", phoneE164);
+            _logger.LogDebug("WhatsApp Business API not configured; skipping WhatsApp reminder to {Phone}.", ReminderPhone.Mask(phoneE164));
             return Task.FromResult(ReminderSendResult.NotConfigured);
         }
 

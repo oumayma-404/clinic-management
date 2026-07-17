@@ -33,4 +33,18 @@ public static class ReminderPhone
 
         return digits.Length == 8 ? "+216" + digits : null;
     }
+
+    /// <summary>
+    /// Masks a phone number for logging (PII) — keeps only the last 3 digits, e.g. <c>+21620123456</c> →
+    /// <c>*********456</c>. Returns <c>"(none)"</c> for null/empty.
+    /// </summary>
+    public static string Mask(string? phone)
+    {
+        if (string.IsNullOrWhiteSpace(phone))
+        {
+            return "(none)";
+        }
+
+        return phone.Length <= 3 ? "***" : new string('*', phone.Length - 3) + phone[^3..];
+    }
 }

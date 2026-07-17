@@ -47,7 +47,7 @@ public class ReminderScheduler : IReminderScheduler
     public Task ScheduleForAppointmentAsync(
         Guid clinicId, Guid appointmentId, Guid patientId, string patientName, DateTime appointmentDateTimeUtc,
         CancellationToken cancellationToken = default) =>
-        SafelyAsync(async () =>
+        SafelyAsync(appointmentId, "schedule", async () =>
         {
             await EnqueueRemindersAsync(clinicId, appointmentId, patientId, patientName, appointmentDateTimeUtc, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -56,7 +56,7 @@ public class ReminderScheduler : IReminderScheduler
     public Task RescheduleForAppointmentAsync(
         Guid clinicId, Guid appointmentId, Guid patientId, string patientName, DateTime newAppointmentDateTimeUtc,
         CancellationToken cancellationToken = default) =>
-        SafelyAsync(async () =>
+        SafelyAsync(appointmentId, "reschedule", async () =>
         {
             await VoidUnsentAsync(appointmentId, cancellationToken);
             await EnqueueRemindersAsync(clinicId, appointmentId, patientId, patientName, newAppointmentDateTimeUtc, cancellationToken);
@@ -64,7 +64,7 @@ public class ReminderScheduler : IReminderScheduler
         });
 
     public Task VoidForAppointmentAsync(Guid appointmentId, CancellationToken cancellationToken = default) =>
-        SafelyAsync(async () =>
+        SafelyAsync(appointmentId, "void", async () =>
         {
             await VoidUnsentAsync(appointmentId, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -115,7 +115,7 @@ public class ReminderScheduler : IReminderScheduler
         }
     }
 
-    private async Task SafelyAsync(Func<Task> work)
+    private async Task SafelyAsync(Guid appointmentId, string operation, Func<Task> work)
     {
         try
         {
@@ -123,7 +123,7 @@ public class ReminderScheduler : IReminderScheduler
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to schedule/void appointment reminders.");
+            _logger.LogError(ex, "Failed to {Operation} reminders for appointment {AppointmentId}.", operation, appointmentId);
         }
     }
 
