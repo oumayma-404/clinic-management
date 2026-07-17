@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Trash2, Plus } from "lucide-react"
 import { toast } from "sonner"
-import { invoicesApi } from "@/lib/api/invoices"
+import { invoicesApi, type InvoiceLineInput, type CreateInvoiceRequest } from "@/lib/api/invoices"
 import { patientsApi } from "@/lib/api/patients"
 import { ApiError } from "@/lib/api/client"
 import type { InvoiceDto, PatientDto } from "@/lib/api/types"
@@ -27,6 +27,10 @@ interface InvoiceFormModalProps {
   /** When opened from a patient page, the patient is preset and locked. */
   presetPatientId?: string
   presetPatientName?: string
+  /** Pre-filled act lines (create mode only) — e.g. seeded from a dental record. */
+  presetLines?: InvoiceLineInput[]
+  /** Optional source dental-record link, persisted on the created draft (create mode only). */
+  dentalRecordId?: string
   onSuccess?: () => void
 }
 
@@ -38,6 +42,8 @@ export function InvoiceFormModal({
   editingInvoice,
   presetPatientId,
   presetPatientName,
+  presetLines,
+  dentalRecordId,
   onSuccess,
 }: InvoiceFormModalProps) {
   const [patients, setPatients] = useState<PatientDto[]>([])
@@ -72,9 +78,18 @@ export function InvoiceFormModal({
       )
     } else {
       setPatientId(presetPatientId ?? "")
-      setLines([emptyLine()])
+      setLines(
+        presetLines && presetLines.length > 0
+          ? presetLines.map((l) => ({
+              designation: l.designation,
+              quantity: String(l.quantity),
+              unitPriceHt: String(l.unitPriceHt),
+            }))
+          : [emptyLine()],
+      )
     }
     setError(null)
+    // Seeds once when the dialog opens; presetLines are read from the opening render (like presetPatientName).
   }, [open, editingInvoice, presetPatientId])
 
   const updateLine = (index: number, patch: Partial<LineRow>) => {
@@ -127,11 +142,13 @@ export function InvoiceFormModal({
 
     setLoading(true)
     try {
-      const payload = { patientId, lines: parsedLines }
       if (isEditing && editingInvoice) {
-        await invoicesApi.update(editingInvoice.id, payload)
+        await invoicesApi.update(editingInvoice.id, { patientId, lines: parsedLines })
         toast.success("Brouillon mis à jour")
       } else {
+        const payload: CreateInvoiceRequest = { patientId, lines: parsedLines }
+        // Persist the source dental-record link on the new draft (spec AC-2).
+        if (dentalRecordId) payload.dentalRecordId = dentalRecordId
         await invoicesApi.create(payload)
         toast.success("Brouillon de facture créé")
       }

@@ -58,6 +58,8 @@ import { PatientSummaryModal } from "@/components/patient-summary-modal"
 import { Edit } from "lucide-react"
 import { Receipt } from "lucide-react"
 import { InvoicesTable } from "@/components/factures/invoices-table"
+import { InvoiceFormModal } from "@/components/factures/invoice-form-modal"
+import { invoicesApi } from "@/lib/api/invoices"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 
@@ -140,6 +142,10 @@ export default function PatientDetailsPage() {
   const [editingRecord, setEditingRecord] = useState<DentalRecordDto | null>(null)
   const [summaryModalOpen, setSummaryModalOpen] = useState(false)
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set())
+  // Dental records already tied to a non-cancelled invoice (guards against double-invoicing).
+  const [invoicedDentalRecordIds, setInvoicedDentalRecordIds] = useState<Set<string>>(new Set())
+  // The dental record being invoiced (drives the pre-filled invoice modal); null = closed.
+  const [billingRecord, setBillingRecord] = useState<DentalRecordDto | null>(null)
   const [previewFile, setPreviewFile] = useState<PatientFileDto | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
@@ -167,19 +173,31 @@ export default function PatientDetailsPage() {
         const appointmentsData = await appointmentsApi.list({ patientId })
         setAppointments(appointmentsData)
         
-        // Load medical and family history entries, dental records, files, and folders
-        const [medicalHistory, familyHistory, dentalRecordsData, filesData, foldersData] = await Promise.all([
+        // Load medical and family history entries, dental records, files, folders, and invoices
+        // (invoices power the "already billed" guard on the dental-records list).
+        const [medicalHistory, familyHistory, dentalRecordsData, filesData, foldersData, invoicesData] = await Promise.all([
           patientMedicalHistoryApi.list(patientId).catch(() => []),
           patientFamilyHistoryApi.list(patientId).catch(() => []),
           dentalRecordsApi.list(patientId).catch(() => []),
           patientFilesApi.getFiles(patientId).catch(() => []),
-          patientFilesApi.getFolders(patientId).catch(() => [])
+          patientFilesApi.getFolders(patientId).catch(() => []),
+          invoicesApi.list({ patientId }).catch(() => [])
         ])
         setMedicalHistoryEntries(medicalHistory)
         setFamilyHistoryEntries(familyHistory)
         setDentalRecords(dentalRecordsData)
         setFiles(filesData)
         setFolders(foldersData)
+        // A dental record counts as "already invoiced" only if a NON-cancelled invoice links to it
+        // (a cancelled invoice frees it for re-billing). Safe degradation: a failed invoices fetch
+        // yields an empty set, so the Facturer action stays available rather than falsely disabled.
+        setInvoicedDentalRecordIds(
+          new Set(
+            invoicesData
+              .filter((inv) => inv.dentalRecordId && inv.status !== "Cancelled")
+              .map((inv) => inv.dentalRecordId as string)
+          )
+        )
       } catch (err) {
         console.error("Failed to load patient data:", err)
         setError(err instanceof ApiError ? err.message : "Failed to load patient data")
@@ -781,18 +799,36 @@ export default function PatientDetailsPage() {
                                   })()}
                                 </TableCell>
                                 <TableCell className="text-right">
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-8 w-8 p-0"
-                                    onClick={() => {
-                                      setEditingRecord(record)
-                                      setRecordModalOpen(true)
-                                    }}
-                                    title="Edit record"
-                                  >
-                                    <Pencil className="h-4 w-4" />
-                                  </Button>
+                                  <div className="flex items-center justify-end gap-1">
+                                    {invoicedDentalRecordIds.has(record.id) ? (
+                                      <Badge variant="outline" className="text-xs gap-1">
+                                        <Receipt className="h-3 w-3" />
+                                        Facturé
+                                      </Badge>
+                                    ) : (
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-8 w-8 p-0"
+                                        onClick={() => setBillingRecord(record)}
+                                        title="Facturer cette intervention"
+                                      >
+                                        <Receipt className="h-4 w-4" />
+                                      </Button>
+                                    )}
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-8 w-8 p-0"
+                                      onClick={() => {
+                                        setEditingRecord(record)
+                                        setRecordModalOpen(true)
+                                      }}
+                                      title="Edit record"
+                                    >
+                                      <Pencil className="h-4 w-4" />
+                                    </Button>
+                                  </div>
                                 </TableCell>
                               </TableRow>
                             ))}
@@ -1240,6 +1276,21 @@ export default function PatientDetailsPage() {
         onOpenChange={setSummaryModalOpen}
         patient={patient}
         dentalRecords={dentalRecords}
+      />
+
+      {/* Facturer cette intervention — pre-filled draft from a dental record (create-only). */}
+      <InvoiceFormModal
+        open={!!billingRecord}
+        onOpenChange={(open) => { if (!open) setBillingRecord(null) }}
+        presetPatientId={patient.id}
+        presetPatientName={patientName}
+        presetLines={
+          billingRecord
+            ? [{ designation: billingRecord.procedureType, quantity: 1, unitPriceHt: billingRecord.cost }]
+            : undefined
+        }
+        dentalRecordId={billingRecord?.id}
+        onSuccess={() => setRefreshKey((k) => k + 1)}
       />
 
       {/* File Preview Dialog */}
