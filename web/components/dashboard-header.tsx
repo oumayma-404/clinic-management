@@ -19,6 +19,7 @@ import { ConnectivityIndicator } from "@/components/connectivity-indicator"
 import { NotificationPanel } from "@/components/notification-panel"
 import { PostVisitReviewPopup } from "@/components/post-visit-review-popup"
 import { useNotifications } from "@/lib/hooks/use-notifications"
+import { appointmentsApi } from "@/lib/api/appointments"
 import type { NotificationDto } from "@/lib/api/types"
 import { Bell, Search, LogOut, KeyRound } from "lucide-react"
 
@@ -32,6 +33,26 @@ export function DashboardHeader() {
   const handleNotificationClick = (notification: NotificationDto) => {
     setNotifOpen(false)
     void markRead(notification.id)
+    // A post-visit review notification targets an appointment, but fulfilling it means adding the patient's
+    // medical record (saving that record marks the appointment Completed) — NOT opening the appointment. So
+    // resolve the patient from the appointment and deep-link to the Add-Medical-Record modal, mirroring the
+    // post-visit popup's "Ajouter le dossier médical". Must run before the generic Appointment branch below,
+    // since this notification also carries targetKind === "Appointment".
+    if (notification.category === "PostVisitReview" && notification.appointmentId) {
+      const appointmentId = notification.appointmentId
+      void (async () => {
+        let patientId: string | null = null
+        try {
+          const appointment = await appointmentsApi.get(appointmentId)
+          patientId = appointment.patientId ?? null
+        } catch {
+          return // keep it pending rather than navigate to a dead page (mirrors the popup)
+        }
+        if (!patientId) return
+        router.push(`/patients/${patientId}?addRecord=1&appointmentId=${encodeURIComponent(appointmentId)}`)
+      })()
+      return
+    }
     // router.push handles cross-page navigation (the target page reads the query param on mount). When
     // the user is ALREADY on the target page, a same-route push does not remount it, so we also emit a
     // deep-link event the target page listens for — see the "clinic:deeplink" handlers on those pages.
