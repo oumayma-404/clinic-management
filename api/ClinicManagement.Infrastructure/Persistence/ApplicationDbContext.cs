@@ -46,6 +46,7 @@ public class ApplicationDbContext : DbContext
     public DbSet<MedicalDocument> MedicalDocuments { get; set; }
     public DbSet<StaffNotification> StaffNotifications { get; set; }
     public DbSet<NotificationRead> NotificationReads { get; set; }
+    public DbSet<Invoice> Invoices { get; set; }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -74,6 +75,9 @@ public class ApplicationDbContext : DbContext
         // ClinicId; it is always queried scoped by UserId and joined to its clinic-filtered notification
         // (a user belongs to one clinic), so it needs no filter of its own (plan R-5).
         modelBuilder.Entity<StaffNotification>().HasQueryFilter(n => !IsClinicScoped || n.ClinicId == ScopedClinicId);
+        // Invoice is directly clinic-owned → filtered like the other aggregate roots. Its children
+        // (InvoiceLine/Payment) are reached only through the invoice, so they need no filter of their own.
+        modelBuilder.Entity<Invoice>().HasQueryFilter(i => !IsClinicScoped || i.ClinicId == ScopedClinicId);
 
         // Apply a value converter for all DateTime and DateTime? properties to ensure UTC
         // This is required for PostgreSQL which only accepts UTC DateTime values

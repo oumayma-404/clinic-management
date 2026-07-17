@@ -9,6 +9,7 @@ public static class AuthorizationPolicies
     public const string DoctorOnly = "DoctorOnly";
     public const string SecretaryOnly = "SecretaryOnly";
     public const string AdminOnly = "AdminOnly";
+    public const string AdminOrDoctor = "AdminOrDoctor";
 
     /// <param name="isLocalMode">
     /// When true (Local/offline mode — FR-E3 release gate) a <see cref="AuthorizationOptions.FallbackPolicy"/>
@@ -34,6 +35,10 @@ public static class AuthorizationPolicies
         // Only admins can manage users and clinic settings
         options.AddPolicy(AdminOnly, policy =>
             policy.Requirements.Add(new RoleRequirement("admin")));
+
+        // Admins and doctors — e.g. cancelling an issued invoice (AC-6).
+        options.AddPolicy(AdminOrDoctor, policy =>
+            policy.Requirements.Add(new RoleRequirement("admin", "doctor")));
 
         if (isLocalMode)
         {

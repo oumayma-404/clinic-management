@@ -51,6 +51,12 @@ export interface ClinicDto {
   email?: string;
   code?: string;
   logoUrl?: string;
+  // Billing / note-d'honoraires settings.
+  matriculeFiscal?: string | null;
+  vatApplicable?: boolean;
+  vatRate?: number;
+  stampDutyEnabled?: boolean;
+  stampDutyAmount?: number;
   createdAt: string;
 }
 
@@ -190,13 +196,30 @@ export const clinicsApi = {
     return result.value;
   },
 
-  update: async (data: { name: string; address?: string; phone?: string; email?: string; logoFile?: File }): Promise<ClinicDto> => {
+  update: async (data: {
+    name: string;
+    address?: string;
+    phone?: string;
+    email?: string;
+    logoFile?: File;
+    matriculeFiscal?: string;
+    vatApplicable?: boolean;
+    vatRate?: number;
+    stampDutyEnabled?: boolean;
+    stampDutyAmount?: number;
+  }): Promise<ClinicDto> => {
     const formData = new FormData();
     formData.append('name', data.name);
     if (data.address) formData.append('address', data.address);
     if (data.phone) formData.append('phone', data.phone);
     if (data.email) formData.append('email', data.email);
     if (data.logoFile) formData.append('logo', data.logoFile);
+    // Billing settings (optional). Send the matricule even when blank so it can be cleared.
+    if (data.matriculeFiscal !== undefined) formData.append('matriculeFiscal', data.matriculeFiscal);
+    if (data.vatApplicable !== undefined) formData.append('vatApplicable', String(data.vatApplicable));
+    if (data.vatRate !== undefined) formData.append('vatRate', String(data.vatRate));
+    if (data.stampDutyEnabled !== undefined) formData.append('stampDutyEnabled', String(data.stampDutyEnabled));
+    if (data.stampDutyAmount !== undefined) formData.append('stampDutyAmount', String(data.stampDutyAmount));
 
     const result = await apiPutFormData<Result<ClinicDto>>('/clinics', formData);
     if (!result.isSuccess || !result.value) {

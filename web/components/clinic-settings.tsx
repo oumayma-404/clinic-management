@@ -104,6 +104,16 @@ export default function ClinicSettings() {
   const [logoFile, setLogoFile] = useState<File | null>(null)
   const [logoUrl, setLogoUrl] = useState<string | null>(null)
 
+  // Billing / note-d'honoraires settings
+  const [matriculeFiscal, setMatriculeFiscal] = useState("")
+  const [vatApplicable, setVatApplicable] = useState(false)
+  const [vatRate, setVatRate] = useState("7")
+  const [stampDutyEnabled, setStampDutyEnabled] = useState(true)
+  const [stampDutyAmount, setStampDutyAmount] = useState("1.000")
+  const [isEditingBilling, setIsEditingBilling] = useState(false)
+  const [isBillingCollapsed, setIsBillingCollapsed] = useState(true)
+  const [originalBilling, setOriginalBilling] = useState<any>({})
+
   // Working Hours State
   const [workingHours, setWorkingHours] = useState<WorkingHoursInput[]>(
     weekdays.map((day) => ({
@@ -163,6 +173,12 @@ export default function ClinicSettings() {
         setEmail(clinic.email || "")
         setPhone(clinic.phone || "")
         setLogoUrl(clinic.logoUrl || null)
+        // Billing settings
+        setMatriculeFiscal(clinic.matriculeFiscal || "")
+        setVatApplicable(clinic.vatApplicable ?? false)
+        setVatRate(String(clinic.vatRate ?? 7))
+        setStampDutyEnabled(clinic.stampDutyEnabled ?? true)
+        setStampDutyAmount(String(clinic.stampDutyAmount ?? 1))
         // Load logo from backend if it exists
         if (clinic.logoUrl) {
           loadLogoFromBackend()
@@ -249,7 +265,7 @@ export default function ClinicSettings() {
   // Real-time: reload clinic profile/doctors when another client of this clinic changes them — but not
   // while this admin is mid-edit, so a live refresh never clobbers unsaved form input.
   useClinicRealtime(RealtimeResource.Clinics, () => {
-    if (!isEditingClinicInfo && !isEditingDoctors && !isEditingHours) {
+    if (!isEditingClinicInfo && !isEditingDoctors && !isEditingHours && !isEditingBilling) {
       loadClinicData()
     }
   })
@@ -374,6 +390,48 @@ export default function ClinicSettings() {
       setIsEditingDoctors(false)
     } catch (error: any) {
       setNotification({ type: "error", message: error.message || "Failed to save doctors information. Please try again." })
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const handleEditBilling = () => {
+    setOriginalBilling({ matriculeFiscal, vatApplicable, vatRate, stampDutyEnabled, stampDutyAmount })
+    setIsEditingBilling(true)
+  }
+
+  const handleCancelBilling = () => {
+    setMatriculeFiscal(originalBilling.matriculeFiscal ?? "")
+    setVatApplicable(originalBilling.vatApplicable ?? false)
+    setVatRate(originalBilling.vatRate ?? "7")
+    setStampDutyEnabled(originalBilling.stampDutyEnabled ?? true)
+    setStampDutyAmount(originalBilling.stampDutyAmount ?? "1.000")
+    setIsEditingBilling(false)
+  }
+
+  const handleSaveBilling = async () => {
+    setIsSaving(true)
+    try {
+      const fullAddress = address && governorate
+        ? `${address}, ${governorate}`
+        : governorate || address || undefined
+
+      await clinicsApi.update({
+        name: clinicName,
+        address: fullAddress,
+        phone,
+        email,
+        matriculeFiscal,
+        vatApplicable,
+        vatRate: Number(vatRate) || 0,
+        stampDutyEnabled,
+        stampDutyAmount: Number(stampDutyAmount) || 0,
+      })
+
+      setNotification({ type: "success", message: "Paramètres de facturation enregistrés." })
+      setIsEditingBilling(false)
+    } catch (error: any) {
+      setNotification({ type: "error", message: error.message || "Échec de l'enregistrement des paramètres de facturation." })
     } finally {
       setIsSaving(false)
     }
@@ -877,6 +935,115 @@ export default function ClinicSettings() {
                   >
                     <Save className="w-3 h-3 mr-1" />
                     {isSaving ? "Saving..." : "Save Changes"}
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          )}
+        </Card>
+
+        {/* Billing / note-d'honoraires settings */}
+        <Card className="border border-gray-200 dark:border-slate-800">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <button
+                onClick={() => setIsBillingCollapsed(!isBillingCollapsed)}
+                className="flex items-center gap-2 flex-1 text-left hover:opacity-70 transition-opacity"
+              >
+                <div className="w-1 h-6 bg-blue-600 rounded-full" />
+                <CardTitle className="text-base">Facturation (note d'honoraires)</CardTitle>
+                <ChevronDown
+                  className={`w-4 h-4 text-muted-foreground transition-transform ${
+                    isBillingCollapsed ? "-rotate-90" : ""
+                  }`}
+                />
+              </button>
+              {!isEditingBilling && (
+                <Button onClick={handleEditBilling} variant="ghost" size="sm" className="h-7 text-xs">
+                  <Edit className="w-3 h-3 mr-1" />
+                  Modifier
+                </Button>
+              )}
+            </div>
+          </CardHeader>
+          {!isBillingCollapsed && (
+            <CardContent className="space-y-3">
+              <div className="space-y-1">
+                <Label htmlFor="matricule-fiscal" className="text-xs font-medium">
+                  Matricule fiscal
+                </Label>
+                <Input
+                  id="matricule-fiscal"
+                  placeholder="Ex. 1234567/A/M/000"
+                  value={matriculeFiscal}
+                  onChange={(e) => setMatriculeFiscal(e.target.value)}
+                  disabled={!isEditingBilling}
+                  className={`h-8 text-sm ${!isEditingBilling ? "bg-slate-50 dark:bg-slate-900/50" : ""}`}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="vat-applicable"
+                      checked={vatApplicable}
+                      onCheckedChange={(checked) => setVatApplicable(checked === true)}
+                      disabled={!isEditingBilling}
+                      className="h-4 w-4"
+                    />
+                    <Label htmlFor="vat-applicable" className="text-xs font-medium">TVA applicable</Label>
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="vat-rate" className="text-xs font-medium">Taux de TVA (%)</Label>
+                    <Input
+                      id="vat-rate"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={vatRate}
+                      onChange={(e) => setVatRate(e.target.value)}
+                      disabled={!isEditingBilling || !vatApplicable}
+                      className={`h-8 text-sm ${!isEditingBilling || !vatApplicable ? "bg-slate-50 dark:bg-slate-900/50" : ""}`}
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="stamp-enabled"
+                      checked={stampDutyEnabled}
+                      onCheckedChange={(checked) => setStampDutyEnabled(checked === true)}
+                      disabled={!isEditingBilling}
+                      className="h-4 w-4"
+                    />
+                    <Label htmlFor="stamp-enabled" className="text-xs font-medium">Timbre fiscal</Label>
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="stamp-amount" className="text-xs font-medium">Montant du timbre (DT)</Label>
+                    <Input
+                      id="stamp-amount"
+                      type="number"
+                      min="0"
+                      step="0.001"
+                      value={stampDutyAmount}
+                      onChange={(e) => setStampDutyAmount(e.target.value)}
+                      disabled={!isEditingBilling || !stampDutyEnabled}
+                      className={`h-8 text-sm ${!isEditingBilling || !stampDutyEnabled ? "bg-slate-50 dark:bg-slate-900/50" : ""}`}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {isEditingBilling && (
+                <div className="flex justify-end gap-2 pt-2 border-t">
+                  <Button onClick={handleCancelBilling} variant="ghost" size="sm" className="h-7 text-xs" disabled={isSaving}>
+                    Annuler
+                  </Button>
+                  <Button onClick={handleSaveBilling} size="sm" className="h-7 text-xs bg-blue-600 hover:bg-blue-700" disabled={isSaving}>
+                    <Save className="w-3 h-3 mr-1" />
+                    {isSaving ? "Enregistrement..." : "Enregistrer"}
                   </Button>
                 </div>
               )}

@@ -31,6 +31,26 @@ public class ClinicConfiguration : IEntityTypeConfiguration<Clinic>
         builder.Property(c => c.Code)
             .HasMaxLength(20);
 
+        // Billing / note-d'honoraires settings.
+        builder.Property(c => c.MatriculeFiscal)
+            .HasMaxLength(50);
+
+        builder.Property(c => c.VatApplicable)
+            .IsRequired()
+            .HasDefaultValue(false);
+
+        builder.Property(c => c.VatRate)
+            .HasColumnType("decimal(5,2)")
+            .HasDefaultValue(7m);
+
+        builder.Property(c => c.StampDutyEnabled)
+            .IsRequired()
+            .HasDefaultValue(true);
+
+        builder.Property(c => c.StampDutyAmount)
+            .HasColumnType("decimal(18,3)")
+            .HasDefaultValue(1.000m);
+
         builder.HasIndex(c => c.Code)
             .IsUnique()
             .HasFilter("\"Code\" IS NOT NULL");
