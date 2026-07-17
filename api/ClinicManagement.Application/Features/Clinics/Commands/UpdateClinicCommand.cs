@@ -80,6 +80,17 @@ public class UpdateClinicCommandHandler : IRequestHandler<UpdateClinicCommand, R
                 return Result<ClinicDto>.Failure("Clinic not found");
             }
 
+            // FR-8/US-6: changing the TTN e-invoicing settings is admin-only. Non-admins may still edit the
+            // rest of the clinic/billing card as long as they don't alter the TTN toggle/environment.
+            var desiredTtnEnabled = request.TtnEInvoicingEnabled ?? clinic.TtnEInvoicingEnabled;
+            var desiredTtnEnvironment = request.TtnEnvironment ?? clinic.TtnEnvironment;
+            var ttnSettingsChanging = desiredTtnEnabled != clinic.TtnEInvoicingEnabled
+                || !string.Equals(desiredTtnEnvironment, clinic.TtnEnvironment, StringComparison.OrdinalIgnoreCase);
+            if (ttnSettingsChanging && !user.IsAdmin())
+            {
+                return Result<ClinicDto>.Failure("Seul un administrateur peut modifier les paramètres de facturation électronique.");
+            }
+
             // Handle logo upload if provided
             var originalLogoUrl = clinic.LogoUrl; // Persisted value, used for orphan cleanup below
             string? logoUrl = originalLogoUrl;    // Keep existing logo by default

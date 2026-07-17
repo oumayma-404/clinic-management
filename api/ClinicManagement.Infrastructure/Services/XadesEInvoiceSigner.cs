@@ -18,6 +18,13 @@ namespace ClinicManagement.Infrastructure.Services;
 /// Open Question (#3) that cannot be pinned in-repo; this produces a valid enveloped XMLDSig signature,
 /// the base every XAdES profile builds on. Extend with QualifyingProperties once the profile is confirmed.
 /// </para>
+/// <para>
+/// KNOWN CONSTRAINT (single-cert-per-install): the certificate is resolved per install (one
+/// <c>.local/teif-signing.pfx</c>), NOT per clinic, so in a multi-clinic install every clinic's e-invoices
+/// are signed with the same qualified identity. This is acceptable only for a single-tenant-per-install
+/// deployment; before Production multi-tenant use, key the cert/password lookup by clinic id (gated on the
+/// cert-provisioning UX, spec Open Question #5).
+/// </para>
 /// </summary>
 public class XadesEInvoiceSigner : IEInvoiceSigner
 {
@@ -49,10 +56,12 @@ public class XadesEInvoiceSigner : IEInvoiceSigner
 
         var password = TtnConfig.CertificatePassword(_configuration);
 
+        // EphemeralKeySet only (no on-disk key persistence); NOT Exportable — a signing-only key never needs
+        // to be marshalled out of the key object.
         using var certificate = new X509Certificate2(
             certPath,
             password,
-            X509KeyStorageFlags.Exportable | X509KeyStorageFlags.EphemeralKeySet);
+            X509KeyStorageFlags.EphemeralKeySet);
 
         using var rsa = certificate.GetRSAPrivateKey();
         if (rsa == null)

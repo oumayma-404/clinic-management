@@ -77,8 +77,10 @@ public class GetEInvoiceArtifactQueryHandler : IRequestHandler<GetEInvoiceArtifa
         }
         catch (Exception ex)
         {
+            // A genuine storage/IO failure is a 500-class fault, not a 404 — log it and let it propagate to
+            // the exception middleware. The controller's explicit not-found/unavailable Failures stay 404.
             _logger.LogError(ex, "Error downloading e-invoice artifact for invoice {InvoiceId}", request.Id);
-            return Result<EInvoiceArtifactResult>.Failure("Erreur lors du téléchargement du document.");
+            throw;
         }
     }
 }

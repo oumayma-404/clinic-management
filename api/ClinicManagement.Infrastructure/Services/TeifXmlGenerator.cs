@@ -116,7 +116,7 @@ public class TeifXmlGenerator : ITeifXmlGenerator
     private static XElement BuildMonetaryAmounts(TeifInvoiceInput input) =>
         new("InvoiceMoa",
             new XElement("AmountDetails",
-                // I-176 total HT, I-180 total VAT, I-161 stamp duty, I-180... TTC I-180? Use I-179 for TTC.
+                // TEIF amount-type codes: I-176 = total HT, I-180 = total VAT, I-161 = stamp duty, I-179 = total TTC.
                 Moa("I-176", input.TotalHt, input.CurrencyCode),
                 Moa("I-180", input.TotalVat, input.CurrencyCode),
                 Moa("I-161", input.StampDutyAmount, input.CurrencyCode),

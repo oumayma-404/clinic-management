@@ -45,7 +45,7 @@ public class TeifInvoiceLineInput
     public decimal LineTotalHt { get; set; }
 }
 
-/// <summary>The signed TEIF XML plus the digest, for logging/traceability.</summary>
+/// <summary>The signed TEIF XML (enveloped XAdES/XMLDSig), ready to submit to TTN.</summary>
 public class SignedEInvoiceResult
 {
     public string SignedXml { get; set; } = string.Empty;

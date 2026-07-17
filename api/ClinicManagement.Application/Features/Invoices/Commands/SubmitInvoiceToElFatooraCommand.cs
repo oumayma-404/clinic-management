@@ -21,6 +21,7 @@ public class SubmitInvoiceToElFatooraCommand : IRequest<Result<InvoiceDto>>
 public class SubmitInvoiceToElFatooraCommandHandler : IRequestHandler<SubmitInvoiceToElFatooraCommand, Result<InvoiceDto>>
 {
     private readonly IInvoiceRepository _invoiceRepository;
+    private readonly IClinicRepository _clinicRepository;
     private readonly IPatientRepository _patientRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IEInvoiceService _eInvoiceService;
@@ -30,6 +31,7 @@ public class SubmitInvoiceToElFatooraCommandHandler : IRequestHandler<SubmitInvo
 
     public SubmitInvoiceToElFatooraCommandHandler(
         IInvoiceRepository invoiceRepository,
+        IClinicRepository clinicRepository,
         IPatientRepository patientRepository,
         ICurrentClinicResolver clinicResolver,
         IEInvoiceService eInvoiceService,
@@ -38,6 +40,7 @@ public class SubmitInvoiceToElFatooraCommandHandler : IRequestHandler<SubmitInvo
         ILogger<SubmitInvoiceToElFatooraCommandHandler> logger)
     {
         _invoiceRepository = invoiceRepository;
+        _clinicRepository = clinicRepository;
         _patientRepository = patientRepository;
         _clinicResolver = clinicResolver;
         _eInvoiceService = eInvoiceService;
@@ -67,6 +70,18 @@ public class SubmitInvoiceToElFatooraCommandHandler : IRequestHandler<SubmitInvo
             if (invoice.EInvoiceStatus is EInvoiceStatus.Valid or EInvoiceStatus.Submitted or EInvoiceStatus.Validating)
             {
                 return Result<InvoiceDto>.Success(await MapAsync(invoice, cancellationToken));
+            }
+
+            // FR-8: only clinics that have enabled El Fatoora may submit — the toggle is enforced here, not
+            // just hidden in the UI.
+            var clinic = await _clinicRepository.GetByIdAsync(clinicId, cancellationToken);
+            if (clinic == null)
+            {
+                return Result<InvoiceDto>.Failure("Cabinet introuvable.");
+            }
+            if (!clinic.TtnEInvoicingEnabled)
+            {
+                return Result<InvoiceDto>.Failure("La facturation électronique El Fatoora n'est pas activée pour ce cabinet.");
             }
 
             if (!invoice.CanSubmitToElFatoora)

@@ -272,11 +272,18 @@ public class Invoice : AggregateRoot<Guid>
         Touch();
     }
 
-    /// <summary>Record a permanent TTN rejection (bad data/schema). Requires correction + resubmission.</summary>
-    public void MarkEInvoiceRejected(string reason)
+    /// <summary>
+    /// Record a permanent TTN rejection (bad data/schema). Requires correction + resubmission. An optional
+    /// rejection receipt/ack (its file-storage key) is kept so the operator can inspect the TTN reason.
+    /// </summary>
+    public void MarkEInvoiceRejected(string reason, string? receiptStorageKey = null)
     {
         EInvoiceStatus = EInvoiceStatus.Rejected;
         EInvoiceLastError = string.IsNullOrWhiteSpace(reason) ? "Rejetée par El Fatoora." : reason.Trim();
+        if (!string.IsNullOrWhiteSpace(receiptStorageKey))
+        {
+            TtnReceiptStorageKey = receiptStorageKey.Trim();
+        }
         EInvoiceNextAttemptAt = null;
         Touch();
     }

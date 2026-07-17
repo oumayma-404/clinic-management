@@ -88,7 +88,10 @@ export const invoicesApi = {
     });
     if (!response.ok) {
       const text = await response.text();
-      throw new Error(text || `Échec du téléchargement (HTTP ${response.status})`);
+      // The API returns the { error } JSON contract — surface that message, not the raw JSON body.
+      let message = text;
+      try { message = JSON.parse(text)?.error ?? text; } catch { /* body is not JSON */ }
+      throw new Error(message || `Échec du téléchargement (HTTP ${response.status})`);
     }
     return response.blob();
   },

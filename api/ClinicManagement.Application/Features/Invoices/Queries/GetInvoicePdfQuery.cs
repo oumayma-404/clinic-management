@@ -70,10 +70,19 @@ public class GetInvoicePdfQueryHandler : IRequestHandler<GetInvoicePdfQuery, Res
             var data = BuildPdfData(invoice, clinic, patient?.GetFullName() ?? string.Empty);
 
             // FR-7: once validated, stamp the QR « cachet électronique visible » + TTN reference onto the PDF.
+            // Degrade gracefully — a QR render failure must not block the (legally-important) invoice PDF, so
+            // render without the cachet rather than failing the whole document.
             if (invoice.EInvoiceStatus == EInvoiceStatus.Valid && !string.IsNullOrWhiteSpace(invoice.QrPayload))
             {
                 data.TtnIdentifier = invoice.TtnIdentifier;
-                data.QrCodePng = _qrCodeGenerator.GeneratePng(invoice.QrPayload);
+                try
+                {
+                    data.QrCodePng = _qrCodeGenerator.GeneratePng(invoice.QrPayload);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to render El Fatoora QR for invoice {InvoiceId}; PDF rendered without the cachet.", invoice.Id);
+                }
             }
 
             var bytes = await _pdfGenerationService.GenerateInvoicePdfAsync(data, cancellationToken);

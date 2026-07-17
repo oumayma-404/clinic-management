@@ -145,6 +145,9 @@ export function InvoicesTable({
         toast.success("Facture enregistrée auprès de El Fatoora")
       } else if (updated.eInvoiceStatus === "Rejected" || updated.eInvoiceStatus === "Failed") {
         toast.error(updated.eInvoiceLastError || "Envoi à El Fatoora refusé.")
+      } else if (updated.eInvoiceStatus === "Queued" && updated.eInvoiceLastError) {
+        // Online attempt hit a transient error — it stays queued and will auto-retry, but don't imply success.
+        toast.warning(updated.eInvoiceLastError)
       } else {
         toast.success(internetReachable
           ? "Envoi à El Fatoora en cours…"

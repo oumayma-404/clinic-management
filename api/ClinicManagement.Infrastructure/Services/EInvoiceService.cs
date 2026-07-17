@@ -57,24 +57,29 @@ public class EInvoiceService : IEInvoiceService
 
     public async Task ProcessAsync(Guid invoiceId, CancellationToken cancellationToken = default)
     {
-        var invoice = await _invoiceRepository.GetByIdAsync(invoiceId, cancellationToken);
-        if (invoice == null)
-        {
-            return;
-        }
-
-        // Only queued invoices are dispatched; anything else is already terminal or mid-flight.
-        if (invoice.EInvoiceStatus != EInvoiceStatus.Queued)
-        {
-            return;
-        }
-
-        var clinic = await _clinicRepository.GetByIdAsync(invoice.ClinicId, cancellationToken);
-        var patient = await _patientRepository.GetByIdAsync(invoice.PatientId, cancellationToken);
+        // Best-effort + self-committing: NOTHING below may throw to the caller (called inline from a command
+        // and from the outbox job). Every path — the repo loads, the dispatch, and the persist tail — is
+        // guarded so a failure only leaves the invoice Queued for a later retry, never corrupts it.
         var maxAttempts = TtnConfig.MaxAttempts(_configuration);
+        Invoice? invoice = null;
 
         try
         {
+            invoice = await _invoiceRepository.GetByIdAsync(invoiceId, cancellationToken);
+            if (invoice == null)
+            {
+                return;
+            }
+
+            // Only queued invoices are dispatched; anything else is already terminal or mid-flight.
+            if (invoice.EInvoiceStatus != EInvoiceStatus.Queued)
+            {
+                return;
+            }
+
+            var clinic = await _clinicRepository.GetByIdAsync(invoice.ClinicId, cancellationToken);
+            var patient = await _patientRepository.GetByIdAsync(invoice.PatientId, cancellationToken);
+
             if (clinic == null)
             {
                 RecordTransientFailure(invoice, "Cabinet introuvable.", maxAttempts);
@@ -88,16 +93,36 @@ public class EInvoiceService : IEInvoiceService
         {
             // Operator-recoverable (e.g. missing certificate): keep it queued so a retry works once fixed.
             _logger.LogWarning(ex, "El Fatoora dispatch of invoice {InvoiceId} could not proceed: {Message}", invoiceId, ex.Message);
-            RecordTransientFailure(invoice, ex.Message, maxAttempts);
+            if (invoice != null)
+            {
+                RecordTransientFailure(invoice, ex.Message, maxAttempts);
+            }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Unexpected error dispatching invoice {InvoiceId} to El Fatoora", invoiceId);
-            RecordTransientFailure(invoice, "Erreur lors de l'envoi à El Fatoora.", maxAttempts);
+            if (invoice != null)
+            {
+                RecordTransientFailure(invoice, "Erreur lors de l'envoi à El Fatoora.", maxAttempts);
+            }
         }
 
-        await _invoiceRepository.UpdateAsync(invoice, cancellationToken);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        if (invoice == null)
+        {
+            return;
+        }
+
+        // Persist the recorded outcome — a save failure must NOT propagate (the invoice stays Queued and a
+        // later outbox tick retries). Swallow-and-log to honor the never-throws contract.
+        try
+        {
+            await _invoiceRepository.UpdateAsync(invoice, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to persist El Fatoora dispatch outcome for invoice {InvoiceId}", invoiceId);
+        }
     }
 
     private async Task DispatchAsync(Invoice invoice, Clinic clinic, Patient? patient, int maxAttempts, CancellationToken cancellationToken)
@@ -122,8 +147,8 @@ public class EInvoiceService : IEInvoiceService
                 break;
 
             case TtnSubmissionOutcome.Rejected:
-                await StoreReceiptAsync(clinic.Id, invoice, result.ReceiptContent, cancellationToken);
-                invoice.MarkEInvoiceRejected(result.Error ?? "Rejetée par El Fatoora.");
+                var rejectionReceiptKey = await StoreReceiptAsync(clinic.Id, invoice, result.ReceiptContent, cancellationToken);
+                invoice.MarkEInvoiceRejected(result.Error ?? "Rejetée par El Fatoora.", rejectionReceiptKey);
                 _logger.LogWarning("Invoice {InvoiceId} rejected by El Fatoora: {Error}", invoice.Id, result.Error);
                 break;
 

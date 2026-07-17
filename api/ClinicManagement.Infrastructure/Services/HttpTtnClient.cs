@@ -44,6 +44,13 @@ public class HttpTtnClient : ITtnClient
             return TtnSubmissionResult.Transient("Endpoint TTN production non configuré.");
         }
 
+        // Fail closed on a non-HTTPS endpoint — the signed TEIF + bearer token must never go in cleartext.
+        if (!IsHttpsUrl(baseUrl))
+        {
+            _logger.LogError("TTN Production base URL is not HTTPS; refusing to transmit invoice {InvoiceNumber}.", invoiceNumber);
+            return TtnSubmissionResult.Transient("Endpoint TTN non sécurisé (HTTPS requis).");
+        }
+
         try
         {
             var token = await AcquireTokenAsync(cancellationToken);
@@ -100,6 +107,13 @@ public class HttpTtnClient : ITtnClient
             return null;
         }
 
+        // Fail closed on a non-HTTPS token endpoint — the client_secret must never go in cleartext.
+        if (!IsHttpsUrl(tokenUrl))
+        {
+            _logger.LogError("TTN token URL is not HTTPS; refusing to send credentials.");
+            return null;
+        }
+
         var client = _httpClientFactory.CreateClient();
         client.Timeout = TimeSpan.FromSeconds(30);
 
@@ -116,6 +130,9 @@ public class HttpTtnClient : ITtnClient
         using var response = await client.SendAsync(request, cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
+            // Log the status (never the secret/body) so a credential misconfig — e.g. a permanent 401 — is
+            // diagnosable rather than silently classified as a transient "auth unavailable".
+            _logger.LogWarning("TTN token endpoint returned {StatusCode}; treating authentication as unavailable.", (int)response.StatusCode);
             return null;
         }
 
@@ -157,6 +174,9 @@ public class HttpTtnClient : ITtnClient
 
         return null;
     }
+
+    private static bool IsHttpsUrl(string url) =>
+        Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps;
 
     private static string Truncate(string value) =>
         string.IsNullOrEmpty(value) ? string.Empty : value.Length <= 300 ? value : value[..300];

@@ -1,3 +1,4 @@
+using ClinicManagement.Domain.Entities;
 using Microsoft.Extensions.Configuration;
 
 namespace ClinicManagement.Infrastructure.Services;
@@ -77,5 +78,5 @@ public static class TtnConfig
         configuration.GetValue<int?>("Ttn:DispatchBatchSize") is { } v && v > 0 ? v : 20;
 
     private static bool IsProduction(string environment) =>
-        string.Equals(environment?.Trim(), "Production", StringComparison.OrdinalIgnoreCase);
+        string.Equals(environment?.Trim(), Clinic.TtnEnvironmentProduction, StringComparison.OrdinalIgnoreCase);
 }
