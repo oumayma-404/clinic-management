@@ -1,80 +1,136 @@
-using ClinicManagement.Domain.Repositories;
+using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
+using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Infrastructure.Services;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Hangfire;
 
 namespace ClinicManagement.API.BackgroundJobs;
 
+/// <summary>
+/// Connectivity-gated dispatcher for the SMS/WhatsApp appointment-reminder outbox. Runs minutely: when the
+/// server has internet it sends every due <c>Pending</c> reminder via the sender matching its channel, with
+/// the patient phone normalized to +216 E.164 and a bounded retry budget. Offline ⇒ it sends nothing and
+/// leaves rows <c>Pending</c> without consuming any retry budget (mirrors the Google "non synchronisé" model).
+/// </summary>
 public class NotificationJob
 {
     private readonly INotificationRepository _notificationRepository;
-    private readonly INotificationService _notificationService;
     private readonly IPatientRepository _patientRepository;
+    private readonly IUnitOfWork _unitOfWork;
+    private readonly IInternetProbe _internetProbe;
+    private readonly IConfiguration _configuration;
+    private readonly IReadOnlyDictionary<NotificationType, IReminderChannelSender> _senders;
     private readonly ILogger<NotificationJob> _logger;
 
     public NotificationJob(
         INotificationRepository notificationRepository,
-        INotificationService notificationService,
         IPatientRepository patientRepository,
+        IUnitOfWork unitOfWork,
+        IInternetProbe internetProbe,
+        IConfiguration configuration,
+        IEnumerable<IReminderChannelSender> senders,
         ILogger<NotificationJob> logger)
     {
         _notificationRepository = notificationRepository;
-        _notificationService = notificationService;
         _patientRepository = patientRepository;
+        _unitOfWork = unitOfWork;
+        _internetProbe = internetProbe;
+        _configuration = configuration;
+        _senders = senders.ToDictionary(s => s.Channel);
         _logger = logger;
     }
 
     [AutomaticRetry(Attempts = 3)]
     public async Task ProcessPendingNotifications()
     {
-        _logger.LogInformation("Processing pending notifications");
+        // AC-5: the server (not a LAN client) is the source of truth for internet egress. Offline ⇒ send
+        // nothing, leave rows Pending, and do NOT touch the retry count — the offline skip is free.
+        if (!await _internetProbe.IsInternetReachableAsync())
+        {
+            _logger.LogInformation("Skipping reminder dispatch — server has no internet connectivity.");
+            return;
+        }
 
         var pendingNotifications = await _notificationRepository.GetPendingNotificationsAsync();
+        var maxRetries = RemindersConfig.MaxRetries(_configuration);
 
         foreach (var notification in pendingNotifications)
         {
             try
             {
-                var patient = notification.PatientId.HasValue
-                    ? await _patientRepository.GetByIdAsync(notification.PatientId.Value)
-                    : null;
-
-                if (patient == null)
-                {
-                    _logger.LogWarning("Patient not found for notification {NotificationId}", notification.Id);
-                    notification.MarkAsFailed("Patient not found");
-                    await _notificationRepository.UpdateAsync(notification);
-                    continue;
-                }
-
-                var success = await _notificationService.SendNotificationAsync(
-                    patient.Email.Value,
-                    patient.PhoneNumber.Value,
-                    notification.Type,
-                    notification.Subject,
-                    notification.Message);
-
-                if (success)
-                {
-                    notification.MarkAsSent();
-                }
-                else
-                {
-                    notification.MarkAsFailed("Failed to send notification");
-                }
-
-                await _notificationRepository.UpdateAsync(notification);
+                await DispatchAsync(notification, maxRetries);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error processing notification {NotificationId}", notification.Id);
-                notification.MarkAsFailed(ex.Message);
-                await _notificationRepository.UpdateAsync(notification);
+                // A single row must never abort the batch. Leave it Pending; a later tick retries it.
+                _logger.LogError(ex, "Unexpected error dispatching reminder {NotificationId}", notification.Id);
             }
         }
+    }
 
-        _logger.LogInformation("Finished processing pending notifications");
+    private async Task DispatchAsync(Notification notification, int maxRetries)
+    {
+        if (!_senders.TryGetValue(notification.Type, out var sender))
+        {
+            // No sender for this channel (e.g. a legacy Email row) — nothing to do; leave it Pending.
+            _logger.LogDebug(
+                "No reminder sender for channel {Channel}; leaving notification {NotificationId} pending.",
+                notification.Type, notification.Id);
+            return;
+        }
+
+        var patient = notification.PatientId.HasValue
+            ? await _patientRepository.GetByIdAsync(notification.PatientId.Value)
+            : null;
+        if (patient == null)
+        {
+            await FailAsync(notification, "Patient introuvable");
+            return;
+        }
+
+        var phone = ReminderPhone.ToE164(patient.PhoneNumber?.Value);
+        if (phone == null)
+        {
+            await FailAsync(notification, "Numéro de téléphone invalide");
+            return;
+        }
+
+        var result = await sender.SendAsync(phone, notification.Message);
+        switch (result.Outcome)
+        {
+            case ReminderSendOutcome.Sent:
+                notification.MarkAsSent();
+                await SaveAsync(notification);
+                break;
+
+            case ReminderSendOutcome.TransientFailure:
+                // Keep Pending and retry on later ticks; only cross to Failed once the cap is reached.
+                notification.RecordFailedAttempt(result.Error, maxRetries);
+                await SaveAsync(notification);
+                break;
+
+            case ReminderSendOutcome.NotConfigured:
+                // Channel enabled but credentials/template missing → send nothing, no Failed spam. The row
+                // stays Pending so it sends once the operator configures the channel.
+                break;
+        }
+    }
+
+    private async Task FailAsync(Notification notification, string error)
+    {
+        _logger.LogWarning("Reminder {NotificationId} failed permanently: {Error}", notification.Id, error);
+        notification.MarkAsFailed(error);
+        await SaveAsync(notification);
+    }
+
+    // Commits after each row so a row leaves Pending on its own attempt's commit — a later tick can never
+    // double-send it (AC-9), and a crash mid-batch never loses already-sent progress.
+    private async Task SaveAsync(Notification notification)
+    {
+        await _notificationRepository.UpdateAsync(notification);
+        await _unitOfWork.SaveChangesAsync();
     }
 }
-

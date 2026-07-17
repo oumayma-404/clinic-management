@@ -449,11 +449,15 @@ try
 
 
     // Schedule background jobs
-    /*RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.NotificationJob>(
+    // SMS/WhatsApp appointment-reminder dispatcher — minutely, connectivity-gated (see NotificationJob).
+    // Sends only when the server has internet; otherwise it no-ops and leaves rows Pending, so it is safe
+    // to run unconditionally (it does nothing until a Reminders channel + credentials are configured).
+    RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.NotificationJob>(
         "process-notifications",
         job => job.ProcessPendingNotifications(),
         Cron.Minutely);
 
+    // AI summary generation stays DISABLED (PatientSummaryService is a placeholder, not a real AI call).
     /*RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.AISummaryJob>(
         "generate-ai-summaries",
         job => job.GenerateSummariesForUpcomingAppointments(),

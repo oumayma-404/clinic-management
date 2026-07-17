@@ -56,6 +56,22 @@ public class Notification : Entity<Guid>
         RetryCount++;
     }
 
+    /// <summary>
+    /// Records a transient send failure: increments <see cref="RetryCount"/> and stores the error, but
+    /// keeps the notification <see cref="NotificationStatus.Pending"/> so a later dispatch tick retries it —
+    /// only crossing to <see cref="NotificationStatus.Failed"/> once the attempt count reaches
+    /// <paramref name="maxRetries"/>. Distinct from <see cref="MarkAsFailed"/> (a terminal, no-retry failure).
+    /// </summary>
+    public void RecordFailedAttempt(string? errorMessage, int maxRetries)
+    {
+        RetryCount++;
+        ErrorMessage = errorMessage;
+        if (RetryCount >= maxRetries)
+        {
+            Status = NotificationStatus.Failed;
+        }
+    }
+
     public void Retry()
     {
         if (Status == NotificationStatus.Failed)

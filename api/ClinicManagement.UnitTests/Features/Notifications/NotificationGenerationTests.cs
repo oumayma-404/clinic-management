@@ -256,6 +256,7 @@ public class NotificationGenerationTests
         var handler = new UpdateAppointmentCommandHandler(
             repo.Object, new Mock<IProcedureTypeRepository>().Object, clinicResolver.Object,
             context.Object, uow.Object, ScopeFactory(), gen.Object,
+            new Mock<IReminderScheduler>().Object,
             NullLogger<UpdateAppointmentCommandHandler>.Instance);
         return (handler, gen);
     }
@@ -460,7 +461,8 @@ public class NotificationGenerationTests
 
         var handler = new CreateAppointmentCommandHandler(
             appointments.Object, patients.Object, procedures.Object, users.Object,
-            context.Object, uow.Object, gen.Object);
+            context.Object, uow.Object, gen.Object,
+            new Mock<IReminderScheduler>().Object);
         return (handler, gen);
     }
 

@@ -130,6 +130,15 @@ public static class Extensions
                 smsApiUrl: configuration["Notification:Sms:ApiUrl"]);
         });
 
+        // SMS/WhatsApp appointment reminders (revives the dormant Notification outbox).
+        //   - IReminderScheduler enqueues/voids reminder rows inline from the appointment command handlers
+        //     (best-effort, post-commit). Config-aware, so it lives here rather than in Application.
+        //   - The channel senders are registered as a set; the dispatcher (NotificationJob) routes each due
+        //     row to the sender whose Channel matches the row's NotificationType.
+        services.AddScoped<IReminderScheduler, ReminderScheduler>();
+        services.AddScoped<IReminderChannelSender, HttpSmsSender>();
+        services.AddScoped<IReminderChannelSender, WhatsAppSender>();
+
         // Domain Services
         services.AddScoped<Domain.Services.IPatientSummaryService, PatientSummaryService>();
 

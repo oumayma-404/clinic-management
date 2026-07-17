@@ -83,6 +83,7 @@ public class AppointmentTenantIsolationTests
             uow.Object,
             ScopeFactory(),
             new Mock<INotificationGenerator>().Object,
+            new Mock<IReminderScheduler>().Object,
             NullLogger<UpdateAppointmentCommandHandler>.Instance);
 
         var result = await handler.Handle(new UpdateAppointmentCommand { Id = foreign.Id, Notes = "hacked" }, CancellationToken.None);
@@ -112,7 +113,8 @@ public class AppointmentTenantIsolationTests
             users.Object,
             context.Object,
             uow.Object,
-            new Mock<INotificationGenerator>().Object);
+            new Mock<INotificationGenerator>().Object,
+            new Mock<IReminderScheduler>().Object);
         return (handler, appts, uow);
     }
 
