@@ -25,6 +25,7 @@
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="7.1.2" />
     <PackageReference Include="Minio" Version="5.0.0" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.0" />
+    <PackageReference Include="PdfSharp" Version="6.1.1" />
     <PackageReference Include="QRCoder" Version="1.6.0" />
     <PackageReference Include="QuestPDF" Version="2024.10.0" />
     <PackageReference Include="System.Security.Cryptography.Xml" Version="8.0.4" />
@@ -35,5 +36,12 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Official CNAM BS1 form, stamped at runtime by the bulletin-cnam overlay renderer. -->
+    <Content Include="Assets\BS1.pdf">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
 
 </Project>

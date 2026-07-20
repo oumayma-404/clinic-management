@@ -10,11 +10,18 @@ namespace ClinicManagement.Infrastructure.Services;
 
 public class PdfGenerationService : IPdfGenerationService
 {
+    // The bulletin-cnam type is overlaid onto the official CNAM BS1 form instead of the QuestPDF
+    // renderer used by every other document type.
+    private const string BulletinCnamType = "bulletin-cnam";
+
     private readonly ILogger<PdfGenerationService> _logger;
+    private readonly CnamBs1BulletinRenderer _bs1Renderer;
 
     public PdfGenerationService(ILogger<PdfGenerationService> logger)
     {
         _logger = logger;
+        // Pass the logger so the BS1 renderer can surface a Warning when it silently drops malformed acts.
+        _bs1Renderer = new CnamBs1BulletinRenderer(logger);
         // Set QuestPDF license (free for non-commercial use, or use your license key)
         QuestPDF.Settings.License = LicenseType.Community;
     }
@@ -24,6 +31,14 @@ public class PdfGenerationService : IPdfGenerationService
         try
         {
             _logger.LogInformation("Generating PDF for document type: {DocumentType}", documentData.DocumentType);
+
+            // bulletin-cnam is stamped onto the genuine BS1 form (fails fast if the asset is missing).
+            if (string.Equals(documentData.DocumentType, BulletinCnamType, StringComparison.OrdinalIgnoreCase))
+            {
+                var bulletinBytes = await Task.Run(() => _bs1Renderer.Render(documentData), cancellationToken);
+                _logger.LogInformation("BS1 bulletin PDF generated successfully, size: {Size} bytes", bulletinBytes.Length);
+                return bulletinBytes;
+            }
 
             var pdfBytes = await Task.Run(() =>
             {
@@ -276,7 +291,6 @@ public class PdfGenerationService : IPdfGenerationService
             "liaison" => "LETTRE DE LIAISON",
             "honoraires" => "NOTE D'HONORAIRES",
             "certificat" => "CERTIFICAT MÉDICAL",
-            "bulletin-cnam" => "BULLETIN DE SOINS CNAM (BS1)",
             _ => "DOCUMENT MÉDICAL"
         };
 
@@ -470,81 +484,6 @@ public class PdfGenerationService : IPdfGenerationService
                         var certificatText = $"Je soussigné(e), Docteur {data.DoctorName}, Docteur en médecine dentaire, Inscrit(e) à l'Ordre des Médecins sous le n° {(!string.IsNullOrEmpty(doctorOrderNumber) ? doctorOrderNumber : "[Numéro]")}, Exerçant à {data.ClinicAddress}, certifie avoir examiné ce jour : Patient(e) : Nom et prénom : {data.PatientName} né(e) le {patientDobFormatted} Et constate que son état de santé : ☐ nécessite un repos médical Pour une durée de : {(!string.IsNullOrEmpty(duration) ? duration : "[X]")} jour{(!string.IsNullOrEmpty(duration) && int.TryParse(duration, out var d) && d > 1 ? "s" : "")} À compter du : {startDateFormatted} Ce certificat est délivré à la demande de l'intéressé(e) pour servir et valoir ce que de droit.";
                         
                         column.Item().PaddingVertical(4).Text(certificatText).FontSize(11).FontFamily("Helvetica");
-                        break;
-
-                    case "bulletin-cnam":
-                        var careType = data.Content.GetValueOrDefault("careType", "");
-                        var apciCode = data.Content.GetValueOrDefault("apciCode", "");
-                        var careLine = (careType == "APCI" && !string.IsNullOrEmpty(apciCode))
-                            ? $"Type de prise en charge : {careType} — code APCI {apciCode}"
-                            : $"Type de prise en charge : {careType}";
-                        column.Item().PaddingBottom(6).Text(careLine).FontSize(11).Bold().FontFamily("Helvetica");
-
-                        var idu = data.Content.GetValueOrDefault("identifiantUnique", "");
-                        var regime = data.Content.GetValueOrDefault("regime", "");
-                        var assureName = ($"{data.Content.GetValueOrDefault("assureFirstName", "")} {data.Content.GetValueOrDefault("assureLastName", "")}").Trim();
-                        var maladeLien = data.Content.GetValueOrDefault("maladeLien", "");
-                        column.Item().PaddingBottom(2).Text($"Identifiant unique : {(string.IsNullOrEmpty(idu) ? "________________" : idu)}").FontSize(10).FontFamily("Helvetica");
-                        column.Item().PaddingBottom(2).Text($"Régime : {(string.IsNullOrEmpty(regime) ? "________________" : regime)}").FontSize(10).FontFamily("Helvetica");
-                        column.Item().PaddingBottom(2).Text($"Assuré social : {(string.IsNullOrEmpty(assureName) ? "________________" : assureName)}").FontSize(10).FontFamily("Helvetica");
-                        column.Item().PaddingBottom(8).Text($"Lien du malade à l'assuré : {(string.IsNullOrEmpty(maladeLien) ? "________________" : maladeLien)}").FontSize(10).FontFamily("Helvetica");
-
-                        column.Item().PaddingBottom(4).Text("Actes et soins dentaires:").FontSize(12).Bold().FontFamily("Helvetica");
-                        column.Item().Table(table =>
-                        {
-                            table.ColumnsDefinition(cols =>
-                            {
-                                cols.RelativeColumn(2);
-                                cols.RelativeColumn(2);
-                                cols.RelativeColumn(2);
-                                cols.RelativeColumn(2);
-                                cols.RelativeColumn(2);
-                            });
-                            table.Header(header =>
-                            {
-                                header.Cell().Element(HeaderCell).Text("Date").FontSize(9).Bold();
-                                header.Cell().Element(HeaderCell).Text("Dent(s)").FontSize(9).Bold();
-                                header.Cell().Element(HeaderCell).Text("Code acte").FontSize(9).Bold();
-                                header.Cell().Element(HeaderCell).Text("Cotation").FontSize(9).Bold();
-                                header.Cell().Element(HeaderCell).AlignRight().Text("Honoraires").FontSize(9).Bold();
-                            });
-
-                            decimal totalHonoraires = 0m;
-                            if (data.Content.TryGetValue("acts", out var actsStr) && !string.IsNullOrEmpty(actsStr))
-                            {
-                                try
-                                {
-                                    var acts = JsonSerializer.Deserialize<JsonElement>(actsStr);
-                                    if (acts.ValueKind == JsonValueKind.Array)
-                                    {
-                                        foreach (var act in acts.EnumerateArray())
-                                        {
-                                            string GetProp(string p) => act.TryGetProperty(p, out var el)
-                                                ? (el.ValueKind == JsonValueKind.String ? el.GetString() ?? "" : el.ToString())
-                                                : "";
-                                            var hon = GetProp("honoraires");
-                                            if (decimal.TryParse(hon, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var honVal))
-                                            {
-                                                totalHonoraires += honVal;
-                                            }
-                                            table.Cell().Element(BodyCell).Text(GetProp("date")).FontSize(9);
-                                            table.Cell().Element(BodyCell).Text(GetProp("teeth")).FontSize(9);
-                                            table.Cell().Element(BodyCell).Text(GetProp("codeActe")).FontSize(9);
-                                            table.Cell().Element(BodyCell).Text(GetProp("cotation")).FontSize(9);
-                                            table.Cell().Element(BodyCell).AlignRight().Text(hon).FontSize(9);
-                                        }
-                                    }
-                                }
-                                catch
-                                {
-                                    // Malformed acts JSON — render an empty table rather than failing the PDF.
-                                }
-                            }
-                            table.Cell().ColumnSpan(4).Element(BodyCell).AlignRight().Text("Total honoraires (TND):").FontSize(10).Bold();
-                            table.Cell().Element(BodyCell).AlignRight().Text(totalHonoraires.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)).FontSize(10).Bold();
-                        });
-
-                        column.Item().PaddingTop(10).Text("Bulletin de remboursement des frais de soins à déposer auprès de la CNAM dans un délai de 60 jours.").FontSize(8).Italic().FontColor(Colors.Grey.Darken1).FontFamily("Helvetica");
                         break;
                 }
             });

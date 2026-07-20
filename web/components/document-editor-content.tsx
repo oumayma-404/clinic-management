@@ -677,6 +677,12 @@ export function DocumentEditorContent() {
       assurePostalCode: cnam?.assurePostalCode || "",
       maladeLien: cnam?.maladeLien || "",
       maladeLienRang: cnam?.maladeLienRang || "",
+      // The malade is the patient — the BS1 "Le malade" box uses the patient's own identity/contact,
+      // and the acts table stamps the treating doctor's CNAM provider code on every row.
+      maladeFirstName: patient.firstName || "",
+      maladeLastName: patient.lastName || "",
+      patientPhone: patient.phoneNumber || "",
+      doctorCodeProfessionnel: selectedDoctor?.codeProfessionnelSante || "",
     }
   }
 

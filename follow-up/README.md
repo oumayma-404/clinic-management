@@ -14,6 +14,7 @@ Track incomplete work, bugs, and technical debt across all features.
 | [CNAM identity backfill for existing patients](./cnam-identity-backfill.md) | cnam-bulletin-soins | enhancement | low | 2026-07-17 |
 | [Complete bilingual FR/AR labels (CNAM UI + PDF)](./cnam-bilingual-fr-ar.md) | cnam-bulletin-soins | enhancement | low | 2026-07-17 |
 | [Conventionné pathway: bordereau + télétransmission](./cnam-conventionne-bordereau.md) | cnam-bulletin-soins | enhancement | low | 2026-07-17 |
+| [BS1 overlay — deferred review findings (font bundling, job failure surfacing, non-retryable fail-fast)](./cnam-bs1-overlay-deferred-review.md) | cnam-bs1-official-overlay | debt | medium | 2026-07-20 |
 
 ## Completed Items
 
