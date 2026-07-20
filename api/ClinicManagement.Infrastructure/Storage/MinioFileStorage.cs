@@ -108,11 +108,15 @@ public class MinioFileStorage : IFileStorage
         {
             var memoryStream = new MemoryStream();
 
+            // Use the async callback overload (Func<Stream, CancellationToken, Task>) so MinIO awaits the
+            // copy before it closes the underlying HTTP response stream. The synchronous Action<Stream>
+            // overload turns an `async` lambda into async-void: the copy continues after MinIO has already
+            // disposed the stream, throwing on a background thread (NRE) and taking down the whole host.
             await _minioClient.GetObjectAsync(
                 new GetObjectArgs()
                     .WithBucket(_bucketName)
                     .WithObject(storageKey)
-                    .WithCallbackStream(async stream => { await stream.CopyToAsync(memoryStream, cancellationToken); }),
+                    .WithCallbackStream(async (stream, ct) => { await stream.CopyToAsync(memoryStream, ct); }),
                 cancellationToken);
 
             memoryStream.Position = 0;
