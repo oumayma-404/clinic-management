@@ -681,6 +681,11 @@ export function DocumentEditorContent() {
       // and the acts table stamps the treating doctor's CNAM provider code on every row.
       maladeFirstName: patient.firstName || "",
       maladeLastName: patient.lastName || "",
+      // Real date of birth (dd/MM/yyyy) for the BS1 "Le malade" box — persisted in the content so the
+      // saved/background-job PDF shows the DOB, not the patient's age.
+      patientDateOfBirth: patient.dateOfBirth
+        ? new Date(patient.dateOfBirth).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" })
+        : "",
       patientPhone: patient.phoneNumber || "",
       doctorCodeProfessionnel: selectedDoctor?.codeProfessionnelSante || "",
     }

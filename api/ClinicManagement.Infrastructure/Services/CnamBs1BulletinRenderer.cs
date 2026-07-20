@@ -90,6 +90,17 @@ internal sealed class CnamBs1BulletinRenderer
     private const double ActColHonorairesRightX = 286;
     private const double ActColCodeProfX = 291;
 
+    // Usable text width per column (to the next column, minus a small gutter). A cell's text is shrunk to
+    // fit its column so a wide value — e.g. a multi-tooth "35, 38, 44" in the narrow DENT column — never
+    // overflows into the neighbouring column.
+    private const double ActColDateWidth = 42;
+    private const double ActColDentWidth = 25;
+    private const double ActColCodeActeWidth = 82;
+    private const double ActColCotationWidth = 20;
+    private const double ActColHonorairesWidth = 44;
+    private const double ActColCodeProfWidth = 46;
+    private const double TableFontMinSize = 5;
+
     // ================= PAGE 1 (cadre de soins) =================
     private static readonly XRect CareApci = new(105.5, 80.0, 17.8, 17.5);
     private static readonly XRect CareMo = new(164.4, 80.0, 17.8, 17.5);
@@ -244,19 +255,38 @@ internal sealed class CnamBs1BulletinRenderer
 
         using var gfx = XGraphics.FromPdfPage(page, XGraphicsPdfPageOptions.Append);
 
-        var tableFont = TableFont; // built once, reused across every row/column.
+        var tableFont = TableFont; // built once; reused for any cell whose text already fits its column.
+
+        // Return the shared 8pt font when the text fits the column, else a smaller font shrunk to fit
+        // (down to a readable floor) so no cell overflows into the next column.
+        XFont Fit(string? text, double maxWidth)
+        {
+            if (string.IsNullOrEmpty(text) || gfx.MeasureString(text, tableFont).Width <= maxWidth)
+            {
+                return tableFont;
+            }
+
+            var size = tableFont.Size;
+            while (size > TableFontMinSize
+                && gfx.MeasureString(text, new XFont(FontFamily, size, XFontStyleEx.Regular)).Width > maxWidth)
+            {
+                size -= 0.5;
+            }
+
+            return new XFont(FontFamily, size, XFontStyleEx.Regular);
+        }
 
         for (var row = 0; row < acts.Count && row < ActsPerPage; row++)
         {
             var act = acts[row];
             var baselineY = ActsFirstRowTopY + row * ActsRowHeight + ActRowBaselineOffsetY;
 
-            DrawLeft(gfx, act.Date, tableFont, ActColDateX, baselineY);
-            DrawLeft(gfx, act.Teeth, tableFont, ActColDentX, baselineY);
-            DrawLeft(gfx, act.CodeActe, tableFont, ActColCodeActeX, baselineY);
-            DrawLeft(gfx, act.Cotation, tableFont, ActColCotationX, baselineY);
-            DrawRight(gfx, act.Honoraires, tableFont, ActColHonorairesRightX, baselineY);
-            DrawLeft(gfx, doctorCodeProfessionnel, tableFont, ActColCodeProfX, baselineY);
+            DrawLeft(gfx, act.Date, Fit(act.Date, ActColDateWidth), ActColDateX, baselineY);
+            DrawLeft(gfx, act.Teeth, Fit(act.Teeth, ActColDentWidth), ActColDentX, baselineY);
+            DrawLeft(gfx, act.CodeActe, Fit(act.CodeActe, ActColCodeActeWidth), ActColCodeActeX, baselineY);
+            DrawLeft(gfx, act.Cotation, Fit(act.Cotation, ActColCotationWidth), ActColCotationX, baselineY);
+            DrawRight(gfx, act.Honoraires, Fit(act.Honoraires, ActColHonorairesWidth), ActColHonorairesRightX, baselineY);
+            DrawLeft(gfx, doctorCodeProfessionnel, Fit(doctorCodeProfessionnel, ActColCodeProfWidth), ActColCodeProfX, baselineY);
         }
     }
 
@@ -360,7 +390,12 @@ internal sealed class CnamBs1BulletinRenderer
                 MaladeLienRang = Get("maladeLienRang"),
                 MaladeFirstName = string.IsNullOrWhiteSpace(maladeFirst) ? fallbackFirst : maladeFirst,
                 MaladeLastName = string.IsNullOrWhiteSpace(maladeLast) ? fallbackLast : maladeLast,
-                MaladeDateOfBirth = data.PatientAge?.Trim() ?? string.Empty,
+                // The malade's date of birth — carried in the content (persisted in ContentJson) so both the
+                // browser-download and the background-job PDF paths get the real DOB. Falls back to the
+                // legacy PatientAge field only for documents saved before the DOB was added to the content.
+                MaladeDateOfBirth = Get("patientDateOfBirth") is { Length: > 0 } dob
+                    ? dob
+                    : data.PatientAge?.Trim() ?? string.Empty,
                 MaladePhone = Get("patientPhone"),
                 CareType = Get("careType"),
                 ApciCode = Get("apciCode"),
