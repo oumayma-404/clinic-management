@@ -295,6 +295,12 @@ public class PdfGenerationService : IPdfGenerationService
                 {
                     column.Item().Text(data.RecipientDoctorSpecialty).FontSize(11).FontFamily("Helvetica");
                 }
+                // FR-4.1: the external confrère's free-text address (snapshotted in ContentJson), when present.
+                var recipientAddress = data.Content.GetValueOrDefault("recipientAddress", "");
+                if (!string.IsNullOrWhiteSpace(recipientAddress))
+                {
+                    column.Item().Text(recipientAddress).FontSize(11).FontFamily("Helvetica");
+                }
             });
         };
     }
@@ -414,10 +420,20 @@ public class PdfGenerationService : IPdfGenerationService
                         break;
 
                     case "liaison":
-                        // Display content directly without headers
-                        if (data.Content.TryGetValue("content", out var content))
+                        // FR-4.2: render only the filled guided sections (motif / examen clinique / examen
+                        // radiologique / actes réalisés / prescriptions), each under its heading; empty fields
+                        // are omitted. A legacy letter's free-text body renders as one unlabelled section.
+                        foreach (var section in LiaisonContent.Build(data.Content))
                         {
-                            column.Item().PaddingBottom(4).Text(content).FontSize(11).FontFamily("Helvetica");
+                            column.Item().Column(sec =>
+                            {
+                                sec.Spacing(2);
+                                if (section.Heading != null)
+                                {
+                                    sec.Item().Text(section.Heading).FontSize(12).Bold().FontFamily("Helvetica");
+                                }
+                                sec.Item().Text(section.Body).FontSize(11).FontFamily("Helvetica");
+                            });
                         }
                         break;
 

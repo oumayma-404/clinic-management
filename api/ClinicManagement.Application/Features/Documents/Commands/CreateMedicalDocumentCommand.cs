@@ -89,6 +89,15 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
                     "Le type « note d'honoraires » n'est plus disponible. Créez une facture depuis le module Factures.");
             }
 
+            // FR-4.1/FR-4.2: a lettre de liaison addresses an external confrère — the recipient name is the
+            // only required field (specialty/address and the guided clinical fields are all optional).
+            if (request.DocumentType.Trim().ToLowerInvariant() == "liaison"
+                && string.IsNullOrWhiteSpace(request.RecipientDoctorName))
+            {
+                return Result<MedicalDocumentDto>.Failure(
+                    "Le nom du confrère destinataire est obligatoire pour une lettre de liaison.");
+            }
+
             var patient = await _patientRepository.GetByIdAsync(request.PatientId, cancellationToken);
             if (patient == null)
             {

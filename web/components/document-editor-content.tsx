@@ -283,8 +283,7 @@ export function DocumentEditorContent() {
   const urlAppointmentId = searchParams.get('appointmentId')
 
   const [selectedPatient, setSelectedPatient] = useState<string>("")
-  const [selectedRecipientDoctorId, setSelectedRecipientDoctorId] = useState<string>("")
-  
+
   const [patientSearchOpen, setPatientSearchOpen] = useState(false)
   const [patients, setPatients] = useState<PatientDto[]>([])
   const [filteredPatients, setFilteredPatients] = useState<PatientDto[]>([])
@@ -297,13 +296,22 @@ export function DocumentEditorContent() {
   const [formFields, setFormFields] = useState({
     date: new Date().toISOString().split("T")[0],
     medications: [] as Array<{ name: string; dosage: string; timesPerDay: string; duration: string }>,
-    content: "", // Single content field for liaison letters
+    content: "", // Liaison: legacy free-text body (kept so pre-Part-E letters round-trip; new letters use the guided fields below)
     procedures: [] as Array<{ name: string; cost: number; procedureTypeId?: string }>, // Array of procedures with costs
     totalCost: "",
     duration: "",
     doctorOrderNumber: "", // Certificat: CNOMDT ordre (FR-2.5 — pre-filled from the doctor's profile, read-only)
     startDate: "", // Certificat: repos médical start date (FR-2.1 — optional)
     objetMotif: "", // Certificat: free objet/motif body (FR-2.1)
+    // Liaison — external confrère destinataire (FR-4.1, free text) + guided clinical fields (FR-4.2, all optional)
+    recipientName: "",
+    recipientSpecialty: "",
+    recipientAddress: "",
+    motif: "",
+    examenClinique: "",
+    examenRadiologique: "",
+    actesRealises: "",
+    prescriptions: "",
   })
   
   const [availableProcedures, setAvailableProcedures] = useState<ProcedureTypeDto[]>([])
@@ -329,10 +337,10 @@ export function DocumentEditorContent() {
   // Load clinic and doctor info
   const { doctors, currentUserDoctor } = useDoctors()
   
-  // Get recipient doctor name and specialty from selected doctor
-  const recipientDoctor = doctors.find(d => d.id === selectedRecipientDoctorId)
-  const recipientDoctorName = recipientDoctor?.name || ""
-  const recipientDoctorSpecialty = recipientDoctor?.specialty || ""
+  // FR-4.1: the liaison recipient is a free-text external confrère (no longer selected from clinic doctors).
+  // These derived names feed the recipient snapshot columns (RecipientDoctorName/Specialty) unchanged.
+  const recipientDoctorName = formFields.recipientName || ""
+  const recipientDoctorSpecialty = formFields.recipientSpecialty || ""
   const [clinicInfo, setClinicInfo] = useState<{
     name: string
     address: string
@@ -491,21 +499,7 @@ export function DocumentEditorContent() {
           const doc = await medicalDocumentsApi.get(urlDocumentId)
           setDocumentId(doc.id)
           setSelectedPatient(doc.patientId)
-          // Try to find doctor by name (will be set when doctors are loaded)
-          if (doc.recipientDoctorName) {
-            // Wait for doctors to load, then find the doctor
-            if (doctors.length > 0) {
-              const doctor = doctors.find(d => d.name === doc.recipientDoctorName)
-              if (doctor) {
-                setSelectedRecipientDoctorId(doctor.id || "")
-              } else {
-                setSelectedRecipientDoctorId("")
-              }
-            }
-          } else {
-            setSelectedRecipientDoctorId("")
-          }
-          
+
           // Parse and set form fields from contentJson
           const content = JSON.parse(doc.contentJson)
           
@@ -533,6 +527,16 @@ export function DocumentEditorContent() {
             doctorOrderNumber: content.doctorOrderNumber || "",
             startDate: content.startDate || "",
             objetMotif: content.objetMotif || "",
+            // Liaison: recipient name/specialty come from the snapshot columns (works for legacy internal-
+            // recipient letters too, LIA-5); address + guided fields from ContentJson (FR-4.1/FR-4.2).
+            recipientName: doc.recipientDoctorName || "",
+            recipientSpecialty: doc.recipientDoctorSpecialty || "",
+            recipientAddress: content.recipientAddress || "",
+            motif: content.motif || "",
+            examenClinique: content.examenClinique || "",
+            examenRadiologique: content.examenRadiologique || "",
+            actesRealises: content.actesRealises || "",
+            prescriptions: content.prescriptions || "",
           })
 
           // Expand the optional repos block when the loaded certificat already carries repos data.
@@ -616,7 +620,6 @@ export function DocumentEditorContent() {
 
   const resetForm = () => {
     setSelectedPatient("")
-    setSelectedRecipientDoctorId("")
     setDocumentId(null)
     setFormFields({
       date: new Date().toISOString().split("T")[0],
@@ -628,6 +631,14 @@ export function DocumentEditorContent() {
       doctorOrderNumber: "",
       startDate: "",
       objetMotif: "",
+      recipientName: "",
+      recipientSpecialty: "",
+      recipientAddress: "",
+      motif: "",
+      examenClinique: "",
+      examenRadiologique: "",
+      actesRealises: "",
+      prescriptions: "",
     })
     setBulletinFields({ careType: "APCI", apciCode: "", actsFrom: "", actsTo: "", acts: [] })
   }
@@ -751,6 +762,26 @@ export function DocumentEditorContent() {
     return paras
   }
 
+  // Lettre de liaison (FR-4) — the single source of truth for the body sections, shared by the read-only
+  // preview and the Word export (the PDF is rendered server-side by LiaisonContent with the same shape).
+  // Only filled guided fields render; a legacy letter's free-text body is shown when no guided field is set.
+  const liaisonSections = (): { heading: string | null; body: string }[] => {
+    const guided = [
+      { heading: "Motif", value: formFields.motif },
+      { heading: "Examen clinique", value: formFields.examenClinique },
+      { heading: "Examen radiologique", value: formFields.examenRadiologique },
+      { heading: "Actes réalisés", value: formFields.actesRealises },
+      { heading: "Prescriptions", value: formFields.prescriptions },
+    ]
+    const sections = guided
+      .filter((g) => g.value && g.value.trim())
+      .map((g) => ({ heading: g.heading as string | null, body: g.value.trim() }))
+    if (sections.length === 0 && formFields.content && formFields.content.trim()) {
+      sections.push({ heading: null, body: formFields.content.trim() })
+    }
+    return sections
+  }
+
   // Build structured document data for PDF generation
   const buildDocumentData = () => {
     if (!patientData) {
@@ -765,11 +796,19 @@ export function DocumentEditorContent() {
         ? JSON.stringify(formFields.medications) 
         : "";
     } else if (documentType === "liaison") {
+      // FR-4: external recipient address + guided clinical fields ride in ContentJson (name/specialty go
+      // through the recipient snapshot columns). `content` is kept for legacy-letter round-trip only.
       content.content = formFields.content || "";
+      content.recipientAddress = formFields.recipientAddress || "";
+      content.motif = formFields.motif || "";
+      content.examenClinique = formFields.examenClinique || "";
+      content.examenRadiologique = formFields.examenRadiologique || "";
+      content.actesRealises = formFields.actesRealises || "";
+      content.prescriptions = formFields.prescriptions || "";
     } else if (documentType === "honoraires") {
       // Serialize procedures array as JSON string
-      content.procedures = Array.isArray(formFields.procedures) 
-        ? JSON.stringify(formFields.procedures) 
+      content.procedures = Array.isArray(formFields.procedures)
+        ? JSON.stringify(formFields.procedures)
         : "";
       content.totalCost = formFields.totalCost || "0,00 €";
     } else if (documentType === "certificat") {
@@ -895,6 +934,9 @@ export function DocumentEditorContent() {
         if (recipientDoctorSpecialty) {
           paragraphs.push(new Paragraph({ text: recipientDoctorSpecialty }));
         }
+        if (formFields.recipientAddress) {
+          paragraphs.push(new Paragraph({ text: formFields.recipientAddress }));
+        }
         paragraphs.push(new Paragraph({ text: "" }));
       }
 
@@ -950,9 +992,17 @@ export function DocumentEditorContent() {
           paragraphs.push(new Paragraph({ text: "Aucune prescription" }));
         }
       } else if (documentType === "liaison") {
-        paragraphs.push(
-          new Paragraph({ text: formFields.content || "—" })
-        );
+        const sections = liaisonSections();
+        if (sections.length === 0) {
+          paragraphs.push(new Paragraph({ text: "—" }));
+        } else {
+          sections.forEach((s) => {
+            if (s.heading) {
+              paragraphs.push(new Paragraph({ text: s.heading, heading: HeadingLevel.HEADING_2 }));
+            }
+            paragraphs.push(new Paragraph({ text: s.body }));
+          });
+        }
       } else if (documentType === "honoraires") {
         paragraphs.push(
           new Paragraph({
@@ -1265,7 +1315,15 @@ export function DocumentEditorContent() {
       if (documentType === "prescription") {
         content.medications = formFields.medications // Array will be serialized as JSON
     } else if (documentType === "liaison") {
+      // FR-4: same ContentJson shape the renderer reads (buildDocumentData) — address + guided fields;
+      // `content` kept for legacy-letter round-trip. Recipient name/specialty go through the update payload.
       content.content = formFields.content
+      content.recipientAddress = formFields.recipientAddress
+      content.motif = formFields.motif
+      content.examenClinique = formFields.examenClinique
+      content.examenRadiologique = formFields.examenRadiologique
+      content.actesRealises = formFields.actesRealises
+      content.prescriptions = formFields.prescriptions
       } else if (documentType === "honoraires") {
         content.procedures = formFields.procedures
         content.totalCost = formFields.totalCost
@@ -1556,31 +1614,42 @@ export function DocumentEditorContent() {
               </Popover>
             </div>
 
-            {/* Recipient Doctor (for liaison) */}
+            {/* FR-4.1: external confrère destinataire — free text, no longer chosen from the clinic's doctors. */}
             {documentType === "liaison" && (
-              <div className="space-y-2">
-                <Label htmlFor="recipientDoctor" className="text-sm font-semibold text-foreground">
-                  Médecin destinataire *
-                </Label>
-                <Select
-                  value={selectedRecipientDoctorId}
-                  onValueChange={setSelectedRecipientDoctorId}
-                >
-                  <SelectTrigger className="h-11" id="recipientDoctor">
-                    <SelectValue placeholder={doctors.length === 0 ? "No doctors found" : "Choose a doctor..."} />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-[200px]">
-                    {doctors.length === 0 ? (
-                      <div className="px-2 py-1.5 text-sm text-muted-foreground">No doctors available</div>
-                    ) : (
-                      doctors.map((doctor) => (
-                        <SelectItem key={doctor.id || doctor.name} value={doctor.id || ""}>
-                          {doctor.name} {doctor.specialty ? `- ${doctor.specialty}` : ""}
-                        </SelectItem>
-                      ))
-                    )}
-                  </SelectContent>
-                </Select>
+              <div className="space-y-3">
+                <Label className="text-sm font-semibold text-foreground">Confrère destinataire</Label>
+                <div className="space-y-2">
+                  <Label htmlFor="recipientName" className="text-xs text-muted-foreground">Nom *</Label>
+                  <Input
+                    id="recipientName"
+                    type="text"
+                    placeholder="Ex: Dr Ahmed Ben Salah"
+                    value={formFields.recipientName}
+                    onChange={(e) => setFormFields({ ...formFields, recipientName: e.target.value })}
+                    className="h-11"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="recipientSpecialty" className="text-xs text-muted-foreground">Spécialité</Label>
+                  <Input
+                    id="recipientSpecialty"
+                    type="text"
+                    placeholder="Ex: Chirurgien maxillo-facial"
+                    value={formFields.recipientSpecialty}
+                    onChange={(e) => setFormFields({ ...formFields, recipientSpecialty: e.target.value })}
+                    className="h-11"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="recipientAddress" className="text-xs text-muted-foreground">Adresse</Label>
+                  <Textarea
+                    id="recipientAddress"
+                    placeholder="Ex: 12 rue de la Santé, Tunis"
+                    value={formFields.recipientAddress}
+                    onChange={(e) => setFormFields({ ...formFields, recipientAddress: e.target.value })}
+                    className="min-h-[60px]"
+                  />
+                </div>
               </div>
             )}
 
@@ -1649,19 +1718,57 @@ export function DocumentEditorContent() {
               </div>
             )}
 
+            {/* FR-4.2: guided clinical fields — all optional; empty ones are omitted from the letter. */}
             {documentType === "liaison" && (
               <>
                 <div className="space-y-2">
-                  <Label htmlFor="content" className="text-sm font-semibold text-foreground">
-                    Contenu
-                  </Label>
+                  <Label htmlFor="motif" className="text-sm font-semibold text-foreground">Motif</Label>
                   <Textarea
-                    id="content"
-                    placeholder="Entrez le contenu de la lettre de liaison..."
-                    value={formFields.content}
-                    onChange={(e) => setFormFields({ ...formFields, content: e.target.value })}
-                    rows={12}
-                    className="resize-none"
+                    id="motif"
+                    placeholder="Motif de l'adressage / de la demande d'avis"
+                    value={formFields.motif}
+                    onChange={(e) => setFormFields({ ...formFields, motif: e.target.value })}
+                    className="min-h-[80px]"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="examenClinique" className="text-sm font-semibold text-foreground">Examen clinique</Label>
+                  <Textarea
+                    id="examenClinique"
+                    placeholder="Constatations cliniques"
+                    value={formFields.examenClinique}
+                    onChange={(e) => setFormFields({ ...formFields, examenClinique: e.target.value })}
+                    className="min-h-[80px]"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="examenRadiologique" className="text-sm font-semibold text-foreground">Examen radiologique</Label>
+                  <Textarea
+                    id="examenRadiologique"
+                    placeholder="Résultats radiologiques (panoramique, rétro-alvéolaire…)"
+                    value={formFields.examenRadiologique}
+                    onChange={(e) => setFormFields({ ...formFields, examenRadiologique: e.target.value })}
+                    className="min-h-[80px]"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="actesRealises" className="text-sm font-semibold text-foreground">Actes réalisés</Label>
+                  <Textarea
+                    id="actesRealises"
+                    placeholder="Actes déjà effectués au cabinet"
+                    value={formFields.actesRealises}
+                    onChange={(e) => setFormFields({ ...formFields, actesRealises: e.target.value })}
+                    className="min-h-[80px]"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="prescriptions" className="text-sm font-semibold text-foreground">Prescriptions</Label>
+                  <Textarea
+                    id="prescriptions"
+                    placeholder="Prescriptions (posologie, durée)"
+                    value={formFields.prescriptions}
+                    onChange={(e) => setFormFields({ ...formFields, prescriptions: e.target.value })}
+                    className="min-h-[80px]"
                   />
                 </div>
               </>
@@ -2088,9 +2195,12 @@ export function DocumentEditorContent() {
                           {recipientDoctorSpecialty && (
                             <p className="text-muted-foreground" style={{ fontSize: '11pt' }}>{recipientDoctorSpecialty}</p>
                           )}
+                          {formFields.recipientAddress && (
+                            <p className="text-muted-foreground whitespace-pre-wrap" style={{ fontSize: '11pt' }}>{formFields.recipientAddress}</p>
+                          )}
                         </>
                       ) : (
-                        <p className="text-muted-foreground italic" style={{ fontSize: '11pt' }}>Entrez le nom du médecin destinataire</p>
+                        <p className="text-muted-foreground italic" style={{ fontSize: '11pt' }}>Entrez le nom du confrère destinataire</p>
                       )}
                     </div>
                   </div>
@@ -2173,16 +2283,21 @@ export function DocumentEditorContent() {
                   )}
 
                   {documentType === "liaison" && (
-                    <div>
-                      <div
-                        className="min-h-[300px] p-4 border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-lg focus:border-blue-500 focus:outline-none whitespace-pre-wrap"
-                        style={{ fontSize: '11pt' }}
-                        contentEditable
-                        suppressContentEditableWarning
-                        onBlur={(e) => setFormFields({ ...formFields, content: e.currentTarget.textContent || "" })}
-                      >
-                        {formFields.content || "Contenu de la lettre de liaison..."}
-                      </div>
+                    // FR-4.2/FR-6.3: read-only preview — the guided form is the single source of truth (the
+                    // old write-back box is gone). Only filled sections show; empty ones are omitted.
+                    <div className="space-y-4" style={{ fontSize: '11pt' }}>
+                      {liaisonSections().length === 0 ? (
+                        <p className="text-muted-foreground italic">Renseignez les champs de la lettre de liaison…</p>
+                      ) : (
+                        liaisonSections().map((section, index) => (
+                          <div key={index} className="space-y-1">
+                            {section.heading && (
+                              <p className="font-bold" style={{ fontSize: '12pt' }}>{section.heading}</p>
+                            )}
+                            <p className="whitespace-pre-wrap">{section.body}</p>
+                          </div>
+                        ))
+                      )}
                     </div>
                   )}
 

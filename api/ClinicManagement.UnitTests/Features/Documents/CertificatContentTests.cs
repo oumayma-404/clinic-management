@@ -91,6 +91,9 @@ public class CertificatContentTests
             PatientId = h.PatientId,
             DocumentType = documentType,
             DocumentDate = DateTime.UtcNow,
+            // A liaison now requires an external recipient name (Part E, FR-4.1) — supply one so the snapshot
+            // assertion exercises the liaison path; ignored by the other document types.
+            RecipientDoctorName = "Dr Externe",
             ContentJson = "{\"objet\":\"présence\"}"
         }, CancellationToken.None);
 

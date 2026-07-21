@@ -16,7 +16,7 @@
 | B | Per-doctor cachet & CNOMDT ordre + Mon profil | — | implemented (admin settings-card UI deferred — see DEV-2) |
 | C | Doc snapshot + localization ("Paris"→city) + cachet render + non-editable preview | B | implemented (adds `Clinic.City` — see DEV-3; liaison write-back box left for Part E per FR-6.3 — see DEV-4) |
 | D | Certificat correctness (objet/motif, mention, CNOMDT, no data loss) | C | implemented |
-| E | Structured lettre de liaison | C | not-started |
+| E | Structured lettre de liaison | C | implemented |
 | F1 | CNAM catalog + admin screen | — | not-started |
 | F2 | VLC + reimbursement + bulletin consumes catalog | F1 | not-started |
 
@@ -55,6 +55,15 @@
   - **FE type:** added `ordreNumberCnomdt`/`hasCachet` to `DoctorDto` in `clinics.ts` (backend `GetUserStatusQuery` already projects them — Part B).
   - Tests: new `CertificatTextBuilderTests` (REND-1 mention, REND-2 CNOMDT-not-"Ordre des Médecins", CERT-2 repos omitted, CERT-3 repos rendered, + singular-day + missing-ordre placeholder — 7 cases) and `CertificatContentTests` extended (CERT-1 create round-trip, CERT-4 update round-trip). **Targeted run: CertificatTextBuilder+CertificatContent 13/13, render+doctype+post-visit 30/30 — all pass** (SAC did NOT block `dotnet test --no-build` this session).
   - Quality gates: `dotnet build` (full, `--no-incremental`) 0 errors; **57 pre-existing warnings, 0 in changed files** (verified via grep over `CertificatTextBuilder`/`PdfGenerationService`/the 3 test files); `tsc --noEmit` clean; `next build` clean.
+
+## Session log (Part E)
+- 2026-07-21: **Part E implemented** (FR-4.1–4.3 structured lettre de liaison to an external confrère).
+  - **FE** (`document-editor-content.tsx`): replaced the clinic-doctor recipient `Select` with a free-text **"Confrère destinataire"** block — nom* / spécialité / adresse (FR-4.1, no internal-doctor coupling; removed `selectedRecipientDoctorId` + the doctor lookup on load). Added the five guided optional fields (motif, examen clinique, examen radiologique, actes réalisés, prescriptions — FR-4.2) as textareas. All ride in `ContentJson` (name/specialty continue through the recipient snapshot columns; address + guided fields in `ContentJson`). **Removed the last editable liaison write-back box** (Part C's DEV-4 carve-out) — the preview is now fully read-only, rendered from a shared `liaisonSections()` closure used by the preview **and** the Word export (only filled sections show; empty omitted). `content` retained purely for legacy round-trip.
+  - **BE**: new pure, testable `LiaisonContent.Build(content)` → ordered non-empty `LiaisonSection`s (guided fields; falls back to the legacy free-text `content` as one unlabelled section when no guided field is set — LIA-5). `PdfGenerationService` liaison case renders those sections; `ComposeRecipient` gained the external address line (from `ContentJson.recipientAddress`). `CreateMedicalDocumentCommand` now **requires a recipient name for liaison** (FR-4.1/4.2, inline `Result.Failure`, French) — the only required field.
+  - **DEV-4 resolved**: the deferred liaison write-back preview box is gone; preview fully non-editable (closes FR-6.3 for liaison).
+  - Tests: `LiaisonContentTests` (LIA-1 external recipient stored, no doctor lookup; LIA-2 missing-name rejected ×3; LIA-3 guided-fields round-trip) + `LiaisonRenderContentTests` (LIA-4 empty omitted + fixed order; LIA-5 legacy free-text one-section + guided-precedence + legacy internal-recipient end-to-end render). **Document suites 57/57 pass.**
+  - **Cross-part test fix**: Part C's `CERT-5` Theory includes a `liaison` case with no recipient — the new required-recipient rule (correctly) rejected it, so that Theory's liaison input now supplies `RecipientDoctorName = "Dr Externe"` (test-data fix; the snapshot behaviour under test is unchanged, the new rule is not relaxed).
+  - Quality gates: `dotnet build` (full `--no-incremental`) 0 errors; **57 pre-existing warnings, 0 in changed files**; `tsc --noEmit` clean; `next build` clean. (`dotnet test --no-build` ran the suites — SAC did not block.)
 
 ## Deviations
 
