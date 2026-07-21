@@ -1,6 +1,6 @@
 # Story 1 (Full): Official Documents Production-Ready
 
-**Status:** APPROVED
+**Status:** implemented (all parts A–F)
 **Layer:** Full
 **Depends On:** —
 **Plan:** [../plan.md](../plan.md) · **Spec:** [../spec.md](../spec.md) · **Tests:** [../test-plan-integration.md](../test-plan-integration.md)

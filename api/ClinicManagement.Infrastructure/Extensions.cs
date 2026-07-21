@@ -42,6 +42,7 @@ public static class Extensions
         services.AddScoped<IStaffNotificationRepository, StaffNotificationRepository>();
         services.AddScoped<IInvoiceRepository, InvoiceRepository>();
         services.AddScoped<IClinicReminderSettingsRepository, ClinicReminderSettingsRepository>();
+        services.AddScoped<ICnamCatalogRepository, CnamCatalogRepository>();
 
         // HttpClient for Auth0 Management API
         services.AddHttpClient();
@@ -51,10 +52,6 @@ public static class Extensions
         // IMemoryCache so N polling clients collapse to one outbound probe per TTL window (R-1).
         services.AddMemoryCache();
         services.AddSingleton<IInternetProbe, InternetProbe>();
-
-        // CNAM dental nomenclature — static, in-code reference data (no DB). Singleton: immutable and
-        // shared across clinics. Backs GET /api/cnam-nomenclature (the bulletin acts-table lookup).
-        services.AddSingleton<ICnamNomenclatureProvider, CnamNomenclatureProvider>();
 
         // File storage base path (used by the Local-mode disk backend below). Resolved against the install
         // directory (R-6) so it is stable whether launched from a console or as a Windows service.

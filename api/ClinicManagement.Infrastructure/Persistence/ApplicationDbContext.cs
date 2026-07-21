@@ -48,6 +48,10 @@ public class ApplicationDbContext : DbContext
     public DbSet<NotificationRead> NotificationReads { get; set; }
     public DbSet<Invoice> Invoices { get; set; }
     public DbSet<ClinicReminderSettings> ClinicReminderSettings { get; set; }
+    // Global CNAM reference data — deliberately NOT clinic-scoped (no HasQueryFilter below), so every
+    // clinic reads the same catalog + VLC values (FR-5.1 / plan R-5).
+    public DbSet<CnamNomenclatureEntry> CnamNomenclatureEntries { get; set; }
+    public DbSet<CnamLetterValue> CnamLetterValues { get; set; }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {

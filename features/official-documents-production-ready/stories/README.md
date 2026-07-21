@@ -36,7 +36,7 @@ graph TD
 
 | Story | Layer | Name | Status | Depends On |
 |-------|-------|------|--------|------------|
-| 1 | Full | Official documents production-ready (parts A–F) | in-progress (Parts A, B implemented) | - |
+| 1 | Full | Official documents production-ready (parts A–F) | implemented (Parts A–F implemented) | - |
 
 ## Internal part order (for `/implement-story`)
 

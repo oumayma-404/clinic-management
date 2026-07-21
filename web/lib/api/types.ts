@@ -136,14 +136,26 @@ export interface CnamInfo {
   maladeLienRang?: string | null;
 }
 
-// A CNAM dental nomenclature entry (static reference data from GET /api/cnam-nomenclature).
-// Used by the bulletin editor to fill Code acte + Cotation and compute an indicative estimate.
+// A CNAM dental nomenclature entry (DB-backed, global reference data from GET /api/cnam-nomenclature).
+// Used by the bulletin editor to fill Code acte + Cotation and compute an indicative estimate, and by the
+// admin catalog screen. Writes are admin-only.
 export interface CnamNomenclatureEntryDto {
+  id: string;
   codeActe: string;
   designationFr: string;
   lettreCle: string;
   coefficient: number;
   category: string;
+  isActive: boolean;
+  isProvisional: boolean;
+}
+
+// A valeur de la lettre clé (VLC) — the dinar value per lettre clé used in the reimbursement estimate.
+export interface CnamLetterValueDto {
+  id: string;
+  lettreCle: string;
+  value: number;
+  isProvisional: boolean;
 }
 
 export interface PatientDto {

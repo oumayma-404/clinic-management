@@ -327,6 +327,8 @@ export function DocumentEditorContent() {
   }>({ careType: "APCI", apciCode: "", actsFrom: "", actsTo: "", acts: [] })
   const [dentalRecords, setDentalRecords] = useState<DentalRecordDto[]>([])
   const [cnamNomenclature, setCnamNomenclature] = useState<CnamNomenclatureEntryDto[]>([])
+  // Admin-managed VLC values (lettre clé → dinar value), fed to the indicative reimbursement estimate.
+  const [cnamLetterValues, setCnamLetterValues] = useState<Record<string, number>>({})
   const [openActLookup, setOpenActLookup] = useState<number | null>(null)
   // Certificat: whether the optional "Repos médical" block is expanded (opened automatically when editing a
   // document that already carries repos data).
@@ -603,16 +605,25 @@ export function DocumentEditorContent() {
     return () => { cancelled = true }
   }, [documentType, selectedPatient])
 
-  // Load the curated CNAM nomenclature once when editing a bulletin (full list; searched client-side).
+  // Load the DB-backed CNAM nomenclature + VLC values once when editing a bulletin (searched client-side).
   useEffect(() => {
     if (documentType !== "bulletin-cnam") return
     let cancelled = false
     ;(async () => {
       try {
-        const entries = await cnamNomenclatureApi.list()
-        if (!cancelled) setCnamNomenclature(entries)
+        const [entries, letterValues] = await Promise.all([
+          cnamNomenclatureApi.list(),
+          cnamNomenclatureApi.listLetterValues(),
+        ])
+        if (!cancelled) {
+          setCnamNomenclature(entries)
+          setCnamLetterValues(Object.fromEntries(letterValues.map((v) => [v.lettreCle.toUpperCase(), v.value])))
+        }
       } catch {
-        if (!cancelled) setCnamNomenclature([])
+        if (!cancelled) {
+          setCnamNomenclature([])
+          setCnamLetterValues({})
+        }
       }
     })()
     return () => { cancelled = true }
@@ -688,14 +699,19 @@ export function DocumentEditorContent() {
     setOpenActLookup(null)
   }
 
-  // Indicative reimbursement total (catalog-backed acts only). Editor-only — never persisted / never on the PDF.
+  // Indicative reimbursement (catalog-backed acts only). Editor-only — never persisted / never on the PDF.
+  // Uses the admin-managed VLC values + the age-based CNAM rate (70% ages 4–18 inclusive, 60% otherwise),
+  // computed from the patient's DOB and the act's care date (mirrors the authoritative backend calculator).
+  const bulletinPatientDob = patients.find((p) => p.id === selectedPatient)?.dateOfBirth ?? null
+  const actCareDate = (actDate: string) =>
+    actDate ? new Date(actDate) : formFields.date ? new Date(formFields.date) : new Date()
+  const actReimbursement = (act: { cotation: string; date: string }) =>
+    estimateReimbursement(act.cotation, cnamLetterValues, bulletinPatientDob, actCareDate(act.date))
   const bulletinEstimateTotal = bulletinFields.acts.reduce((sum, act) => {
-    const e = estimateReimbursement(act.cotation, bulletinFields.careType)
+    const e = actReimbursement(act)
     return e != null ? sum + e : sum
   }, 0)
-  const hasAnyBulletinEstimate = bulletinFields.acts.some(
-    (act) => estimateReimbursement(act.cotation, bulletinFields.careType) != null,
-  )
+  const hasAnyBulletinEstimate = bulletinFields.acts.some((act) => actReimbursement(act) != null)
 
   // Shared bulletin ContentJson (also the PDF data). When the malade is the insured, the assuré identity
   // defaults to the patient's own name (spec edge case — no double entry).
@@ -1954,7 +1970,7 @@ export function DocumentEditorContent() {
                   ) : (
                     <div className="space-y-3">
                       {bulletinFields.acts.map((act, index) => {
-                        const actEstimate = estimateReimbursement(act.cotation, bulletinFields.careType)
+                        const actEstimate = actReimbursement(act)
                         return (
                         <div key={index} className="p-3 border rounded-lg space-y-2">
                           <div className="flex items-center justify-between">
@@ -2018,7 +2034,7 @@ export function DocumentEditorContent() {
                         <span className="text-sm font-medium text-foreground">Remboursement indicatif (total)</span>
                         <span className="text-sm font-semibold text-foreground">{bulletinEstimateTotal.toFixed(3)} TND</span>
                       </div>
-                      <p className="text-xs text-muted-foreground">Estimation indicative — montant réel fixé par la CNAM.{bulletinFields.careType === "APCI" ? " Taux APCI (100%)." : " Taux standard."}</p>
+                      <p className="text-xs text-muted-foreground">Estimation indicative, non contractuelle — montant réel fixé par la CNAM. Taux selon l'âge du patient (70&nbsp;% de 4 à 18&nbsp;ans, 60&nbsp;% sinon).</p>
                     </div>
                   )}
                 </div>
