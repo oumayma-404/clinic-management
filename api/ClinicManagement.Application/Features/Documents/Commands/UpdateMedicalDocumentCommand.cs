@@ -29,6 +29,8 @@ public class UpdateMedicalDocumentCommandHandler : IRequestHandler<UpdateMedical
     private readonly IFileStorage _fileStorage;
     private readonly IClinicContext _clinicContext;
     private readonly IUserRepository _userRepository;
+    private readonly IDoctorRepository _doctorRepository;
+    private readonly IClinicRepository _clinicRepository;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<UpdateMedicalDocumentCommandHandler> _logger;
 
@@ -39,6 +41,8 @@ public class UpdateMedicalDocumentCommandHandler : IRequestHandler<UpdateMedical
         IFileStorage fileStorage,
         IClinicContext clinicContext,
         IUserRepository userRepository,
+        IDoctorRepository doctorRepository,
+        IClinicRepository clinicRepository,
         IUnitOfWork unitOfWork,
         ILogger<UpdateMedicalDocumentCommandHandler> logger)
     {
@@ -48,6 +52,8 @@ public class UpdateMedicalDocumentCommandHandler : IRequestHandler<UpdateMedical
         _fileStorage = fileStorage;
         _clinicContext = clinicContext;
         _userRepository = userRepository;
+        _doctorRepository = doctorRepository;
+        _clinicRepository = clinicRepository;
         _unitOfWork = unitOfWork;
         _logger = logger;
     }
@@ -66,9 +72,10 @@ public class UpdateMedicalDocumentCommandHandler : IRequestHandler<UpdateMedical
             // no clinic in scope — PdfGenerationJob updates the document from a background scope with no
             // authenticated user (DEV-1, mirrors the global filter's AC-3 rule).
             var userId = _clinicContext.GetUserId();
+            User? user = null;
             if (!string.IsNullOrEmpty(userId))
             {
-                var user = await _userRepository.GetByAuth0SubAsync(userId, cancellationToken);
+                user = await _userRepository.GetByAuth0SubAsync(userId, cancellationToken);
                 if (user == null || document.Patient == null || document.Patient.ClinicId != user.ClinicId)
                 {
                     return Result<MedicalDocumentDto>.Failure("Medical document not found");
@@ -77,10 +84,34 @@ public class UpdateMedicalDocumentCommandHandler : IRequestHandler<UpdateMedical
 
             // FR-1.4: the "note d'honoraires" document type is retired. Existing (legacy) honoraires
             // documents remain readable via Get/List, but are no longer updated/re-rendered here.
-            if (document.DocumentType.Trim().ToLowerInvariant() == "honoraires")
+            if (document.DocumentType.Trim().ToLowerInvariant() == DocumentTypes.Honoraires)
             {
                 return Result<MedicalDocumentDto>.Failure(
                     "Le type « note d'honoraires » n'est plus disponible. Créez une facture depuis le module Factures.");
+            }
+
+            // FR-4.1/FR-4.2: mirror the create-path guard — a lettre de liaison must keep a recipient name
+            // on edit (the only required field). A valid liaison always carries one, so the background job's
+            // re-render (which passes the stored recipient) is unaffected.
+            if (document.DocumentType.Trim().ToLowerInvariant() == DocumentTypes.Liaison
+                && string.IsNullOrWhiteSpace(request.RecipientDoctorName))
+            {
+                return Result<MedicalDocumentDto>.Failure(
+                    "Le nom du confrère destinataire est obligatoire pour une lettre de liaison.");
+            }
+
+            // FR-2.2 / FR-3.3: re-apply the practitioner/clinic snapshot on a genuine user edit, exactly as
+            // the create path does — otherwise the structured editor (which rebuilds ContentJson from its
+            // own form fields) would drop the cachet key + cabinet city + ordre on every save. Only when a
+            // caller is authenticated: the background PdfGenerationJob runs with no user and feeds the
+            // already-snapshotted stored ContentJson back through here, so it must be preserved verbatim
+            // (ApplyTo would strip the reserved keys with no caller-doctor to re-add them).
+            var contentJson = request.ContentJson;
+            if (user != null)
+            {
+                var snapshot = await PractitionerRenderSnapshot.ResolveAsync(
+                    userId, user.ClinicId, _doctorRepository, _clinicRepository, cancellationToken);
+                contentJson = snapshot.ApplyTo(request.ContentJson);
             }
 
             Guid? fileId = request.FileId ?? document.FileId;
@@ -162,7 +193,7 @@ public class UpdateMedicalDocumentCommandHandler : IRequestHandler<UpdateMedical
             // Update document
             document.Update(
                 request.DocumentDate,
-                request.ContentJson,
+                contentJson,
                 request.RecipientDoctorName,
                 request.RecipientDoctorSpecialty,
                 isDraft: null, // Don't update draft status

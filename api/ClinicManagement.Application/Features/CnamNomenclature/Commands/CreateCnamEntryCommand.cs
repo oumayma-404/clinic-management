@@ -75,7 +75,7 @@ public class CreateCnamEntryCommandHandler : IRequestHandler<CreateCnamEntryComm
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error creating CNAM catalog entry");
-            return Result<CnamNomenclatureEntryDto>.Failure($"Erreur lors de la création de l'acte : {ex.Message}");
+            return Result<CnamNomenclatureEntryDto>.Failure("Erreur lors de la création de l'acte.");
         }
     }
 }

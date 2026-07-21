@@ -47,27 +47,37 @@ public class GetPractitionerRenderSnapshotQueryHandler
     public async Task<Result<PractitionerRenderSnapshotDto>> Handle(
         GetPractitionerRenderSnapshotQuery request, CancellationToken cancellationToken)
     {
-        var userId = _clinicContext.GetUserId();
-        if (string.IsNullOrEmpty(userId))
+        try
         {
-            return Result<PractitionerRenderSnapshotDto>.Failure("Utilisateur non authentifié.");
+            var userId = _clinicContext.GetUserId();
+            if (string.IsNullOrEmpty(userId))
+            {
+                return Result<PractitionerRenderSnapshotDto>.Failure("Utilisateur non authentifié.");
+            }
+
+            var user = await _userRepository.GetByAuth0SubAsync(userId, cancellationToken);
+            if (user == null)
+            {
+                return Result<PractitionerRenderSnapshotDto>.Failure("Utilisateur introuvable.");
+            }
+
+            var snapshot = await PractitionerRenderSnapshot.ResolveAsync(
+                userId, user.ClinicId, _doctorRepository, _clinicRepository, cancellationToken);
+
+            return Result<PractitionerRenderSnapshotDto>.Success(new PractitionerRenderSnapshotDto
+            {
+                ClinicCity = snapshot.ClinicCity,
+                DoctorOrdreNumber = snapshot.DoctorOrdreNumber,
+                DoctorCachetKey = snapshot.DoctorCachetKey,
+                DoctorCachetContentType = snapshot.DoctorCachetContentType
+            });
         }
-
-        var user = await _userRepository.GetByAuth0SubAsync(userId, cancellationToken);
-        if (user == null)
+        catch (Exception)
         {
-            return Result<PractitionerRenderSnapshotDto>.Failure("Utilisateur introuvable.");
+            // Best-effort per the download contract: the sole caller guards on IsSuccess and renders without
+            // the overlay on failure, so a transient DB error must surface as a failed Result — never a throw
+            // that aborts the whole PDF download.
+            return Result<PractitionerRenderSnapshotDto>.Failure("Impossible de résoudre les informations du praticien.");
         }
-
-        var snapshot = await PractitionerRenderSnapshot.ResolveAsync(
-            userId, user.ClinicId, _doctorRepository, _clinicRepository, cancellationToken);
-
-        return Result<PractitionerRenderSnapshotDto>.Success(new PractitionerRenderSnapshotDto
-        {
-            ClinicCity = snapshot.ClinicCity,
-            DoctorOrdreNumber = snapshot.DoctorOrdreNumber,
-            DoctorCachetKey = snapshot.DoctorCachetKey,
-            DoctorCachetContentType = snapshot.DoctorCachetContentType
-        });
     }
 }

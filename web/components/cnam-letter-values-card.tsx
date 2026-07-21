@@ -14,33 +14,41 @@ import { toast } from "sonner"
 
 interface CnamLetterValuesCardProps {
   onChanged: () => void
+  // Bumped by the parent to trigger an in-place refetch (instead of remounting via `key`, which discarded
+  // any half-typed VLC draft here and could setState after unmount).
+  reloadToken?: number
 }
 
-export function CnamLetterValuesCard({ onChanged }: CnamLetterValuesCardProps) {
+export function CnamLetterValuesCard({ onChanged, reloadToken }: CnamLetterValuesCardProps) {
   const [values, setValues] = useState<CnamLetterValueDto[]>([])
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [savingId, setSavingId] = useState<string | null>(null)
 
-  const load = async () => {
-    try {
-      setLoading(true)
-      setError(null)
-      const data = await cnamNomenclatureApi.listLetterValues()
-      setValues(data)
-      setDrafts(Object.fromEntries(data.map((v) => [v.id, String(v.value)])))
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Échec du chargement des valeurs.")
-    } finally {
-      setLoading(false)
-    }
-  }
-
+  // Refetch in place on mount and whenever the parent bumps reloadToken; the `active` guard prevents a
+  // setState after unmount if torn down mid-request.
   useEffect(() => {
-    load()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    let active = true
+    const run = async () => {
+      try {
+        setLoading(true)
+        setError(null)
+        const data = await cnamNomenclatureApi.listLetterValues()
+        if (!active) return
+        setValues(data)
+        setDrafts(Object.fromEntries(data.map((v) => [v.id, String(v.value)])))
+      } catch (err) {
+        if (active) setError(err instanceof ApiError ? err.message : "Échec du chargement des valeurs.")
+      } finally {
+        if (active) setLoading(false)
+      }
+    }
+    run()
+    return () => {
+      active = false
+    }
+  }, [reloadToken])
 
   const save = async (v: CnamLetterValueDto) => {
     const parsed = Number.parseFloat((drafts[v.id] ?? "").replace(",", "."))
@@ -52,8 +60,7 @@ export function CnamLetterValuesCard({ onChanged }: CnamLetterValuesCardProps) {
       setSavingId(v.id)
       await cnamNomenclatureApi.updateLetterValue(v.id, parsed)
       toast.success(`Valeur de « ${v.lettreCle} » mise à jour.`)
-      await load()
-      onChanged()
+      onChanged() // parent bumps reloadToken → in-place refetch, no remount / no lost sibling draft
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Échec de la mise à jour.")
     } finally {
@@ -112,6 +119,7 @@ export function CnamLetterValuesCard({ onChanged }: CnamLetterValuesCardProps) {
                             type="number"
                             min="0"
                             step="0.001"
+                            aria-label={`Valeur (TND) pour ${v.lettreCle}`}
                             value={drafts[v.id] ?? ""}
                             onChange={(e) => setDrafts((d) => ({ ...d, [v.id]: e.target.value }))}
                             className="max-w-32"

@@ -20,6 +20,7 @@ export interface InvoiceLineInput {
   designation: string;
   quantity: number;
   unitPriceHt: number;
+  dentalRecordId?: string | null;
 }
 
 export interface CreateInvoiceRequest {

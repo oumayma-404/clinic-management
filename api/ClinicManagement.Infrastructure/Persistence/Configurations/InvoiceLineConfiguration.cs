@@ -31,6 +31,11 @@ public class InvoiceLineConfiguration : IEntityTypeConfiguration<InvoiceLine>
         builder.Property(l => l.LineTotalHt)
             .HasColumnType("decimal(18,3)");
 
+        // Optional soft link to the billed dental record (no FK constraint — mirrors the header link) —
+        // read by the "already invoiced" guard so a multi-record honoraires marks each record invoiced.
+        builder.Property(l => l.DentalRecordId);
+
         builder.HasIndex(l => l.InvoiceId);
+        builder.HasIndex(l => l.DentalRecordId);
     }
 }

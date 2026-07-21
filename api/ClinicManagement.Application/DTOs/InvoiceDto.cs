@@ -45,6 +45,7 @@ public class InvoiceLineDto
     public int Quantity { get; set; }
     public decimal UnitPriceHt { get; set; }
     public decimal LineTotalHt { get; set; }
+    public Guid? DentalRecordId { get; set; }
 }
 
 public class PaymentDto
@@ -69,4 +70,7 @@ public class InvoiceLineRequest
     public string Designation { get; set; } = string.Empty;
     public int Quantity { get; set; }
     public decimal UnitPriceHt { get; set; }
+
+    /// <summary>Optional dental record this line bills (drives the "already invoiced" guard, FR-1.2).</summary>
+    public Guid? DentalRecordId { get; set; }
 }

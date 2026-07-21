@@ -15,9 +15,15 @@ public class InvoiceLine : Entity<Guid>
     public decimal UnitPriceHt { get; private set; }
     public decimal LineTotalHt { get; private set; }
 
+    /// <summary>
+    /// Optional soft link to the dental record this line bills. Lets the "already invoiced" guard exclude a
+    /// record even on a multi-record note d'honoraires (the invoice header carries at most one record link).
+    /// </summary>
+    public Guid? DentalRecordId { get; private set; }
+
     private InvoiceLine() { } // For EF Core
 
-    public InvoiceLine(Guid id, Guid invoiceId, string designation, int quantity, decimal unitPriceHt)
+    public InvoiceLine(Guid id, Guid invoiceId, string designation, int quantity, decimal unitPriceHt, Guid? dentalRecordId = null)
     {
         if (string.IsNullOrWhiteSpace(designation))
             throw new ArgumentException("La désignation de la ligne est requise.", nameof(designation));
@@ -34,5 +40,6 @@ public class InvoiceLine : Entity<Guid>
         Quantity = quantity;
         UnitPriceHt = unitPriceHt;
         LineTotalHt = InvoiceCalculator.LineTotal(quantity, unitPriceHt);
+        DentalRecordId = dentalRecordId;
     }
 }

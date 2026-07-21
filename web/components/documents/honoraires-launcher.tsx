@@ -44,6 +44,7 @@ export function HonorairesLauncher({
   const [patients, setPatients] = useState<PatientDto[]>([])
   const [loadingPatients, setLoadingPatients] = useState(false)
   const [selectedId, setSelectedId] = useState<string>("")
+  const [search, setSearch] = useState("")
   const [preparing, setPreparing] = useState(false)
 
   // Invoice draft step (the reused InvoiceFormModal, opened once a patient is chosen).
@@ -52,30 +53,42 @@ export function HonorairesLauncher({
   const [presetPatientName, setPresetPatientName] = useState<string | undefined>()
   const [presetLines, setPresetLines] = useState<InvoiceLineInput[] | undefined>()
 
+  // Reset selection + search each time the picker opens.
+  useEffect(() => {
+    if (open) {
+      setSelectedId("")
+      setSearch("")
+    }
+  }, [open])
+
+  // Server-side patient search (debounced) instead of loading a fixed page and filtering client-side, so a
+  // large clinic's patients are all reachable rather than silently capped.
   useEffect(() => {
     if (!open) return
     let cancelled = false
-    setSelectedId("")
     setLoadingPatients(true)
-    patientsApi
-      .list({ limit: 500 })
-      .then((list) => {
-        if (!cancelled) setPatients(list)
-      })
-      .catch((e) => {
-        if (!cancelled) {
-          toast.error("Erreur", {
-            description: e instanceof ApiError ? e.message : "Impossible de charger les patients",
-          })
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingPatients(false)
-      })
+    const handle = setTimeout(() => {
+      patientsApi
+        .list({ searchTerm: search.trim() || undefined, limit: 50 })
+        .then((list) => {
+          if (!cancelled) setPatients(list)
+        })
+        .catch((e) => {
+          if (!cancelled) {
+            toast.error("Erreur", {
+              description: e instanceof ApiError ? e.message : "Impossible de charger les patients",
+            })
+          }
+        })
+        .finally(() => {
+          if (!cancelled) setLoadingPatients(false)
+        })
+    }, 250)
     return () => {
       cancelled = true
+      clearTimeout(handle)
     }
-  }, [open])
+  }, [open, search])
 
   const handleContinue = async () => {
     const patient = patients.find((p) => p.id === selectedId)
@@ -89,14 +102,20 @@ export function HonorairesLauncher({
         dentalRecordsApi.list(selectedId),
         invoicesApi.list({ patientId: selectedId }),
       ])
-      const invoicedRecordIds = new Set(
-        invoices
-          .filter((inv) => inv.dentalRecordId && inv.status !== "Cancelled")
-          .map((inv) => inv.dentalRecordId as string),
-      )
+      // A record is "already invoiced" when a non-cancelled invoice links it — via the header link OR any
+      // line link (a multi-record honoraires invoice links each seeded record at the line level).
+      const invoicedRecordIds = new Set<string>()
+      for (const inv of invoices) {
+        if (inv.status === "Cancelled") continue
+        if (inv.dentalRecordId) invoicedRecordIds.add(inv.dentalRecordId)
+        for (const line of inv.lines ?? []) {
+          if (line.dentalRecordId) invoicedRecordIds.add(line.dentalRecordId)
+        }
+      }
+      // Link each seeded line back to its dental record so the guard above excludes it next time.
       const lines: InvoiceLineInput[] = records
         .filter((r) => !invoicedRecordIds.has(r.id))
-        .map((r) => ({ designation: r.procedureType, quantity: 1, unitPriceHt: r.cost }))
+        .map((r) => ({ designation: r.procedureType, quantity: 1, unitPriceHt: r.cost, dentalRecordId: r.id }))
 
       setPresetPatientId(patient.id)
       setPresetPatientName(`${patient.firstName} ${patient.lastName}`.trim())
@@ -125,8 +144,12 @@ export function HonorairesLauncher({
             </DialogDescription>
           </DialogHeader>
 
-          <Command className="rounded-md border">
-            <CommandInput placeholder="Rechercher un patient..." />
+          <Command className="rounded-md border" shouldFilter={false}>
+            <CommandInput
+              placeholder="Rechercher un patient..."
+              value={search}
+              onValueChange={setSearch}
+            />
             <CommandList>
               <CommandEmpty>{loadingPatients ? "Chargement..." : "Aucun patient trouvé."}</CommandEmpty>
               <CommandGroup>

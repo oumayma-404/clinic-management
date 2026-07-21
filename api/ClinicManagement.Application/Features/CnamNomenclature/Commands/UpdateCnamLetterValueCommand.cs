@@ -59,7 +59,7 @@ public class UpdateCnamLetterValueCommandHandler : IRequestHandler<UpdateCnamLet
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error updating CNAM letter value {Id}", request.Id);
-            return Result<CnamLetterValueDto>.Failure($"Erreur lors de la mise à jour de la valeur : {ex.Message}");
+            return Result<CnamLetterValueDto>.Failure("Erreur lors de la mise à jour de la valeur.");
         }
     }
 }

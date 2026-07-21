@@ -1,5 +1,6 @@
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.Features.Documents;
 using Microsoft.Extensions.Logging;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
@@ -13,7 +14,7 @@ public class PdfGenerationService : IPdfGenerationService
 {
     // The bulletin-cnam type is overlaid onto the official CNAM BS1 form instead of the QuestPDF
     // renderer used by every other document type.
-    private const string BulletinCnamType = "bulletin-cnam";
+    private const string BulletinCnamType = DocumentTypes.BulletinCnam;
 
     // Documents are Tunisian: French month names + TND formatting come from a fixed fr-FR culture, never
     // the ambient thread culture (which may be invariant/en in the background PDF job).
@@ -38,6 +39,15 @@ public class PdfGenerationService : IPdfGenerationService
         try
         {
             _logger.LogInformation("Generating PDF for document type: {DocumentType}", documentData.DocumentType);
+
+            // FR-1.4: the "note d'honoraires" type is retired (compliant honoraires are issued as Invoices).
+            // Reject it explicitly so a legacy/hand-crafted honoraires request fails loudly instead of
+            // rendering a document titled "NOTE D'HONORAIRES" with an empty body.
+            if (string.Equals(documentData.DocumentType, DocumentTypes.Honoraires, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    "Le type « note d'honoraires » n'est plus pris en charge. Créez une facture depuis le module Factures.");
+            }
 
             // bulletin-cnam is stamped onto the genuine BS1 form (fails fast if the asset is missing).
             if (string.Equals(documentData.DocumentType, BulletinCnamType, StringComparison.OrdinalIgnoreCase))
@@ -73,7 +83,7 @@ public class PdfGenerationService : IPdfGenerationService
                                 column.Item().Element(ComposeHeader(documentData));
 
                                 // Recipient (for liaison)
-                                if (documentData.DocumentType == "liaison" && !string.IsNullOrEmpty(documentData.RecipientDoctorName))
+                                if (documentData.DocumentType == DocumentTypes.Liaison && !string.IsNullOrEmpty(documentData.RecipientDoctorName))
                                 {
                                     column.Item().Element(ComposeRecipient(documentData));
                                 }
@@ -309,10 +319,10 @@ public class PdfGenerationService : IPdfGenerationService
     {
         var title = documentType.ToLowerInvariant() switch
         {
-            "prescription" => "ORDONNANCE",
-            "liaison" => "LETTRE DE LIAISON",
-            "honoraires" => "NOTE D'HONORAIRES",
-            "certificat" => "CERTIFICAT MÉDICAL",
+            DocumentTypes.Prescription => "ORDONNANCE",
+            DocumentTypes.Liaison => "LETTRE DE LIAISON",
+            DocumentTypes.Certificat => "CERTIFICAT MÉDICAL",
+            // "honoraires" is intentionally absent — the type is retired and rejected before rendering.
             _ => "DOCUMENT MÉDICAL"
         };
 
@@ -359,7 +369,7 @@ public class PdfGenerationService : IPdfGenerationService
 
                 switch (data.DocumentType.ToLowerInvariant())
                 {
-                    case "prescription":
+                    case DocumentTypes.Prescription:
                         if (data.Content.TryGetValue("medications", out var medications))
                         {
                             column.Item().PaddingBottom(8).Text("Prescription:").FontSize(12).Bold().FontFamily("Helvetica");
@@ -419,7 +429,7 @@ public class PdfGenerationService : IPdfGenerationService
                         }
                         break;
 
-                    case "liaison":
+                    case DocumentTypes.Liaison:
                         // FR-4.2: render only the filled guided sections (motif / examen clinique / examen
                         // radiologique / actes réalisés / prescriptions), each under its heading; empty fields
                         // are omitted. A legacy letter's free-text body renders as one unlabelled section.
@@ -440,7 +450,7 @@ public class PdfGenerationService : IPdfGenerationService
                     // FR-1.4: the "honoraires" document type is retired (compliant honoraires are issued as
                     // Invoices). The old euro-denominated QuestPDF block is removed; no generic doc renders "€".
 
-                    case "certificat":
+                    case DocumentTypes.Certificat:
                         // FR-2: light generalization — free objet/motif body + optional repos clause. The ordre
                         // comes from the authoritative profile snapshot (Part C, key doctorOrdreNumber); fall
                         // back to any legacy typed value for documents created before the snapshot existed.

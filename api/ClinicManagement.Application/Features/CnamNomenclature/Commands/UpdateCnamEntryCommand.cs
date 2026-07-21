@@ -74,7 +74,7 @@ public class UpdateCnamEntryCommandHandler : IRequestHandler<UpdateCnamEntryComm
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error updating CNAM catalog entry {Id}", request.Id);
-            return Result<CnamNomenclatureEntryDto>.Failure($"Erreur lors de la mise à jour de l'acte : {ex.Message}");
+            return Result<CnamNomenclatureEntryDto>.Failure("Erreur lors de la mise à jour de l'acte.");
         }
     }
 }

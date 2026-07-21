@@ -55,6 +55,7 @@ export interface InvoiceLineDto {
   quantity: number;
   unitPriceHt: number;
   lineTotalHt: number;
+  dentalRecordId?: string | null;
 }
 
 export interface PaymentDto {

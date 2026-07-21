@@ -65,7 +65,7 @@ public class CreateInvoiceCommandHandler : IRequestHandler<CreateInvoiceCommand,
 
             if (request.Lines.Count > 0)
             {
-                invoice.SetLines(request.Lines.Select(l => (l.Designation, l.Quantity, l.UnitPriceHt)));
+                invoice.SetLines(request.Lines.Select(l => (l.Designation, l.Quantity, l.UnitPriceHt, l.DentalRecordId)));
             }
 
             await _invoiceRepository.AddAsync(invoice, cancellationToken);

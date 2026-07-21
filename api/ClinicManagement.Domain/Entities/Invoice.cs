@@ -105,12 +105,19 @@ public class Invoice : AggregateRoot<Guid>
 
     /// <summary>Replace all act lines. Draft only.</summary>
     public void SetLines(IEnumerable<(string designation, int quantity, decimal unitPriceHt)> lines)
+        => SetLines(lines.Select(l => (l.designation, l.quantity, l.unitPriceHt, (Guid?)null)));
+
+    /// <summary>
+    /// Replace all act lines, each optionally linked to the dental record it bills (so a multi-record note
+    /// d'honoraires marks every seeded record invoiced, not only the single header link). Draft only.
+    /// </summary>
+    public void SetLines(IEnumerable<(string designation, int quantity, decimal unitPriceHt, Guid? dentalRecordId)> lines)
     {
         EnsureDraft();
         _lines.Clear();
-        foreach (var (designation, quantity, unitPriceHt) in lines)
+        foreach (var (designation, quantity, unitPriceHt, dentalRecordId) in lines)
         {
-            _lines.Add(new InvoiceLine(Guid.NewGuid(), Id, designation, quantity, unitPriceHt));
+            _lines.Add(new InvoiceLine(Guid.NewGuid(), Id, designation, quantity, unitPriceHt, dentalRecordId));
         }
         RecomputeTotals();
         Touch();

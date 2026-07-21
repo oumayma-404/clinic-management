@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using MediatR;
+using ClinicManagement.API.Models;
 using ClinicManagement.Application.Common.Authorization;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.CnamNomenclature.Commands;
@@ -67,29 +69,45 @@ public class CnamNomenclatureController : ApiControllerBase
     /// <summary>Create a catalog entry. AdminOnly (FR-5.3/5.4).</summary>
     [HttpPost]
     [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
-    public async Task<ActionResult<CnamNomenclatureEntryDto>> CreateEntry([FromBody] CreateCnamEntryCommand command)
+    public async Task<ActionResult<CnamNomenclatureEntryDto>> CreateEntry([FromBody] CreateCnamEntryRequest request)
     {
+        var command = new CreateCnamEntryCommand
+        {
+            CodeActe = request.CodeActe,
+            DesignationFr = request.DesignationFr,
+            LettreCle = request.LettreCle,
+            Coefficient = request.Coefficient,
+            Category = request.Category,
+        };
         var result = await _mediator.Send(command);
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
     }
 
     /// <summary>Update a catalog entry. AdminOnly.</summary>
-    [HttpPut("{id}")]
+    [HttpPut("{id:guid}")]
     [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
-    public async Task<ActionResult<CnamNomenclatureEntryDto>> UpdateEntry(Guid id, [FromBody] UpdateCnamEntryCommand command)
+    public async Task<ActionResult<CnamNomenclatureEntryDto>> UpdateEntry(Guid id, [FromBody] UpdateCnamEntryRequest request)
     {
-        command.Id = id;
+        var command = new UpdateCnamEntryCommand
+        {
+            Id = id,
+            CodeActe = request.CodeActe,
+            DesignationFr = request.DesignationFr,
+            LettreCle = request.LettreCle,
+            Coefficient = request.Coefficient,
+            Category = request.Category,
+        };
         var result = await _mediator.Send(command);
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
     }
 
-    /// <summary>Deactivate (soft-delete) a catalog entry. AdminOnly.</summary>
-    [HttpDelete("{id}")]
+    /// <summary>Deactivate (soft-delete) a catalog entry. AdminOnly. A missing id is a genuine not-found (404).</summary>
+    [HttpDelete("{id:guid}")]
     [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
     public async Task<IActionResult> DeactivateEntry(Guid id)
     {
         var result = await _mediator.Send(new DeactivateCnamEntryCommand { Id = id });
-        return result.IsFailure ? HandleFailure(result) : NoContent();
+        return result.IsFailure ? HandleFailure(result, StatusCodes.Status404NotFound) : NoContent();
     }
 
     /// <summary>Confirm the provisional dataset (clears "à vérifier" on all entries + VLC). AdminOnly.</summary>
@@ -102,11 +120,11 @@ public class CnamNomenclatureController : ApiControllerBase
     }
 
     /// <summary>Update a VLC value. AdminOnly (FR-5.2).</summary>
-    [HttpPut("letter-values/{id}")]
+    [HttpPut("letter-values/{id:guid}")]
     [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
-    public async Task<ActionResult<CnamLetterValueDto>> UpdateLetterValue(Guid id, [FromBody] UpdateCnamLetterValueCommand command)
+    public async Task<ActionResult<CnamLetterValueDto>> UpdateLetterValue(Guid id, [FromBody] UpdateCnamLetterValueRequest request)
     {
-        command.Id = id;
+        var command = new UpdateCnamLetterValueCommand { Id = id, Value = request.Value };
         var result = await _mediator.Send(command);
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
     }

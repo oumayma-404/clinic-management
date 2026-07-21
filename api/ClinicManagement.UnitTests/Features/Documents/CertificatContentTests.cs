@@ -205,6 +205,7 @@ public class CertificatContentTests
         var handler = new UpdateMedicalDocumentCommandHandler(
             docs.Object, new Mock<IPatientFolderRepository>().Object, new Mock<IPatientFileRepository>().Object,
             new Mock<IFileStorage>().Object, clinicContext.Object, new Mock<IUserRepository>().Object,
+            new Mock<IDoctorRepository>().Object, new Mock<IClinicRepository>().Object,
             uow.Object, NullLogger<UpdateMedicalDocumentCommandHandler>.Instance);
 
         var result = await handler.Handle(new UpdateMedicalDocumentCommand

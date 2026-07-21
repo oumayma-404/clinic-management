@@ -222,15 +222,18 @@ export default function PatientDetailsPage() {
         setFiles(filesData)
         setFolders(foldersData)
         // A dental record counts as "already invoiced" only if a NON-cancelled invoice links to it
-        // (a cancelled invoice frees it for re-billing). Safe degradation: a failed invoices fetch
-        // yields an empty set, so the Facturer action stays available rather than falsely disabled.
-        setInvoicedDentalRecordIds(
-          new Set(
-            invoicesData
-              .filter((inv) => inv.dentalRecordId && inv.status !== "Cancelled")
-              .map((inv) => inv.dentalRecordId as string)
-          )
-        )
+        // (a cancelled invoice frees it for re-billing) — via the header link OR any line link (a
+        // multi-record note d'honoraires links each billed record at the line level). Safe degradation:
+        // a failed invoices fetch yields an empty set, so the Facturer action stays available.
+        const invoicedIds = new Set<string>()
+        for (const inv of invoicesData) {
+          if (inv.status === "Cancelled") continue
+          if (inv.dentalRecordId) invoicedIds.add(inv.dentalRecordId)
+          for (const line of inv.lines ?? []) {
+            if (line.dentalRecordId) invoicedIds.add(line.dentalRecordId)
+          }
+        }
+        setInvoicedDentalRecordIds(invoicedIds)
       } catch (err) {
         console.error("Failed to load patient data:", err)
         setError(err instanceof ApiError ? err.message : "Failed to load patient data")

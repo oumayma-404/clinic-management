@@ -54,12 +54,12 @@ export default function CnamNomenclaturePage() {
             ) : isAdmin ? (
               <div className="mx-auto max-w-7xl space-y-6">
                 <CnamNomenclatureTable
-                  key={`table-${refreshKey}`}
                   onEdit={handleEdit}
                   onAdd={handleAdd}
                   onChanged={handleSuccess}
+                  reloadToken={refreshKey}
                 />
-                <CnamLetterValuesCard key={`vlc-${refreshKey}`} onChanged={handleSuccess} />
+                <CnamLetterValuesCard onChanged={handleSuccess} reloadToken={refreshKey} />
               </div>
             ) : (
               // FR-5.4: the CNAM catalog management screen is only reachable by an admin.

@@ -267,21 +267,25 @@ public class MedicalDocumentsController : ApiControllerBase
     {
         try
         {
-            // Part C (FR-3.2/FR-3.3/FR-6.1): overlay the authoritative practitioner cachet + CNOMDT ordre and
-            // the cabinet city server-side. The frontend cannot supply the cachet storage key, so resolve it
-            // here — keeping this immediate download identical to the stored PDF (which the background job
-            // renders from the ContentJson snapshot). Best-effort: a resolution failure just renders without.
+            // Part C (FR-3.2/FR-3.3/FR-6.1) + security: the cachet storage key, its content type, the CNOMDT
+            // ordre and the cabinet city are authoritative server-side values — they must NEVER be trusted
+            // from the client body (a caller-supplied DoctorCachetKey would let them embed another
+            // practitioner's cachet). Clear any client-provided values first, then overlay the server-resolved
+            // snapshot. Best-effort: a resolution failure renders without a cachet/city/ordre — never with a
+            // client-injected one.
+            documentData.DoctorCachetKey = null;
+            documentData.DoctorCachetContentType = null;
+            documentData.DoctorOrdreNumber = null;
+            documentData.ClinicCity = null;
+
             var snapshotResult = await _mediator.Send(new GetPractitionerRenderSnapshotQuery(), cancellationToken);
             if (snapshotResult.IsSuccess && snapshotResult.Value != null)
             {
                 var snap = snapshotResult.Value;
-                if (!string.IsNullOrWhiteSpace(snap.ClinicCity)) documentData.ClinicCity = snap.ClinicCity;
-                if (!string.IsNullOrWhiteSpace(snap.DoctorOrdreNumber)) documentData.DoctorOrdreNumber = snap.DoctorOrdreNumber;
-                if (!string.IsNullOrWhiteSpace(snap.DoctorCachetKey))
-                {
-                    documentData.DoctorCachetKey = snap.DoctorCachetKey;
-                    documentData.DoctorCachetContentType = snap.DoctorCachetContentType;
-                }
+                documentData.ClinicCity = snap.ClinicCity;
+                documentData.DoctorOrdreNumber = snap.DoctorOrdreNumber;
+                documentData.DoctorCachetKey = snap.DoctorCachetKey;
+                documentData.DoctorCachetContentType = snap.DoctorCachetContentType;
             }
 
             var pdfService = HttpContext.RequestServices.GetRequiredService<ClinicManagement.Application.Common.Interfaces.IPdfGenerationService>();

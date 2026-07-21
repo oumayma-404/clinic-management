@@ -26,6 +26,9 @@ public class UpdateDoctorProfileCommand : IRequest<Result<DoctorProfileDto>>
 
 public class UpdateDoctorProfileCommandHandler : IRequestHandler<UpdateDoctorProfileCommand, Result<DoctorProfileDto>>
 {
+    // The cachet is embedded into every generated PDF and read fully into memory each render — keep it small.
+    private const int MaxCachetBytes = 2 * 1024 * 1024; // 2 MB
+
     private readonly IDoctorRepository _doctorRepository;
     private readonly IUserRepository _userRepository;
     private readonly IClinicContext _clinicContext;
@@ -102,7 +105,12 @@ public class UpdateDoctorProfileCommandHandler : IRequestHandler<UpdateDoctorPro
                 if (previousKey != null)
                 {
                     try { await _fileStorage.DeleteAsync(previousKey, cancellationToken); }
-                    catch { /* best-effort blob cleanup; a leaked blob is preferable to failing the update */ }
+                    catch (Exception ex)
+                    {
+                        // Best-effort cleanup — a leaked blob is preferable to failing the update — but log
+                        // it so a persistently failing delete is diagnosable (never swallow silently).
+                        _logger.LogWarning(ex, "Best-effort cachet blob delete failed for {Key}", previousKey);
+                    }
                 }
             }
             else if (request.CachetStream != null)
@@ -112,11 +120,43 @@ public class UpdateDoctorProfileCommandHandler : IRequestHandler<UpdateDoctorPro
                     return Result<DoctorProfileDto>.Failure("Le type du fichier cachet est requis.");
                 }
 
-                // Deterministic per-doctor key → re-upload overwrites in place. Persist the real content
+                // FR-3.1 security: the cachet is served back inline at the app origin, so accept only raster
+                // image types — reject image/svg+xml, text/html, etc. (which could execute script).
+                var declaredType = request.CachetContentType.Trim().ToLowerInvariant();
+                if (declaredType != "image/png" && declaredType != "image/jpeg" && declaredType != "image/jpg")
+                {
+                    return Result<DoctorProfileDto>.Failure("Le cachet doit être une image PNG ou JPEG.");
+                }
+
+                // Buffer under a hard size cap: the blob is read fully into memory on every document render
+                // (PdfGenerationService.LoadCachetImageAsync), so an oversized "image" must be rejected up front.
+                using var buffer = new MemoryStream();
+                await request.CachetStream.CopyToAsync(buffer, cancellationToken);
+                if (buffer.Length == 0)
+                {
+                    return Result<DoctorProfileDto>.Failure("Le fichier cachet est vide.");
+                }
+                if (buffer.Length > MaxCachetBytes)
+                {
+                    return Result<DoctorProfileDto>.Failure("Le cachet est trop volumineux (2 Mo maximum).");
+                }
+
+                // Content-type headers are trivially spoofable — verify the bytes actually start with a
+                // PNG/JPEG magic signature before trusting (and persisting) the declared type.
+                var bytes = buffer.ToArray();
+                if (!IsPng(bytes) && !IsJpeg(bytes))
+                {
+                    return Result<DoctorProfileDto>.Failure("Le fichier cachet n'est pas une image PNG ou JPEG valide.");
+                }
+
+                var contentType = declaredType == "image/jpg" ? "image/jpeg" : declaredType;
+
+                // Deterministic per-doctor key → re-upload overwrites in place. Persist the validated content
                 // type (unlike the clinic-logo path, which hardcodes image/png).
+                buffer.Position = 0;
                 var key = $"{doctor.ClinicId}/doctors/{doctor.Id}/cachet";
-                var storageKey = await _fileStorage.UploadAsync(request.CachetStream, request.CachetContentType, key, cancellationToken);
-                doctor.SetCachet(storageKey, request.CachetContentType);
+                var storageKey = await _fileStorage.UploadAsync(buffer, contentType, key, cancellationToken);
+                doctor.SetCachet(storageKey, contentType);
             }
 
             _doctorRepository.Update(doctor);
@@ -138,4 +178,12 @@ public class UpdateDoctorProfileCommandHandler : IRequestHandler<UpdateDoctorPro
             return Result<DoctorProfileDto>.Failure("Erreur lors de la mise à jour du profil praticien.");
         }
     }
+
+    // Leading magic bytes — the authoritative signal for the image type (content-type headers are spoofable).
+    private static bool IsPng(byte[] b) =>
+        b.Length >= 8 && b[0] == 0x89 && b[1] == 0x50 && b[2] == 0x4E && b[3] == 0x47
+        && b[4] == 0x0D && b[5] == 0x0A && b[6] == 0x1A && b[7] == 0x0A;
+
+    private static bool IsJpeg(byte[] b) =>
+        b.Length >= 3 && b[0] == 0xFF && b[1] == 0xD8 && b[2] == 0xFF;
 }

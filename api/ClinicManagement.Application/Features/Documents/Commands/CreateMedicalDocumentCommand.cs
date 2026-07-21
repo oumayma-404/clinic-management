@@ -7,7 +7,6 @@ using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Domain.Enums;
 using System.Text.RegularExpressions;
-using System.Text.Json.Nodes;
 
 namespace ClinicManagement.Application.Features.Documents.Commands;
 
@@ -83,7 +82,7 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
         {
             // FR-1.4: the "note d'honoraires" document type is retired — compliant honoraires are now issued
             // through the Invoice pipeline (module Factures). No new honoraires MedicalDocument is created.
-            if (request.DocumentType.Trim().ToLowerInvariant() == "honoraires")
+            if (request.DocumentType.Trim().ToLowerInvariant() == DocumentTypes.Honoraires)
             {
                 return Result<MedicalDocumentDto>.Failure(
                     "Le type « note d'honoraires » n'est plus disponible. Créez une facture depuis le module Factures.");
@@ -91,7 +90,7 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
 
             // FR-4.1/FR-4.2: a lettre de liaison addresses an external confrère — the recipient name is the
             // only required field (specialty/address and the guided clinical fields are all optional).
-            if (request.DocumentType.Trim().ToLowerInvariant() == "liaison"
+            if (request.DocumentType.Trim().ToLowerInvariant() == DocumentTypes.Liaison
                 && string.IsNullOrWhiteSpace(request.RecipientDoctorName))
             {
                 return Result<MedicalDocumentDto>.Failure(
@@ -306,38 +305,16 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
         try
         {
             var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
-            if (clinicResult.IsFailure)
-            {
-                return originalContentJson;
-            }
 
-            var userId = _clinicContext.GetUserId();
-            var snapshot = await PractitionerRenderSnapshot.ResolveAsync(
-                userId, clinicResult.Value, _doctorRepository, _clinicRepository, cancellationToken);
+            // Even when the clinic can't be resolved, apply the Empty snapshot: it writes nothing but still
+            // strips any client-supplied copy of the reserved keys (doctorCachetKey/…), so a caller cannot
+            // inject a foreign cachet reference that the unauthenticated PDF job would later dereference.
+            var snapshot = clinicResult.IsSuccess
+                ? await PractitionerRenderSnapshot.ResolveAsync(
+                    _clinicContext.GetUserId(), clinicResult.Value, _doctorRepository, _clinicRepository, cancellationToken)
+                : PractitionerRenderSnapshot.Empty;
 
-            if (!snapshot.HasAny)
-            {
-                return originalContentJson;
-            }
-
-            var node = JsonNode.Parse(originalContentJson);
-            if (node is not JsonObject content)
-            {
-                return originalContentJson;
-            }
-
-            // Only write present values; the renderer treats absent keys as "no cachet/city" and falls back.
-            if (!string.IsNullOrWhiteSpace(snapshot.ClinicCity))
-                content[PractitionerRenderSnapshot.ClinicCityKey] = snapshot.ClinicCity;
-            if (!string.IsNullOrWhiteSpace(snapshot.DoctorOrdreNumber))
-                content[PractitionerRenderSnapshot.DoctorOrdreNumberKey] = snapshot.DoctorOrdreNumber;
-            if (!string.IsNullOrWhiteSpace(snapshot.DoctorCachetKey))
-            {
-                content[PractitionerRenderSnapshot.DoctorCachetKeyKey] = snapshot.DoctorCachetKey;
-                content[PractitionerRenderSnapshot.DoctorCachetContentTypeKey] = snapshot.DoctorCachetContentType;
-            }
-
-            return content.ToJsonString();
+            return snapshot.ApplyTo(originalContentJson);
         }
         catch (Exception ex)
         {

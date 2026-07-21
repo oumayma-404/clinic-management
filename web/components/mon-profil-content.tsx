@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import Image from "next/image"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -23,6 +23,13 @@ export function MonProfilContent() {
   const [cachetPreview, setCachetPreview] = useState<string | null>(null) // object URL of the current/selected cachet
   const [removeCachet, setRemoveCachet] = useState(false)
 
+  // Tracks the currently-set object URL (loaded OR later selected via handleFile) so it can be revoked on
+  // unmount — the load effect's local closure only knew the initially-loaded URL, leaking any later one.
+  const cachetPreviewUrlRef = useRef<string | null>(null)
+  useEffect(() => () => {
+    if (cachetPreviewUrlRef.current) URL.revokeObjectURL(cachetPreviewUrlRef.current)
+  }, [])
+
   // Load the profile + (if present) the existing cachet image.
   useEffect(() => {
     let cancelled = false
@@ -39,6 +46,7 @@ export function MonProfilContent() {
             const blob = await doctorsApi.fetchCachetBlob(p.id)
             if (cancelled) return
             objectUrl = URL.createObjectURL(blob)
+            cachetPreviewUrlRef.current = objectUrl
             setCachetPreview(objectUrl)
           } catch {
             /* preview is best-effort; the "cachet enregistré" state still shows */
@@ -64,7 +72,9 @@ export function MonProfilContent() {
     setRemoveCachet(false)
     setCachetPreview((prev) => {
       if (prev) URL.revokeObjectURL(prev)
-      return URL.createObjectURL(file)
+      const url = URL.createObjectURL(file)
+      cachetPreviewUrlRef.current = url
+      return url
     })
   }
 
@@ -73,6 +83,7 @@ export function MonProfilContent() {
     setRemoveCachet(true)
     setCachetPreview((prev) => {
       if (prev) URL.revokeObjectURL(prev)
+      cachetPreviewUrlRef.current = null
       return null
     })
   }

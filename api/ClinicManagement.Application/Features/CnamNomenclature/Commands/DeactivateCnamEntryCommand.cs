@@ -49,7 +49,7 @@ public class DeactivateCnamEntryCommandHandler : IRequestHandler<DeactivateCnamE
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error deactivating CNAM catalog entry {Id}", request.Id);
-            return Result.Failure($"Erreur lors de la désactivation de l'acte : {ex.Message}");
+            return Result.Failure("Erreur lors de la désactivation de l'acte.");
         }
     }
 }

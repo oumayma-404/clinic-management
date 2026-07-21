@@ -54,7 +54,7 @@ public class ConfirmCnamDataCommandHandler : IRequestHandler<ConfirmCnamDataComm
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error confirming CNAM data");
-            return Result.Failure($"Erreur lors de la confirmation des données CNAM : {ex.Message}");
+            return Result.Failure("Erreur lors de la confirmation des données CNAM.");
         }
     }
 }

@@ -58,7 +58,7 @@ public class GetReimbursementEstimateQueryHandler
         {
             _logger.LogError(ex, "Error computing CNAM reimbursement estimate");
             return Result<ReimbursementEstimateDto>.Failure(
-                $"Error computing reimbursement estimate: {ex.Message}");
+                "Erreur lors du calcul de l'estimation du remboursement.");
         }
     }
 }

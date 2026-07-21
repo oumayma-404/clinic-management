@@ -378,12 +378,15 @@ export function DocumentEditorContent() {
 
   // FR-2.5: pre-fill the certificat CNOMDT ordre from the current doctor's profile (the field is read-only —
   // no longer retyped per certificat). Only fills when empty, so a legacy document's stored ordre is kept.
+  // Re-runs on `documentId` too: when editing a legacy certificat with an empty stored ordre, the document
+  // load sets it to "" (possibly after the doctor already loaded); depending on `documentId` re-applies the
+  // profile fallback afterwards instead of leaving the read-only field blank ([Numéro] in the render).
   useEffect(() => {
     const ordre = currentUserDoctor?.ordreNumberCnomdt
     if (ordre) {
       setFormFields((prev) => (prev.doctorOrderNumber ? prev : { ...prev, doctorOrderNumber: ordre }))
     }
-  }, [currentUserDoctor])
+  }, [currentUserDoctor, documentId])
 
   // Get doctor info (current user's doctor or first doctor in list)
   const selectedDoctor = currentUserDoctor || (doctors.length > 0 ? doctors[0] : null)
@@ -1313,6 +1316,16 @@ export function DocumentEditorContent() {
     if (!selectedPatient || !patientData) {
       toast.error("Patient requis", {
         description: "Veuillez sélectionner un patient avant de sauvegarder le document",
+        duration: 3000,
+      })
+      return
+    }
+
+    // FR-4.1: the confrère destinataire name is the only required liaison field — enforce it client-side so
+    // the user gets immediate feedback (the backend also rejects it on create/update). Pairs with the label's "*".
+    if (documentType === "liaison" && !recipientDoctorName.trim()) {
+      toast.error("Destinataire requis", {
+        description: "Le nom du confrère destinataire est obligatoire pour une lettre de liaison.",
         duration: 3000,
       })
       return

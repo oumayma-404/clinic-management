@@ -49,9 +49,16 @@ public class DoctorsController : ApiControllerBase
     public async Task<IActionResult> GetCachet(Guid id, CancellationToken cancellationToken)
     {
         var result = await _mediator.Send(new GetDoctorCachetQuery { DoctorId = id }, cancellationToken);
-        return result.IsSuccess
-            ? File(result.Value!.FileStream, result.Value.ContentType)
-            : HandleFailure(result, StatusCodes.Status404NotFound);
+        if (!result.IsSuccess)
+        {
+            return HandleFailure(result, StatusCodes.Status404NotFound);
+        }
+
+        // Security (FR-3.1): the cachet is a user-uploaded blob served from the app origin. Prevent MIME
+        // sniffing and force a download disposition so it can never be interpreted as an inline document
+        // (defence-in-depth on top of the upload-time PNG/JPEG allow-list + magic-byte check).
+        Response.Headers["X-Content-Type-Options"] = "nosniff";
+        return File(result.Value!.FileStream, result.Value.ContentType, $"cachet-{id}");
     }
 
     private static UpdateDoctorProfileCommand ToCommand(Guid? doctorId, UpdateDoctorProfileRequest request) => new()

@@ -25,9 +25,12 @@ interface CnamNomenclatureTableProps {
   onEdit: (entry: CnamNomenclatureEntryDto) => void
   onAdd: () => void
   onChanged: () => void
+  // Bumped by the parent (after any catalog/VLC write or realtime signal) to trigger an in-place refetch —
+  // instead of remounting via `key`, which discarded in-progress edits and could setState after unmount.
+  reloadToken?: number
 }
 
-export function CnamNomenclatureTable({ onEdit, onAdd, onChanged }: CnamNomenclatureTableProps) {
+export function CnamNomenclatureTable({ onEdit, onAdd, onChanged, reloadToken }: CnamNomenclatureTableProps) {
   const [entries, setEntries] = useState<CnamNomenclatureEntryDto[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -35,24 +38,28 @@ export function CnamNomenclatureTable({ onEdit, onAdd, onChanged }: CnamNomencla
   const [deleting, setDeleting] = useState(false)
   const [confirming, setConfirming] = useState(false)
 
-  const load = async () => {
-    try {
-      setLoading(true)
-      setError(null)
-      // Admin screen: include deactivated rows too.
-      const data = await cnamNomenclatureApi.list(undefined, undefined, true)
-      setEntries(data)
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Échec du chargement de la nomenclature.")
-    } finally {
-      setLoading(false)
-    }
-  }
-
+  // Refetch in place on mount and whenever the parent bumps reloadToken. The `active` guard prevents a
+  // setState after unmount if the component is torn down mid-request.
   useEffect(() => {
-    load()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    let active = true
+    const run = async () => {
+      try {
+        setLoading(true)
+        setError(null)
+        // Admin screen: include deactivated rows too.
+        const data = await cnamNomenclatureApi.list(undefined, undefined, true)
+        if (active) setEntries(data)
+      } catch (err) {
+        if (active) setError(err instanceof ApiError ? err.message : "Échec du chargement de la nomenclature.")
+      } finally {
+        if (active) setLoading(false)
+      }
+    }
+    run()
+    return () => {
+      active = false
+    }
+  }, [reloadToken])
 
   const confirmDelete = async () => {
     if (!entryToDelete) return
@@ -61,8 +68,7 @@ export function CnamNomenclatureTable({ onEdit, onAdd, onChanged }: CnamNomencla
       await cnamNomenclatureApi.deactivate(entryToDelete.id)
       toast.success(`Acte « ${entryToDelete.codeActe} » désactivé.`)
       setEntryToDelete(null)
-      await load()
-      onChanged()
+      onChanged() // parent bumps reloadToken → in-place refetch (both cards), no remount
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Échec de la désactivation.")
     } finally {
@@ -75,7 +81,6 @@ export function CnamNomenclatureTable({ onEdit, onAdd, onChanged }: CnamNomencla
       setConfirming(true)
       await cnamNomenclatureApi.confirmData()
       toast.success("Données CNAM confirmées.")
-      await load()
       onChanged()
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Échec de la confirmation.")

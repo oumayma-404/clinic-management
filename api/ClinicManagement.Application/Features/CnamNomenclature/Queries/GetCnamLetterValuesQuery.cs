@@ -1,6 +1,7 @@
 using MediatR;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Features.CnamNomenclature.Commands;
 using ClinicManagement.Domain.Repositories;
 using Microsoft.Extensions.Logging;
 
@@ -31,13 +32,7 @@ public class GetCnamLetterValuesQueryHandler
         try
         {
             var values = (await _repository.GetAllLetterValuesAsync(cancellationToken))
-                .Select(v => new CnamLetterValueDto
-                {
-                    Id = v.Id,
-                    LettreCle = v.LettreCle,
-                    Value = v.Value,
-                    IsProvisional = v.IsProvisional,
-                })
+                .Select(CnamEntryMapper.ToDto)
                 .ToList();
 
             return Result<IEnumerable<CnamLetterValueDto>>.Success(values);
@@ -46,7 +41,7 @@ public class GetCnamLetterValuesQueryHandler
         {
             _logger.LogError(ex, "Error retrieving CNAM letter values");
             return Result<IEnumerable<CnamLetterValueDto>>.Failure(
-                $"Error retrieving CNAM letter values: {ex.Message}");
+                "Erreur lors de la récupération des valeurs de la lettre clé.");
         }
     }
 }

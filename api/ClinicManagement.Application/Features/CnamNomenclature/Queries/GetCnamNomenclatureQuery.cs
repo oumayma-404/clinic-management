@@ -1,6 +1,7 @@
 using MediatR;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Features.CnamNomenclature.Commands;
 using ClinicManagement.Domain.Repositories;
 using Microsoft.Extensions.Logging;
 
@@ -37,17 +38,7 @@ public class GetCnamNomenclatureQueryHandler
         try
         {
             var entries = (await _repository.GetAllAsync(request.IncludeInactive, cancellationToken))
-                .Select(e => new CnamNomenclatureEntryDto
-                {
-                    Id = e.Id,
-                    CodeActe = e.CodeActe,
-                    DesignationFr = e.DesignationFr,
-                    LettreCle = e.LettreCle,
-                    Coefficient = e.Coefficient,
-                    Category = e.Category,
-                    IsActive = e.IsActive,
-                    IsProvisional = e.IsProvisional,
-                })
+                .Select(CnamEntryMapper.ToDto)
                 .AsEnumerable();
 
             if (!string.IsNullOrWhiteSpace(request.Category))
@@ -72,7 +63,7 @@ public class GetCnamNomenclatureQueryHandler
         {
             _logger.LogError(ex, "Error retrieving CNAM nomenclature");
             return Result<IEnumerable<CnamNomenclatureEntryDto>>.Failure(
-                $"Error retrieving CNAM nomenclature: {ex.Message}");
+                "Erreur lors de la récupération de la nomenclature CNAM.");
         }
     }
 }
