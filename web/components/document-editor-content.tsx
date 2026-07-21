@@ -1322,6 +1322,64 @@ export function DocumentEditorContent() {
   const patientData = getSelectedPatientData()
   const patientAge = patientData ? calculateAge(patientData.dateOfBirth) : null
 
+  // ---- CNAM BS1 live preview (bulletin-cnam only) ----
+  // Embed the real generated BS1 PDF in the preview pane, regenerated ~800ms after editing pauses,
+  // via the same medicalDocumentsApi.generatePdfForDownload(buildDocumentData()) the Download button uses.
+  const [bs1PreviewUrl, setBs1PreviewUrl] = useState<string | null>(null)
+  const [bs1PreviewLoading, setBs1PreviewLoading] = useState(false)
+  const [bs1PreviewError, setBs1PreviewError] = useState(false)
+  const bs1UrlRef = useRef<string | null>(null)
+
+  // Serialized snapshot of the inputs that feed the BS1 PDF; the effect re-runs only when it changes.
+  // null when no patient is selected (buildDocumentData() returns null) — short-circuits without an API call (AC-5).
+  const bs1DocumentData = documentType === "bulletin-cnam" ? buildDocumentData() : null
+  const bs1DataKey = bs1DocumentData ? JSON.stringify(bs1DocumentData) : null
+
+  useEffect(() => {
+    if (documentType !== "bulletin-cnam") return
+    // No patient / missing required data → neutral state, no API call (AC-5).
+    if (!bs1DataKey) {
+      setBs1PreviewLoading(false)
+      setBs1PreviewError(false)
+      return
+    }
+    let cancelled = false
+    // Debounce: regenerate ~800ms after edits pause. Cleanup cancels a pending/in-flight render so a
+    // superseded response never overwrites a newer one (AC-3) and none runs after unmount/type change.
+    const timer = setTimeout(async () => {
+      setBs1PreviewLoading(true)
+      setBs1PreviewError(false)
+      try {
+        const blob = await medicalDocumentsApi.generatePdfForDownload(JSON.parse(bs1DataKey))
+        if (cancelled) return
+        const url = URL.createObjectURL(blob)
+        // Revoke the previous object URL so blobs don't leak (AC-3).
+        if (bs1UrlRef.current) URL.revokeObjectURL(bs1UrlRef.current)
+        bs1UrlRef.current = url
+        setBs1PreviewUrl(url)
+      } catch {
+        // Keep the last good preview; surface the error state (AC-4). Next successful edit recovers.
+        if (!cancelled) setBs1PreviewError(true)
+      } finally {
+        if (!cancelled) setBs1PreviewLoading(false)
+      }
+    }, 800)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [bs1DataKey, documentType])
+
+  // Revoke the last preview object URL on unmount to avoid leaking the blob.
+  useEffect(() => {
+    return () => {
+      if (bs1UrlRef.current) {
+        URL.revokeObjectURL(bs1UrlRef.current)
+        bs1UrlRef.current = null
+      }
+    }
+  }, [])
+
   return (
     <div className="flex h-screen bg-background">
       <div className="flex flex-1 flex-col overflow-hidden">
@@ -1824,6 +1882,71 @@ export function DocumentEditorContent() {
         {/* Right Panel - Document Preview */}
         <div className="flex-1 overflow-y-auto bg-gradient-to-br from-slate-100 to-blue-50 dark:from-slate-900 dark:to-slate-800 p-12">
           <div className="max-w-4xl mx-auto">
+            {documentType === "bulletin-cnam" ? (
+              <>
+                <div className="mb-6 flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Aperçu du document</p>
+                    <p className="text-xs text-muted-foreground mt-1">Aperçu en direct du bulletin BS1 généré</p>
+                  </div>
+                  <div className="text-sm text-muted-foreground">Format A4</div>
+                </div>
+
+                <div className="relative bg-white dark:bg-slate-900 shadow-2xl rounded-lg overflow-hidden min-h-[1123px] flex flex-col">
+                  {!patientData ? (
+                    <div className="flex-1 flex flex-col items-center justify-center gap-3 p-12 text-center">
+                      <FileText className="w-12 h-12 text-muted-foreground/40" />
+                      <p className="text-sm text-muted-foreground">
+                        Sélectionnez un patient pour afficher l'aperçu du bulletin de soins CNAM.
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      {bs1PreviewUrl ? (
+                        <iframe
+                          src={bs1PreviewUrl}
+                          title="Aperçu du bulletin de soins CNAM"
+                          className="flex-1 w-full border-0"
+                          style={{ minHeight: "1123px" }}
+                        />
+                      ) : (
+                        <div className="flex-1 flex flex-col items-center justify-center gap-3 p-12 text-center">
+                          {bs1PreviewError && !bs1PreviewLoading ? (
+                            <>
+                              <FileText className="w-12 h-12 text-red-400" />
+                              <p className="text-sm font-medium text-foreground">Impossible de générer l'aperçu du PDF</p>
+                              <p className="text-xs text-muted-foreground">
+                                Une erreur s'est produite. Modifiez un champ pour réessayer.
+                              </p>
+                            </>
+                          ) : (
+                            !bs1PreviewLoading && (
+                              <p className="text-sm text-muted-foreground">Préparation de l'aperçu…</p>
+                            )
+                          )}
+                        </div>
+                      )}
+
+                      {bs1PreviewLoading && (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-white/70 dark:bg-slate-900/70 backdrop-blur-sm">
+                          <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+                          <p className="text-sm text-muted-foreground">Génération de l'aperçu…</p>
+                        </div>
+                      )}
+
+                      {bs1PreviewError && !bs1PreviewLoading && bs1PreviewUrl && (
+                        <div className="absolute inset-x-0 top-0 bg-red-50 dark:bg-red-950/40 border-b border-red-200 dark:border-red-900 px-4 py-2">
+                          <p className="text-xs text-red-600 dark:text-red-400 text-center">
+                            Impossible de mettre à jour l'aperçu — dernière version affichée. Modifiez un champ pour réessayer.
+                          </p>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
             <div className="mb-6 flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Aperçu du document</p>
@@ -2051,44 +2174,6 @@ export function DocumentEditorContent() {
                     </div>
                   )}
 
-                  {documentType === "bulletin-cnam" && (
-                    <div style={{ fontSize: '11pt' }} className="space-y-3">
-                      <p className="font-semibold text-center" style={{ fontSize: '13pt' }}>BULLETIN DE SOINS CNAM (BS1)</p>
-                      <p>
-                        <span className="font-semibold">Prise en charge :</span> {bulletinFields.careType}
-                        {bulletinFields.careType === "APCI" && bulletinFields.apciCode ? ` — code ${bulletinFields.apciCode}` : ""}
-                      </p>
-                      {patientData?.cnamInfo?.identifiantUnique && (
-                        <p><span className="font-semibold">Identifiant unique :</span> {patientData.cnamInfo.identifiantUnique}</p>
-                      )}
-                      <table className="w-full border-collapse" style={{ fontSize: '10pt' }}>
-                        <thead>
-                          <tr>
-                            <th className="border p-1 text-left">Date</th>
-                            <th className="border p-1 text-left">Dent(s)</th>
-                            <th className="border p-1 text-left">Code acte</th>
-                            <th className="border p-1 text-left">Cotation</th>
-                            <th className="border p-1 text-right">Honoraires</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {bulletinFields.acts.length === 0 ? (
-                            <tr><td className="border p-2 text-center text-muted-foreground" colSpan={5}>Aucun acte</td></tr>
-                          ) : (
-                            bulletinFields.acts.map((act, idx) => (
-                              <tr key={idx}>
-                                <td className="border p-1">{act.date || "—"}</td>
-                                <td className="border p-1">{act.teeth || "—"}</td>
-                                <td className="border p-1">{act.codeActe || "—"}</td>
-                                <td className="border p-1">{act.cotation || "—"}</td>
-                                <td className="border p-1 text-right">{act.honoraires || "—"}</td>
-                              </tr>
-                            ))
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
                 </div>
 
                 {/* Signature */}
@@ -2118,6 +2203,8 @@ export function DocumentEditorContent() {
                 </div>
               </div>
             </Card>
+              </>
+            )}
           </div>
         </div>
         </div>
