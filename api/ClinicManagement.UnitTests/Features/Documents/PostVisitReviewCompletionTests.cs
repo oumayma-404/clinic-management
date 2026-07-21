@@ -85,6 +85,9 @@ public class PostVisitReviewCompletionTests
         public Mock<IFileStorage> Storage { get; } = new();
         public Mock<IAppointmentRepository> Appointments { get; } = new();
         public Mock<ICurrentClinicResolver> Resolver { get; } = new();
+        public Mock<IClinicContext> ClinicContext { get; } = new();
+        public Mock<IDoctorRepository> Doctors { get; } = new();
+        public Mock<IClinicRepository> Clinics { get; } = new();
         public Mock<INotificationGenerator> Generator { get; } = new();
         public Mock<IRealtimeNotifier> Realtime { get; } = new();
         public Mock<IUnitOfWork> Uow { get; } = new();
@@ -101,7 +104,8 @@ public class PostVisitReviewCompletionTests
 
         public CreateMedicalDocumentCommandHandler Handler() =>
             new(Docs.Object, Patients.Object, Folders.Object, Files.Object, Storage.Object,
-                Appointments.Object, Resolver.Object, Generator.Object, Realtime.Object, Uow.Object,
+                Appointments.Object, Resolver.Object, ClinicContext.Object, Doctors.Object, Clinics.Object,
+                Generator.Object, Realtime.Object, Uow.Object,
                 NullLogger<CreateMedicalDocumentCommandHandler>.Instance);
 
         public CreateMedicalDocumentCommand Command(Guid? appointmentId) => new()

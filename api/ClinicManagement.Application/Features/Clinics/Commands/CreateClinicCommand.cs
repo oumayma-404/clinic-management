@@ -12,6 +12,7 @@ public class CreateClinicCommand : IRequest<Result<ClinicDto>>
 {
     public string Name { get; set; } = string.Empty;
     public string? Address { get; set; }
+    public string? City { get; set; }
     public string? Phone { get; set; }
     public string? Email { get; set; }
     public bool GenerateCode { get; set; } = true;
@@ -136,7 +137,8 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
                 request.Address,
                 request.Phone,
                 request.Email,
-                clinicCode);
+                clinicCode,
+                request.City);
 
             await _clinicRepository.AddAsync(clinic, cancellationToken);
 
@@ -150,8 +152,8 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
                     logoPath,
                     cancellationToken);
                 
-                // Update clinic with logo URL
-                clinic.Update(clinic.Name, clinic.Address, clinic.Phone, clinic.Email, logoUrl);
+                // Update clinic with logo URL (preserve the city already set on the clinic)
+                clinic.Update(clinic.Name, clinic.Address, clinic.Phone, clinic.Email, logoUrl, clinic.City);
             }
 
             // Determine user role: if doctor, use "doctor", otherwise use "secretary"
@@ -232,6 +234,7 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
                 Id = clinic.Id,
                 Name = clinic.Name,
                 Address = clinic.Address,
+                City = clinic.City,
                 Phone = clinic.Phone,
                 Email = clinic.Email,
                 Code = clinic.Code,
@@ -286,7 +289,8 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
             request.Address,
             request.Phone,
             request.Email,
-            code);
+            code,
+            request.City);
         await _clinicRepository.AddAsync(clinic, cancellationToken);
 
         var passwordHash = _localAuthService.HashPassword(request.Password);

@@ -327,6 +327,7 @@ export function DocumentEditorContent() {
   const [clinicInfo, setClinicInfo] = useState<{
     name: string
     address: string
+    city: string
     phone: string
     email: string
   } | null>(null)
@@ -342,6 +343,7 @@ export function DocumentEditorContent() {
           setClinicInfo({
             name: status.clinic.name || "",
             address: status.clinic.address || "",
+            city: status.clinic.city || "",
             phone: status.clinic.phone || "",
             email: status.clinic.email || "",
           })
@@ -363,6 +365,7 @@ export function DocumentEditorContent() {
     doctorSpecialty: selectedDoctor?.specialty || "[Spécialité]",
     clinicName: clinicInfo?.name || "[Nom du cabinet]",
     clinicAddress: clinicInfo?.address || "[Adresse]",
+    clinicCity: clinicInfo?.city || "",
     clinicPhone: clinicInfo?.phone || "[Téléphone]",
     clinicEmail: clinicInfo?.email || "",
   }
@@ -838,7 +841,7 @@ export function DocumentEditorContent() {
       // Date
       paragraphs.push(
         new Paragraph({
-          text: `Paris, le ${format(new Date(formFields.date), "dd MMMM yyyy", { locale: fr })}`,
+          text: `${formData.clinicCity ? `${formData.clinicCity}, le` : "Le"} ${format(new Date(formFields.date), "dd MMMM yyyy", { locale: fr })}`,
           alignment: AlignmentType.RIGHT,
         }),
         new Paragraph({ text: "" })
@@ -1950,7 +1953,7 @@ export function DocumentEditorContent() {
             <div className="mb-6 flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Aperçu du document</p>
-                <p className="text-xs text-muted-foreground mt-1">Cliquez sur le texte pour modifier directement</p>
+                <p className="text-xs text-muted-foreground mt-1">Aperçu en lecture seule — modifiez via le formulaire</p>
               </div>
               <div className="text-sm text-muted-foreground">Format A4</div>
             </div>
@@ -1962,32 +1965,24 @@ export function DocumentEditorContent() {
                   <h1
                     className="font-bold text-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-300 rounded px-1"
                     style={{ fontSize: '14pt' }}
-                    contentEditable
-                    suppressContentEditableWarning
                   >
                     {formData.clinicName}
                   </h1>
                   <p
                     className="text-muted-foreground focus:outline-none focus:ring-2 focus:ring-blue-300 rounded px-1"
                     style={{ fontSize: '11pt' }}
-                    contentEditable
-                    suppressContentEditableWarning
                   >
                     {formData.clinicAddress}
                   </p>
                   <p
                     className="text-muted-foreground focus:outline-none focus:ring-2 focus:ring-blue-300 rounded px-1"
                     style={{ fontSize: '11pt' }}
-                    contentEditable
-                    suppressContentEditableWarning
                   >
                     Tél: {formData.clinicPhone}
                   </p>
                   <p
                     className="font-bold focus:outline-none focus:ring-2 focus:ring-blue-300 rounded px-1"
                     style={{ fontSize: '11pt' }}
-                    contentEditable
-                    suppressContentEditableWarning
                   >
                     {formData.doctorName} - {formData.doctorSpecialty}
                   </p>
@@ -1998,9 +1993,7 @@ export function DocumentEditorContent() {
                   <div className="space-y-1 py-3 px-3">
                     <p style={{ fontSize: '11pt' }}>À l'attention de:</p>
                     <div
-                      className="focus:outline-none focus:ring-2 focus:ring-blue-300 rounded px-1"
-                      contentEditable
-                      suppressContentEditableWarning
+                      className="rounded px-1"
                     >
                       {recipientDoctorName ? (
                         <>
@@ -2021,10 +2014,8 @@ export function DocumentEditorContent() {
                   <p
                     className="focus:outline-none focus:ring-2 focus:ring-blue-300 rounded px-1 inline-block"
                     style={{ fontSize: '11pt' }}
-                    contentEditable
-                    suppressContentEditableWarning
                   >
-                    Paris, le{" "}
+                    {formData.clinicCity ? `${formData.clinicCity}, le ` : "Le "}
                     {new Date(formFields.date).toLocaleDateString("fr-FR", {
                       day: "numeric",
                       month: "long",
@@ -2046,8 +2037,6 @@ export function DocumentEditorContent() {
                       <p
                         className="font-bold focus:outline-none focus:ring-2 focus:ring-blue-300 rounded px-1"
                         style={{ fontSize: '12pt' }}
-                        contentEditable
-                        suppressContentEditableWarning
                       >
                         {patientData ? getPatientName(patientData) : "Sélectionnez un patient"}
                       </p>
@@ -2058,8 +2047,6 @@ export function DocumentEditorContent() {
                         <p
                           className="focus:outline-none focus:ring-2 focus:ring-blue-300 rounded px-1"
                           style={{ fontSize: '12pt' }}
-                          contentEditable
-                          suppressContentEditableWarning
                         >
                           {new Date(patientData.dateOfBirth).toLocaleDateString("fr-FR", {
                             day: "2-digit",
@@ -2186,16 +2173,12 @@ export function DocumentEditorContent() {
                     <p
                       className="font-bold focus:outline-none focus:ring-2 focus:ring-blue-300 rounded px-1"
                       style={{ fontSize: '12pt' }}
-                      contentEditable
-                      suppressContentEditableWarning
                     >
                       {formData.doctorName}
                     </p>
                     <p
                       className="text-muted-foreground focus:outline-none focus:ring-2 focus:ring-blue-300 rounded px-1"
                       style={{ fontSize: '10pt' }}
-                      contentEditable
-                      suppressContentEditableWarning
                     >
                       {formData.doctorSpecialty}
                     </p>

@@ -267,6 +267,23 @@ public class MedicalDocumentsController : ApiControllerBase
     {
         try
         {
+            // Part C (FR-3.2/FR-3.3/FR-6.1): overlay the authoritative practitioner cachet + CNOMDT ordre and
+            // the cabinet city server-side. The frontend cannot supply the cachet storage key, so resolve it
+            // here — keeping this immediate download identical to the stored PDF (which the background job
+            // renders from the ContentJson snapshot). Best-effort: a resolution failure just renders without.
+            var snapshotResult = await _mediator.Send(new GetPractitionerRenderSnapshotQuery(), cancellationToken);
+            if (snapshotResult.IsSuccess && snapshotResult.Value != null)
+            {
+                var snap = snapshotResult.Value;
+                if (!string.IsNullOrWhiteSpace(snap.ClinicCity)) documentData.ClinicCity = snap.ClinicCity;
+                if (!string.IsNullOrWhiteSpace(snap.DoctorOrdreNumber)) documentData.DoctorOrdreNumber = snap.DoctorOrdreNumber;
+                if (!string.IsNullOrWhiteSpace(snap.DoctorCachetKey))
+                {
+                    documentData.DoctorCachetKey = snap.DoctorCachetKey;
+                    documentData.DoctorCachetContentType = snap.DoctorCachetContentType;
+                }
+            }
+
             var pdfService = HttpContext.RequestServices.GetRequiredService<ClinicManagement.Application.Common.Interfaces.IPdfGenerationService>();
             var pdfBytes = await pdfService.GeneratePdfFromDocumentDataAsync(documentData, cancellationToken);
             

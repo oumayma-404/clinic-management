@@ -11,6 +11,7 @@ public class UpdateClinicCommand : IRequest<Result<ClinicDto>>
 {
     public string Name { get; set; } = string.Empty;
     public string? Address { get; set; }
+    public string? City { get; set; }
     public string? Phone { get; set; }
     public string? Email { get; set; }
     public Stream? LogoFile { get; set; }
@@ -127,7 +128,8 @@ public class UpdateClinicCommandHandler : IRequestHandler<UpdateClinicCommand, R
                     request.Address,
                     request.Phone,
                     request.Email,
-                    logoUrl);
+                    logoUrl,
+                    request.City ?? clinic.City);
 
                 // Billing settings: apply provided values, keeping the current value where a field is null.
                 clinic.SetBillingSettings(
@@ -164,6 +166,7 @@ public class UpdateClinicCommandHandler : IRequestHandler<UpdateClinicCommand, R
                 Id = clinic.Id,
                 Name = clinic.Name,
                 Address = clinic.Address,
+                City = clinic.City,
                 Phone = clinic.Phone,
                 Email = clinic.Email,
                 Code = clinic.Code,

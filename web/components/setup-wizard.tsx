@@ -200,6 +200,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
           fullName: adminFullName.trim(),
           phone: phone || undefined,
           address: fullAddress || undefined,
+          city: governorate || undefined,
         })
         window.location.href = "/login"
         return
@@ -208,6 +209,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
       const clinicData: CreateClinicRequest & { logoFile?: File } = {
         name: clinicName,
         address: fullAddress,
+        city: governorate || undefined,
         phone: phone,
         email: email,
         generateCode: true,

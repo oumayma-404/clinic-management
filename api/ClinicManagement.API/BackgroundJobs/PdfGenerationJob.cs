@@ -1,5 +1,6 @@
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.Features.Documents;
 using ClinicManagement.Application.Features.Documents.Commands;
 using ClinicManagement.Application.Features.Documents.Queries;
 using MediatR;
@@ -48,6 +49,13 @@ public class PdfGenerationJob
             var content = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(document.ContentJson) 
                 ?? new Dictionary<string, JsonElement>();
 
+            // Flatten to string values once, then reuse for both the content dict and the snapshot fields.
+            var contentStrings = content.ToDictionary(
+                kvp => kvp.Key,
+                kvp => kvp.Value.ValueKind == JsonValueKind.String
+                    ? kvp.Value.GetString() ?? ""
+                    : JsonSerializer.Serialize(kvp.Value)); // Properly serialize JSON arrays/objects to string
+
             // Build PDF data from document
             var pdfData = new MedicalDocumentPdfData
             {
@@ -62,11 +70,13 @@ public class PdfGenerationJob
                 DoctorSpecialty = document.DoctorSpecialty,
                 RecipientDoctorName = document.RecipientDoctorName,
                 RecipientDoctorSpecialty = document.RecipientDoctorSpecialty,
-                Content = content.ToDictionary(
-                    kvp => kvp.Key,
-                    kvp => kvp.Value.ValueKind == JsonValueKind.String 
-                        ? kvp.Value.GetString() ?? "" 
-                        : JsonSerializer.Serialize(kvp.Value)) // Properly serialize JSON arrays/objects to string
+                // Part C (FR-3.3 / FR-6.1): the cachet/ordre/city snapshotted at creation, read from
+                // ContentJson so this unauthenticated job renders them without a live doctor/clinic lookup.
+                ClinicCity = contentStrings.GetValueOrDefault(PractitionerRenderSnapshot.ClinicCityKey),
+                DoctorOrdreNumber = contentStrings.GetValueOrDefault(PractitionerRenderSnapshot.DoctorOrdreNumberKey),
+                DoctorCachetKey = contentStrings.GetValueOrDefault(PractitionerRenderSnapshot.DoctorCachetKeyKey),
+                DoctorCachetContentType = contentStrings.GetValueOrDefault(PractitionerRenderSnapshot.DoctorCachetContentTypeKey),
+                Content = contentStrings
             };
 
             // Generate PDF from structured data

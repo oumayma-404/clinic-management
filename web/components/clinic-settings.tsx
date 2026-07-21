@@ -307,6 +307,8 @@ export default function ClinicSettings() {
       const updatedClinic = await clinicsApi.update({
         name: clinicName,
         address: fullAddress,
+        // The governorate is the cabinet city printed on generated documents ("{ville}, le …", FR-6.1).
+        city: governorate || "",
         phone: phone,
         email: email,
         logoFile: logoFile || undefined,

@@ -6,6 +6,9 @@ public class Clinic : AggregateRoot<Guid>
 {
     public string Name { get; private set; }
     public string? Address { get; private set; }
+    // Cabinet city (e.g. "Tunis"). Prints as the place on generated clinical documents ("{City}, le …",
+    // FR-6.1) — a first-class field rather than a value parsed from the free-text Address.
+    public string? City { get; private set; }
     public string? Phone { get; private set; }
     public string? Email { get; private set; }
     public string? Code { get; private set; } // Unique code for joining clinic
@@ -49,11 +52,13 @@ public class Clinic : AggregateRoot<Guid>
         string? address = null,
         string? phone = null,
         string? email = null,
-        string? code = null)
+        string? code = null,
+        string? city = null)
     {
         Id = id;
         Name = name;
         Address = address;
+        City = string.IsNullOrWhiteSpace(city) ? null : city.Trim();
         Phone = phone;
         Email = email;
         Code = code;
@@ -67,10 +72,11 @@ public class Clinic : AggregateRoot<Guid>
         CreatedAt = DateTime.UtcNow;
     }
 
-    public void Update(string name, string? address = null, string? phone = null, string? email = null, string? logoUrl = null)
+    public void Update(string name, string? address = null, string? phone = null, string? email = null, string? logoUrl = null, string? city = null)
     {
         Name = name;
         Address = address;
+        City = string.IsNullOrWhiteSpace(city) ? null : city.Trim();
         Phone = phone;
         Email = email;
         LogoUrl = logoUrl;

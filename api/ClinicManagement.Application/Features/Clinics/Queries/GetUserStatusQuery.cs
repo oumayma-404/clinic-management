@@ -90,6 +90,7 @@ public class GetUserStatusQueryHandler : IRequestHandler<GetUserStatusQuery, Res
                     Id = clinic.Id,
                     Name = clinic.Name,
                     Address = clinic.Address,
+                    City = clinic.City,
                     Phone = clinic.Phone,
                     Email = clinic.Email,
                     Code = clinic.Code,

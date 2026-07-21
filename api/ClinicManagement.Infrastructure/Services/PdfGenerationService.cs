@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
+using System.Globalization;
 using System.Text.Json;
 
 namespace ClinicManagement.Infrastructure.Services;
@@ -14,12 +15,18 @@ public class PdfGenerationService : IPdfGenerationService
     // renderer used by every other document type.
     private const string BulletinCnamType = "bulletin-cnam";
 
+    // Documents are Tunisian: French month names + TND formatting come from a fixed fr-FR culture, never
+    // the ambient thread culture (which may be invariant/en in the background PDF job).
+    private static readonly CultureInfo FrCulture = CultureInfo.GetCultureInfo("fr-FR");
+
     private readonly ILogger<PdfGenerationService> _logger;
+    private readonly IFileStorage _fileStorage;
     private readonly CnamBs1BulletinRenderer _bs1Renderer;
 
-    public PdfGenerationService(ILogger<PdfGenerationService> logger)
+    public PdfGenerationService(ILogger<PdfGenerationService> logger, IFileStorage fileStorage)
     {
         _logger = logger;
+        _fileStorage = fileStorage;
         // Pass the logger so the BS1 renderer can surface a Warning when it silently drops malformed acts.
         _bs1Renderer = new CnamBs1BulletinRenderer(logger);
         // Set QuestPDF license (free for non-commercial use, or use your license key)
@@ -39,6 +46,10 @@ public class PdfGenerationService : IPdfGenerationService
                 _logger.LogInformation("BS1 bulletin PDF generated successfully, size: {Size} bytes", bulletinBytes.Length);
                 return bulletinBytes;
             }
+
+            // FR-3.2: load the practitioner cachet blob (if snapshotted) before entering the sync render.
+            // A missing/deleted blob or any storage error falls back to the plain signature line — never fails.
+            var cachetImage = await LoadCachetImageAsync(documentData, cancellationToken);
 
             var pdfBytes = await Task.Run(() =>
             {
@@ -67,8 +78,13 @@ public class PdfGenerationService : IPdfGenerationService
                                     column.Item().Element(ComposeRecipient(documentData));
                                 }
 
-                                // Date
-                                column.Item().PaddingBottom(10).AlignRight().Text($"Paris, le {documentData.DocumentDate:dd MMMM yyyy}")
+                                // Place + date (FR-6.1): the cabinet city (never a hardcoded "Paris"), with
+                                // French month names forced via fr-FR. Falls back to "Le …" when no city is set.
+                                var dateStr = documentData.DocumentDate.ToString("dd MMMM yyyy", FrCulture);
+                                var placeLine = !string.IsNullOrWhiteSpace(documentData.ClinicCity)
+                                    ? $"{documentData.ClinicCity}, le {dateStr}"
+                                    : $"Le {dateStr}";
+                                column.Item().PaddingBottom(10).AlignRight().Text(placeLine)
                                     .FontSize(11).FontFamily("Helvetica");
 
                                 // Document Title
@@ -87,7 +103,7 @@ public class PdfGenerationService : IPdfGenerationService
                         // Footer - Signature always at bottom of page
                         page.Footer()
                             .PaddingTop(40)
-                            .Element(ComposeSignature(documentData));
+                            .Element(ComposeSignature(documentData, cachetImage));
                     });
                 }).GeneratePdf();
             }, cancellationToken);
@@ -438,7 +454,7 @@ public class PdfGenerationService : IPdfGenerationService
         };
     }
 
-    private Action<IContainer> ComposeSignature(MedicalDocumentPdfData data)
+    private Action<IContainer> ComposeSignature(MedicalDocumentPdfData data, byte[]? cachetImage)
     {
         return container =>
         {
@@ -451,11 +467,40 @@ public class PdfGenerationService : IPdfGenerationService
                 });
                 row.RelativeItem().AlignRight().Column(col =>
                 {
+                    // FR-3.2: render the practitioner cachet when present; otherwise the plain line above
+                    // stands in as the empty signature area (no error).
+                    if (cachetImage != null && cachetImage.Length > 0)
+                    {
+                        col.Item().AlignRight().Height(70).Image(cachetImage).FitHeight();
+                    }
                     col.Item().Text(data.DoctorName).FontSize(12).Bold().FontFamily("Helvetica");
                     col.Item().Text(data.DoctorSpecialty).FontSize(10).FontColor(Colors.Grey.Darken2).FontFamily("Helvetica");
                 });
             });
         };
+    }
+
+    // FR-3.2 / edge cases: fetch the snapshotted cachet blob. Returns null (→ plain signature line) when no
+    // cachet key is snapshotted or the blob is missing/unreadable at render time — never throws.
+    private async Task<byte[]?> LoadCachetImageAsync(MedicalDocumentPdfData data, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(data.DoctorCachetKey))
+        {
+            return null;
+        }
+
+        try
+        {
+            await using var stream = await _fileStorage.DownloadAsync(data.DoctorCachetKey, cancellationToken);
+            using var memory = new MemoryStream();
+            await stream.CopyToAsync(memory, cancellationToken);
+            return memory.Length > 0 ? memory.ToArray() : null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Cachet blob {Key} could not be read; rendering the plain signature line", data.DoctorCachetKey);
+            return null;
+        }
     }
 
     private decimal ParseAmount(string amountStr)

@@ -1,0 +1,73 @@
+using MediatR;
+using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Domain.Repositories;
+
+namespace ClinicManagement.Application.Features.Documents.Queries;
+
+/// <summary>
+/// Resolves the current practitioner's cachet + CNOMDT ordre and the cabinet city for the immediate
+/// "Download" PDF path (Part C, FR-3.2/FR-3.3/FR-6.1). The download endpoint builds its render model on the
+/// frontend, which cannot know the server-side cachet storage key — so the controller overlays these
+/// authoritative values before rendering, keeping the downloaded copy identical to the stored one (which
+/// the background job renders from the ContentJson snapshot).
+/// </summary>
+public class GetPractitionerRenderSnapshotQuery : IRequest<Result<PractitionerRenderSnapshotDto>>
+{
+}
+
+public class PractitionerRenderSnapshotDto
+{
+    public string? ClinicCity { get; set; }
+    public string? DoctorOrdreNumber { get; set; }
+    public string? DoctorCachetKey { get; set; }
+    public string? DoctorCachetContentType { get; set; }
+}
+
+public class GetPractitionerRenderSnapshotQueryHandler
+    : IRequestHandler<GetPractitionerRenderSnapshotQuery, Result<PractitionerRenderSnapshotDto>>
+{
+    private readonly IUserRepository _userRepository;
+    private readonly IDoctorRepository _doctorRepository;
+    private readonly IClinicRepository _clinicRepository;
+    private readonly IClinicContext _clinicContext;
+
+    public GetPractitionerRenderSnapshotQueryHandler(
+        IUserRepository userRepository,
+        IDoctorRepository doctorRepository,
+        IClinicRepository clinicRepository,
+        IClinicContext clinicContext)
+    {
+        _userRepository = userRepository;
+        _doctorRepository = doctorRepository;
+        _clinicRepository = clinicRepository;
+        _clinicContext = clinicContext;
+    }
+
+    public async Task<Result<PractitionerRenderSnapshotDto>> Handle(
+        GetPractitionerRenderSnapshotQuery request, CancellationToken cancellationToken)
+    {
+        var userId = _clinicContext.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+        {
+            return Result<PractitionerRenderSnapshotDto>.Failure("Utilisateur non authentifié.");
+        }
+
+        var user = await _userRepository.GetByAuth0SubAsync(userId, cancellationToken);
+        if (user == null)
+        {
+            return Result<PractitionerRenderSnapshotDto>.Failure("Utilisateur introuvable.");
+        }
+
+        var snapshot = await PractitionerRenderSnapshot.ResolveAsync(
+            userId, user.ClinicId, _doctorRepository, _clinicRepository, cancellationToken);
+
+        return Result<PractitionerRenderSnapshotDto>.Success(new PractitionerRenderSnapshotDto
+        {
+            ClinicCity = snapshot.ClinicCity,
+            DoctorOrdreNumber = snapshot.DoctorOrdreNumber,
+            DoctorCachetKey = snapshot.DoctorCachetKey,
+            DoctorCachetContentType = snapshot.DoctorCachetContentType
+        });
+    }
+}

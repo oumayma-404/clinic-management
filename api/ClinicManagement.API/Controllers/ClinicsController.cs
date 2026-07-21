@@ -50,6 +50,7 @@ public class ClinicsController : ApiControllerBase
         string? logoContentType = null;
         string name;
         string? address;
+        string? city;
         string? phone;
         string? email;
         bool generateCode;
@@ -63,6 +64,7 @@ public class ClinicsController : ApiControllerBase
             
             name = formRequest["name"].ToString();
             address = formRequest["address"].ToString();
+            city = formRequest["city"].ToString();
             phone = formRequest["phone"].ToString();
             email = formRequest["email"].ToString();
             generateCode = formRequest["generateCode"].ToString().ToLowerInvariant() == "true";
@@ -105,6 +107,7 @@ public class ClinicsController : ApiControllerBase
             
             name = bodyRequest.Name;
             address = bodyRequest.Address;
+            city = bodyRequest.City;
             phone = bodyRequest.Phone;
             email = bodyRequest.Email;
             generateCode = bodyRequest.GenerateCode;
@@ -116,6 +119,7 @@ public class ClinicsController : ApiControllerBase
         {
             Name = name,
             Address = address,
+            City = city,
             Phone = phone,
             Email = email,
             GenerateCode = generateCode,
@@ -189,6 +193,7 @@ public class ClinicsController : ApiControllerBase
         {
             Name = request.Name,
             Address = request.Address,
+            City = request.City,
             Phone = request.Phone,
             Email = request.Email,
             LogoFile = request.Logo?.OpenReadStream(),

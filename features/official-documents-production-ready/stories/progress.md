@@ -14,7 +14,7 @@
 |------|----------|-----------|--------|
 | A | Honoraires → invoice + `bulletin-cnam` filename fix | — | implemented (editor dead-code excision deferred — see DEV-1) |
 | B | Per-doctor cachet & CNOMDT ordre + Mon profil | — | implemented (admin settings-card UI deferred — see DEV-2) |
-| C | Doc snapshot + localization ("Paris"→city) + cachet render + non-editable preview | B | not-started |
+| C | Doc snapshot + localization ("Paris"→city) + cachet render + non-editable preview | B | implemented (adds `Clinic.City` — see DEV-3; liaison write-back box left for Part E per FR-6.3 — see DEV-4) |
 | D | Certificat correctness (objet/motif, mention, CNOMDT, no data loss) | C | not-started |
 | E | Structured lettre de liaison | C | not-started |
 | F1 | CNAM catalog + admin screen | — | not-started |
@@ -36,7 +36,32 @@
   - Tests: `DoctorEntityTests` (DOC-1..3, 10 cases) + `DoctorCachetTests` (CACHET-1..5, own-or-admin) — **16/16 pass**; `ControllerAuthorizationCoverageTests` + `GetUserStatus` unaffected (25/25 in the combined run).
   - Quality gates: `dotnet build` 0 errors; **pre-existing warning baseline unchanged** — the ~50 solution warnings are all CS8618 EF-ctor / CS860x nullable-deref / CS0618 / CS8981 in pre-existing files (every entity's private EF ctor, existing controllers/services, old migrations), NONE in the files this part added/changed; my new nullable properties add zero warnings, and fixing the codebase-wide baseline is out of this feature's scope. `tsc` clean; `next build` clean (`/mon-profil` static).
 
+## Session log (Part C)
+- 2026-07-21: **Part C implemented** (FR-3.2/FR-3.3 cachet snapshot+render, FR-6.1 city/TND localization, FR-6.3 non-editable preview).
+  - **`Clinic.City`** (DEV-3, user-directed): `Clinic` entity (`City` + ctor/`Update`) + `ClinicConfiguration` + migration `20260721100408_AddClinicCity` (one nullable column); `ClinicDto`/`CreateClinicRequest`(both API + Application)/`UpdateClinicRequest`/`SetupRequest` + `CreateClinicCommand`/`UpdateClinicCommand`/`AuthController.Setup` + `GetUserStatusQuery` projection. FE: `clinics.ts` (`ClinicDto`/`create`/`update`/`setup` + FormData), `setup-wizard`/`clinic-settings` send `city = governorate` (the Tunisian governorate is the cabinet city), `document-editor` reads `status.clinic.city`.
+  - **Snapshot** (FR-3.3): new `PractitionerRenderSnapshot` helper (shared ContentJson key constants + null-safe resolver); `CreateMedicalDocumentCommand` (now injects `IClinicContext`/`IDoctorRepository`/`IClinicRepository`) merges `clinicCity`/`doctorOrdreNumber`/`doctorCachetKey`/`doctorCachetContentType` into ContentJson at create — best-effort, never fails creation. `MedicalDocumentPdfData` gains the 4 fields; `PdfGenerationJob` reads them from ContentJson; the download endpoint overlays them server-side via new `GetPractitionerRenderSnapshotQuery` (frontend can't know the cachet key).
+  - **Render** (FR-3.2/FR-6.1): `PdfGenerationService` injects `IFileStorage`; place line is now `{City}, le {date}` (fr-FR month names, never "Paris"; `Le {date}` when no city); `ComposeSignature` draws the cachet image (blob fetched via `IFileStorage`, plain-line fallback on missing/error — never throws).
+  - **Preview** (FR-6.3): all display spans in `document-editor-content.tsx` made non-editable (dropped `contentEditable`/`suppressContentEditableWarning`), header now "Aperçu en lecture seule…"; Word export + preview place line use the city. **Liaison free-text write-back box intentionally kept** (DEV-4).
+  - Tests: `CertificatContentTests` (CERT-5, 5 cases) + `GenericDocumentRenderTests` (REND-3..6, 9 cases); updated the 2 handler-construction sites (`DocumentTypeAndFilenameTests`, `PostVisitReviewCompletionTests`) for the new ctor. **Full suite 465/465 pass.**
+  - Quality gates: `dotnet build` 0 errors (warnings are the pre-existing baseline — none in changed files, verified via `--no-incremental`); `tsc --noEmit` clean; `next build` clean.
+
 ## Deviations
+
+### DEV-4: Liaison free-text write-back preview box kept in Part C (removed in Part E)
+**Date:** 2026-07-21 · **Story:** 1 / Part C · **Category:** Scope
+**Original Plan:** Part C step 4 "make the preview card non-editable — drop `contentEditable`/`suppressContentEditableWarning` on preview spans."
+**Actual Implementation:** All **display** spans (letterhead, place/date, patient, DOB, doctor name/specialty, recipient block) were made non-editable. The one remaining `contentEditable` — the liaison **free-text content box** with an `onBlur` write-back (`formFields.content`) — was left in place.
+**Justification:** FR-6.3 itself scopes this: "The one preview field that currently writes back — the liaison content box — is superseded by FR-4's structured fields." That box is today the **only** way to enter liaison body text; removing it in Part C (before Part E adds the structured liaison form) would strand liaison content entry and ship a broken state. Part E replaces it with the guided structured fields and removes the write-back then.
+**Impact:** Preview is fully read-only for every document type except the liaison content box, which remains editable until Part E. No data loss (the display spans never wrote back anyway).
+**Approved:** Yes (matches FR-6.3's explicit carve-out)
+
+### DEV-3: Part C adds a real `Clinic.City` column (+ migration + clinic CRUD/UI) instead of deriving the city from the free-text address
+**Date:** 2026-07-21 · **Story:** 1 / Part C · **Category:** Scope / Technical
+**Original Plan:** FR-6.1 says the document place line ("{ville}, le …") is "derived from clinic data"; the plan explicitly listed only **two** migrations (`AddDoctorCachetAndOrdre`, `AddCnamCatalog`) and no `Clinic` schema change, implying the city would be parsed/derived from the existing free-text `Clinic.Address`.
+**Actual Implementation:** Per the user's explicit instruction ("add city field to clinic"), Part C adds a first-class nullable `Clinic.City` column: `Clinic` entity (`City` + threaded through ctor/`Update`), `ClinicConfiguration`, a **third** migration `AddClinicCity` (one nullable column, additive/safe), `ClinicDto` + create/update requests + `CreateClinicCommand`/`UpdateClinicCommand` + `GetUserStatusQuery` projection, and the FE surfaces to edit it (clinic-settings, setup-wizard) + read it (types.ts). The document create command then **snapshots the authoritative `Clinic.City`** (server-side, alongside the doctor cachet/ordre) into `ContentJson`, and the renderer prints `{city}, le {date}` (never "Paris").
+**Justification:** A dedicated field is authoritative and reliable; deriving a city from a free-text address is fuzzy and error-prone on legal documents. User explicitly chose this. The extra migration is additive (nullable column, no data touched) and safe for existing Cloud/Local DBs.
+**Impact:** +1 migration (3 total for the feature, not 2). Clinic create/update/settings/setup surfaces gain an optional Ville field. No breaking change (nullable; empty city → renderer prints "Le {date}" with no place). Cloud unchanged in behavior.
+**Approved:** Yes (user-directed)
 
 ### DEV-2: Admin "manage another doctor's cachet/ordre" UI (Settings → Médecins card) deferred; backend capability delivered
 **Date:** 2026-07-21 · **Story:** 1 / Part B · **Category:** Scope

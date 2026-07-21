@@ -96,6 +96,7 @@ public class AuthController : ApiControllerBase
             FullName = request.FullName,
             Phone = request.Phone,
             Address = request.Address,
+            City = request.City,
             Role = "admin",
             GenerateCode = true
         };

@@ -7,6 +7,7 @@ using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Domain.Enums;
 using System.Text.RegularExpressions;
+using System.Text.Json.Nodes;
 
 namespace ClinicManagement.Application.Features.Documents.Commands;
 
@@ -36,6 +37,9 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
     private readonly IFileStorage _fileStorage;
     private readonly IAppointmentRepository _appointmentRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
+    private readonly IClinicContext _clinicContext;
+    private readonly IDoctorRepository _doctorRepository;
+    private readonly IClinicRepository _clinicRepository;
     private readonly INotificationGenerator _notificationGenerator;
     private readonly IRealtimeNotifier _realtimeNotifier;
     private readonly IUnitOfWork _unitOfWork;
@@ -49,6 +53,9 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
         IFileStorage fileStorage,
         IAppointmentRepository appointmentRepository,
         ICurrentClinicResolver clinicResolver,
+        IClinicContext clinicContext,
+        IDoctorRepository doctorRepository,
+        IClinicRepository clinicRepository,
         INotificationGenerator notificationGenerator,
         IRealtimeNotifier realtimeNotifier,
         IUnitOfWork unitOfWork,
@@ -61,6 +68,9 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
         _fileStorage = fileStorage;
         _appointmentRepository = appointmentRepository;
         _clinicResolver = clinicResolver;
+        _clinicContext = clinicContext;
+        _doctorRepository = doctorRepository;
+        _clinicRepository = clinicRepository;
         _notificationGenerator = notificationGenerator;
         _realtimeNotifier = realtimeNotifier;
         _unitOfWork = unitOfWork;
@@ -171,6 +181,12 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
                 }
             }
 
+            // FR-3.3 / FR-6.1: snapshot the issuing practitioner's cachet + CNOMDT ordre and the cabinet
+            // city into ContentJson at creation, so the unauthenticated background PDF job can render them
+            // without a live doctor/clinic lookup. Best-effort: a resolution problem must never fail the
+            // document creation — the document simply carries no snapshot (renderer falls back cleanly).
+            var contentJson = await SnapshotPractitionerAndClinicAsync(request.ContentJson, cancellationToken);
+
             var document = new MedicalDocument(
                 Guid.NewGuid(),
                 request.PatientId,
@@ -178,7 +194,7 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
                 request.DocumentDate,
                 patientName,
                 patientAge,
-                request.ContentJson,
+                contentJson,
                 request.ClinicName,
                 request.ClinicAddress,
                 request.ClinicPhone,
@@ -269,6 +285,55 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
         catch (Exception ex)
         {
             _logger.LogError(ex, "Post-visit completion side-effect failed for appointment {AppointmentId}", appointmentId);
+        }
+    }
+
+    // Merges the current practitioner's cachet/ordre + the cabinet city into the document's ContentJson
+    // (FR-3.3 / FR-6.1). The keys are shared with the renderers via PractitionerRenderSnapshot. Any failure
+    // (unresolved clinic, malformed JSON, missing doctor) falls back to the original ContentJson unchanged —
+    // the snapshot is an enrichment, never a gate on document creation.
+    private async Task<string> SnapshotPractitionerAndClinicAsync(string originalContentJson, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
+            if (clinicResult.IsFailure)
+            {
+                return originalContentJson;
+            }
+
+            var userId = _clinicContext.GetUserId();
+            var snapshot = await PractitionerRenderSnapshot.ResolveAsync(
+                userId, clinicResult.Value, _doctorRepository, _clinicRepository, cancellationToken);
+
+            if (!snapshot.HasAny)
+            {
+                return originalContentJson;
+            }
+
+            var node = JsonNode.Parse(originalContentJson);
+            if (node is not JsonObject content)
+            {
+                return originalContentJson;
+            }
+
+            // Only write present values; the renderer treats absent keys as "no cachet/city" and falls back.
+            if (!string.IsNullOrWhiteSpace(snapshot.ClinicCity))
+                content[PractitionerRenderSnapshot.ClinicCityKey] = snapshot.ClinicCity;
+            if (!string.IsNullOrWhiteSpace(snapshot.DoctorOrdreNumber))
+                content[PractitionerRenderSnapshot.DoctorOrdreNumberKey] = snapshot.DoctorOrdreNumber;
+            if (!string.IsNullOrWhiteSpace(snapshot.DoctorCachetKey))
+            {
+                content[PractitionerRenderSnapshot.DoctorCachetKeyKey] = snapshot.DoctorCachetKey;
+                content[PractitionerRenderSnapshot.DoctorCachetContentTypeKey] = snapshot.DoctorCachetContentType;
+            }
+
+            return content.ToJsonString();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to snapshot practitioner/clinic data onto the document; continuing without it");
+            return originalContentJson;
         }
     }
 
