@@ -7,7 +7,45 @@
 ## Status
 - [x] Implementation
 - [x] Quality checks (dotnet build 0/0, tsc --noEmit clean, next build clean)
-- [ ] Tests (handled by /test-small-feature)
+- [x] Tests (added — see Test Plan + Tests Run below; 39 passed)
+
+## Test Plan
+| AC | Action | Target file | Notes |
+|----|--------|-------------|-------|
+| AC-1 | New test class | UnitTests/Features/Medications/MedicationCrudTests.cs | provisional+active default, ≥1 DCI required, global (no ClinicId), combination DCIs captured |
+| AC-1 | New test class | UnitTests/Infrastructure/Persistence/MedicationCatalogSeedTests.cs | starter seed integrity: every med has brand + ≥1 DCI, ≥1 combination product, deterministic ids, counts match |
+| AC-2 | New test class | UnitTests/Features/Medications/GetMedicationsQueryHandlerTests.cs | filter by brand/DCI/form/strength (case-insensitive), blank=no filter, trims, dcis mapped, IncludeInactive forwarded |
+| AC-3 | New test class | UnitTests/Api/MedicationsControllerAuthorizationTests.cs | mutations require AdminOnly; reads no admin policy; class-level [Authorize]; nothing anonymous |
+| AC-8 | (in CRUD) | MedicationCrudTests.cs | duplicate brand+form+strength rejected with French message |
+
+Coverage notes (no unit-test surface):
+- **AC-4 / AC-5 / AC-6 / AC-7** are frontend-only (admin page + lock card, editor combobox fill, free-text
+  fallback, legacy round-trip). `web/` has no test runner (per LEARNINGS the FE gate is `tsc --noEmit` +
+  `next build`), so these are covered by the green typecheck + production build run at implementation time,
+  not by unit tests.
+- **"Seed rows are provisional" (AC-1)** at the DB level was verified against the live database
+  (`provisional=25`) after the migration applied; the unit tests assert the entity's provisional-by-default
+  invariant + seed integrity.
+
+## Tests Run
+| Suite | Filter | Result |
+|-------|--------|--------|
+| Unit (xUnit) | `FullyQualifiedName~Medication` (4 medication classes) | **39 passed, 0 failed** |
+
+## Test-run environment note
+Two Windows blockers required the documented workaround (per MEMORY `smart-app-control-blocks-tests`):
+Smart App Control blocks `dotnet test` on freshly-built DLLs, and the running API locks the shared `bin`.
+Both were dodged by building the test project to an isolated scratch `OutDir` and running `dotnet vstest`
+on the built DLL.
+
+**Shared UnitTests project is currently RED from concurrent unrelated WIP** — `NotificationJob.cs` and
+`CreateAppointmentCommand.cs` were modified in the working tree *during this session* (parallel
+agents/worktrees; not committed at HEAD, not part of this feature) adding ctor params (`ILogger`,
+`IServiceScopeFactory`) without updating `NotificationJobTests`/`AppointmentTenantIsolationTests`/
+`AppointmentSyncMappingTests`/`NotificationGenerationTests`. To run the medication tests in isolation, those
+4 sibling files were temporarily excluded via a throwaway `Directory.Build.targets` (since deleted — no
+existing file was edited). Those 4 failing tests are NOT this feature's responsibility; whoever owns that
+WIP must update them before the full unit suite compiles.
 
 ## Working tree note (start of session)
 Unrelated changes present at start — EXCLUDE from this feature's commits:
