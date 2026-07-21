@@ -425,29 +425,40 @@ public class PdfGenerationService : IPdfGenerationService
                     // Invoices). The old euro-denominated QuestPDF block is removed; no generic doc renders "€".
 
                     case "certificat":
-                        var doctorOrderNumber = data.Content.GetValueOrDefault("doctorOrderNumber", "");
+                        // FR-2: light generalization — free objet/motif body + optional repos clause. The ordre
+                        // comes from the authoritative profile snapshot (Part C, key doctorOrdreNumber); fall
+                        // back to any legacy typed value for documents created before the snapshot existed.
+                        var objetMotif = data.Content.GetValueOrDefault("objetMotif", "");
                         var startDate = data.Content.GetValueOrDefault("startDate", "");
                         var duration = data.Content.GetValueOrDefault("duration", "");
-                        
-                        // Parse start date if available
-                        string startDateFormatted = "[date]";
+                        var ordreNumber = !string.IsNullOrWhiteSpace(data.DoctorOrdreNumber)
+                            ? data.DoctorOrdreNumber
+                            : data.Content.GetValueOrDefault("doctorOrderNumber", "");
+
+                        string? startDateFormatted = null;
                         if (!string.IsNullOrEmpty(startDate) && DateTime.TryParse(startDate, out var startDateParsed))
                         {
-                            startDateFormatted = startDateParsed.ToString("dd/MM/yyyy");
+                            startDateFormatted = startDateParsed.ToString("dd/MM/yyyy", FrCulture);
                         }
-                        
-                        // Parse patient date of birth
-                        string patientDobFormatted = "[JJ/MM/AAAA]";
+
+                        string? patientDobFormatted = null;
                         var patientDobStr = data.Content.GetValueOrDefault("patientDateOfBirth", "");
                         if (!string.IsNullOrEmpty(patientDobStr) && DateTime.TryParse(patientDobStr, out var patientDobParsed))
                         {
-                            patientDobFormatted = patientDobParsed.ToString("dd/MM/yyyy");
+                            patientDobFormatted = patientDobParsed.ToString("dd/MM/yyyy", FrCulture);
                         }
-                        
-                        // Build cohesive paragraph text
-                        var certificatText = $"Je soussigné(e), Docteur {data.DoctorName}, Docteur en médecine dentaire, Inscrit(e) à l'Ordre des Médecins sous le n° {(!string.IsNullOrEmpty(doctorOrderNumber) ? doctorOrderNumber : "[Numéro]")}, Exerçant à {data.ClinicAddress}, certifie avoir examiné ce jour : Patient(e) : Nom et prénom : {data.PatientName} né(e) le {patientDobFormatted} Et constate que son état de santé : ☐ nécessite un repos médical Pour une durée de : {(!string.IsNullOrEmpty(duration) ? duration : "[X]")} jour{(!string.IsNullOrEmpty(duration) && int.TryParse(duration, out var d) && d > 1 ? "s" : "")} À compter du : {startDateFormatted} Ce certificat est délivré à la demande de l'intéressé(e) pour servir et valoir ce que de droit.";
-                        
-                        column.Item().PaddingVertical(4).Text(certificatText).FontSize(11).FontFamily("Helvetica");
+
+                        var certificat = CertificatTextBuilder.Build(
+                            data.DoctorName, data.DoctorSpecialty, ordreNumber, data.ClinicAddress,
+                            data.PatientName, patientDobFormatted, objetMotif, duration, startDateFormatted);
+
+                        foreach (var paragraph in certificat.BodyParagraphs)
+                        {
+                            column.Item().PaddingVertical(2).Text(paragraph).FontSize(11).FontFamily("Helvetica");
+                        }
+
+                        // FR-2.3: the mandatory deontological mention, above the signature block (the footer).
+                        column.Item().PaddingTop(12).Text(certificat.Mention).FontSize(11).Italic().FontFamily("Helvetica");
                         break;
                 }
             });

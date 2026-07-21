@@ -15,7 +15,7 @@
 | A | Honoraires → invoice + `bulletin-cnam` filename fix | — | implemented (editor dead-code excision deferred — see DEV-1) |
 | B | Per-doctor cachet & CNOMDT ordre + Mon profil | — | implemented (admin settings-card UI deferred — see DEV-2) |
 | C | Doc snapshot + localization ("Paris"→city) + cachet render + non-editable preview | B | implemented (adds `Clinic.City` — see DEV-3; liaison write-back box left for Part E per FR-6.3 — see DEV-4) |
-| D | Certificat correctness (objet/motif, mention, CNOMDT, no data loss) | C | not-started |
+| D | Certificat correctness (objet/motif, mention, CNOMDT, no data loss) | C | implemented |
 | E | Structured lettre de liaison | C | not-started |
 | F1 | CNAM catalog + admin screen | — | not-started |
 | F2 | VLC + reimbursement + bulletin consumes catalog | F1 | not-started |
@@ -44,6 +44,17 @@
   - **Preview** (FR-6.3): all display spans in `document-editor-content.tsx` made non-editable (dropped `contentEditable`/`suppressContentEditableWarning`), header now "Aperçu en lecture seule…"; Word export + preview place line use the city. **Liaison free-text write-back box intentionally kept** (DEV-4).
   - Tests: `CertificatContentTests` (CERT-5, 5 cases) + `GenericDocumentRenderTests` (REND-3..6, 9 cases); updated the 2 handler-construction sites (`DocumentTypeAndFilenameTests`, `PostVisitReviewCompletionTests`) for the new ctor. **Full suite 465/465 pass.**
   - Quality gates: `dotnet build` 0 errors (warnings are the pre-existing baseline — none in changed files, verified via `--no-incremental`); `tsc --noEmit` clean; `next build` clean.
+
+## Session log (Part D)
+- 2026-07-21: **Part D implemented** (FR-2.1–2.5 certificat correctness; fixes the R-2 save-vs-render field mismatch).
+  - **Root cause of the data loss (R-2):** the certificat FE wrote `reason`/`duration`/`notes` in `handleSave` but `doctorOrderNumber`/`startDate`/`duration` in `buildDocumentData` — and the renderer read the latter set. So the objet/motif was never rendered and the ordre/start-date were dropped from the *saved* (background-job) PDF. Also `patientDateOfBirth` was only added on the download path, so the saved certificat's DOB rendered as `[JJ/MM/AAAA]`.
+  - **Unified certificat content schema** (`document-editor-content.tsx`): one shape — `objetMotif` + `doctorOrderNumber` + `startDate` + `duration` (+ `patientDateOfBirth`) — written **identically** by `handleSave` **and** `buildDocumentData`, read back by the load effect, mirrored in `resetForm`. `reason`/`notes` removed (they were certificat-only and never rendered).
+  - **FE form:** objet/motif primary `Textarea`; collapsible `<details>` "Repos médical (optionnel)" wrapping duration + start date (auto-expands when editing a doc that already has repos data, via `reposOpen`); the ordre input is now **disabled/read-only** and **pre-filled from the doctor's profile** (`currentUserDoctor.ordreNumberCnomdt`, FR-2.5) via a fill-if-empty effect (keeps a legacy doc's stored ordre). Label corrected to "Numéro d'ordre (CNOMDT)".
+  - **FE preview + Word export:** both now render from one shared closure `certificatBodyParagraphs()` (+ `formatFrDate`) so the read-only preview, the Word export, and the server PDF read identically — objet/motif body + optional repos sentence + the mandatory mention (`CERTIFICAT_MANDATORY_MENTION`) + the CNOMDT label (`CERTIFICAT_ORDRE_LABEL`). Old hardcoded "Ordre des Médecins" repos template removed.
+  - **BE render** (`PdfGenerationService.cs` + new pure `CertificatTextBuilder`): extracted the certificat text into a deterministic, unit-testable `CertificatTextBuilder.Build(...)` (mandatory mention FR-2.3 above the signature footer; CNOMDT label FR-2.4; free objet/motif; repos clause only when a duration is set). The renderer now prefers the authoritative **profile snapshot** ordre (`data.DoctorOrdreNumber`, Part C key `doctorOrdreNumber`), falling back to the legacy typed `doctorOrderNumber` for pre-snapshot docs. `fr-FR` culture used for the date formats.
+  - **FE type:** added `ordreNumberCnomdt`/`hasCachet` to `DoctorDto` in `clinics.ts` (backend `GetUserStatusQuery` already projects them — Part B).
+  - Tests: new `CertificatTextBuilderTests` (REND-1 mention, REND-2 CNOMDT-not-"Ordre des Médecins", CERT-2 repos omitted, CERT-3 repos rendered, + singular-day + missing-ordre placeholder — 7 cases) and `CertificatContentTests` extended (CERT-1 create round-trip, CERT-4 update round-trip). **Targeted run: CertificatTextBuilder+CertificatContent 13/13, render+doctype+post-visit 30/30 — all pass** (SAC did NOT block `dotnet test --no-build` this session).
+  - Quality gates: `dotnet build` (full, `--no-incremental`) 0 errors; **57 pre-existing warnings, 0 in changed files** (verified via grep over `CertificatTextBuilder`/`PdfGenerationService`/the 3 test files); `tsc --noEmit` clean; `next build` clean.
 
 ## Deviations
 

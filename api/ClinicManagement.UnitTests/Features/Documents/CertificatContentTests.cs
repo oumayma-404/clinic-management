@@ -154,4 +154,69 @@ public class CertificatContentTests
         Assert.False(root.TryGetProperty(PractitionerRenderSnapshot.DoctorCachetKeyKey, out _));
         Assert.Equal("b", root.GetProperty("a").GetString());
     }
+
+    // [CERT-1] the create path persists all four certificat content fields (objet/motif + ordre + start date
+    // + duration) — one consistent schema, no silent drop — alongside the additive practitioner snapshot (FR-2.2).
+    [Fact]
+    public async Task Create_Certificat_Persists_All_Fields_Consistently()
+    {
+        var doctor = DoctorWithCachet("CNOMDT-12345", "cabinet/doctors/x/cachet", "image/png");
+        var h = new Harness(doctor, new Clinic(ClinicId, "Cabinet", city: "Tunis"));
+
+        var result = await h.Handler().Handle(new CreateMedicalDocumentCommand
+        {
+            PatientId = h.PatientId,
+            DocumentType = "certificat",
+            DocumentDate = DateTime.UtcNow,
+            ContentJson = "{\"objetMotif\":\"présence ce jour\",\"doctorOrderNumber\":\"9\"," +
+                          "\"startDate\":\"2026-07-21\",\"duration\":\"3\"}"
+        }, CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        using var doc = JsonDocument.Parse(h.Captured!.ContentJson);
+        var root = doc.RootElement;
+        Assert.Equal("présence ce jour", root.GetProperty("objetMotif").GetString());
+        Assert.Equal("9", root.GetProperty("doctorOrderNumber").GetString());
+        Assert.Equal("2026-07-21", root.GetProperty("startDate").GetString());
+        Assert.Equal("3", root.GetProperty("duration").GetString());
+    }
+
+    // [CERT-4] round-tripping a certificat through the update path keeps all four fields (no silent drop).
+    [Fact]
+    public async Task Update_Certificat_Preserves_All_Fields()
+    {
+        const string content = "{\"objetMotif\":\"soins en cours\",\"doctorOrderNumber\":\"9\"," +
+                               "\"startDate\":\"2026-07-21\",\"duration\":\"5\"}";
+        var document = new MedicalDocument(
+            Guid.NewGuid(), Guid.NewGuid(), "certificat", DateTime.UtcNow, "Jean Dupont", "36 ans",
+            "{}", "Cabinet", "Adresse", "+21671000000", "Dr Alice", "Médecin dentiste",
+            isDraft: false, null, null, null, null);
+
+        var docs = new Mock<IMedicalDocumentRepository>();
+        docs.Setup(r => r.GetByIdAsync(document.Id, It.IsAny<CancellationToken>())).ReturnsAsync(document);
+        var clinicContext = new Mock<IClinicContext>();
+        clinicContext.Setup(c => c.GetUserId()).Returns((string?)null); // background scope → skips clinic check
+        var uow = new Mock<IUnitOfWork>();
+        uow.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
+
+        var handler = new UpdateMedicalDocumentCommandHandler(
+            docs.Object, new Mock<IPatientFolderRepository>().Object, new Mock<IPatientFileRepository>().Object,
+            new Mock<IFileStorage>().Object, clinicContext.Object, new Mock<IUserRepository>().Object,
+            uow.Object, NullLogger<UpdateMedicalDocumentCommandHandler>.Instance);
+
+        var result = await handler.Handle(new UpdateMedicalDocumentCommand
+        {
+            Id = document.Id,
+            DocumentDate = document.DocumentDate,
+            ContentJson = content
+        }, CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        using var doc = JsonDocument.Parse(result.Value!.ContentJson);
+        var root = doc.RootElement;
+        Assert.Equal("soins en cours", root.GetProperty("objetMotif").GetString());
+        Assert.Equal("9", root.GetProperty("doctorOrderNumber").GetString());
+        Assert.Equal("2026-07-21", root.GetProperty("startDate").GetString());
+        Assert.Equal("5", root.GetProperty("duration").GetString());
+    }
 }

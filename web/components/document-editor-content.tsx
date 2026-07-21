@@ -28,6 +28,13 @@ import { toast } from "sonner"
 import { saveAs } from "file-saver"
 import { Document, Packer, Paragraph, HeadingLevel, AlignmentType } from "docx"
 
+// Certificat médical (FR-2). The ordre label (FR-2.4) and the mandatory deontological mention (FR-2.3) —
+// kept in sync with the backend PdfGenerationService/CertificatTextBuilder so the preview, the Word export,
+// and the generated PDF read identically.
+const CERTIFICAT_ORDRE_LABEL = "Ordre National des Médecins Dentistes (CNOMDT)"
+const CERTIFICAT_MANDATORY_MENTION =
+  "Certificat établi à la demande de l'intéressé(e) et remis en main propre."
+
 // Medication Item Component
 function MedicationItem({
   medication,
@@ -293,11 +300,10 @@ export function DocumentEditorContent() {
     content: "", // Single content field for liaison letters
     procedures: [] as Array<{ name: string; cost: number; procedureTypeId?: string }>, // Array of procedures with costs
     totalCost: "",
-    reason: "",
     duration: "",
-    notes: "",
-    doctorOrderNumber: "", // Numéro d'ordre des médecins
-    startDate: "", // Date de début du repos médical
+    doctorOrderNumber: "", // Certificat: CNOMDT ordre (FR-2.5 — pre-filled from the doctor's profile, read-only)
+    startDate: "", // Certificat: repos médical start date (FR-2.1 — optional)
+    objetMotif: "", // Certificat: free objet/motif body (FR-2.1)
   })
   
   const [availableProcedures, setAvailableProcedures] = useState<ProcedureTypeDto[]>([])
@@ -314,6 +320,9 @@ export function DocumentEditorContent() {
   const [dentalRecords, setDentalRecords] = useState<DentalRecordDto[]>([])
   const [cnamNomenclature, setCnamNomenclature] = useState<CnamNomenclatureEntryDto[]>([])
   const [openActLookup, setOpenActLookup] = useState<number | null>(null)
+  // Certificat: whether the optional "Repos médical" block is expanded (opened automatically when editing a
+  // document that already carries repos data).
+  const [reposOpen, setReposOpen] = useState(false)
 
   const documentRef = useRef<HTMLDivElement>(null)
 
@@ -356,6 +365,15 @@ export function DocumentEditorContent() {
     }
     loadClinicInfo()
   }, [])
+
+  // FR-2.5: pre-fill the certificat CNOMDT ordre from the current doctor's profile (the field is read-only —
+  // no longer retyped per certificat). Only fills when empty, so a legacy document's stored ordre is kept.
+  useEffect(() => {
+    const ordre = currentUserDoctor?.ordreNumberCnomdt
+    if (ordre) {
+      setFormFields((prev) => (prev.doctorOrderNumber ? prev : { ...prev, doctorOrderNumber: ordre }))
+    }
+  }, [currentUserDoctor])
 
   // Get doctor info (current user's doctor or first doctor in list)
   const selectedDoctor = currentUserDoctor || (doctors.length > 0 ? doctors[0] : null)
@@ -509,12 +527,18 @@ export function DocumentEditorContent() {
             totalCost: content.totalCost || (Array.isArray(content.procedures) && content.procedures.length > 0 
               ? (content.procedures.reduce((sum: number, proc: any) => sum + (proc.cost || 0), 0).toFixed(2).replace('.', ',') + ' €')
               : ""),
-            reason: content.reason || "",
             duration: content.duration || "",
-            notes: content.notes || "",
+            // FR-2.5: the ordre is pre-filled from the doctor's profile (set by the effect below); a value
+            // stored on a legacy document is still read back so an older certificat keeps rendering its ordre.
             doctorOrderNumber: content.doctorOrderNumber || "",
             startDate: content.startDate || "",
+            objetMotif: content.objetMotif || "",
           })
+
+          // Expand the optional repos block when the loaded certificat already carries repos data.
+          if (documentType === "certificat") {
+            setReposOpen(Boolean(content.startDate || content.duration))
+          }
 
           // Bulletin CNAM: restore care type + acts (acts stored as a JSON string in ContentJson).
           if (documentType === "bulletin-cnam") {
@@ -600,12 +624,11 @@ export function DocumentEditorContent() {
       content: "",
       procedures: [],
       totalCost: "",
-    reason: "",
-    duration: "",
-    notes: "",
-    doctorOrderNumber: "", // Numéro d'ordre des médecins
-    startDate: "", // Date de début du repos médical
-  })
+      duration: "",
+      doctorOrderNumber: "",
+      startDate: "",
+      objetMotif: "",
+    })
     setBulletinFields({ careType: "APCI", apciCode: "", actsFrom: "", actsTo: "", acts: [] })
   }
 
@@ -694,6 +717,40 @@ export function DocumentEditorContent() {
     }
   }
 
+  // Certificat médical (FR-2) — the single source of truth for the body text, shared by the read-only
+  // preview and the Word export (the PDF is rendered server-side by CertificatTextBuilder with the same
+  // shape). objet/motif is the primary body; the repos médical clause is rendered only when a duration is set.
+  const formatFrDate = (value?: string) =>
+    value
+      ? new Date(value).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" })
+      : ""
+
+  const certificatBodyParagraphs = (): string[] => {
+    const specialty =
+      formData.doctorSpecialty && formData.doctorSpecialty !== "[Spécialité]"
+        ? formData.doctorSpecialty
+        : "médecin dentiste"
+    const ordre = formFields.doctorOrderNumber || "[Numéro]"
+    const address = formData.clinicAddress || "[Adresse]"
+    const patientName = patientData ? getPatientName(patientData) : "[Nom du patient]"
+    const dob = patientData?.dateOfBirth ? formatFrDate(patientData.dateOfBirth) : "[JJ/MM/AAAA]"
+
+    const paras = [
+      `Je soussigné(e), Docteur ${formData.doctorName}, ${specialty}, inscrit(e) à l'${CERTIFICAT_ORDRE_LABEL} sous le n° ${ordre}, exerçant à ${address}, certifie avoir examiné ce jour ${patientName}, né(e) le ${dob}.`,
+    ]
+    if (formFields.objetMotif && formFields.objetMotif.trim()) {
+      paras.push(formFields.objetMotif.trim())
+    }
+    if (formFields.duration && formFields.duration.trim()) {
+      const plural = parseInt(formFields.duration) > 1 ? "s" : ""
+      let repos = `Son état de santé nécessite un repos médical d'une durée de ${formFields.duration.trim()} jour${plural}`
+      if (formFields.startDate) repos += ` à compter du ${formatFrDate(formFields.startDate)}`
+      repos += "."
+      paras.push(repos)
+    }
+    return paras
+  }
+
   // Build structured document data for PDF generation
   const buildDocumentData = () => {
     if (!patientData) {
@@ -716,6 +773,9 @@ export function DocumentEditorContent() {
         : "";
       content.totalCost = formFields.totalCost || "0,00 €";
     } else if (documentType === "certificat") {
+      // FR-2.2: one consistent certificat content schema across save (handleSave) and render
+      // (buildDocumentData) — objet/motif + ordre + repos start/duration all round-trip through ContentJson.
+      content.objetMotif = formFields.objetMotif || "";
       content.doctorOrderNumber = formFields.doctorOrderNumber || "";
       content.startDate = formFields.startDate || "";
       content.duration = formFields.duration || "";
@@ -918,28 +978,14 @@ export function DocumentEditorContent() {
           new Paragraph({ text: `Montant total: ${formFields.totalCost || "0,00 €"}` })
         );
       } else if (documentType === "certificat") {
-        const startDateFormatted = formFields.startDate
-          ? new Date(formFields.startDate).toLocaleDateString("fr-FR", {
-              day: "2-digit",
-              month: "2-digit",
-              year: "numeric",
-            })
-          : "[date]";
-        const patientDobFormatted = patientData?.dateOfBirth
-          ? new Date(patientData.dateOfBirth).toLocaleDateString("fr-FR", {
-              day: "2-digit",
-              month: "2-digit",
-              year: "numeric",
-            })
-          : "[JJ/MM/AAAA]";
-        
-        // Build cohesive paragraph text
-        const certificatText = `Je soussigné(e), Docteur ${formData.doctorName}, Docteur en médecine dentaire, Inscrit(e) à l'Ordre des Médecins sous le n° ${formFields.doctorOrderNumber || "[Numéro]"}, Exerçant à ${formData.clinicAddress}, certifie avoir examiné ce jour : Patient(e) : Nom et prénom : ${patientData ? getPatientName(patientData) : "[Nom du patient]"} né(e) le ${patientDobFormatted} Et constate que son état de santé : ☐ nécessite un repos médical Pour une durée de : ${formFields.duration || "[X]"} jour${formFields.duration && parseInt(formFields.duration) > 1 ? "s" : ""} À compter du : ${startDateFormatted} Ce certificat est délivré à la demande de l'intéressé(e) pour servir et valoir ce que de droit.`;
-        
+        // FR-2: mirror the PDF renderer — objet/motif body + optional repos clause + CNOMDT label +
+        // mandatory deontological mention. Keeps the Word export consistent with the generated PDF.
+        certificatBodyParagraphs().forEach((text) =>
+          paragraphs.push(new Paragraph({ text }))
+        );
         paragraphs.push(
-          new Paragraph({
-            text: certificatText,
-          })
+          new Paragraph({ text: "" }),
+          new Paragraph({ text: CERTIFICAT_MANDATORY_MENTION })
         );
       }
 
@@ -1224,9 +1270,16 @@ export function DocumentEditorContent() {
         content.procedures = formFields.procedures
         content.totalCost = formFields.totalCost
       } else if (documentType === "certificat") {
-        content.reason = formFields.reason
+        // FR-2.2: same schema the renderer reads (buildDocumentData) — previously this path saved
+        // reason/notes while the renderer read objetMotif/startDate/doctorOrderNumber, silently dropping data.
+        content.objetMotif = formFields.objetMotif
+        content.doctorOrderNumber = formFields.doctorOrderNumber
+        content.startDate = formFields.startDate
         content.duration = formFields.duration
-        content.notes = formFields.notes
+        // Persist the patient DOB so the background-job PDF renders it (not only the download path).
+        if (patientData?.dateOfBirth) {
+          content.patientDateOfBirth = patientData.dateOfBirth
+        }
       } else if (documentType === "bulletin-cnam") {
         Object.assign(content, buildBulletinContent(patientData))
       }
@@ -1675,45 +1728,79 @@ export function DocumentEditorContent() {
 
             {documentType === "certificat" && (
               <>
+                {/* FR-2.1: the free objet/motif is the primary body (présence, soins en cours, aptitude…). */}
+                <div className="space-y-2">
+                  <Label htmlFor="objetMotif" className="text-sm font-semibold text-foreground">
+                    Objet / motif du certificat
+                  </Label>
+                  <Textarea
+                    id="objetMotif"
+                    placeholder="Ex: certifie la présence de l'intéressé(e) ce jour ; soins dentaires en cours ; aptitude à la pratique sportive…"
+                    value={formFields.objetMotif}
+                    onChange={(e) => setFormFields({ ...formFields, objetMotif: e.target.value })}
+                    className="min-h-[120px]"
+                  />
+                </div>
+
+                {/* FR-2.5: CNOMDT ordre — pre-filled from the doctor's profile, not retyped per certificat. */}
                 <div className="space-y-2">
                   <Label htmlFor="doctorOrderNumber" className="text-sm font-semibold text-foreground">
-                    Numéro d'ordre des médecins
+                    Numéro d'ordre (CNOMDT)
                   </Label>
                   <Input
                     id="doctorOrderNumber"
                     type="text"
-                    placeholder="Ex: 12345"
                     value={formFields.doctorOrderNumber}
-                    onChange={(e) => setFormFields({ ...formFields, doctorOrderNumber: e.target.value })}
-                    className="h-11"
+                    disabled
+                    readOnly
+                    placeholder="—"
+                    className="h-11 bg-muted"
                   />
+                  <p className="text-xs text-muted-foreground">
+                    {formFields.doctorOrderNumber
+                      ? "Renseigné automatiquement depuis votre profil."
+                      : "Aucun numéro d'ordre sur votre profil. Ajoutez-le dans « Mon profil »."}
+                  </p>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="duration" className="text-sm font-semibold text-foreground">
-                    Durée du repos médical (en jours)
-                  </Label>
-                  <Input
-                    id="duration"
-                    type="number"
-                    min="1"
-                    placeholder="Ex: 3"
-                    value={formFields.duration}
-                    onChange={(e) => setFormFields({ ...formFields, duration: e.target.value })}
-                    className="h-11"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="startDate" className="text-sm font-semibold text-foreground">
-                    Date de début du repos médical
-                  </Label>
-                  <Input
-                    id="startDate"
-                    type="date"
-                    value={formFields.startDate}
-                    onChange={(e) => setFormFields({ ...formFields, startDate: e.target.value })}
-                    className="h-11"
-                  />
-                </div>
+
+                {/* FR-2.1: the repos médical block is one optional use, not the only template. */}
+                <details
+                  className="rounded-lg border px-4 py-3"
+                  open={reposOpen}
+                  onToggle={(e) => setReposOpen(e.currentTarget.open)}
+                >
+                  <summary className="cursor-pointer text-sm font-semibold text-foreground">
+                    Repos médical (optionnel)
+                  </summary>
+                  <div className="space-y-4 pt-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="duration" className="text-sm font-semibold text-foreground">
+                        Durée du repos médical (en jours)
+                      </Label>
+                      <Input
+                        id="duration"
+                        type="number"
+                        min="1"
+                        placeholder="Ex: 3"
+                        value={formFields.duration}
+                        onChange={(e) => setFormFields({ ...formFields, duration: e.target.value })}
+                        className="h-11"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="startDate" className="text-sm font-semibold text-foreground">
+                        Date de début du repos médical
+                      </Label>
+                      <Input
+                        id="startDate"
+                        type="date"
+                        value={formFields.startDate}
+                        onChange={(e) => setFormFields({ ...formFields, startDate: e.target.value })}
+                        className="h-11"
+                      />
+                    </div>
+                  </div>
+                </details>
               </>
             )}
 
@@ -2128,36 +2215,13 @@ export function DocumentEditorContent() {
                   )}
 
                   {documentType === "certificat" && (
-                    <div style={{ fontSize: '11pt', lineHeight: '1.8', textAlign: 'justify' }}>
-                      <p>
-                        Je soussigné(e), Docteur <span className="font-semibold">{formData.doctorName}</span>, Docteur en médecine dentaire, Inscrit(e) à l'Ordre des Médecins sous le n°{" "}
-                        <span className="font-semibold border-b border-dashed border-slate-400 px-1">
-                          {formFields.doctorOrderNumber || "[Numéro]"}
-                        </span>, Exerçant à <span className="font-semibold">{formData.clinicAddress}</span>, certifie avoir examiné ce jour : Patient(e) : Nom et prénom :{" "}
-                        <span className="font-semibold">{patientData ? getPatientName(patientData) : "[Nom du patient]"}</span> né(e) le{" "}
-                        <span className="font-semibold">
-                          {patientData?.dateOfBirth
-                            ? new Date(patientData.dateOfBirth).toLocaleDateString("fr-FR", {
-                                day: "2-digit",
-                                month: "2-digit",
-                                year: "numeric",
-                              })
-                            : "[JJ/MM/AAAA]"}
-                        </span> Et constate que son état de santé : ☐ nécessite un repos médical Pour une durée de :{" "}
-                        <span className="font-semibold border-b border-dashed border-slate-400 px-1">
-                          {formFields.duration || "[X]"}
-                        </span>{" "}
-                        jour{formFields.duration && parseInt(formFields.duration) > 1 ? "s" : ""} À compter du :{" "}
-                        <span className="font-semibold border-b border-dashed border-slate-400 px-1">
-                          {formFields.startDate
-                            ? new Date(formFields.startDate).toLocaleDateString("fr-FR", {
-                                day: "2-digit",
-                                month: "2-digit",
-                                year: "numeric",
-                              })
-                            : "[date]"}
-                        </span> Ce certificat est délivré à la demande de l'intéressé(e) pour servir et valoir ce que de droit.
-                      </p>
+                    // FR-6.3: read-only preview — the left-hand form is the single source of truth. Rendered
+                    // from the same shared builder as the Word export / PDF so all three read identically.
+                    <div style={{ fontSize: '11pt', lineHeight: '1.8', textAlign: 'justify' }} className="space-y-3">
+                      {certificatBodyParagraphs().map((paragraph, index) => (
+                        <p key={index}>{paragraph}</p>
+                      ))}
+                      <p className="italic">{CERTIFICAT_MANDATORY_MENTION}</p>
                     </div>
                   )}
 

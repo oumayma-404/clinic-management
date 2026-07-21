@@ -25,6 +25,10 @@ export interface DoctorDto {
   phone?: string;
   email?: string;
   codeProfessionnelSante?: string | null;
+  // Part B/C: CNOMDT ordre + cachet presence, projected by GetUserStatusQuery. Used to pre-fill the
+  // certificat ordre (FR-2.5) from the current doctor's profile.
+  ordreNumberCnomdt?: string | null;
+  hasCachet?: boolean;
 }
 
 export interface UserStatusDto {
