@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
-import { Calendar, Users, FileText, Settings, LayoutDashboard, Stethoscope, Package, FileCheck, ChevronLeft, ChevronRight, FolderOpen, UserCog, Receipt, UserCircle, ClipboardList } from "lucide-react"
+import { Calendar, Users, FileText, Settings, LayoutDashboard, Stethoscope, Package, FileCheck, ChevronLeft, ChevronRight, FolderOpen, UserCog, Receipt, UserCircle, ClipboardList, Pill } from "lucide-react"
 import { useSidebar } from "@/contexts/sidebar-context"
 import { useSession } from "@/lib/auth/session"
 import { Button } from "@/components/ui/button"
@@ -27,6 +27,8 @@ const navigation = [
 const adminNavItem = { name: "Users", href: "/users", icon: UserCog }
 // CNAM nomenclature admin screen — shown to any admin (global catalog management, FR-5.4).
 const cnamNavItem = { name: "Nomenclature CNAM", href: "/cnam-nomenclature", icon: ClipboardList }
+// Medication catalog admin screen — shown to any admin (global catalog management, backs the ordonnance picker).
+const medicationsNavItem = { name: "Médicaments", href: "/medications", icon: Pill }
 
 export function DashboardSidebar() {
   const pathname = usePathname()
@@ -36,7 +38,7 @@ export function DashboardSidebar() {
   const isAdmin = user?.role === "admin"
   const navItems = [
     ...navigation,
-    ...(isAdmin ? [cnamNavItem] : []),
+    ...(isAdmin ? [cnamNavItem, medicationsNavItem] : []),
     ...(mode === "local" && isAdmin ? [adminNavItem] : []),
   ]
 

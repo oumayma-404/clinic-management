@@ -1,0 +1,174 @@
+"use client"
+
+import type React from "react"
+import { useState, useEffect } from "react"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogDescription,
+} from "@/components/ui/dialog"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { medicationsApi } from "@/lib/api/medications"
+import type { MedicationDto } from "@/lib/api/types"
+import { ApiError } from "@/lib/api/client"
+
+interface MedicationFormModalProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  editingMedication?: MedicationDto | null
+  onSuccess?: () => void
+}
+
+// Split the comma-separated DCI input into a clean molecule list (trimmed, empties dropped).
+function parseDcis(raw: string): string[] {
+  return raw
+    .split(",")
+    .map((d) => d.trim())
+    .filter((d) => d.length > 0)
+}
+
+export function MedicationFormModal({ open, onOpenChange, editingMedication, onSuccess }: MedicationFormModalProps) {
+  const [brandName, setBrandName] = useState("")
+  const [form, setForm] = useState("")
+  const [strength, setStrength] = useState("")
+  const [dcisInput, setDcisInput] = useState("")
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (editingMedication) {
+      setBrandName(editingMedication.brandName)
+      setForm(editingMedication.form)
+      setStrength(editingMedication.strength)
+      setDcisInput(editingMedication.dcis.join(", "))
+    } else {
+      setBrandName("")
+      setForm("")
+      setStrength("")
+      setDcisInput("")
+    }
+    setError(null)
+  }, [editingMedication, open])
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError(null)
+
+    if (!brandName.trim()) return setError("Le nom commercial est obligatoire.")
+    const dcis = parseDcis(dcisInput)
+    if (dcis.length === 0) return setError("Au moins une DCI (molécule) est requise.")
+
+    const payload = {
+      brandName: brandName.trim(),
+      form: form.trim(),
+      strength: strength.trim(),
+      dcis,
+    }
+
+    try {
+      setLoading(true)
+      if (editingMedication) {
+        await medicationsApi.update(editingMedication.id, payload)
+      } else {
+        await medicationsApi.create(payload)
+      }
+      onSuccess?.()
+      onOpenChange(false)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Échec de l'enregistrement du médicament.")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{editingMedication ? "Modifier le médicament" : "Ajouter un médicament"}</DialogTitle>
+          <DialogDescription>
+            Médicament du catalogue (nom commercial, forme, dosage, molécules DCI).
+          </DialogDescription>
+        </DialogHeader>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {error && (
+            <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
+              {error}
+            </div>
+          )}
+
+          <div className="space-y-1.5">
+            <Label htmlFor="brandName" className="text-sm">
+              Nom commercial <span className="text-destructive">*</span>
+            </Label>
+            <Input
+              id="brandName"
+              placeholder="ex. Augmentin"
+              value={brandName}
+              onChange={(e) => setBrandName(e.target.value)}
+              disabled={loading}
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="form" className="text-sm">
+                Forme
+              </Label>
+              <Input
+                id="form"
+                placeholder="ex. Comprimé"
+                value={form}
+                onChange={(e) => setForm(e.target.value)}
+                disabled={loading}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="strength" className="text-sm">
+                Dosage
+              </Label>
+              <Input
+                id="strength"
+                placeholder="ex. 1 g"
+                value={strength}
+                onChange={(e) => setStrength(e.target.value)}
+                disabled={loading}
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="dcis" className="text-sm">
+              DCI / molécules <span className="text-destructive">*</span>
+            </Label>
+            <Input
+              id="dcis"
+              placeholder="ex. Amoxicilline, Acide clavulanique"
+              value={dcisInput}
+              onChange={(e) => setDcisInput(e.target.value)}
+              disabled={loading}
+            />
+            <p className="text-xs text-muted-foreground">
+              Séparez plusieurs molécules par des virgules (médicament en association).
+            </p>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
+              Annuler
+            </Button>
+            <Button type="submit" disabled={loading}>
+              {loading ? "Enregistrement…" : editingMedication ? "Enregistrer" : "Ajouter"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}

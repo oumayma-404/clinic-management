@@ -19,7 +19,8 @@ import { procedureTypesApi } from "@/lib/api/procedure-types"
 import { clinicsApi } from "@/lib/api/clinics"
 import { dentalRecordsApi } from "@/lib/api/dental-records"
 import { cnamNomenclatureApi, estimateReimbursement } from "@/lib/api/cnam-nomenclature"
-import type { PatientDto, MedicalDocumentDto, ProcedureTypeDto, DentalRecordDto, CnamNomenclatureEntryDto } from "@/lib/api/types"
+import { medicationsApi } from "@/lib/api/medications"
+import type { PatientDto, MedicalDocumentDto, ProcedureTypeDto, DentalRecordDto, CnamNomenclatureEntryDto, MedicationDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import { useDoctors } from "@/lib/hooks/use-doctors"
 import { format, parseISO } from "date-fns"
@@ -35,31 +36,97 @@ const CERTIFICAT_ORDRE_LABEL = "Ordre National des Médecins Dentistes (CNOMDT)"
 const CERTIFICAT_MANDATORY_MENTION =
   "Certificat établi à la demande de l'intéressé(e) et remis en main propre."
 
+// A prescription medication line. `medicationId` + `dci` are set when the line is picked from the catalog
+// (dci is a snapshot of the drug's molecules at selection time); both are absent for a free-text entry.
+type MedicationLine = {
+  name: string
+  dosage: string
+  timesPerDay: string
+  duration: string
+  medicationId?: string
+  dci?: string[]
+}
+
 // Medication Item Component
 function MedicationItem({
   medication,
   onUpdate,
-  onRemove
+  onRemove,
+  catalog
 }: {
-  medication: { name: string; dosage: string; timesPerDay: string; duration: string }
-  onUpdate: (med: { name: string; dosage: string; timesPerDay: string; duration: string }) => void
+  medication: MedicationLine
+  onUpdate: (med: MedicationLine) => void
   onRemove: () => void
+  catalog: MedicationDto[]
 }) {
+  const [lookupOpen, setLookupOpen] = useState(false)
+  // Printed/displayed label for a catalog entry: "Marque Dosage Forme" (empty parts dropped).
+  const catalogLabel = (m: MedicationDto) => [m.brandName, m.strength, m.form].filter(Boolean).join(" ")
+
   return (
     <div className="p-4 border rounded-lg space-y-3">
       <div className="grid grid-cols-[1fr_2.5rem] gap-2">
         <div className="space-y-3">
           <div className="flex flex-col gap-2">
             <Label className="text-xs text-muted-foreground h-4">Nom du médicament</Label>
-            <Input
-              type="text"
-              placeholder="Ex: Amoxicilline"
-              value={medication.name || ""}
-              onChange={(e) => {
-                onUpdate({ ...medication, name: e.target.value })
-              }}
-              className="h-10 w-full"
-            />
+            <div className="flex gap-2">
+              <Input
+                type="text"
+                placeholder="Ex: Amoxicilline"
+                value={medication.name || ""}
+                onChange={(e) => {
+                  // Manual edit → free-text entry: drop any catalog link + molecule snapshot.
+                  onUpdate({ ...medication, name: e.target.value, medicationId: undefined, dci: [] })
+                }}
+                className="h-10 flex-1"
+              />
+              <Popover open={lookupOpen} onOpenChange={setLookupOpen} modal>
+                <PopoverTrigger asChild>
+                  <Button type="button" variant="outline" size="sm" className="h-10 px-3 shrink-0" title="Choisir dans le catalogue">
+                    <Search className="w-4 h-4" />
+                    <span className="sr-only">Choisir dans le catalogue</span>
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="p-0 w-80" align="end">
+                  <Command>
+                    <CommandInput placeholder="Rechercher un médicament..." />
+                    <CommandList>
+                      <CommandEmpty>Aucun médicament trouvé.</CommandEmpty>
+                      <CommandGroup>
+                        {catalog.map((m) => (
+                          <CommandItem
+                            key={m.id}
+                            value={`${m.brandName} ${m.strength} ${m.form} ${m.dcis.join(" ")}`}
+                            onSelect={() => {
+                              // Name = brand + form only; the strength goes to the Dosage field (not crammed
+                              // into "Nom du médicament"). The search list above still shows/searches the full label.
+                              onUpdate({
+                                ...medication,
+                                name: [m.brandName, m.form].filter(Boolean).join(" "),
+                                dosage: m.strength,
+                                medicationId: m.id,
+                                dci: m.dcis,
+                              })
+                              setLookupOpen(false)
+                            }}
+                          >
+                            <div className="flex flex-col">
+                              <span className="text-sm font-medium">{catalogLabel(m)}</span>
+                              <span className="text-xs text-muted-foreground">
+                                {m.dcis.join(", ")}{m.isProvisional ? " · à vérifier" : ""}
+                              </span>
+                            </div>
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            </div>
+            {medication.medicationId && medication.dci && medication.dci.length > 0 && (
+              <span className="text-xs text-muted-foreground">DCI : {medication.dci.join(", ")}</span>
+            )}
           </div>
           <div className="flex flex-col gap-2">
             <Label className="text-xs text-muted-foreground h-4">Dosage</Label>
@@ -295,7 +362,7 @@ export function DocumentEditorContent() {
 
   const [formFields, setFormFields] = useState({
     date: new Date().toISOString().split("T")[0],
-    medications: [] as Array<{ name: string; dosage: string; timesPerDay: string; duration: string }>,
+    medications: [] as MedicationLine[],
     content: "", // Liaison: legacy free-text body (kept so pre-Part-E letters round-trip; new letters use the guided fields below)
     procedures: [] as Array<{ name: string; cost: number; procedureTypeId?: string }>, // Array of procedures with costs
     totalCost: "",
@@ -329,6 +396,7 @@ export function DocumentEditorContent() {
   const [cnamNomenclature, setCnamNomenclature] = useState<CnamNomenclatureEntryDto[]>([])
   // Admin-managed VLC values (lettre clé → dinar value), fed to the indicative reimbursement estimate.
   const [cnamLetterValues, setCnamLetterValues] = useState<Record<string, number>>({})
+  const [medicationCatalog, setMedicationCatalog] = useState<MedicationDto[]>([])
   const [openActLookup, setOpenActLookup] = useState<number | null>(null)
   // Certificat: whether the optional "Repos médical" block is expanded (opened automatically when editing a
   // document that already carries repos data).
@@ -509,7 +577,7 @@ export function DocumentEditorContent() {
           const content = JSON.parse(doc.contentJson)
           
           // Handle medications: support both old string format and new array format
-          let medications: Array<{ name: string; dosage: string; timesPerDay: string; duration: string }> = []
+          let medications: MedicationLine[] = []
           if (Array.isArray(content.medications)) {
             medications = content.medications
           } else if (typeof content.medications === 'string' && content.medications.trim()) {
@@ -627,6 +695,21 @@ export function DocumentEditorContent() {
           setCnamNomenclature([])
           setCnamLetterValues({})
         }
+      }
+    })()
+    return () => { cancelled = true }
+  }, [documentType])
+
+  // Load the medication catalog once when editing a prescription (searched client-side in the picker).
+  useEffect(() => {
+    if (documentType !== "prescription") return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const meds = await medicationsApi.list()
+        if (!cancelled) setMedicationCatalog(meds)
+      } catch {
+        if (!cancelled) setMedicationCatalog([])
       }
     })()
     return () => { cancelled = true }
@@ -1731,6 +1814,7 @@ export function DocumentEditorContent() {
                       <MedicationItem
                         key={index}
                         medication={med}
+                        catalog={medicationCatalog}
                         onUpdate={(updated) => {
                           const newMedications = [...formFields.medications]
                           newMedications[index] = updated

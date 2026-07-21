@@ -43,6 +43,7 @@ public static class Extensions
         services.AddScoped<IInvoiceRepository, InvoiceRepository>();
         services.AddScoped<IClinicReminderSettingsRepository, ClinicReminderSettingsRepository>();
         services.AddScoped<ICnamCatalogRepository, CnamCatalogRepository>();
+        services.AddScoped<IMedicationCatalogRepository, MedicationCatalogRepository>();
 
         // HttpClient for Auth0 Management API
         services.AddHttpClient();

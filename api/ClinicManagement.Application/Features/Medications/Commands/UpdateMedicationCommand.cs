@@ -1,0 +1,88 @@
+using MediatR;
+using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.DTOs;
+using ClinicManagement.Domain.Repositories;
+using Microsoft.Extensions.Logging;
+
+namespace ClinicManagement.Application.Features.Medications.Commands;
+
+// Update a global medication catalog entry. AdminOnly. Changing brand + strength + form to one already held
+// by another entry is rejected (duplicate). Unknown id → not-found failure. Replaces the full DCI set.
+public class UpdateMedicationCommand : IRequest<Result<MedicationDto>>
+{
+    public Guid Id { get; set; }
+    public string BrandName { get; set; } = string.Empty;
+    public string Form { get; set; } = string.Empty;
+    public string Strength { get; set; } = string.Empty;
+    public List<string> Dcis { get; set; } = new();
+}
+
+public class UpdateMedicationCommandHandler : IRequestHandler<UpdateMedicationCommand, Result<MedicationDto>>
+{
+    private readonly IMedicationCatalogRepository _repository;
+    private readonly IUnitOfWork _unitOfWork;
+    private readonly ILogger<UpdateMedicationCommandHandler> _logger;
+
+    public UpdateMedicationCommandHandler(
+        IMedicationCatalogRepository repository,
+        IUnitOfWork unitOfWork,
+        ILogger<UpdateMedicationCommandHandler> logger)
+    {
+        _repository = repository;
+        _unitOfWork = unitOfWork;
+        _logger = logger;
+    }
+
+    public async Task<Result<MedicationDto>> Handle(UpdateMedicationCommand request, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var medication = await _repository.GetByIdAsync(request.Id, cancellationToken);
+            if (medication is null)
+            {
+                return Result<MedicationDto>.Failure("Médicament introuvable.");
+            }
+
+            if (string.IsNullOrWhiteSpace(request.BrandName))
+            {
+                return Result<MedicationDto>.Failure("Le nom commercial est obligatoire.");
+            }
+
+            var dcis = (request.Dcis ?? new List<string>())
+                .Where(d => !string.IsNullOrWhiteSpace(d))
+                .ToList();
+            if (dcis.Count == 0)
+            {
+                return Result<MedicationDto>.Failure("Au moins une DCI (molécule) est requise.");
+            }
+
+            if (await _repository.BrandExistsAsync(request.BrandName, request.Form, request.Strength, request.Id, cancellationToken))
+            {
+                return Result<MedicationDto>.Failure(
+                    $"Le médicament « {request.BrandName.Trim()} » (même forme et dosage) existe déjà.");
+            }
+
+            try
+            {
+                medication.Update(request.BrandName, request.Form, request.Strength);
+                medication.ReplaceActiveIngredients(dcis);
+            }
+            catch (ArgumentException ex)
+            {
+                return Result<MedicationDto>.Failure(ex.Message);
+            }
+
+            await _repository.UpdateAsync(medication, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            _logger.LogInformation("Updated medication catalog entry {Id}", medication.Id);
+            return Result<MedicationDto>.Success(MedicationMapper.ToDto(medication));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating medication catalog entry {Id}", request.Id);
+            return Result<MedicationDto>.Failure("Erreur lors de la mise à jour du médicament.");
+        }
+    }
+}

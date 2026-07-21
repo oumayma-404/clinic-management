@@ -159,6 +159,19 @@ export interface CnamLetterValueDto {
   isProvisional: boolean;
 }
 
+// A medication catalog entry (DB-backed, global reference data from GET /api/medications). Used by the
+// ordonnance editor to pick a drug (fills the line name + snapshots the DCI molecules onto it) and by the
+// admin catalog screen. Writes are admin-only. `dcis` holds the active ingredient molecules (one or more).
+export interface MedicationDto {
+  id: string;
+  brandName: string;
+  form: string;
+  strength: string;
+  dcis: string[];
+  isActive: boolean;
+  isProvisional: boolean;
+}
+
 export interface PatientDto {
   id: string;
   firstName: string;
