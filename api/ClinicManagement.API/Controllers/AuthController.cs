@@ -98,6 +98,7 @@ public class AuthController : ApiControllerBase
             Address = request.Address,
             City = request.City,
             Role = "admin",
+            DoctorInfo = request.DoctorInfo, // when set, the admin is also the practitioner (Doctor is created + linked)
             GenerateCode = true
         };
 

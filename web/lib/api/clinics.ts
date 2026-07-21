@@ -157,6 +157,9 @@ export const clinicsApi = {
     phone?: string;
     address?: string;
     city?: string;
+    // When set, the first admin is also the cabinet practitioner: a linked Doctor is created so their
+    // document identity (cachet / CNOMDT ordre) and "Mon profil" work.
+    doctorInfo?: DoctorPersonalInfo;
   }): Promise<ClinicDto> => {
     const result = await apiPost<Result<ClinicDto>>('/auth/setup', data, null);
     if (!result.isSuccess || !result.value) {

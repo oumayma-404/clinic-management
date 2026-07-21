@@ -297,6 +297,24 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
         var admin = User.CreateLocalUser(clinic.Id, "admin", request.Email, passwordHash, request.FullName);
         await _userRepository.AddAsync(admin, cancellationToken);
 
+        // Single-dentist cabinet: when the first admin is also the practitioner, create + link a Doctor so
+        // their document identity (cachet, CNOMDT ordre) and "Mon profil" work. The admin keeps the "admin"
+        // role; the linked Doctor is what the practitioner pages resolve by user id. Absent DoctorInfo → an
+        // admin-only account (e.g. a non-clinical office manager), unchanged.
+        if (request.DoctorInfo != null && !string.IsNullOrWhiteSpace(request.DoctorInfo.Specialty))
+        {
+            var doctor = new Doctor(
+                Guid.NewGuid(),
+                clinic.Id,
+                request.DoctorInfo.FirstName,
+                request.DoctorInfo.LastName,
+                request.DoctorInfo.Specialty,
+                request.DoctorInfo.Phone,
+                request.Email);
+            doctor.LinkToUser(admin.Id);
+            await _doctorRepository.AddAsync(doctor, cancellationToken);
+        }
+
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return Result<ClinicDto>.Success(new ClinicDto

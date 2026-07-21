@@ -85,6 +85,10 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
   const [adminEmail, setAdminEmail] = useState("")
   const [adminPassword, setAdminPassword] = useState("")
   const [adminPasswordConfirm, setAdminPasswordConfirm] = useState("")
+  // Single-dentist cabinet: the admin is usually also the practitioner. When on, a linked Doctor is created
+  // (with the specialty below) so their cachet / CNOMDT ordre + "Mon profil" work. Off → admin-only account.
+  const [adminIsPractitioner, setAdminIsPractitioner] = useState(true)
+  const [adminSpecialty, setAdminSpecialty] = useState("")
 
   // Clinic Information State
   const [clinicName, setClinicName] = useState("")
@@ -167,12 +171,14 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
 
   const isStep2Valid = () => {
     if (isLocalMode) {
-      // Local first-run: admin account (full name + email + password ≥ 8, confirmed).
+      // Local first-run: admin account (full name + email + password ≥ 8, confirmed). When the admin is
+      // also the practitioner, a specialty is required (it seeds the linked Doctor record).
       return (
         adminFullName.trim() !== "" &&
         /\S+@\S+\.\S+/.test(adminEmail) &&
         adminPassword.length >= 8 &&
-        adminPassword === adminPasswordConfirm
+        adminPassword === adminPasswordConfirm &&
+        (!adminIsPractitioner || adminSpecialty !== "")
       )
     }
     if (role === "secretary") {
@@ -193,6 +199,20 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
 
       // Local (offline) first-run: create clinic + admin, then go to the login screen.
       if (isLocalMode) {
+        // When the admin is also the practitioner, derive first/last name from the full name (robustly, so
+        // both are non-empty) and send the specialty so the backend creates + links a Doctor record.
+        let doctorInfo: { firstName: string; lastName: string; specialty: string; phone?: string } | undefined
+        if (adminIsPractitioner && adminSpecialty) {
+          const parts = adminFullName.trim().split(/\s+/)
+          const firstName = parts[0] || adminFullName.trim()
+          const lastName = parts.slice(1).join(" ") || firstName
+          doctorInfo = {
+            firstName,
+            lastName,
+            specialty: adminSpecialty,
+            phone: phone || undefined,
+          }
+        }
         await clinicsApi.setup({
           clinicName: clinicName,
           email: adminEmail.trim(),
@@ -201,6 +221,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
           phone: phone || undefined,
           address: fullAddress || undefined,
           city: governorate || undefined,
+          doctorInfo,
         })
         window.location.href = "/login"
         return
@@ -494,6 +515,45 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                     {adminPasswordConfirm.length > 0 && adminPassword !== adminPasswordConfirm && (
                       <p className="text-xs text-destructive">Passwords do not match.</p>
                     )}
+
+                    {/* Single-dentist cabinet: the admin is usually the practitioner too. When enabled, a
+                        linked Doctor record is created so their cachet / CNOMDT ordre + "Mon profil" work. */}
+                    <div className="pt-4 border-t space-y-4">
+                      <label className="flex items-center gap-3 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={adminIsPractitioner}
+                          onChange={(e) => setAdminIsPractitioner(e.target.checked)}
+                          className="w-4 h-4 rounded border-gray-300"
+                        />
+                        <span className="text-sm font-medium">
+                          Je suis aussi le praticien (dentiste) de ce cabinet
+                        </span>
+                      </label>
+
+                      {adminIsPractitioner && (
+                        <div className="space-y-2">
+                          <Label htmlFor="admin-specialty" className="text-sm font-medium">
+                            Spécialité <span className="text-destructive">*</span>
+                          </Label>
+                          <Select value={adminSpecialty} onValueChange={setAdminSpecialty}>
+                            <SelectTrigger id="admin-specialty">
+                              <SelectValue placeholder="Sélectionnez votre spécialité" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {specialties.map((spec) => (
+                                <SelectItem key={spec} value={spec}>
+                                  {spec}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <p className="text-xs text-muted-foreground">
+                            Crée votre profil praticien (cachet, numéro d&apos;ordre) accessible via « Mon profil ».
+                          </p>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
 
