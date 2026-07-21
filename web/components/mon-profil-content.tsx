@@ -1,0 +1,191 @@
+"use client"
+
+import { useEffect, useState } from "react"
+import Image from "next/image"
+import { Card } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Upload, Trash2, UserCircle, Stethoscope } from "lucide-react"
+import { toast } from "sonner"
+import { doctorsApi } from "@/lib/api/doctors"
+import { ApiError } from "@/lib/api/client"
+import type { DoctorProfileDto } from "@/lib/api/types"
+
+export function MonProfilContent() {
+  const [profile, setProfile] = useState<DoctorProfileDto | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  const [ordreNumber, setOrdreNumber] = useState("")
+  const [cachetFile, setCachetFile] = useState<File | null>(null)
+  const [cachetPreview, setCachetPreview] = useState<string | null>(null) // object URL of the current/selected cachet
+  const [removeCachet, setRemoveCachet] = useState(false)
+
+  // Load the profile + (if present) the existing cachet image.
+  useEffect(() => {
+    let cancelled = false
+    let objectUrl: string | null = null
+    setLoading(true)
+    doctorsApi
+      .getMyProfile()
+      .then(async (p) => {
+        if (cancelled) return
+        setProfile(p)
+        setOrdreNumber(p.ordreNumberCnomdt ?? "")
+        if (p.hasCachet) {
+          try {
+            const blob = await doctorsApi.fetchCachetBlob(p.id)
+            if (cancelled) return
+            objectUrl = URL.createObjectURL(blob)
+            setCachetPreview(objectUrl)
+          } catch {
+            /* preview is best-effort; the "cachet enregistré" state still shows */
+          }
+        }
+      })
+      .catch((e) => {
+        if (!cancelled) setLoadError(e instanceof ApiError ? e.message : "Impossible de charger le profil.")
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [])
+
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setCachetFile(file)
+    setRemoveCachet(false)
+    setCachetPreview((prev) => {
+      if (prev) URL.revokeObjectURL(prev)
+      return URL.createObjectURL(file)
+    })
+  }
+
+  const handleRemove = () => {
+    setCachetFile(null)
+    setRemoveCachet(true)
+    setCachetPreview((prev) => {
+      if (prev) URL.revokeObjectURL(prev)
+      return null
+    })
+  }
+
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      const updated = await doctorsApi.updateMyProfile({
+        ordreNumberCnomdt: ordreNumber,
+        cachet: cachetFile,
+        removeCachet: removeCachet,
+      })
+      setProfile(updated)
+      setCachetFile(null)
+      setRemoveCachet(false)
+      toast.success("Profil enregistré")
+    } catch (e) {
+      toast.error("Erreur", { description: e instanceof ApiError ? e.message : "Enregistrement impossible" })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (loading) {
+    return <Card className="p-6"><p className="text-center text-muted-foreground">Chargement du profil...</p></Card>
+  }
+
+  if (loadError || !profile) {
+    return (
+      <Card className="p-6">
+        <p className="text-sm text-muted-foreground">
+          {loadError ?? "Aucun profil praticien n'est associé à votre compte."}
+        </p>
+      </Card>
+    )
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Identity (read-only) */}
+      <Card className="p-6">
+        <div className="flex items-center gap-2 font-semibold mb-4"><UserCircle className="h-5 w-5" /> Identité</div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+          <div>
+            <div className="text-xs text-muted-foreground">Nom complet</div>
+            <div className="mt-1 font-medium">{profile.fullName}</div>
+          </div>
+          <div>
+            <div className="text-xs text-muted-foreground">Spécialité</div>
+            <div className="mt-1 font-medium">{profile.specialty}</div>
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground mt-3">Ces champs sont gérés dans Paramètres → Médecins.</p>
+      </Card>
+
+      {/* Document identity (editable) */}
+      <Card className="p-6 space-y-5">
+        <div className="flex items-center gap-2 font-semibold"><Stethoscope className="h-5 w-5" /> Informations pour les documents</div>
+
+        <div className="space-y-1.5 max-w-md">
+          <Label htmlFor="ordre" className="text-sm">
+            Numéro d&apos;ordre — Ordre National des Médecins Dentistes (CNOMDT)
+          </Label>
+          <Input
+            id="ordre"
+            value={ordreNumber}
+            onChange={(e) => setOrdreNumber(e.target.value)}
+            placeholder="Ex : D-04-1287"
+            disabled={saving}
+          />
+          <p className="text-xs text-muted-foreground">Pré-rempli automatiquement sur vos certificats et courriers.</p>
+        </div>
+
+        <div className="space-y-2">
+          <Label className="text-sm">Cachet / signature</Label>
+          <div className="flex items-center gap-4">
+            {cachetPreview ? (
+              <div className="relative w-40 h-24 rounded-lg border-2 border-primary/30 overflow-hidden bg-white group">
+                <Image src={cachetPreview} alt="Cachet" fill className="object-contain" unoptimized />
+                <button
+                  type="button"
+                  onClick={handleRemove}
+                  disabled={saving}
+                  className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition flex items-center justify-center"
+                  aria-label="Supprimer le cachet"
+                >
+                  <span className="bg-white rounded-full p-1.5"><Trash2 className="h-4 w-4 text-destructive" /></span>
+                </button>
+              </div>
+            ) : (
+              <label className="w-40 h-24 flex flex-col items-center justify-center border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-lg cursor-pointer hover:border-primary hover:bg-accent transition text-slate-400 hover:text-primary">
+                <Upload className="h-5 w-5" />
+                <span className="text-[11px] font-medium mt-1">Charger</span>
+                <input type="file" accept="image/*" onChange={handleFile} className="hidden" disabled={saving} />
+              </label>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            PNG ou JPEG. Si aucun cachet n&apos;est chargé, le document affiche une simple ligne de signature.
+          </p>
+        </div>
+
+        <div className="flex justify-end gap-2 pt-2 border-t border-border">
+          <Button onClick={handleSave} disabled={saving}>
+            {saving ? "Enregistrement..." : "Enregistrer"}
+          </Button>
+        </div>
+      </Card>
+
+      <div className="rounded-lg border border-border bg-muted/40 px-4 py-3 text-xs text-muted-foreground">
+        <span className="font-medium text-foreground">Administrateur :</span> un admin peut définir le cachet et le
+        numéro d&apos;ordre d&apos;un autre praticien depuis Paramètres → Médecins.
+      </div>
+    </div>
+  )
+}

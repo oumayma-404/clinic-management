@@ -1,0 +1,165 @@
+using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.Features.Doctors.Commands;
+using ClinicManagement.Domain.Entities;
+using ClinicManagement.Domain.Repositories;
+using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
+using Xunit;
+
+namespace ClinicManagement.UnitTests.Features.Doctors;
+
+/// <summary>
+/// <see cref="UpdateDoctorProfileCommandHandler"/> — per-doctor cachet + ordre with own-or-admin authorization
+/// (Part B, FR-3.1). An admin may edit any doctor in their clinic; a doctor may edit only their own record;
+/// a non-admin editing someone else's record is rejected before storage is ever touched. The uploaded
+/// content type is persisted verbatim (not hardcoded like the clinic-logo path).
+/// </summary>
+public class DoctorCachetTests
+{
+    private static readonly Guid ClinicId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+
+    private readonly Mock<IDoctorRepository> _doctors = new();
+    private readonly Mock<IUserRepository> _users = new();
+    private readonly Mock<IClinicContext> _context = new();
+    private readonly Mock<IFileStorage> _storage = new();
+    private readonly Mock<IUnitOfWork> _uow = new();
+
+    private UpdateDoctorProfileCommandHandler Handler() =>
+        new(_doctors.Object, _users.Object, _context.Object, _storage.Object, _uow.Object,
+            NullLogger<UpdateDoctorProfileCommandHandler>.Instance);
+
+    private User SetUpUser(string role)
+    {
+        var user = User.CreateLocalUser(ClinicId, role, $"{role}@clinic.com", "HASH", role);
+        _context.Setup(c => c.GetUserId()).Returns(user.Id);
+        _users.Setup(r => r.GetByAuth0SubAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+        return user;
+    }
+
+    private static Doctor DoctorIn(Guid clinicId, string? linkedUserId = null)
+    {
+        var doctor = new Doctor(Guid.NewGuid(), clinicId, "Amine", "Khelifi", "Chirurgien-dentiste");
+        if (linkedUserId != null) doctor.LinkToUser(linkedUserId);
+        return doctor;
+    }
+
+    private void SetUpUploadEcho() =>
+        _storage.Setup(s => s.UploadAsync(It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Stream _, string _, string key, CancellationToken _) => key);
+
+    private void SaveSucceeds() =>
+        _uow.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
+
+    private static MemoryStream Image() => new(new byte[] { 1, 2, 3 });
+
+    // [CACHET-1] An admin can set another doctor's ordre number + cachet.
+    [Fact]
+    public async Task Admin_Can_Set_Any_Doctors_Ordre_And_Cachet()
+    {
+        SetUpUser("admin");
+        var target = DoctorIn(ClinicId, linkedUserId: "local|someone-else");
+        _doctors.Setup(r => r.GetByIdAsync(target.Id, It.IsAny<CancellationToken>())).ReturnsAsync(target);
+        SetUpUploadEcho();
+        SaveSucceeds();
+
+        var result = await Handler().Handle(new UpdateDoctorProfileCommand
+        {
+            DoctorId = target.Id,
+            OrdreNumberCnomdt = "D-04-9",
+            CachetStream = Image(),
+            CachetContentType = "image/png"
+        }, CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("D-04-9", target.OrdreNumberCnomdt);
+        Assert.NotNull(target.CachetStorageKey);
+        _storage.Verify(s => s.UploadAsync(It.IsAny<Stream>(), "image/png", It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once);
+        _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    // [CACHET-2] A doctor can set their own cachet (DoctorId null → resolves to their own record).
+    [Fact]
+    public async Task Doctor_Can_Set_Own_Cachet()
+    {
+        var user = SetUpUser("doctor");
+        var own = DoctorIn(ClinicId, linkedUserId: user.Id);
+        _doctors.Setup(r => r.GetByUserIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(own);
+        SetUpUploadEcho();
+        SaveSucceeds();
+
+        var result = await Handler().Handle(new UpdateDoctorProfileCommand
+        {
+            DoctorId = null,
+            CachetStream = Image(),
+            CachetContentType = "image/png"
+        }, CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.NotNull(own.CachetStorageKey);
+    }
+
+    // [CACHET-3] A non-admin cannot set another doctor's cachet — rejected before storage is touched.
+    [Fact]
+    public async Task NonAdmin_Cannot_Set_Another_Doctors_Cachet()
+    {
+        SetUpUser("doctor");
+        var foreign = DoctorIn(ClinicId, linkedUserId: "local|another-doctor");
+        _doctors.Setup(r => r.GetByIdAsync(foreign.Id, It.IsAny<CancellationToken>())).ReturnsAsync(foreign);
+
+        var result = await Handler().Handle(new UpdateDoctorProfileCommand
+        {
+            DoctorId = foreign.Id,
+            CachetStream = Image(),
+            CachetContentType = "image/png"
+        }, CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        _storage.Verify(s => s.UploadAsync(It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    // [CACHET-4] The uploaded content type is persisted verbatim (png / jpeg), not hardcoded.
+    [Theory]
+    [InlineData("image/png")]
+    [InlineData("image/jpeg")]
+    public async Task Cachet_Persists_Actual_ContentType(string contentType)
+    {
+        var user = SetUpUser("doctor");
+        var own = DoctorIn(ClinicId, linkedUserId: user.Id);
+        _doctors.Setup(r => r.GetByUserIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(own);
+        SetUpUploadEcho();
+        SaveSucceeds();
+
+        var result = await Handler().Handle(new UpdateDoctorProfileCommand
+        {
+            DoctorId = null,
+            CachetStream = Image(),
+            CachetContentType = contentType
+        }, CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(contentType, own.CachetContentType);
+    }
+
+    // [CACHET-5] Removing the cachet clears both fields and deletes the blob.
+    [Fact]
+    public async Task Remove_Cachet_Clears_Key_And_ContentType()
+    {
+        var user = SetUpUser("doctor");
+        var own = DoctorIn(ClinicId, linkedUserId: user.Id);
+        own.SetCachet("clinic/doctors/x/cachet", "image/png");
+        _doctors.Setup(r => r.GetByUserIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(own);
+        SaveSucceeds();
+
+        var result = await Handler().Handle(new UpdateDoctorProfileCommand
+        {
+            DoctorId = null,
+            RemoveCachet = true
+        }, CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Null(own.CachetStorageKey);
+        Assert.Null(own.CachetContentType);
+        _storage.Verify(s => s.DeleteAsync("clinic/doctors/x/cachet", It.IsAny<CancellationToken>()), Times.Once);
+    }
+}

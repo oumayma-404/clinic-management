@@ -42,6 +42,15 @@ public class DoctorConfiguration : IEntityTypeConfiguration<Doctor>
         builder.Property(d => d.CodeProfessionnelSante)
             .HasMaxLength(50);
 
+        builder.Property(d => d.OrdreNumberCnomdt)
+            .HasMaxLength(50);
+
+        builder.Property(d => d.CachetStorageKey)
+            .HasMaxLength(400);
+
+        builder.Property(d => d.CachetContentType)
+            .HasMaxLength(100);
+
         builder.Property(d => d.CreatedAt)
             .IsRequired();
 

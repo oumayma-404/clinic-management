@@ -228,6 +228,16 @@ export interface DentalRecordDto {
   updatedAt?: string;
 }
 
+// Practitioner document identity (FR-2.5 / FR-3.1): CNOMDT ordre number + whether a cachet image is on file.
+export interface DoctorProfileDto {
+  id: string;
+  fullName: string;
+  specialty: string;
+  ordreNumberCnomdt?: string | null;
+  hasCachet: boolean;
+  cachetContentType?: string | null;
+}
+
 export interface PatientFileDto {
   id: string;
   patientId: string;

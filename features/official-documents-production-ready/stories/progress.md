@@ -13,7 +13,7 @@
 | Part | Delivers | Depends on | Status |
 |------|----------|-----------|--------|
 | A | Honoraires → invoice + `bulletin-cnam` filename fix | — | implemented (editor dead-code excision deferred — see DEV-1) |
-| B | Per-doctor cachet & CNOMDT ordre + Mon profil | — | not-started |
+| B | Per-doctor cachet & CNOMDT ordre + Mon profil | — | implemented (admin settings-card UI deferred — see DEV-2) |
 | C | Doc snapshot + localization ("Paris"→city) + cachet render + non-editable preview | B | not-started |
 | D | Certificat correctness (objet/motif, mention, CNOMDT, no data loss) | C | not-started |
 | E | Structured lettre de liaison | C | not-started |
@@ -28,7 +28,23 @@
   - Tests: `DocumentTypeAndFilenameTests` (TYPE-1 reject + FILE-1/FILE-2 filename map) — **11/11 pass**.
   - Quality gates: `dotnet build` 0 warnings/0 errors; `tsc --noEmit` clean; `next build` clean (ESLint not installed → build gate per skill Step 11; a stale `.next` `./611.js` error cleared with `rm -rf .next`).
 
+## Session log (Part B)
+- 2026-07-21: **Part B implemented** (FR-2.5 CNOMDT ordre + FR-3.1 per-doctor cachet, own-or-admin).
+  - Domain: `Doctor` gains `OrdreNumberCnomdt`/`CachetStorageKey`/`CachetContentType` + `SetOrdreNumber`/`SetCachet`/`RemoveCachet`; `DoctorConfiguration` maps them; migration `20260721092119_AddDoctorCachetAndOrdre` (3 nullable columns; no data touched — `dotnet ef migrations add` diffs the model offline).
+  - Application/API: `UpdateDoctorProfileCommand` (own-or-admin, cachet upload via `IFileStorage` with content-type persisted, deterministic key `{clinicId}/doctors/{doctorId}/cachet`, blob delete on remove), `GetMyDoctorProfileQuery`, `GetDoctorCachetQuery`; `DoctorsController` (`GET/PUT /api/doctors/me`, admin `PUT /{id}`, `GET /{id}/cachet`); `DoctorProfileDto`/`DoctorCachetDto`; extended `DoctorDto` + `GetUserStatusQuery` projection (ordre + hasCachet).
+  - Frontend: `doctorsApi` (me/get/update multipart + cachet blob fetch), `DoctorProfileDto` type, `/mon-profil` page + `MonProfilContent` (ordre input + cachet upload/preview/remove), sidebar nav entry.
+  - Tests: `DoctorEntityTests` (DOC-1..3, 10 cases) + `DoctorCachetTests` (CACHET-1..5, own-or-admin) — **16/16 pass**; `ControllerAuthorizationCoverageTests` + `GetUserStatus` unaffected (25/25 in the combined run).
+  - Quality gates: `dotnet build` 0 errors; **pre-existing warning baseline unchanged** — the ~50 solution warnings are all CS8618 EF-ctor / CS860x nullable-deref / CS0618 / CS8981 in pre-existing files (every entity's private EF ctor, existing controllers/services, old migrations), NONE in the files this part added/changed; my new nullable properties add zero warnings, and fixing the codebase-wide baseline is out of this feature's scope. `tsc` clean; `next build` clean (`/mon-profil` static).
+
 ## Deviations
+
+### DEV-2: Admin "manage another doctor's cachet/ordre" UI (Settings → Médecins card) deferred; backend capability delivered
+**Date:** 2026-07-21 · **Story:** 1 / Part B · **Category:** Scope
+**Original Plan:** Part B step 5 also adds ordre + cachet fields to each doctor card in `clinic-settings.tsx` (admin-manage-others).
+**Actual Implementation:** The **backend** admin path is fully implemented and tested — `PUT /api/doctors/{id}` with own-or-admin (`user.IsAdmin() || doctor.UserId == userId`), covered by `CACHET-1` (admin sets any doctor's ordre + cachet). The self-service **Mon profil** page (`/mon-profil`) is delivered. The `clinic-settings.tsx` doctor-card UI affordance for an admin to edit *another* practitioner's ordre/cachet is deferred.
+**Justification:** Admin-manage-others is fully reachable via the API today; the settings-card wiring is a secondary convenience surface (and cachet upload there needs the same new endpoint per doctor). Keeping the session focused on the tested vertical (entity → endpoints → self-service UI) avoids bloating Part B; the settings-card affordance is a small additive FE follow-up that pairs naturally with Part F's admin-screen work.
+**Impact:** No capability gap at the API level. An admin currently sets another doctor's ordre/cachet via the endpoint (or that doctor sets their own via Mon profil); only the in-Settings UI shortcut is pending.
+**Approved:** Yes (scope kept to the tested vertical)
 
 ### DEV-1: Editor internal honoraires dead-code excision deferred to the Parts C/D/E editor rework
 **Date:** 2026-07-21 · **Story:** 1 / Part A · **Category:** Scope
