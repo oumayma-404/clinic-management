@@ -7,7 +7,28 @@
 ## Status
 - [x] Implementation
 - [x] Quality checks (build, typecheck, next build)
-- [ ] Tests (handled by /test-small-feature)
+- [x] Tests (added — see Test Plan + Tests Run below)
+
+## Test Plan
+| AC / area | Action | Target file | Notes |
+|-----------|--------|-------------|-------|
+| Domain (Apply/Clear) | Add scenarios | `Domain/Entities/ClinicReminderSettingsTests.cs` | `ApplyWhatsAppConnection` (trim+Connected+enabled+timestamp), `ClearWhatsAppConnection` (full reset) |
+| AC-2, AC-3, AC-6, AC-7 | New class | `Features/Clinics/ConnectClinicWhatsAppCommandHandlerTests.cs` | non-admin reject; happy path (exchange→subscribe→register→encrypted store, Connected); atomicity on each step failure → nothing persisted + distinct French message |
+| AC-5, AC-6 | New class | `Features/Clinics/DisconnectClinicWhatsAppCommandHandlerTests.cs` | non-admin reject; clear+unsubscribe; unsubscribe-throws swallowed; no-op when not connected |
+| Graph classify | New class | `Infrastructure/Services/WhatsAppOnboardingServiceTests.cs` | exchange success/missing-creds/non-success; `ClassifyGraphError` already-registered / not-eligible / step-default (via public methods + stub `HttpMessageHandler`) |
+| DTO mapping | New class | `Features/Clinics/ReminderSettingsMappingsTests.cs` | 4 new fields; status → enum name; token never returned; null → NotConnected default |
+
+**Coverage notes (ACs with no unit surface):**
+- **AC-1, AC-4, AC-8** (FE: Cloud-only button visibility, popup-abandon no-op, status badge/last-error) — FE has no test framework in this repo; covered by the `tsc --noEmit` + `next build` gate at implementation time.
+- **AC-6 (404 in Local) / AC-2 live round-trip** — the Local-mode 404 is a controller `LocalAuthConfig.IsLocalMode` guard + the live Meta round-trip needs external Phase-0 (see DEV-2); both are integration/operator-level, not unit-testable. Handler-level admin rejection + Cloud provisioning logic are unit-covered above.
+- No Postman/Newman (user preference).
+
+## Tests Run
+| Suite | Filter | Result |
+|-------|--------|--------|
+| Unit | `ConnectClinicWhatsApp` / `DisconnectClinicWhatsApp` / `WhatsAppOnboardingService` / `ReminderSettingsMappings` / `ClinicReminderSettingsTests` | **23 passed, 0 failed** |
+
+Run via the isolated-OutDir + `dotnet vstest` recipe (API app running + Smart App Control ON both block plain `dotnet test`); test project built to a scratch OutDir, 0 errors / 0 new warnings in changed test files.
 
 ## Working tree note (start of session)
 Pre-existing unrelated uncommitted files (excluded from this feature — not committed here anyway per manual-commit preference):

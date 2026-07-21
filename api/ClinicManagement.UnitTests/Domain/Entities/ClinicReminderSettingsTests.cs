@@ -1,4 +1,5 @@
 using ClinicManagement.Domain.Entities;
+using ClinicManagement.Domain.Enums;
 using Xunit;
 
 namespace ClinicManagement.UnitTests.Domain.Entities;
@@ -68,5 +69,42 @@ public class ClinicReminderSettingsTests
 
         Assert.Equal("enc-sms", settings.SmsApiKeyEncrypted);
         Assert.Equal("enc-wa", settings.WhatsAppAccessTokenEncrypted);
+    }
+
+    // WhatsApp Embedded-Signup connection (P1): a successful connect records the WABA/phone ids, enables the
+    // channel, marks Connected, stamps the time and clears any prior error.
+    [Fact]
+    public void ApplyWhatsAppConnection_Sets_Connected_State_And_Trims_Ids()
+    {
+        var settings = new ClinicReminderSettings(ClinicId);
+
+        settings.ApplyWhatsAppConnection("  WABA-1  ", "  PN-99  ");
+
+        Assert.Equal("WABA-1", settings.WhatsAppBusinessAccountId); // trimmed
+        Assert.Equal("PN-99", settings.WhatsAppPhoneNumberId);
+        Assert.True(settings.WhatsAppEnabled);
+        Assert.Equal(WhatsAppConnectionStatus.Connected, settings.WhatsAppConnectionStatus);
+        Assert.Null(settings.WhatsAppLastError);
+        Assert.NotNull(settings.WhatsAppConnectedAt);
+        Assert.NotNull(settings.UpdatedAt);
+    }
+
+    // Disconnect wipes every piece of connection state (incl. the stored token) and disables the channel.
+    [Fact]
+    public void ClearWhatsAppConnection_Resets_All_Connection_State()
+    {
+        var settings = new ClinicReminderSettings(ClinicId);
+        settings.ApplyWhatsAppConnection("WABA-1", "PN-99");
+        settings.SetWhatsAppAccessTokenEncrypted("enc-token");
+
+        settings.ClearWhatsAppConnection();
+
+        Assert.Null(settings.WhatsAppBusinessAccountId);
+        Assert.Null(settings.WhatsAppPhoneNumberId);
+        Assert.Null(settings.WhatsAppAccessTokenEncrypted);
+        Assert.False(settings.WhatsAppEnabled);
+        Assert.Equal(WhatsAppConnectionStatus.NotConnected, settings.WhatsAppConnectionStatus);
+        Assert.Null(settings.WhatsAppConnectedAt);
+        Assert.Null(settings.WhatsAppLastError);
     }
 }
