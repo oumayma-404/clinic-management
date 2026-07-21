@@ -282,7 +282,7 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
         if (request.DoctorInfo != null && !string.IsNullOrWhiteSpace(request.DoctorInfo.Specialty)
             && (string.IsNullOrWhiteSpace(request.DoctorInfo.FirstName) || string.IsNullOrWhiteSpace(request.DoctorInfo.LastName)))
         {
-            return Result<ClinicDto>.Failure("First name, last name, and specialty are required for the practitioner.");
+            return Result<ClinicDto>.Failure("First and last name are required for the practitioner.");
         }
 
         // Generate a unique clinic code for later staff self-registration.

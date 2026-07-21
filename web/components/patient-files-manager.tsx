@@ -101,9 +101,13 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
         console.log("Default folders may already exist")
       }
     }
-    if (patientId && !loading && folders.length === 0 && defaultsInitializedFor.current !== patientId) {
+    if (patientId && !loading && defaultsInitializedFor.current !== patientId) {
+      // Arm the ref on the FIRST resolved load for this patient regardless of whether seeding was needed,
+      // so a later delete-all never re-creates the defaults (seed truly once per patient).
       defaultsInitializedFor.current = patientId
-      initializeDefaults()
+      if (folders.length === 0) {
+        initializeDefaults()
+      }
     }
   }, [patientId, loading, folders.length])
 

@@ -6,7 +6,6 @@ using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Domain.Enums;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace ClinicManagement.Application.Features.Appointments.Commands;
 
@@ -28,7 +27,7 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IClinicContext _clinicContext;
     private readonly IUnitOfWork _unitOfWork;
-    private readonly IServiceScopeFactory _serviceScopeFactory;
+    private readonly IAppointmentGoogleSyncDispatcher _googleSyncDispatcher;
     private readonly INotificationGenerator _notificationGenerator;
     private readonly IReminderScheduler _reminderScheduler;
     private readonly ILogger<UpdateAppointmentCommandHandler> _logger;
@@ -39,7 +38,7 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
         ICurrentClinicResolver clinicResolver,
         IClinicContext clinicContext,
         IUnitOfWork unitOfWork,
-        IServiceScopeFactory serviceScopeFactory,
+        IAppointmentGoogleSyncDispatcher googleSyncDispatcher,
         INotificationGenerator notificationGenerator,
         IReminderScheduler reminderScheduler,
         ILogger<UpdateAppointmentCommandHandler> logger)
@@ -49,7 +48,7 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
         _clinicResolver = clinicResolver;
         _clinicContext = clinicContext;
         _unitOfWork = unitOfWork;
-        _serviceScopeFactory = serviceScopeFactory;
+        _googleSyncDispatcher = googleSyncDispatcher;
         _notificationGenerator = notificationGenerator;
         _reminderScheduler = reminderScheduler;
         _logger = logger;
@@ -244,7 +243,7 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                 var patientName = appointment.Patient?.GetFullName() ?? "Patient";
                 var becameCancelled = oldStatus != AppointmentStatus.Cancelled
                                       && appointment.Status == AppointmentStatus.Cancelled;
-                // A cancelled→scheduled reactivation calls Reschedule(sameDateTime); guarding on an actual
+                // A cancelled→scheduled reactivation calls Reactivate(sameDateTime); guarding on an actual
                 // date change means that no-op reactivation never emits a bogus "rescheduled" (plan R-3).
                 var dateChanged = appointment.AppointmentDateTime != oldDateTime;
                 // Reactivating a cancelled appointment: the cancel already deleted its reminder, so a
@@ -338,47 +337,10 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                 IsSyncedToGoogle = appointment.GoogleCalendarEventId != null
             };
 
-            // Sync to Google Calendar immediately (fire and forget)
-            // This ensures real-time synchronization from our app to Google Calendar.
-            // When an appointment is cancelled or completed, the sync service will delete it from Google Calendar.
-            // We create a new scope for the background task to avoid DbContext disposal issues.
-            var appointmentId = appointment.Id;
-            _ = Task.Run(async () =>
-            {
-                // Create a new scope for the background task to get fresh services
-                using var scope = _serviceScopeFactory.CreateScope();
-                var logger = scope.ServiceProvider.GetRequiredService<ILogger<UpdateAppointmentCommandHandler>>();
-
-                try
-                {
-                    // Use a new cancellation token that won't be cancelled when the request completes
-                    using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
-
-                    // Gate on the SERVER's internet egress (Local LAN clients have none of their own). Skip the
-                    // sync — and its OAuth token refresh — when offline; connectivity returning re-enables it on
-                    // the next create/update. IInternetProbe caches, so this is cheap.
-                    var probe = scope.ServiceProvider.GetRequiredService<IInternetProbe>();
-                    if (!await probe.IsInternetReachableAsync(cts.Token))
-                    {
-                        logger.LogDebug("Server offline; skipping Google Calendar sync for appointment {AppointmentId}", appointmentId);
-                        return;
-                    }
-
-                    var syncService = scope.ServiceProvider.GetRequiredService<IGoogleCalendarSyncService>();
-                    await syncService.SyncAppointmentToGoogleCalendarAsync(appointmentId, cts.Token);
-                    logger.LogInformation("Successfully synced appointment {AppointmentId} to Google Calendar", appointmentId);
-                }
-                catch (InvalidOperationException ex) when (ex.Message.Contains("not configured"))
-                {
-                    // Silently ignore if Google Calendar is not configured
-                    logger.LogDebug("Google Calendar not configured, skipping sync for appointment {AppointmentId}", appointmentId);
-                }
-                catch (Exception ex)
-                {
-                    // Log error but don't fail the appointment update
-                    logger.LogError(ex, "Error syncing appointment {AppointmentId} to Google Calendar", appointmentId);
-                }
-            });
+            // Push to Google Calendar post-commit (fire-and-forget, connectivity-gated). Best-effort — a
+            // Google failure never affects the update; cancelled/completed appointments are removed from
+            // Google by the sync service.
+            _googleSyncDispatcher.Dispatch(appointment.Id);
 
             return Result<AppointmentDto>.Success(dto);
         }

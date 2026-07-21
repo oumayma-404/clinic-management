@@ -151,7 +151,8 @@ public class FilesTenantIsolationTests
         var storage = new Mock<IFileStorage>();
         var uow = new Mock<IUnitOfWork>();
 
-        var handler = new DeletePatientFileCommandHandler(files.Object, patients.Object, storage.Object, Resolver(ClinicId).Object, uow.Object);
+        var handler = new DeletePatientFileCommandHandler(files.Object, patients.Object, storage.Object, Resolver(ClinicId).Object, uow.Object,
+            NullLogger<DeletePatientFileCommandHandler>.Instance);
         var result = await handler.Handle(
             new DeletePatientFileCommand { PatientId = foreign.Id, FileId = file.Id }, CancellationToken.None);
 

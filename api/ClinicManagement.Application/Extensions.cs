@@ -29,6 +29,8 @@ public static class Extensions
         services.AddScoped<ICurrentClinicResolver, CurrentClinicResolver>();
         // Best-effort writer for the in-app staff notification feed (generated inline from command handlers).
         services.AddScoped<INotificationGenerator, NotificationGenerator>();
+        // Fire-and-forget, connectivity-gated Google Calendar sync for appointment create/update.
+        services.AddScoped<IAppointmentGoogleSyncDispatcher, AppointmentGoogleSyncDispatcher>();
         // Backstop tenant scoping: feeds the EF Core global query filter with the caller's clinic id.
         // Inactive (null) when no clinic is in scope so background jobs / CLI / anonymous flows are unaffected.
         services.AddScoped<ICurrentClinicProvider, CurrentClinicProvider>();

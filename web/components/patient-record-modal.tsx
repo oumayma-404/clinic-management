@@ -126,7 +126,17 @@ export function PatientRecordModal({
         setImportantNotes([])
       }
     }
-  }, [open, initialPatientName, record, procedureTypes])
+  }, [open, initialPatientName, record])
+
+  // Reclassify a known-vs-custom procedure once the async procedure-types list has loaded, WITHOUT re-running
+  // the full form reset (which would discard in-progress edits and, via the auto-fill-cost effect below, had
+  // overwritten an edited record's stored cost). Only touches procedureType/customProcedure.
+  useEffect(() => {
+    if (!open || !record) return
+    const known = procedureTypes.some((p) => p.name === record.procedureType)
+    setProcedureType(known ? record.procedureType : "Custom")
+    setCustomProcedure(known ? "" : record.procedureType)
+  }, [open, record, procedureTypes])
 
   // Auto-fill cost when procedure type is selected (using useEffect to ensure latest state)
   useEffect(() => {
@@ -138,9 +148,9 @@ export function PatientRecordModal({
     const selectedProcedure = procedureTypes.find(p => p.name === procedureType)
     if (selectedProcedure && selectedProcedure.defaultCost != null && selectedProcedure.defaultCost > 0) {
       const costValue = String(selectedProcedure.defaultCost)
-      // Only set if cost is currently empty or was previously set by a procedure type
-      // This allows user to manually override if needed
-      setCost(costValue)
+      // Only fill when cost is currently empty — never overwrite a value already present (an existing
+      // record's stored cost, or a value the user typed). Functional update reads the latest cost.
+      setCost(prev => (prev && prev.length > 0 ? prev : costValue))
     }
   }, [procedureType, procedureTypes, loadingProcedureTypes])
 

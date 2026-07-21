@@ -1,4 +1,5 @@
 using MediatR;
+using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Domain.Repositories;
@@ -18,19 +19,22 @@ public class DeletePatientFileCommandHandler : IRequestHandler<DeletePatientFile
     private readonly IFileStorage _fileStorage;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly ILogger<DeletePatientFileCommandHandler> _logger;
 
     public DeletePatientFileCommandHandler(
         IPatientFileRepository fileRepository,
         IPatientRepository patientRepository,
         IFileStorage fileStorage,
         ICurrentClinicResolver clinicResolver,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        ILogger<DeletePatientFileCommandHandler> logger)
     {
         _fileRepository = fileRepository;
         _patientRepository = patientRepository;
         _fileStorage = fileStorage;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
+        _logger = logger;
     }
 
     public async Task<Result<bool>> Handle(DeletePatientFileCommand request, CancellationToken cancellationToken)
@@ -61,12 +65,21 @@ public class DeletePatientFileCommandHandler : IRequestHandler<DeletePatientFile
                 return Result<bool>.Failure("File not found");
             }
 
-            // Delete from storage
-            await _fileStorage.DeleteAsync(file.StorageKey, cancellationToken);
-
-            // Delete from database
+            // Remove the DB record first and commit; the blob is deleted only AFTER the commit so a failed
+            // save never strands the record on a missing blob. A blob-delete failure is logged (a leaked blob
+            // is preferable to an orphaned record) — same ordering as DeletePatientFolderCommand (#18/AC-3).
+            var storageKey = file.StorageKey;
             await _fileRepository.DeleteAsync(file, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            try
+            {
+                await _fileStorage.DeleteAsync(storageKey, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to delete blob {StorageKey} after removing file {FileId}; the record is already deleted.", storageKey, file.Id);
+            }
 
             return Result<bool>.Success(true);
         }

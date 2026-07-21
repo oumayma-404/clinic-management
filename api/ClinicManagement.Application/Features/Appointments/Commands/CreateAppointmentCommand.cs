@@ -4,8 +4,6 @@ using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 
 namespace ClinicManagement.Application.Features.Appointments.Commands;
 
@@ -30,7 +28,7 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
     private readonly IUnitOfWork _unitOfWork;
     private readonly INotificationGenerator _notificationGenerator;
     private readonly IReminderScheduler _reminderScheduler;
-    private readonly IServiceScopeFactory _serviceScopeFactory;
+    private readonly IAppointmentGoogleSyncDispatcher _googleSyncDispatcher;
 
     public CreateAppointmentCommandHandler(
         IAppointmentRepository appointmentRepository,
@@ -41,7 +39,7 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
         IUnitOfWork unitOfWork,
         INotificationGenerator notificationGenerator,
         IReminderScheduler reminderScheduler,
-        IServiceScopeFactory serviceScopeFactory)
+        IAppointmentGoogleSyncDispatcher googleSyncDispatcher)
     {
         _appointmentRepository = appointmentRepository;
         _patientRepository = patientRepository;
@@ -51,7 +49,7 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
         _unitOfWork = unitOfWork;
         _notificationGenerator = notificationGenerator;
         _reminderScheduler = reminderScheduler;
-        _serviceScopeFactory = serviceScopeFactory;
+        _googleSyncDispatcher = googleSyncDispatcher;
     }
 
     public async Task<Result<AppointmentDto>> Handle(CreateAppointmentCommand request, CancellationToken cancellationToken)
@@ -174,43 +172,9 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
                 IsSyncedToGoogle = appointment.GoogleCalendarEventId != null
             };
 
-            // Sync to Google Calendar post-commit (fire-and-forget), mirroring the update path so a newly
-            // created appointment is pushed to Google without a manual "Push". A fresh DI scope avoids
-            // DbContext-disposal issues once the request scope ends; failures never affect the create.
-            // Patient-less "busy slot" appointments are skipped inside the sync service.
-            var appointmentId = appointment.Id;
-            _ = Task.Run(async () =>
-            {
-                using var scope = _serviceScopeFactory.CreateScope();
-                var logger = scope.ServiceProvider.GetRequiredService<ILogger<CreateAppointmentCommandHandler>>();
-
-                try
-                {
-                    using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
-
-                    // Gate on the SERVER's internet egress (Local LAN clients have none of their own). Skip the
-                    // sync — and its OAuth token refresh — when offline; connectivity returning re-enables it on
-                    // the next create/update. IInternetProbe caches, so this is cheap.
-                    var probe = scope.ServiceProvider.GetRequiredService<IInternetProbe>();
-                    if (!await probe.IsInternetReachableAsync(cts.Token))
-                    {
-                        logger.LogDebug("Server offline; skipping Google Calendar sync for appointment {AppointmentId}", appointmentId);
-                        return;
-                    }
-
-                    var syncService = scope.ServiceProvider.GetRequiredService<IGoogleCalendarSyncService>();
-                    await syncService.SyncAppointmentToGoogleCalendarAsync(appointmentId, cts.Token);
-                    logger.LogInformation("Successfully synced appointment {AppointmentId} to Google Calendar", appointmentId);
-                }
-                catch (InvalidOperationException ex) when (ex.Message.Contains("not configured"))
-                {
-                    logger.LogDebug("Google Calendar not configured, skipping sync for appointment {AppointmentId}", appointmentId);
-                }
-                catch (Exception ex)
-                {
-                    logger.LogError(ex, "Error syncing appointment {AppointmentId} to Google Calendar", appointmentId);
-                }
-            });
+            // Push to Google Calendar post-commit (fire-and-forget, connectivity-gated). Best-effort — a
+            // Google failure never affects the created appointment; patient-less slots are skipped by the service.
+            _googleSyncDispatcher.Dispatch(appointment.Id);
 
             return Result<AppointmentDto>.Success(dto);
         }

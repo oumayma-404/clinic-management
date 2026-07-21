@@ -88,7 +88,7 @@ public class AppointmentTenantIsolationTests
             clinicResolver.Object,
             new Mock<IClinicContext>().Object,
             uow.Object,
-            ScopeFactory(),
+            new Mock<IAppointmentGoogleSyncDispatcher>().Object,
             new Mock<INotificationGenerator>().Object,
             new Mock<IReminderScheduler>().Object,
             NullLogger<UpdateAppointmentCommandHandler>.Instance);
@@ -122,7 +122,7 @@ public class AppointmentTenantIsolationTests
             uow.Object,
             new Mock<INotificationGenerator>().Object,
             new Mock<IReminderScheduler>().Object,
-            ScopeFactory());
+            new Mock<IAppointmentGoogleSyncDispatcher>().Object);
         return (handler, appts, uow);
     }
 

@@ -32,22 +32,28 @@ export function PatientsTable({ searchQuery, showFlaggedOnly }: PatientsTablePro
 
   // Load patients from API
   useEffect(() => {
+    // Guard against out-of-order responses: each keystroke fires a request; only the latest may apply its
+    // result (a slower earlier request must not overwrite a newer one's patients).
+    let ignore = false
     const loadPatients = async () => {
       try {
         setLoading(true)
         setError(null)
         const term = searchQuery.trim()
         const data = await patientsApi.list(term ? { searchTerm: term } : undefined)
-        setPatients(data)
+        if (!ignore) setPatients(data)
       } catch (err) {
         console.error("Failed to load patients:", err)
-        setError(err instanceof ApiError ? err.message : "Failed to load patients")
+        if (!ignore) setError(err instanceof ApiError ? err.message : "Failed to load patients")
       } finally {
-        setLoading(false)
+        if (!ignore) setLoading(false)
       }
     }
 
     loadPatients()
+    return () => {
+      ignore = true
+    }
   }, [searchQuery]) // Reload when search query changes
 
   // Filter patients based on flagged status (search is handled by API)
