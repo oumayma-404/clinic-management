@@ -36,7 +36,8 @@ export function PatientsTable({ searchQuery, showFlaggedOnly }: PatientsTablePro
       try {
         setLoading(true)
         setError(null)
-        const data = await patientsApi.list()
+        const term = searchQuery.trim()
+        const data = await patientsApi.list(term ? { searchTerm: term } : undefined)
         setPatients(data)
       } catch (err) {
         console.error("Failed to load patients:", err)
@@ -103,7 +104,8 @@ export function PatientsTable({ searchQuery, showFlaggedOnly }: PatientsTablePro
     // Reload patients after successful edit
     const loadPatients = async () => {
       try {
-        const data = await patientsApi.list()
+        const term = searchQuery.trim()
+        const data = await patientsApi.list(term ? { searchTerm: term } : undefined)
         setPatients(data)
       } catch (err) {
         console.error("Failed to reload patients:", err)

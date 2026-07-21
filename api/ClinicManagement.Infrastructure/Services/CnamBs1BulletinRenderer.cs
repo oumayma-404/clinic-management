@@ -503,7 +503,15 @@ internal sealed class CnamBs1BulletinRenderer
                 return string.Empty;
             }
 
-            return decimal.TryParse(value, NumberStyles.Any, CultureInfo.InvariantCulture, out var amount)
+            // Tunisian/French entry uses ',' as the DECIMAL separator (e.g. "12,000" = 12.000 TND). Parsing
+            // with NumberStyles.Any treated ',' as a THOUSANDS separator (→ 12000), overstating the amount
+            // ~1000×. Normalize ',' to '.' and parse WITHOUT AllowThousands, so both hand-typed "12,000" and
+            // the prefill's dot form "12.000" yield 12.000. Unparseable input is passed through unchanged.
+            var normalized = value.Replace(',', '.');
+            const NumberStyles styles = NumberStyles.AllowLeadingWhite | NumberStyles.AllowTrailingWhite
+                | NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint;
+
+            return decimal.TryParse(normalized, styles, CultureInfo.InvariantCulture, out var amount)
                 ? amount.ToString("0.000", CultureInfo.InvariantCulture)
                 : value;
         }

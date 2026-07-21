@@ -20,6 +20,9 @@ async function getAccessToken(): Promise<string | null> {
 
 export interface DoctorDto {
   id?: string;
+  // Auth0 sub / local user id this doctor is linked to (Doctor.LinkToUser). Lets the client resolve the
+  // current user's own doctor authoritatively, regardless of their role (e.g. single-dentist admin).
+  userId?: string;
   name: string;
   specialty: string;
   phone?: string;

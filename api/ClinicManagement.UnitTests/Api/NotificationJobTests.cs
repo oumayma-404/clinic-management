@@ -84,8 +84,14 @@ public class NotificationJobTests
             .AddInMemoryCollection(new Dictionary<string, string?> { ["Reminders:MaxRetries"] = maxRetries.ToString() })
             .Build();
 
+        // The dispatcher re-checks the appointment status at send time; return an active (Scheduled)
+        // appointment so these routing/lifecycle tests behave as before (the recheck is a pass-through here).
+        var appointments = new Mock<IAppointmentRepository>();
+        appointments.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Appointment(Guid.NewGuid(), ClinicId, Guid.NewGuid(), null, DateTime.UtcNow, TimeSpan.FromMinutes(30)));
+
         return new NotificationJob(
-            notifications.Object, patients.Object, uow.Object, probe.Object, settingsProvider.Object, config, senders,
+            notifications.Object, patients.Object, appointments.Object, uow.Object, probe.Object, settingsProvider.Object, config, senders,
             NullLogger<NotificationJob>.Instance);
     }
 
@@ -285,8 +291,11 @@ public class NotificationJobTests
 
         var sender = new FakeSender(NotificationType.SMS, ReminderSendResult.Sent);
         var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>()).Build();
+        var appointments = new Mock<IAppointmentRepository>();
+        appointments.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Appointment(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), null, DateTime.UtcNow, TimeSpan.FromMinutes(30)));
         var job = new NotificationJob(
-            notifications.Object, patients.Object, new Mock<IUnitOfWork>().Object, probe.Object, provider.Object,
+            notifications.Object, patients.Object, appointments.Object, new Mock<IUnitOfWork>().Object, probe.Object, provider.Object,
             config, new IReminderChannelSender[] { sender }, NullLogger<NotificationJob>.Instance);
 
         await job.ProcessPendingNotifications();
@@ -326,8 +335,11 @@ public class NotificationJobTests
         var sender = new FakeSender(NotificationType.SMS, ReminderSendResult.Sent);
         var uow = new Mock<IUnitOfWork>();
         var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>()).Build();
+        var appointments = new Mock<IAppointmentRepository>();
+        appointments.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Appointment(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), null, DateTime.UtcNow, TimeSpan.FromMinutes(30)));
         var job = new NotificationJob(
-            notifications.Object, patients.Object, uow.Object, probe.Object, provider.Object,
+            notifications.Object, patients.Object, appointments.Object, uow.Object, probe.Object, provider.Object,
             config, new IReminderChannelSender[] { sender }, NullLogger<NotificationJob>.Instance);
 
         await job.ProcessPendingNotifications();
@@ -336,5 +348,52 @@ public class NotificationJobTests
         Assert.Equal(NotificationStatus.Pending, reminder.Status);
         Assert.Equal(0, reminder.RetryCount);
         uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    // fix-appointment-lifecycle #11: a reminder whose appointment is cancelled by dispatch time must not be
+    // sent, even though its Pending row is still due (safety net for a void failure / cancel-vs-tick race).
+    [Fact]
+    public async Task Cancelled_Appointment_At_Dispatch_Is_Not_Sent()
+    {
+        var patientId = Guid.NewGuid();
+        var reminder = Reminder(NotificationType.SMS, patientId);
+
+        var patients = new Mock<IPatientRepository>();
+        patients.Setup(r => r.GetByIdAsync(patientId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PatientWithPhone(patientId, "20123456"));
+
+        var notifications = new Mock<INotificationRepository>();
+        notifications.Setup(r => r.GetPendingNotificationsAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new[] { reminder });
+        notifications.Setup(r => r.UpdateAsync(It.IsAny<Notification>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+
+        var probe = new Mock<IInternetProbe>();
+        probe.Setup(p => p.IsInternetReachableAsync(It.IsAny<CancellationToken>())).ReturnsAsync(true);
+
+        var settingsProvider = new Mock<IReminderSettingsProvider>();
+        settingsProvider.Setup(p => p.ResolveAsync(It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ResolvedReminderSettings
+            {
+                EnabledChannels = new[] { NotificationType.SMS, NotificationType.WhatsApp }
+            });
+
+        // The reminder's appointment has since been cancelled.
+        var cancelled = new Appointment(Guid.NewGuid(), ClinicId, patientId, null, DateTime.UtcNow, TimeSpan.FromMinutes(30));
+        cancelled.Cancel();
+        var appointments = new Mock<IAppointmentRepository>();
+        appointments.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync(cancelled);
+
+        var sender = new FakeSender(NotificationType.SMS, ReminderSendResult.Sent);
+        var uow = new Mock<IUnitOfWork>();
+        uow.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
+        var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>()).Build();
+
+        var job = new NotificationJob(
+            notifications.Object, patients.Object, appointments.Object, uow.Object, probe.Object,
+            settingsProvider.Object, config, new IReminderChannelSender[] { sender }, NullLogger<NotificationJob>.Instance);
+
+        await job.ProcessPendingNotifications();
+
+        Assert.Equal(0, sender.Calls); // never sent for a cancelled visit
+        Assert.Equal(NotificationStatus.Failed, reminder.Status); // dropped terminally, not left Pending to retry
     }
 }

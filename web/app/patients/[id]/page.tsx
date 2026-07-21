@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Separator } from "@/components/ui/separator"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { formatDT } from "@/lib/format"
 import {
   ArrowLeft,
   Flag,
@@ -584,13 +585,13 @@ export default function PatientDetailsPage() {
                                     <span className="text-muted-foreground text-sm">-</span>
                                   )}
                                 </TableCell>
-                                <TableCell>${record.amountPaid.toFixed(2)}</TableCell>
+                                <TableCell>{formatDT(record.amountPaid)}</TableCell>
                                 <TableCell>
                                   {(() => {
                                     const reste = Math.max(0, record.balance ?? (record.cost - record.amountPaid))
                                     return reste > 0
-                                      ? <span className="font-semibold text-amber-600">${reste.toFixed(2)}</span>
-                                      : <span className="text-muted-foreground">$0.00</span>
+                                      ? <span className="font-semibold text-amber-600">{formatDT(reste)}</span>
+                                      : <span className="text-muted-foreground">{formatDT(0)}</span>
                                   })()}
                                 </TableCell>
                                 <TableCell className="max-w-xs">

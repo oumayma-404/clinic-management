@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { appointmentsApi } from '@/lib/api/appointments';
 import type { AppointmentDto } from '@/lib/api/types';
 import { ApiError } from '@/lib/api/client';
-import { format, startOfDay, endOfDay } from 'date-fns';
+import { startOfDay, endOfDay } from 'date-fns';
 
 export function useAppointments(
   startDate?: Date,
@@ -14,13 +14,16 @@ export function useAppointments(
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Memoize date strings for stable dependencies
-  const formattedStartDate = useMemo(() => 
-    startDate ? format(startOfDay(startDate), "yyyy-MM-dd'T'HH:mm:ss") : undefined, 
+  // Send the local day/week bounds as UTC instants (ISO 8601 with 'Z'). A bare local wall-clock string was
+  // parsed by the API as UTC (via the DateTime value converter), shifting the window by the clinic's UTC
+  // offset and dropping appointments near local midnight onto the wrong day. toISOString() is instant-
+  // preserving through the model binder + converter, so the query matches the intended local day.
+  const formattedStartDate = useMemo(() =>
+    startDate ? startOfDay(startDate).toISOString() : undefined,
     [startDate?.getTime()]
   );
-  const formattedEndDate = useMemo(() => 
-    endDate ? format(endOfDay(endDate), "yyyy-MM-dd'T'HH:mm:ss") : undefined, 
+  const formattedEndDate = useMemo(() =>
+    endDate ? endOfDay(endDate).toISOString() : undefined,
     [endDate?.getTime()]
   );
 

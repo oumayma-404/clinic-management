@@ -462,7 +462,7 @@ public class NotificationGenerationTests
         var handler = new CreateAppointmentCommandHandler(
             appointments.Object, patients.Object, procedures.Object, users.Object,
             context.Object, uow.Object, gen.Object,
-            new Mock<IReminderScheduler>().Object);
+            new Mock<IReminderScheduler>().Object, ScopeFactory());
         return (handler, gen);
     }
 
@@ -508,6 +508,13 @@ public class NotificationGenerationTests
             .Returns(new Mock<IGoogleCalendarSyncService>().Object);
         provider.Setup(p => p.GetService(typeof(ILogger<UpdateAppointmentCommandHandler>)))
             .Returns(NullLogger<UpdateAppointmentCommandHandler>.Instance);
+        // The create path resolves its own logger + the connectivity probe from the scope (probe reachable
+        // so the fire-and-forget sync proceeds to the no-op mock sync service, matching prior behavior).
+        provider.Setup(p => p.GetService(typeof(ILogger<CreateAppointmentCommandHandler>)))
+            .Returns(NullLogger<CreateAppointmentCommandHandler>.Instance);
+        var probe = new Mock<IInternetProbe>();
+        probe.Setup(p => p.IsInternetReachableAsync(It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        provider.Setup(p => p.GetService(typeof(IInternetProbe))).Returns(probe.Object);
         var scope = new Mock<IServiceScope>();
         scope.Setup(s => s.ServiceProvider).Returns(provider.Object);
         var factory = new Mock<IServiceScopeFactory>();

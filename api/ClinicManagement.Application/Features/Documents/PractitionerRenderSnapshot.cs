@@ -76,6 +76,61 @@ public sealed class PractitionerRenderSnapshot
     }
 
     /// <summary>
+    /// Reads the four reserved practitioner/clinic values already snapshotted onto a document's
+    /// <c>ContentJson</c>. Used to preserve a document's issuing-practitioner identity when it is edited by
+    /// a caller with no doctor record of their own (a secretary/admin) — see <see cref="OrElse"/>. Malformed
+    /// / non-object JSON, or values that aren't strings, yield empty fields (never throws).
+    /// </summary>
+    public static PractitionerRenderSnapshot ReadFrom(string contentJson)
+    {
+        JsonNode? node;
+        try
+        {
+            node = JsonNode.Parse(contentJson);
+        }
+        catch (JsonException)
+        {
+            return Empty;
+        }
+
+        if (node is not JsonObject content)
+        {
+            return Empty;
+        }
+
+        return new PractitionerRenderSnapshot
+        {
+            ClinicCity = ReadString(content, ClinicCityKey),
+            DoctorOrdreNumber = ReadString(content, DoctorOrdreNumberKey),
+            DoctorCachetKey = ReadString(content, DoctorCachetKeyKey),
+            DoctorCachetContentType = ReadString(content, DoctorCachetContentTypeKey)
+        };
+    }
+
+    /// <summary>
+    /// Returns a snapshot that keeps this instance's present values and fills each missing one from
+    /// <paramref name="fallback"/> (the cachet key and its content type move together). Lets an edit prefer
+    /// the caller's live doctor identity when they have one, else preserve the values already on the document.
+    /// </summary>
+    public PractitionerRenderSnapshot OrElse(PractitionerRenderSnapshot fallback)
+    {
+        var hasCachet = !string.IsNullOrWhiteSpace(DoctorCachetKey);
+        return new PractitionerRenderSnapshot
+        {
+            ClinicCity = !string.IsNullOrWhiteSpace(ClinicCity) ? ClinicCity : fallback.ClinicCity,
+            DoctorOrdreNumber = !string.IsNullOrWhiteSpace(DoctorOrdreNumber) ? DoctorOrdreNumber : fallback.DoctorOrdreNumber,
+            DoctorCachetKey = hasCachet ? DoctorCachetKey : fallback.DoctorCachetKey,
+            DoctorCachetContentType = hasCachet ? DoctorCachetContentType : fallback.DoctorCachetContentType
+        };
+    }
+
+    private static string? ReadString(JsonObject content, string key)
+        => content.TryGetPropertyValue(key, out var node) && node is JsonValue value
+            && value.TryGetValue<string>(out var s)
+                ? s
+                : null;
+
+    /// <summary>
     /// Resolve the snapshot for the current practitioner + clinic. Null-safe: a missing doctor/clinic (or a
     /// caller with no linked doctor record) simply yields empty fields — never throws for absence.
     /// NOTE: the cachet/ordre are resolved from the <b>caller's own</b> doctor record (by <paramref name="userId"/>),

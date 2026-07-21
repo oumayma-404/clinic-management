@@ -1,4 +1,5 @@
 using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Clinics.Commands;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
@@ -117,6 +118,39 @@ public class CreateClinicLocalSetupTests
         var result = await Handler().Handle(command, CancellationToken.None);
 
         Assert.True(result.IsFailure);
+        _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    // fix-single-dentist-identity #15: when the admin is also the practitioner, a linked Doctor is created.
+    [Fact]
+    public async Task Setup_With_Practitioner_Creates_Linked_Doctor()
+    {
+        FreshInstall();
+        var command = SetupCommand();
+        command.DoctorInfo = new DoctorPersonalInfoDto { FirstName = "Jane", LastName = "Doe", Specialty = "Dentiste" };
+
+        var result = await Handler().Handle(command, CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        _doctors.Verify(r => r.AddAsync(It.IsAny<Doctor>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    // #15: a practitioner setup missing the first or last name must NOT persist a nameless Doctor — and
+    // fails before creating the clinic/admin.
+    [Theory]
+    [InlineData("", "Doe")]
+    [InlineData("Jane", "")]
+    public async Task Setup_With_Practitioner_Missing_Name_Is_Rejected(string firstName, string lastName)
+    {
+        FreshInstall();
+        var command = SetupCommand();
+        command.DoctorInfo = new DoctorPersonalInfoDto { FirstName = firstName, LastName = lastName, Specialty = "Dentiste" };
+
+        var result = await Handler().Handle(command, CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        _doctors.Verify(r => r.AddAsync(It.IsAny<Doctor>(), It.IsAny<CancellationToken>()), Times.Never);
+        _users.Verify(r => r.AddAsync(It.IsAny<User>(), It.IsAny<CancellationToken>()), Times.Never);
         _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 }

@@ -16,6 +16,7 @@ public class CreateClinicRequest
 public class DoctorDto
 {
     public Guid? Id { get; set; }
+    public string? UserId { get; set; } // Auth0 sub / local user id this doctor is linked to (Doctor.LinkToUser); lets the client resolve "my doctor" authoritatively
     public string Name { get; set; } = string.Empty; // Kept for backward compatibility, maps to FullName
     public string? FirstName { get; set; } // New field
     public string? LastName { get; set; } // New field

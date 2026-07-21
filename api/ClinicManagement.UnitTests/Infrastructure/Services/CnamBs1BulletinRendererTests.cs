@@ -85,6 +85,11 @@ public class CnamBs1BulletinRendererTests
     [InlineData("0", "0.000")]
     [InlineData("150", "150.000")]
     [InlineData("12.345", "12.345")]
+    // fix-document-cnam-accuracy #3: ',' is the Tunisian DECIMAL separator, not a thousands separator.
+    // Before the fix these parsed ~1000× too large (e.g. "12,000" → "12000.000").
+    [InlineData("12,000", "12.000")]
+    [InlineData("35,500", "35.500")]
+    [InlineData("12,5", "12.500")]
     public void Honoraires_Formatted_To_Three_Decimals(string raw, string expected)
     {
         var model = BuildModel(new Dictionary<string, string>

@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import type { PatientDto, DentalRecordDto } from "@/lib/api/types"
+import { formatDT } from "@/lib/format"
 import { format, parseISO } from "date-fns"
 import { User, Phone, Mail, Calendar, MapPin, CreditCard, FileText, ChevronDown, ChevronUp } from "lucide-react"
 
@@ -327,14 +328,14 @@ export function PatientSummaryModal({ open, onOpenChange, patient, dentalRecords
                               <span className="text-muted-foreground text-sm">-</span>
                             )}
                           </TableCell>
-                          <TableCell className="whitespace-nowrap">${record.cost.toFixed(2)}</TableCell>
-                          <TableCell className="whitespace-nowrap">${record.amountPaid.toFixed(2)}</TableCell>
+                          <TableCell className="whitespace-nowrap">{formatDT(record.cost)}</TableCell>
+                          <TableCell className="whitespace-nowrap">{formatDT(record.amountPaid)}</TableCell>
                           <TableCell className="whitespace-nowrap">
                             {(() => {
                               const reste = Math.max(0, record.balance ?? (record.cost - record.amountPaid))
                               return reste > 0
-                                ? <span className="font-semibold text-amber-600">${reste.toFixed(2)}</span>
-                                : <span className="text-muted-foreground">$0.00</span>
+                                ? <span className="font-semibold text-amber-600">{formatDT(reste)}</span>
+                                : <span className="text-muted-foreground">{formatDT(0)}</span>
                             })()}
                           </TableCell>
                           <TableCell className="max-w-[200px]">

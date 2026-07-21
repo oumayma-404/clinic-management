@@ -42,31 +42,29 @@ export function useDoctors(): UseDoctorsResult {
       const doctorsList = status.doctors || []
       setDoctors(doctorsList)
 
-      // Find current user's doctor if they are a doctor
-      if (status.role === 'doctor' && status.user) {
-        // Try to find doctor by matching user info
-        // The doctor's UserId should match the user's id (Auth0 sub)
-        // For now, we'll match by email or name as a fallback
-        const userEmail = status.user.email
-        const userFullName = status.user.fullName
-
+      // Resolve the current user's linked doctor (if any). The practitioner can hold ANY role — in a
+      // single-dentist cabinet the practitioner is an "admin" with a linked Doctor — so match on the
+      // authoritative linked user id first (mirrors the backend GetByUserIdAsync), then fall back to
+      // email/name for legacy records created before the link existed.
+      const currentUser = status.user
+      if (currentUser) {
         const userDoctor = doctorsList.find(doctor => {
-          // Try to match by email first
-          if (userEmail && doctor.email && doctor.email.toLowerCase() === userEmail.toLowerCase()) {
+          // Authoritative: the doctor is linked to this user id.
+          if (doctor.userId && doctor.userId === currentUser.id) {
             return true
           }
-          // Try to match by name
-          if (userFullName && doctor.name && doctor.name.toLowerCase() === userFullName.toLowerCase()) {
+          // Fallback: match by email.
+          if (currentUser.email && doctor.email && doctor.email.toLowerCase() === currentUser.email.toLowerCase()) {
+            return true
+          }
+          // Fallback: match by name.
+          if (currentUser.fullName && doctor.name && doctor.name.toLowerCase() === currentUser.fullName.toLowerCase()) {
             return true
           }
           return false
         })
 
-        if (userDoctor) {
-          setCurrentUserDoctor(userDoctor)
-        } else {
-          setCurrentUserDoctor(null)
-        }
+        setCurrentUserDoctor(userDoctor ?? null)
       } else {
         setCurrentUserDoctor(null)
       }

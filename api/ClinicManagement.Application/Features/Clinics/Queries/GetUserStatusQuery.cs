@@ -59,6 +59,7 @@ public class GetUserStatusQueryHandler : IRequestHandler<GetUserStatusQuery, Res
             var doctorDtos = doctors.Select(d => new DoctorDto
             {
                 Id = d.Id,
+                UserId = d.UserId, // authoritative link so the client can resolve the current user's doctor by id
                 Name = d.FullName, // Map FullName to Name for backward compatibility
                 FirstName = d.FirstName,
                 LastName = d.LastName,

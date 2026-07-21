@@ -154,6 +154,23 @@ public class Appointment : AggregateRoot<Guid>
         }
     }
 
+    /// <summary>
+    /// Un-cancel a cancelled appointment back to Scheduled at the given time. This is the explicit
+    /// reactivation path — <see cref="Reschedule"/> deliberately forbids operating on a cancelled
+    /// appointment, so a "reactivate and move" edit routes here instead.
+    /// </summary>
+    public void Reactivate(DateTime newDateTime)
+    {
+        if (Status != AppointmentStatus.Cancelled)
+            throw new InvalidOperationException("Only a cancelled appointment can be reactivated");
+
+        AppointmentDateTime = newDateTime;
+        Status = AppointmentStatus.Scheduled;
+        CancellationReason = null;
+        CancelledAt = null;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
     public void UpdateNotes(string? notes)
     {
         Notes = notes;

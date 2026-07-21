@@ -98,7 +98,25 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
 
                 if (appointment.AppointmentDateTime != appointmentDateTime)
                 {
-                    appointment.Reschedule(appointmentDateTime);
+                    // A cancelled/completed appointment cannot be rescheduled directly (the domain guards it).
+                    // If the caller is reactivating a cancelled appointment (status → Scheduled), un-cancel it
+                    // as part of the move; if it stays cancelled, skip the date change so editing other fields
+                    // (notes, doctor) doesn't 400 on the reschedule guard — e.g. when the sent start time
+                    // differs only by zeroed seconds. Completed appointments are never rescheduled here.
+                    if (appointment.Status == AppointmentStatus.Cancelled)
+                    {
+                        var reactivating = !string.IsNullOrWhiteSpace(request.Status)
+                            && Enum.TryParse<AppointmentStatus>(request.Status, true, out var target)
+                            && target == AppointmentStatus.Scheduled;
+                        if (reactivating)
+                        {
+                            appointment.Reactivate(appointmentDateTime);
+                        }
+                    }
+                    else if (appointment.Status != AppointmentStatus.Completed)
+                    {
+                        appointment.Reschedule(appointmentDateTime);
+                    }
                 }
             }
 
@@ -164,10 +182,10 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                         switch (newStatus)
                         {
                             case AppointmentStatus.Scheduled:
-                                // If currently cancelled, we need to reschedule to reactivate
+                                // If currently cancelled, reactivate it (Reschedule forbids a cancelled appt).
                                 if (appointment.Status == AppointmentStatus.Cancelled)
                                 {
-                                    appointment.Reschedule(appointment.AppointmentDateTime);
+                                    appointment.Reactivate(appointment.AppointmentDateTime);
                                 }
                                 // If status is already scheduled, no change needed
                                 break;
@@ -329,13 +347,24 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
             {
                 // Create a new scope for the background task to get fresh services
                 using var scope = _serviceScopeFactory.CreateScope();
-                var syncService = scope.ServiceProvider.GetRequiredService<IGoogleCalendarSyncService>();
                 var logger = scope.ServiceProvider.GetRequiredService<ILogger<UpdateAppointmentCommandHandler>>();
-                
+
                 try
                 {
                     // Use a new cancellation token that won't be cancelled when the request completes
                     using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+
+                    // Gate on the SERVER's internet egress (Local LAN clients have none of their own). Skip the
+                    // sync — and its OAuth token refresh — when offline; connectivity returning re-enables it on
+                    // the next create/update. IInternetProbe caches, so this is cheap.
+                    var probe = scope.ServiceProvider.GetRequiredService<IInternetProbe>();
+                    if (!await probe.IsInternetReachableAsync(cts.Token))
+                    {
+                        logger.LogDebug("Server offline; skipping Google Calendar sync for appointment {AppointmentId}", appointmentId);
+                        return;
+                    }
+
+                    var syncService = scope.ServiceProvider.GetRequiredService<IGoogleCalendarSyncService>();
                     await syncService.SyncAppointmentToGoogleCalendarAsync(appointmentId, cts.Token);
                     logger.LogInformation("Successfully synced appointment {AppointmentId} to Google Calendar", appointmentId);
                 }

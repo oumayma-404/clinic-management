@@ -6,6 +6,7 @@ using ClinicManagement.Application.DTOs;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Domain.Enums;
+using System.Globalization;
 using System.Text.RegularExpressions;
 
 namespace ClinicManagement.Application.Features.Documents.Commands;
@@ -103,14 +104,13 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
                 return Result<MedicalDocumentDto>.Failure("Patient not found");
             }
 
-            // Calculate patient age
-            string? patientAge = null;
+            // FR: the patient-info header box is labelled "Date de naissance", so both render paths — the
+            // client download builder and this stored snapshot — must show the date of birth, not the age.
+            // Store it formatted dd/MM/yyyy so the background/stored PDF matches the downloaded PDF.
+            string? patientBirthDate = null;
             if (patient.DateOfBirth != default)
             {
-                var today = DateTime.UtcNow;
-                var age = today.Year - patient.DateOfBirth.Year;
-                if (patient.DateOfBirth.Date > today.AddYears(-age)) age--;
-                patientAge = $"{age} ans";
+                patientBirthDate = patient.DateOfBirth.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
             }
 
             var patientName = $"{patient.FirstName} {patient.LastName}".Trim();
@@ -201,7 +201,7 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
                 request.DocumentType,
                 request.DocumentDate,
                 patientName,
-                patientAge,
+                patientBirthDate,
                 contentJson,
                 request.ClinicName,
                 request.ClinicAddress,

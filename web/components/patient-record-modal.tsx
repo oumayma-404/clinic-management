@@ -14,6 +14,7 @@ import { procedureTypesApi } from "@/lib/api/procedure-types"
 import { ApiError } from "@/lib/api/client"
 import { toast } from "sonner"
 import type { ProcedureTypeDto, DentalRecordDto } from "@/lib/api/types"
+import { formatDT } from "@/lib/format"
 
 type ToothStatus = {
   id: string
@@ -125,7 +126,7 @@ export function PatientRecordModal({
         setImportantNotes([])
       }
     }
-  }, [open, initialPatientName, record])
+  }, [open, initialPatientName, record, procedureTypes])
 
   // Auto-fill cost when procedure type is selected (using useEffect to ensure latest state)
   useEffect(() => {
@@ -385,7 +386,7 @@ export function PatientRecordModal({
                     <p className="text-xs text-muted-foreground">
                       Reste à payer&nbsp;:{" "}
                       <span className={reste > 0 ? "font-semibold text-amber-600" : "font-medium text-foreground"}>
-                        ${reste.toFixed(2)}
+                        {formatDT(reste)}
                       </span>
                     </p>
                   )

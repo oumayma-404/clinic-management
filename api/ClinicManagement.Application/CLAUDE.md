@@ -34,7 +34,7 @@ Each command/query file typically contains **both** the request class (`IRequest
 
 | Area | Commands | Queries | Event handlers |
 |------|----------|---------|----------------|
-| **Appointments** | `CreateAppointmentCommand`, `UpdateAppointmentCommand` (both call `INotificationGenerator` post-commit) | `GetAppointmentQuery`, `GetAppointmentsQuery` | `AppointmentCreatedEventHandler` |
+| **Appointments** | `CreateAppointmentCommand`, `UpdateAppointmentCommand` (both call `INotificationGenerator` post-commit) | `GetAppointmentQuery`, `GetAppointmentsQuery` | — |
 | **Notifications** (in-app feed) | `MarkNotificationReadCommand`, `MarkAllNotificationsReadCommand` (both return `Result.Failure("...not found")` on tenant/missing — a **not-found convention**, mapped to 404 by the controller) | `GetNotificationsQuery` (50 newest, viewer-scoped), `GetUnreadCountQuery` | — |
 | **Patients** | Create/Update `PatientCommand`; medical & family history Create/Update/Delete; dental record Create/Update/Delete | `GetPatientQuery`, `GetPatientsQuery`, `GetPatient{Medical,Family}HistoryQuery`, `GetDentalRecordsQuery` | — |
 | **Clinics** | `CreateClinicCommand`, `UpdateClinicCommand`, `JoinClinicCommand`, `UpdateDoctorsCommand`, `RegenerateClinicCodeCommand` (admin-only) | `GetUserStatusQuery`, `GetClinicLogoQuery` | — |
@@ -48,7 +48,7 @@ Each command/query file typically contains **both** the request class (`IRequest
 | **Backup** (Local, Phase 5) | `BackupNowCommand` (admin-only one-click backup — resolves caller, re-checks `IsAdmin()`, delegates to `IBackupService`; catches `InvalidOperationException` → `Result.Failure` with the operator message, lets other exceptions propagate to middleware) | — | — |
 
 ### Event handlers
-Domain events (`IDomainEvent : INotification`) are handled here via `INotificationHandler<TEvent>`. Example: **`Features/Appointments/EventHandlers/AppointmentCreatedEventHandler.cs`** creates a 24h-before reminder `Notification`. (Events are dispatched by Infrastructure/EF when `SaveChanges` runs.)
+Domain events (`IDomainEvent : INotification`) implement `INotificationHandler<TEvent>`, **but no domain-event dispatch is currently wired** — `SaveChanges` does not drain `AggregateRoot.DomainEvents`, so no handler runs. The former `AppointmentCreatedEventHandler` was removed as dead code (had it ever fired, it would have enqueued a `NotificationType.Both` reminder the `NotificationJob` dispatcher has no sender for). Appointment reminders are produced inline by `ReminderScheduler` + `NotificationGenerator` from the command handlers instead.
 
 ### Handler conventions (see `CreateAppointmentCommand.cs`, `GetPatientsQuery.cs`, `CreateClinicCommand.cs`)
 1. Read current user via `IClinicContext.GetUserId()`; load `User` via `IUserRepository.GetByAuth0SubAsync` to resolve the **clinic id** (multi-tenant scoping).

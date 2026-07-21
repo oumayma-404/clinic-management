@@ -109,9 +109,16 @@ public class UpdateMedicalDocumentCommandHandler : IRequestHandler<UpdateMedical
             var contentJson = request.ContentJson;
             if (user != null)
             {
-                var snapshot = await PractitionerRenderSnapshot.ResolveAsync(
+                // Re-apply the practitioner/clinic snapshot (the structured editor rebuilds ContentJson from
+                // its own fields and drops the reserved keys). Resolve from the caller's own doctor record —
+                // but a caller without one (a secretary/admin managing paperwork) would otherwise blank the
+                // cachet + CNOMDT ordre. Fall back per-field to the values already snapshotted on the stored
+                // document so an edit never strips the issuing practitioner's identity; client-supplied
+                // reserved keys are still stripped by ApplyTo (only these trusted server values are written).
+                var callerSnapshot = await PractitionerRenderSnapshot.ResolveAsync(
                     userId, user.ClinicId, _doctorRepository, _clinicRepository, cancellationToken);
-                contentJson = snapshot.ApplyTo(request.ContentJson);
+                var effectiveSnapshot = callerSnapshot.OrElse(PractitionerRenderSnapshot.ReadFrom(document.ContentJson));
+                contentJson = effectiveSnapshot.ApplyTo(request.ContentJson);
             }
 
             Guid? fileId = request.FileId ?? document.FileId;

@@ -19,6 +19,7 @@ public class NotificationJob
 {
     private readonly INotificationRepository _notificationRepository;
     private readonly IPatientRepository _patientRepository;
+    private readonly IAppointmentRepository _appointmentRepository;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IInternetProbe _internetProbe;
     private readonly IReminderSettingsProvider _settingsProvider;
@@ -29,6 +30,7 @@ public class NotificationJob
     public NotificationJob(
         INotificationRepository notificationRepository,
         IPatientRepository patientRepository,
+        IAppointmentRepository appointmentRepository,
         IUnitOfWork unitOfWork,
         IInternetProbe internetProbe,
         IReminderSettingsProvider settingsProvider,
@@ -38,6 +40,7 @@ public class NotificationJob
     {
         _notificationRepository = notificationRepository;
         _patientRepository = patientRepository;
+        _appointmentRepository = appointmentRepository;
         _unitOfWork = unitOfWork;
         _internetProbe = internetProbe;
         _settingsProvider = settingsProvider;
@@ -86,6 +89,21 @@ public class NotificationJob
                 "No reminder sender for channel {Channel}; leaving notification {NotificationId} pending.",
                 notification.Type, notification.Id);
             return;
+        }
+
+        // AC-4: never send a reminder for an appointment that is no longer active at send time. The cancel/
+        // no-show path voids reminders (ReminderScheduler.VoidForAppointmentAsync); this re-check is a safety
+        // net for a void failure or a cancel-vs-tick race — drop the row terminally so it is not re-sent.
+        if (notification.AppointmentId.HasValue)
+        {
+            var appointment = await _appointmentRepository.GetByIdAsync(notification.AppointmentId.Value);
+            if (appointment == null
+                || appointment.Status == AppointmentStatus.Cancelled
+                || appointment.Status == AppointmentStatus.NoShow)
+            {
+                await FailAsync(notification, "Rendez-vous annulé ou introuvable — rappel non envoyé");
+                return;
+            }
         }
 
         var patient = notification.PatientId.HasValue

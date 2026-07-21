@@ -62,7 +62,15 @@ public class UpdateInvoiceCommandHandler : IRequestHandler<UpdateInvoiceCommand,
                 return Result<InvoiceDto>.Failure("Patient introuvable.");
             }
 
-            invoice.UpdateLinks(request.PatientId, request.DentalRecordId, request.AppointmentId);
+            // Preserve the invoice's existing dental-record / appointment links when the edit request omits
+            // them (the edit UI sends only patient + lines). The header DentalRecordId drives the
+            // "already invoiced" guard, so nulling it on every edit would silently break that link. A
+            // non-null id in the request still updates the link; explicitly clearing a link is a separate
+            // action (out of scope).
+            invoice.UpdateLinks(
+                request.PatientId,
+                request.DentalRecordId ?? invoice.DentalRecordId,
+                request.AppointmentId ?? invoice.AppointmentId);
             invoice.SetLines(request.Lines.Select(l => (l.Designation, l.Quantity, l.UnitPriceHt, l.DentalRecordId)));
 
             await _invoiceRepository.UpdateAsync(invoice, cancellationToken);

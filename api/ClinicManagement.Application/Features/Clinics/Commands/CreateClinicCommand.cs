@@ -276,6 +276,15 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
             return Result<ClinicDto>.Failure($"Password must be at least {PasswordPolicy.MinLength} characters.");
         }
 
+        // Single-dentist cabinet: when DoctorInfo is supplied the admin is also the practitioner, so a full
+        // name is required (mirrors the Cloud CreateClinic + JoinClinic doctor paths) — never persist a
+        // nameless Doctor. Absent DoctorInfo → an admin-only account, no practitioner validation.
+        if (request.DoctorInfo != null && !string.IsNullOrWhiteSpace(request.DoctorInfo.Specialty)
+            && (string.IsNullOrWhiteSpace(request.DoctorInfo.FirstName) || string.IsNullOrWhiteSpace(request.DoctorInfo.LastName)))
+        {
+            return Result<ClinicDto>.Failure("First name, last name, and specialty are required for the practitioner.");
+        }
+
         // Generate a unique clinic code for later staff self-registration.
         var code = ClinicCodeGenerator.Generate();
         while (await _clinicRepository.CodeExistsAsync(code, cancellationToken))

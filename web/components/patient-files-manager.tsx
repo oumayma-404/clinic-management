@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -86,21 +86,26 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
   // Real-time: reload folders/files when any client of this clinic uploads/deletes a file or folder.
   useClinicRealtime(RealtimeResource.Files, loadData)
 
-  // Initialize default folders on first load
+  // Seed the default folder structure once per patient, AFTER the first load resolves. Keyed on the ref so
+  // it fires exactly once: not on the initial render (when `loading` is still true — the old `!loading`
+  // guard was always false then, so it never ran and no defaults were seeded), and not again if the user
+  // later deletes every folder.
+  const defaultsInitializedFor = useRef<string | null>(null)
   useEffect(() => {
     const initializeDefaults = async () => {
       try {
         await patientFilesApi.initializeDefaultFolders(patientId)
         await loadData()
-      } catch (error) {
+      } catch {
         // Ignore errors - folders might already exist
         console.log("Default folders may already exist")
       }
     }
-    if (patientId && folders.length === 0 && !loading) {
+    if (patientId && !loading && folders.length === 0 && defaultsInitializedFor.current !== patientId) {
+      defaultsInitializedFor.current = patientId
       initializeDefaults()
     }
-  }, [patientId])
+  }, [patientId, loading, folders.length])
 
   const handleFileUpload = async (filesToUpload: FileList | null) => {
     if (!filesToUpload || filesToUpload.length === 0) return
