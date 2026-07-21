@@ -34,6 +34,12 @@ public class ClinicReminderSettingsConfiguration : IEntityTypeConfiguration<Clin
         builder.Property(s => s.SmsApiKeyEncrypted).HasColumnType("text");
         builder.Property(s => s.WhatsAppAccessTokenEncrypted).HasColumnType("text");
 
+        // WhatsApp Embedded-Signup connection metadata (additive, nullable — manual/existing rows default).
+        builder.Property(s => s.WhatsAppBusinessAccountId).HasMaxLength(100);
+        builder.Property(s => s.WhatsAppConnectionStatus).HasConversion<int>();
+        builder.Property(s => s.WhatsAppLastError).HasColumnType("text");
+        builder.Property(s => s.WhatsAppConnectedAt);
+
         builder.Property(s => s.CreatedAt).IsRequired();
         builder.Property(s => s.UpdatedAt);
     }

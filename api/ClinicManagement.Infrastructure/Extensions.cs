@@ -174,6 +174,9 @@ public static class Extensions
         services.AddScoped<IReminderChannelSender, HttpSmsSender>();
         services.AddScoped<IReminderChannelSender, WhatsAppSender>();
 
+        // WhatsApp Embedded-Signup onboarding (Cloud) — provisions a clinic's own WABA/phone via the Graph API.
+        services.AddScoped<IWhatsAppOnboardingService, WhatsAppOnboardingService>();
+
         // Domain Services
         services.AddScoped<Domain.Services.IPatientSummaryService, PatientSummaryService>();
 

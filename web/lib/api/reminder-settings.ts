@@ -1,4 +1,7 @@
-import { apiGet, apiPut } from './client';
+import { apiGet, apiPut, apiPost, apiDelete } from './client';
+
+/** WhatsApp Embedded-Signup connection state (mirrors the backend enum name). */
+export type WhatsAppConnectionStatus = 'NotConnected' | 'Connected' | 'Error';
 
 /**
  * A clinic's reminder settings (secret-masked). Channel toggles are nullable: `null` = inherit the
@@ -13,6 +16,18 @@ export interface ReminderSettingsDto {
   whatsAppTemplateLanguage: string | null;
   smsApiKeyConfigured: boolean;
   whatsAppAccessTokenConfigured: boolean;
+  // WhatsApp Embedded-Signup connection metadata (read-only; token never returned).
+  whatsAppBusinessAccountId: string | null;
+  whatsAppConnectionStatus: WhatsAppConnectionStatus;
+  whatsAppLastError: string | null;
+  whatsAppConnectedAt: string | null;
+}
+
+/** Payload posted after a successful Meta Embedded-Signup run (Cloud onboarding). */
+export interface ConnectWhatsAppRequest {
+  code: string;
+  wabaId: string;
+  phoneNumberId: string;
 }
 
 /**
@@ -49,6 +64,24 @@ export const reminderSettingsApi = {
     const result = await apiPut<Result<ReminderSettingsDto>>('/clinics/reminder-settings', data);
     if (!result.isSuccess || !result.value) {
       throw new Error(result.error || 'Failed to update reminder settings');
+    }
+    return result.value;
+  },
+
+  // Cloud-only WhatsApp Embedded Signup. connect posts the SDK result; disconnect clears the connection.
+  // A backend failure surfaces as an ApiError (thrown by the client) carrying the French message.
+  connectWhatsApp: async (data: ConnectWhatsAppRequest): Promise<ReminderSettingsDto> => {
+    const result = await apiPost<Result<ReminderSettingsDto>>('/clinics/whatsapp/connect', data);
+    if (!result.isSuccess || !result.value) {
+      throw new Error(result.error || 'Failed to connect WhatsApp');
+    }
+    return result.value;
+  },
+
+  disconnectWhatsApp: async (): Promise<ReminderSettingsDto> => {
+    const result = await apiDelete<Result<ReminderSettingsDto>>('/clinics/whatsapp/connect');
+    if (!result.isSuccess || !result.value) {
+      throw new Error(result.error || 'Failed to disconnect WhatsApp');
     }
     return result.value;
   },

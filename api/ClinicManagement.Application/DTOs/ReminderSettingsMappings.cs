@@ -19,5 +19,10 @@ public static class ReminderSettingsMappings
         WhatsAppTemplateLanguage = settings?.WhatsAppTemplateLanguage,
         SmsApiKeyConfigured = !string.IsNullOrEmpty(settings?.SmsApiKeyEncrypted),
         WhatsAppAccessTokenConfigured = !string.IsNullOrEmpty(settings?.WhatsAppAccessTokenEncrypted),
+        WhatsAppBusinessAccountId = settings?.WhatsAppBusinessAccountId,
+        WhatsAppConnectionStatus =
+            (settings?.WhatsAppConnectionStatus ?? Domain.Enums.WhatsAppConnectionStatus.NotConnected).ToString(),
+        WhatsAppLastError = settings?.WhatsAppLastError,
+        WhatsAppConnectedAt = settings?.WhatsAppConnectedAt,
     };
 }

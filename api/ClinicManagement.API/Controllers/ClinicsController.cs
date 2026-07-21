@@ -1,11 +1,13 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.Extensions.Configuration;
 using MediatR;
 using ClinicManagement.Application.Features.Clinics.Commands;
 using ClinicManagement.Application.Features.Clinics.Queries;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Common.Authorization;
 using ClinicManagement.API.Models;
+using ClinicManagement.Infrastructure.Auth;
 using System.Text.Json;
 
 namespace ClinicManagement.API.Controllers;
@@ -16,10 +18,12 @@ namespace ClinicManagement.API.Controllers;
 public class ClinicsController : ApiControllerBase
 {
     private readonly IMediator _mediator;
+    private readonly IConfiguration _configuration;
 
-    public ClinicsController(IMediator mediator)
+    public ClinicsController(IMediator mediator, IConfiguration configuration)
     {
         _mediator = mediator;
+        _configuration = configuration;
     }
 
     /// <summary>
@@ -268,6 +272,55 @@ public class ClinicsController : ApiControllerBase
         if (!result.IsSuccess)
         {
             return BadRequest(result);
+        }
+
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Connect the current clinic's WhatsApp via Meta Embedded Signup (admin-only, Cloud-only). Exchanges the
+    /// one-time code, subscribes the app, registers the phone number, and stores the encrypted credentials —
+    /// atomically. Returns the secret-masked settings (status Connected). 404 in Local mode.
+    /// </summary>
+    [HttpPost("whatsapp/connect")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<IActionResult> ConnectWhatsApp(
+        [FromBody] ConnectWhatsAppRequest request, CancellationToken cancellationToken = default)
+    {
+        if (LocalAuthConfig.IsLocalMode(_configuration))
+        {
+            return NotFound();
+        }
+
+        var command = new ConnectClinicWhatsAppCommand { Request = request };
+        var result = await _mediator.Send(command, cancellationToken);
+
+        if (!result.IsSuccess)
+        {
+            return HandleFailure(result);
+        }
+
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Disconnect the current clinic's WhatsApp (admin-only, Cloud-only). Clears the stored credentials,
+    /// disables the channel and resets the status to NotConnected (best-effort Meta unsubscribe). 404 in Local.
+    /// </summary>
+    [HttpDelete("whatsapp/connect")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<IActionResult> DisconnectWhatsApp(CancellationToken cancellationToken = default)
+    {
+        if (LocalAuthConfig.IsLocalMode(_configuration))
+        {
+            return NotFound();
+        }
+
+        var result = await _mediator.Send(new DisconnectClinicWhatsAppCommand(), cancellationToken);
+
+        if (!result.IsSuccess)
+        {
+            return HandleFailure(result);
         }
 
         return Ok(result);

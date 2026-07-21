@@ -15,6 +15,13 @@ public sealed record ReminderSettingsDto
     public string? WhatsAppTemplateLanguage { get; init; }
     public bool SmsApiKeyConfigured { get; init; }
     public bool WhatsAppAccessTokenConfigured { get; init; }
+
+    // WhatsApp Embedded-Signup connection metadata (read-only; token is never returned). Status is the
+    // enum name ("NotConnected" | "Connected" | "Error") so the frontend badge reads a stable string.
+    public string? WhatsAppBusinessAccountId { get; init; }
+    public string WhatsAppConnectionStatus { get; init; } = nameof(Domain.Enums.WhatsAppConnectionStatus.NotConnected);
+    public string? WhatsAppLastError { get; init; }
+    public DateTime? WhatsAppConnectedAt { get; init; }
 }
 
 /// <summary>
@@ -32,4 +39,16 @@ public sealed record UpdateReminderSettingsRequest
     public string? WhatsAppTemplateLanguage { get; init; }
     public string? SmsApiKey { get; init; }
     public string? WhatsAppAccessToken { get; init; }
+}
+
+/// <summary>
+/// Payload the frontend posts after a successful Meta Embedded-Signup run. Carries the one-time OAuth
+/// <see cref="Code"/> the backend exchanges for a business token, plus the WABA and phone-number ids the
+/// SDK returned. Cloud-only onboarding — the Local install uses the manual credential path instead.
+/// </summary>
+public sealed record ConnectWhatsAppRequest
+{
+    public required string Code { get; init; }
+    public required string WabaId { get; init; }
+    public required string PhoneNumberId { get; init; }
 }

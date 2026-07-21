@@ -21,6 +21,14 @@ public class ClinicReminderSettings : Entity<Guid>
     public string? WhatsAppTemplateLanguage { get; private set; }
     public string? SmsApiKeyEncrypted { get; private set; }
     public string? WhatsAppAccessTokenEncrypted { get; private set; }
+
+    // WhatsApp Embedded-Signup connection metadata (Cloud onboarding). Populated by ApplyWhatsAppConnection
+    // on a successful connect and reset by ClearWhatsAppConnection; the manual path leaves them at defaults.
+    public string? WhatsAppBusinessAccountId { get; private set; }
+    public Enums.WhatsAppConnectionStatus WhatsAppConnectionStatus { get; private set; }
+    public string? WhatsAppLastError { get; private set; }
+    public DateTime? WhatsAppConnectedAt { get; private set; }
+
     public DateTime CreatedAt { get; private set; }
     public DateTime? UpdatedAt { get; private set; }
 
@@ -64,6 +72,39 @@ public class ClinicReminderSettings : Entity<Guid>
     public void SetWhatsAppAccessTokenEncrypted(string ciphertext)
     {
         WhatsAppAccessTokenEncrypted = ciphertext ?? throw new ArgumentNullException(nameof(ciphertext));
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Records a successful WhatsApp Embedded-Signup connection: stores the WABA id + phone-number id,
+    /// enables the channel, marks the connection <see cref="Enums.WhatsAppConnectionStatus.Connected"/>,
+    /// stamps the connect time and clears any prior error. The access token is stored separately (write-only)
+    /// via <see cref="SetWhatsAppAccessTokenEncrypted"/>.
+    /// </summary>
+    public void ApplyWhatsAppConnection(string businessAccountId, string phoneNumberId)
+    {
+        WhatsAppBusinessAccountId = Normalize(businessAccountId);
+        WhatsAppPhoneNumberId = Normalize(phoneNumberId);
+        WhatsAppEnabled = true;
+        WhatsAppConnectionStatus = Enums.WhatsAppConnectionStatus.Connected;
+        WhatsAppLastError = null;
+        WhatsAppConnectedAt = DateTime.UtcNow;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Clears the WhatsApp connection: removes the stored WABA id, phone-number id and access token, disables
+    /// the channel and resets the status to <see cref="Enums.WhatsAppConnectionStatus.NotConnected"/>.
+    /// </summary>
+    public void ClearWhatsAppConnection()
+    {
+        WhatsAppBusinessAccountId = null;
+        WhatsAppPhoneNumberId = null;
+        WhatsAppAccessTokenEncrypted = null;
+        WhatsAppEnabled = false;
+        WhatsAppConnectionStatus = Enums.WhatsAppConnectionStatus.NotConnected;
+        WhatsAppConnectedAt = null;
+        WhatsAppLastError = null;
         UpdatedAt = DateTime.UtcNow;
     }
 
