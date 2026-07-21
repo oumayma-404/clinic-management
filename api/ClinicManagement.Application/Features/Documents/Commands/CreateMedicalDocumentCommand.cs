@@ -71,6 +71,14 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
     {
         try
         {
+            // FR-1.4: the "note d'honoraires" document type is retired — compliant honoraires are now issued
+            // through the Invoice pipeline (module Factures). No new honoraires MedicalDocument is created.
+            if (request.DocumentType.Trim().ToLowerInvariant() == "honoraires")
+            {
+                return Result<MedicalDocumentDto>.Failure(
+                    "Le type « note d'honoraires » n'est plus disponible. Créez une facture depuis le module Factures.");
+            }
+
             var patient = await _patientRepository.GetByIdAsync(request.PatientId, cancellationToken);
             if (patient == null)
             {
@@ -127,7 +135,7 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
                 }
 
                 // Generate filename with collision detection
-                var documentTypeName = GetDocumentTypeName(request.DocumentType);
+                var documentTypeName = DocumentFileNaming.GetDocumentTypeName(request.DocumentType);
                 var sanitizedPatientName = SanitizeFileName(patientName.ToLowerInvariant());
                 var baseFileName = $"{documentTypeName}-{sanitizedPatientName}";
                 var fileName = await GenerateUniqueFileName(_fileRepository, documentsFolder.Id, baseFileName, "pdf", cancellationToken);
@@ -262,19 +270,6 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
         {
             _logger.LogError(ex, "Post-visit completion side-effect failed for appointment {AppointmentId}", appointmentId);
         }
-    }
-
-    private static string GetDocumentTypeName(string documentType)
-    {
-        return documentType.ToLowerInvariant() switch
-        {
-            "prescription" => "ordonnance",
-            "liaison" => "lettre-de-liaison",
-            "honoraires" => "note-d-honoraires",
-            "certificat" => "certificat-medical",
-            "bulletin-cnam" => "bulletin-de-soins-cnam",
-            _ => documentType.ToLowerInvariant()
-        };
     }
 
     private static string SanitizeFileName(string fileName)

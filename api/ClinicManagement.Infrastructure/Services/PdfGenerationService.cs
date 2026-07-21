@@ -405,60 +405,8 @@ public class PdfGenerationService : IPdfGenerationService
                         }
                         break;
 
-                    case "honoraires":
-                        column.Item().PaddingBottom(8).Text("Détail des services:").FontSize(12).Bold().FontFamily("Helvetica");
-                        
-                        // Handle both old string format and new array format
-                        if (data.Content.TryGetValue("procedures", out var proceduresValue))
-                        {
-                            // proceduresValue is a string from Dictionary<string, string>
-                            var proceduresStr = proceduresValue;
-                            
-                            if (!string.IsNullOrEmpty(proceduresStr))
-                            {
-                                // Try to parse as JSON array first
-                                try
-                                {
-                                    var parsed = JsonSerializer.Deserialize<JsonElement>(proceduresStr);
-                                    if (parsed.ValueKind == JsonValueKind.Array)
-                                    {
-                                        column.Item().PaddingLeft(5);
-                                        foreach (var proc in parsed.EnumerateArray())
-                                        {
-                                            var procName = proc.TryGetProperty("name", out var nameEl) ? nameEl.GetString() ?? "" : "";
-                                            var procCost = proc.TryGetProperty("cost", out var costEl) ? (costEl.ValueKind == JsonValueKind.Number ? costEl.GetDecimal() : 0) : 0;
-                                            
-                                            if (!string.IsNullOrEmpty(procName))
-                                            {
-                                                column.Item().PaddingBottom(6).Row(row =>
-                                                {
-                                                    row.RelativeItem().Text(procName).FontSize(11).FontFamily("Helvetica");
-                                                    row.ConstantItem(90).AlignRight().Text(procCost.ToString("F2") + " €").FontSize(11).FontFamily("Helvetica");
-                                                });
-                                            }
-                                        }
-                                    }
-                                    else
-                                    {
-                                        // Not an array, use as string
-                                        column.Item().Text(proceduresStr).FontSize(11).FontFamily("Helvetica");
-                                    }
-                                }
-                                catch
-                                {
-                                    // If parsing fails, use as plain string (old format)
-                                    column.Item().Text(proceduresStr).FontSize(11).FontFamily("Helvetica");
-                                }
-                            }
-                        }
-                        
-                        column.Item().PaddingTop(15).PaddingBottom(5).LineHorizontal(0.5f).LineColor(Colors.Grey.Medium);
-                        column.Item().Row(row =>
-                        {
-                            row.RelativeItem().Text("Montant total:").FontSize(12).Bold().FontFamily("Helvetica");
-                            row.RelativeItem().AlignRight().Text(data.Content.GetValueOrDefault("totalCost", "0,00 €")).FontSize(12).Bold().FontColor(Colors.Blue.Darken2).FontFamily("Helvetica");
-                        });
-                        break;
+                    // FR-1.4: the "honoraires" document type is retired (compliant honoraires are issued as
+                    // Invoices). The old euro-denominated QuestPDF block is removed; no generic doc renders "€".
 
                     case "certificat":
                         var doctorOrderNumber = data.Content.GetValueOrDefault("doctorOrderNumber", "");

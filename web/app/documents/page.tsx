@@ -1,16 +1,13 @@
 "use client"
 
+import { useState } from "react"
 import { Card } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { FileText, Mail, FileBarChart, Shield, FolderOpen, Edit, Trash2 } from "lucide-react"
+import { FileText, Mail, FileBarChart, Shield } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { DashboardSidebar } from "@/components/dashboard-sidebar"
 import { ClinicGuard } from "@/components/clinic-guard"
-import { medicalDocumentsApi } from "@/lib/api/medical-documents"
-import type { MedicalDocumentDto } from "@/lib/api/types"
-import { format } from "date-fns"
-import { toast } from "sonner"
+import { HonorairesLauncher } from "@/components/documents/honoraires-launcher"
 
 const documentTemplates = [
   {
@@ -55,19 +52,9 @@ const documentTemplates = [
   },
 ]
 
-const getDocumentTypeName = (type: string) => {
-  const names: Record<string, string> = {
-    prescription: "Ordonnance",
-    liaison: "Lettre de liaison",
-    honoraires: "Note d'honoraires",
-    certificat: "Certificat médical",
-    "bulletin-cnam": "Bulletin de soins CNAM",
-  }
-  return names[type] || type
-}
-
 export default function DocumentsPage() {
   const router = useRouter()
+  const [honorairesOpen, setHonorairesOpen] = useState(false)
 
   // A post-visit review deep-links here with ?appointmentId=… so the chosen template's editor can
   // associate the new record with that visit. Read from the URL at click time (avoids useSearchParams,
@@ -110,7 +97,11 @@ export default function DocumentsPage() {
               <Card
                 key={template.type}
                 className="group cursor-pointer transition-all duration-300 hover:shadow-xl hover:scale-105 hover:ring-2 hover:ring-blue-200 dark:hover:ring-blue-800 overflow-hidden"
-                onClick={() => openTemplate(template.type)}
+                onClick={() =>
+                  template.type === "honoraires"
+                    ? setHonorairesOpen(true)
+                    : openTemplate(template.type)
+                }
               >
                 <div className="p-6 space-y-4 flex flex-col h-full">
                   {/* Icon */}
@@ -144,6 +135,8 @@ export default function DocumentsPage() {
         </main>
       </div>
       </div>
+      {/* FR-1: honoraires → patient picker → compliant invoice draft (no document editor) */}
+      <HonorairesLauncher open={honorairesOpen} onOpenChange={setHonorairesOpen} />
     </ClinicGuard>
   )
 }

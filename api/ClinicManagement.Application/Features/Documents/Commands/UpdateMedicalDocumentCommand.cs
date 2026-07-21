@@ -75,6 +75,14 @@ public class UpdateMedicalDocumentCommandHandler : IRequestHandler<UpdateMedical
                 }
             }
 
+            // FR-1.4: the "note d'honoraires" document type is retired. Existing (legacy) honoraires
+            // documents remain readable via Get/List, but are no longer updated/re-rendered here.
+            if (document.DocumentType.Trim().ToLowerInvariant() == "honoraires")
+            {
+                return Result<MedicalDocumentDto>.Failure(
+                    "Le type « note d'honoraires » n'est plus disponible. Créez une facture depuis le module Factures.");
+            }
+
             Guid? fileId = request.FileId ?? document.FileId;
 
             // Storage key of the file being replaced, if any. Its blob is deleted only AFTER the whole
@@ -102,7 +110,7 @@ public class UpdateMedicalDocumentCommandHandler : IRequestHandler<UpdateMedical
                 }
 
                 // Generate filename with collision detection
-                var documentTypeName = GetDocumentTypeName(document.DocumentType);
+                var documentTypeName = DocumentFileNaming.GetDocumentTypeName(document.DocumentType);
                 var sanitizedPatientName = SanitizeFileName(document.PatientName.ToLowerInvariant());
                 var baseFileName = $"{documentTypeName}-{sanitizedPatientName}";
                 var fileName = await GenerateUniqueFileName(_fileRepository, folder.Id, baseFileName, "pdf", cancellationToken);
@@ -201,18 +209,6 @@ public class UpdateMedicalDocumentCommandHandler : IRequestHandler<UpdateMedical
             _logger.LogError(ex, "Error updating medical document {DocumentId}", request.Id);
             return Result<MedicalDocumentDto>.Failure("Error updating medical document.");
         }
-    }
-
-    private static string GetDocumentTypeName(string documentType)
-    {
-        return documentType.ToLowerInvariant() switch
-        {
-            "prescription" => "ordonnance",
-            "liaison" => "lettre-de-liaison",
-            "honoraires" => "note-d-honoraires",
-            "certificat" => "certificat-medical",
-            _ => documentType.ToLowerInvariant()
-        };
     }
 
     private static string SanitizeFileName(string fileName)

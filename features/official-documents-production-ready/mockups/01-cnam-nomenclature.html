@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CNAM Nomenclature — Écran admin</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  theme: { extend: { colors: {
+    background:'#fcfcfc', foreground:'#1f1f1f', card:'#ffffff',
+    primary:'#2f6ac9', 'primary-foreground':'#fcfcfc',
+    muted:'#f3f4f6', 'muted-foreground':'#6b7280',
+    accent:'#eef2f9', 'accent-foreground':'#1e4585',
+    destructive:'#dc4b3e', border:'#e5e7eb', ring:'#2f6ac9'
+  }, borderRadius: { lg:'8px', xl:'12px', md:'6px' } } }
+}
+</script>
+<style> body{font-family:'Geist','Inter',system-ui,sans-serif} </style>
+</head>
+<body class="bg-background text-foreground">
+
+<!-- App shell: sidebar + header + main (mirrors web/app/*/page.tsx) -->
+<div class="flex h-screen">
+  <!-- Sidebar (w-64) -->
+  <aside class="w-64 flex flex-col border-r border-border bg-card shrink-0">
+    <div class="flex h-16 items-center border-b border-border px-4 gap-3">
+      <div class="h-8 w-8 rounded-lg bg-primary flex items-center justify-center text-white text-sm">🦷</div>
+      <span class="text-lg font-semibold">MediCare Clinic</span>
+    </div>
+    <nav class="flex-1 space-y-1 p-4 text-sm">
+      <a class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-muted-foreground hover:bg-accent/50">Tableau de bord</a>
+      <a class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-muted-foreground hover:bg-accent/50">Rendez-vous</a>
+      <a class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-muted-foreground hover:bg-accent/50">Patients</a>
+      <a class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-muted-foreground hover:bg-accent/50">Documents</a>
+      <a class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-muted-foreground hover:bg-accent/50">Factures</a>
+      <!-- NEW admin-only entry (shown only for local-mode admins) -->
+      <a class="flex items-center gap-3 rounded-lg px-3 py-2.5 bg-accent text-accent-foreground font-medium">
+        <span>📋</span> Nomenclature CNAM
+        <span class="ml-auto text-[10px] rounded-full bg-primary/10 text-primary px-1.5 py-0.5">admin</span>
+      </a>
+      <a class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-muted-foreground hover:bg-accent/50">Paramètres</a>
+    </nav>
+  </aside>
+
+  <!-- Main column -->
+  <div class="flex flex-1 flex-col overflow-hidden">
+    <header class="h-16 border-b border-border bg-card flex items-center px-6 gap-4">
+      <div class="text-sm text-muted-foreground">🔍 Rechercher…</div>
+      <div class="ml-auto flex items-center gap-4 text-muted-foreground">🔔 <div class="h-8 w-8 rounded-full bg-accent"></div></div>
+    </header>
+
+    <main class="flex-1 overflow-y-auto p-6">
+      <div class="mx-auto max-w-7xl space-y-6">
+
+        <!-- Page title -->
+        <div>
+          <h1 class="text-3xl font-semibold">Nomenclature CNAM</h1>
+          <p class="text-sm text-muted-foreground mt-1">Catalogue des actes dentaires remboursables et valeurs de la lettre clé.</p>
+        </div>
+
+        <!-- FR-5.1 provisional "à vérifier" banner (dismissible once an admin confirms) -->
+        <div class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 flex items-start gap-3">
+          <span class="text-amber-600 text-lg leading-none mt-0.5">⚠</span>
+          <div class="flex-1 text-sm text-amber-900">
+            <p class="font-medium">Données provisoires — à vérifier</p>
+            <p class="text-amber-800/90">Ce catalogue et les valeurs VLC sont pré-remplis à titre indicatif. Confirmez-les avec la convention CNAM des médecins dentistes en vigueur avant toute utilisation clinique. Aucune fonction n'est bloquée en attendant.</p>
+          </div>
+          <button class="shrink-0 h-8 px-3 rounded-md bg-amber-600 text-white text-sm font-medium hover:bg-amber-600/90">Confirmer les données</button>
+        </div>
+
+        <!-- Catalog card (mirrors procedure-types-table.tsx) -->
+        <div class="bg-card rounded-xl border border-border shadow-sm">
+          <div class="px-6 py-6 flex items-center justify-between">
+            <div class="flex items-center gap-2 font-semibold">
+              <span>📋</span> Catalogue des actes CNAM
+              <span class="ml-2 text-xs rounded-full bg-muted text-muted-foreground px-2 py-0.5">28 actes</span>
+            </div>
+            <button onclick="document.getElementById('entryDialog').classList.remove('hidden')"
+              class="h-8 px-3 rounded-md bg-primary text-primary-foreground text-sm font-medium flex items-center gap-1.5 hover:bg-primary/90">
+              ＋ Ajouter un acte
+            </button>
+          </div>
+          <div class="px-6 pb-6 overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="border-b border-border text-left text-muted-foreground">
+                  <th class="h-10 px-2 font-medium">Code acte</th>
+                  <th class="h-10 px-2 font-medium">Désignation (FR)</th>
+                  <th class="h-10 px-2 font-medium">Lettre clé</th>
+                  <th class="h-10 px-2 font-medium">Coefficient</th>
+                  <th class="h-10 px-2 font-medium">Catégorie</th>
+                  <th class="h-10 px-2 font-medium">Statut</th>
+                  <th class="h-10 px-2 font-medium text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <!-- provisional row: amber "à vérifier" badge -->
+                <tr class="border-b border-border hover:bg-muted/50">
+                  <td class="p-2 font-medium">CONS</td>
+                  <td class="p-2">Consultation dentaire</td>
+                  <td class="p-2"><span class="rounded-full border border-border px-2 py-0.5 text-xs">CD</span></td>
+                  <td class="p-2">1</td>
+                  <td class="p-2 text-muted-foreground">Consultation</td>
+                  <td class="p-2"><span class="rounded-full bg-amber-100 text-amber-800 px-2 py-0.5 text-xs">à vérifier</span></td>
+                  <td class="p-2 text-right">
+                    <button class="h-8 w-8 rounded-md hover:bg-accent" title="Modifier">✏️</button>
+                    <button class="h-8 w-8 rounded-md hover:bg-destructive/10 text-destructive" title="Désactiver">🗑️</button>
+                  </td>
+                </tr>
+                <tr class="border-b border-border hover:bg-muted/50">
+                  <td class="p-2 font-medium">DETART</td>
+                  <td class="p-2">Détartrage complet</td>
+                  <td class="p-2"><span class="rounded-full border border-border px-2 py-0.5 text-xs">D</span></td>
+                  <td class="p-2">10</td>
+                  <td class="p-2 text-muted-foreground">Soins conservateurs</td>
+                  <td class="p-2"><span class="rounded-full bg-amber-100 text-amber-800 px-2 py-0.5 text-xs">à vérifier</span></td>
+                  <td class="p-2 text-right">
+                    <button class="h-8 w-8 rounded-md hover:bg-accent">✏️</button>
+                    <button class="h-8 w-8 rounded-md hover:bg-destructive/10 text-destructive">🗑️</button>
+                  </td>
+                </tr>
+                <!-- confirmed row: green "vérifié" badge -->
+                <tr class="border-b border-border hover:bg-muted/50">
+                  <td class="p-2 font-medium">EXT-SIMPLE</td>
+                  <td class="p-2">Extraction d'une dent permanente</td>
+                  <td class="p-2"><span class="rounded-full border border-border px-2 py-0.5 text-xs">D</span></td>
+                  <td class="p-2">10</td>
+                  <td class="p-2 text-muted-foreground">Chirurgie / Extraction</td>
+                  <td class="p-2"><span class="rounded-full bg-green-100 text-green-800 px-2 py-0.5 text-xs">vérifié</span></td>
+                  <td class="p-2 text-right">
+                    <button class="h-8 w-8 rounded-md hover:bg-accent">✏️</button>
+                    <button class="h-8 w-8 rounded-md hover:bg-destructive/10 text-destructive">🗑️</button>
+                  </td>
+                </tr>
+                <tr class="hover:bg-muted/50">
+                  <td class="p-2 font-medium">PANO</td>
+                  <td class="p-2">Radiographie panoramique</td>
+                  <td class="p-2"><span class="rounded-full border border-border px-2 py-0.5 text-xs">RD</span></td>
+                  <td class="p-2">5</td>
+                  <td class="p-2 text-muted-foreground">Radiologie</td>
+                  <td class="p-2"><span class="rounded-full bg-amber-100 text-amber-800 px-2 py-0.5 text-xs">à vérifier</span></td>
+                  <td class="p-2 text-right">
+                    <button class="h-8 w-8 rounded-md hover:bg-accent">✏️</button>
+                    <button class="h-8 w-8 rounded-md hover:bg-destructive/10 text-destructive">🗑️</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- VLC card (FR-5.2) — key→value grid, admin-editable -->
+        <div class="bg-card rounded-xl border border-border shadow-sm">
+          <div class="px-6 py-6 flex items-center justify-between">
+            <div>
+              <div class="flex items-center gap-2 font-semibold"><span>💰</span> Valeurs de la lettre clé (VLC)</div>
+              <p class="text-sm text-muted-foreground mt-1">Valeur en dinars par lettre clé, utilisée pour l'estimation de remboursement.</p>
+            </div>
+            <button class="h-8 px-3 rounded-md border border-border bg-card text-sm font-medium hover:bg-accent">Modifier</button>
+          </div>
+          <div class="px-6 pb-6">
+            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+              <!-- read state -->
+              <div class="rounded-lg border border-border p-3">
+                <div class="flex items-center justify-between">
+                  <span class="rounded-full border border-border px-2 py-0.5 text-xs">CD</span>
+                  <span class="rounded-full bg-amber-100 text-amber-800 px-1.5 py-0.5 text-[10px]">à vérifier</span>
+                </div>
+                <div class="mt-2 text-lg font-semibold">8.000 <span class="text-sm font-normal text-muted-foreground">DT</span></div>
+              </div>
+              <div class="rounded-lg border border-border p-3">
+                <div class="flex items-center justify-between"><span class="rounded-full border border-border px-2 py-0.5 text-xs">CDS</span><span class="rounded-full bg-amber-100 text-amber-800 px-1.5 py-0.5 text-[10px]">à vérifier</span></div>
+                <div class="mt-2 text-lg font-semibold">10.000 <span class="text-sm font-normal text-muted-foreground">DT</span></div>
+              </div>
+              <div class="rounded-lg border border-border p-3">
+                <div class="flex items-center justify-between"><span class="rounded-full border border-border px-2 py-0.5 text-xs">D</span><span class="rounded-full bg-amber-100 text-amber-800 px-1.5 py-0.5 text-[10px]">à vérifier</span></div>
+                <div class="mt-2 text-lg font-semibold">1.500 <span class="text-sm font-normal text-muted-foreground">DT</span></div>
+              </div>
+              <!-- edit state (Modifier clicked): inline number input -->
+              <div class="rounded-lg border-2 border-primary p-3">
+                <div class="flex items-center justify-between"><span class="rounded-full border border-border px-2 py-0.5 text-xs">RD</span><span class="text-[10px] text-primary">édition</span></div>
+                <div class="mt-2 relative">
+                  <input value="2.000" class="w-full h-9 rounded-md border border-input bg-transparent pl-3 pr-9 text-sm" />
+                  <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">DT</span>
+                </div>
+              </div>
+              <div class="rounded-lg border border-border p-3">
+                <div class="flex items-center justify-between"><span class="rounded-full border border-border px-2 py-0.5 text-xs">VD</span><span class="rounded-full bg-amber-100 text-amber-800 px-1.5 py-0.5 text-[10px]">à vérifier</span></div>
+                <div class="mt-2 text-lg font-semibold">1.000 <span class="text-sm font-normal text-muted-foreground">DT</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- Add/Edit entry dialog (mirrors procedure-type-form-modal.tsx) -->
+<div id="entryDialog" class="hidden fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+  <div class="bg-background rounded-lg border border-border shadow-lg w-full max-w-2xl p-6 relative">
+    <button onclick="document.getElementById('entryDialog').classList.add('hidden')" class="absolute top-4 right-4 text-muted-foreground">✕</button>
+    <div class="space-y-2 mb-4">
+      <h2 class="text-lg font-semibold">Ajouter un acte CNAM</h2>
+      <p class="text-sm text-muted-foreground">Définissez le code, la désignation, la lettre clé et le coefficient.</p>
+    </div>
+    <!-- example inline error banner (duplicate code) -->
+    <div class="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-800 mb-4">Un acte portant le code « CONS » existe déjà.</div>
+    <form class="space-y-4">
+      <div class="grid grid-cols-2 gap-4">
+        <div class="space-y-1.5">
+          <label class="text-sm">Code acte <span class="text-destructive">*</span></label>
+          <input placeholder="Ex : DETART" class="w-full h-9 rounded-md border border-input bg-transparent px-3 text-sm" />
+        </div>
+        <div class="space-y-1.5">
+          <label class="text-sm">Lettre clé <span class="text-destructive">*</span></label>
+          <select class="w-full h-9 rounded-md border border-input bg-transparent px-3 text-sm">
+            <option>CD</option><option>CDS</option><option>D</option><option>RD</option><option>VD</option>
+          </select>
+        </div>
+      </div>
+      <div class="space-y-1.5">
+        <label class="text-sm">Désignation (FR) <span class="text-destructive">*</span></label>
+        <input placeholder="Ex : Détartrage complet" class="w-full h-9 rounded-md border border-input bg-transparent px-3 text-sm" />
+      </div>
+      <div class="grid grid-cols-2 gap-4">
+        <div class="space-y-1.5">
+          <label class="text-sm">Coefficient <span class="text-destructive">*</span></label>
+          <input type="number" min="0" step="1" placeholder="10" class="w-full h-9 rounded-md border border-input bg-transparent px-3 text-sm" />
+        </div>
+        <div class="space-y-1.5">
+          <label class="text-sm">Catégorie</label>
+          <input placeholder="Ex : Soins conservateurs" class="w-full h-9 rounded-md border border-input bg-transparent px-3 text-sm" />
+        </div>
+      </div>
+      <div class="flex justify-end gap-2 pt-2">
+        <button type="button" onclick="document.getElementById('entryDialog').classList.add('hidden')" class="h-9 px-4 rounded-md border border-border bg-card text-sm font-medium hover:bg-accent">Annuler</button>
+        <button type="submit" class="h-9 px-4 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90">Ajouter l'acte</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+</body>
+</html>

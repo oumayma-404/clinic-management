@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Certificat médical — éditeur restructuré</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = { theme: { extend: { colors: {
+  background:'#fcfcfc', foreground:'#1f1f1f', card:'#ffffff',
+  primary:'#2f6ac9', 'primary-foreground':'#fcfcfc',
+  muted:'#f3f4f6', 'muted-foreground':'#6b7280',
+  accent:'#eef2f9', 'accent-foreground':'#1e4585',
+  destructive:'#dc4b3e', border:'#e5e7eb'
+}, borderRadius:{ lg:'8px', xl:'12px', md:'6px' } } } }
+function toggleRepos(){ const b=document.getElementById('reposBody'); b.classList.toggle('hidden'); document.getElementById('reposChev').textContent = b.classList.contains('hidden')?'▸':'▾'; }
+</script>
+<style> body{font-family:'Geist','Inter',system-ui,sans-serif} </style>
+</head>
+<body class="bg-background text-foreground">
+<div class="flex h-screen">
+  <!-- LEFT: structured form pane (w-[420px]) -->
+  <div class="w-[420px] border-r border-border bg-white/90 overflow-y-auto shrink-0">
+    <div class="p-8 space-y-6">
+      <button class="text-sm text-muted-foreground">← Retour aux modèles</button>
+      <div class="flex items-center gap-3">
+        <div class="h-12 w-12 rounded-lg bg-gradient-to-br from-purple-500 to-purple-600 flex items-center justify-center text-white">🛡️</div>
+        <div><h2 class="text-lg font-semibold">Certificat médical</h2><p class="text-sm text-muted-foreground">Remplissez les informations</p></div>
+      </div>
+      <hr class="border-border" />
+
+      <!-- Patient combobox -->
+      <div class="space-y-2">
+        <label class="text-sm font-semibold">Patient</label>
+        <button class="w-full h-11 rounded-md border border-input bg-transparent px-3 flex items-center justify-between text-sm">
+          <span>Salma Trabelsi</span><span class="opacity-50">⌄</span>
+        </button>
+      </div>
+
+      <!-- Date -->
+      <div class="space-y-2">
+        <label class="text-sm font-semibold">Date du certificat</label>
+        <input type="date" value="2026-07-20" class="w-full h-11 rounded-md border border-input bg-transparent px-3 text-sm" />
+      </div>
+
+      <!-- FR-2.1 primary: free objet/motif -->
+      <div class="space-y-2">
+        <label class="text-sm font-semibold">Objet / motif <span class="text-destructive">*</span></label>
+        <textarea rows="4" class="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm resize-none"
+          placeholder="Ex : présence à la consultation ce jour ; soins dentaires en cours ; aptitude…">Je soussigné certifie que la patiente présente ce jour un état bucco-dentaire nécessitant des soins conservateurs en cours.</textarea>
+        <p class="text-xs text-muted-foreground">Corps libre du certificat. Le bloc « repos médical » ci-dessous est facultatif.</p>
+      </div>
+
+      <!-- FR-2.1 optional collapsible repos block -->
+      <div class="rounded-lg border border-border">
+        <button type="button" onclick="toggleRepos()" class="w-full flex items-center justify-between px-3 py-2.5 text-sm font-medium">
+          <span class="flex items-center gap-2"><span class="w-1 h-5 bg-primary rounded-full"></span> Repos médical (optionnel)</span>
+          <span id="reposChev">▾</span>
+        </button>
+        <div id="reposBody" class="px-3 pb-3 space-y-3 border-t border-border pt-3">
+          <div class="space-y-1.5">
+            <label class="text-sm">Date de début du repos</label>
+            <input type="date" class="w-full h-10 rounded-md border border-input bg-transparent px-3 text-sm" />
+          </div>
+          <div class="space-y-1.5">
+            <label class="text-sm">Durée (en jours)</label>
+            <input type="number" min="1" placeholder="Ex : 3" class="w-full h-10 rounded-md border border-input bg-transparent px-3 text-sm" />
+          </div>
+          <p class="text-xs text-muted-foreground">Renseignez ces champs uniquement si le certificat prescrit un repos.</p>
+        </div>
+      </div>
+
+      <!-- FR-2.5 CNOMDT number — pre-filled from profile, read-only hint -->
+      <div class="space-y-2">
+        <label class="text-sm font-semibold">Numéro d'ordre (CNOMDT)</label>
+        <input value="D-04-1287" disabled class="w-full h-11 rounded-md border border-input bg-muted/50 px-3 text-sm text-muted-foreground" />
+        <p class="text-xs text-muted-foreground">Pré-rempli depuis votre profil. Modifiable dans « Mon profil ».</p>
+      </div>
+
+      <!-- actions -->
+      <div class="space-y-2 pt-2">
+        <button class="w-full h-11 rounded-md bg-primary text-primary-foreground font-medium">Sauvegarder le document</button>
+        <div class="grid grid-cols-2 gap-2">
+          <button class="h-10 rounded-md border border-border text-sm">↺ Réinitialiser</button>
+          <button class="h-10 rounded-md border border-border text-sm">🖨 Imprimer</button>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <button class="h-10 rounded-md border border-green-500 text-green-700 text-sm">⬇ PDF</button>
+          <button class="h-10 rounded-md border border-primary text-primary text-sm">⬇ Word</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT: A4 preview (now NON-editable, FR-6.3) -->
+  <div class="flex-1 overflow-y-auto bg-gradient-to-br from-slate-100 to-blue-50 p-12">
+    <div class="max-w-3xl mx-auto">
+      <div class="flex items-center justify-between mb-3 text-sm">
+        <div><div class="font-medium">Aperçu du document</div><div class="text-muted-foreground text-xs">Aperçu en lecture seule — modifiez via le formulaire à gauche</div></div>
+        <span class="text-xs text-muted-foreground">Format A4</span>
+      </div>
+      <div class="bg-white shadow-2xl p-16 min-h-[900px] flex flex-col" style="font-family:Helvetica,Arial,sans-serif;font-size:11pt;line-height:1.6">
+        <!-- letterhead: Tunis city, from clinic data (FR-6.1) -->
+        <div class="pb-4 space-y-0.5">
+          <h1 class="font-bold text-primary" style="font-size:14pt">Cabinet Dentaire Dr Khelifi</h1>
+          <p>15 Avenue Habib Bourguiba, 1000 Tunis</p>
+          <p>Tél : +216 71 000 000</p>
+          <p class="font-bold">Dr Amine Khelifi — Chirurgien-dentiste</p>
+        </div>
+        <!-- date: cabinet city, never "Paris" -->
+        <p class="text-right">Tunis, le 20/07/2026</p>
+        <h2 class="text-center font-bold uppercase tracking-wide my-4" style="font-size:13pt">Certificat médical</h2>
+        <div class="grid grid-cols-2 gap-2 mb-3">
+          <div><span class="text-slate-500">Patient :</span> Salma Trabelsi</div>
+          <div><span class="text-slate-500">Date de naissance :</span> 12/03/2011</div>
+        </div>
+        <hr class="border-slate-300 mb-3" />
+
+        <!-- body: objet/motif + (optional) repos sentence + CNOMDT label -->
+        <p class="text-justify">
+          Je soussigné, <b>Dr Amine Khelifi</b>, chirurgien-dentiste, inscrit à l'<b>Ordre National des Médecins Dentistes (CNOMDT)</b> sous le n° <b>D-04-1287</b>,
+          certifie que <b>Salma Trabelsi</b> présente ce jour un état bucco-dentaire nécessitant des soins conservateurs en cours.
+        </p>
+        <p class="text-justify mt-2 text-slate-400 italic">[Si un repos est renseigné : « … et nécessite un repos médical de N jours à compter du JJ/MM/AAAA. »]</p>
+
+        <!-- FR-2.3 mandatory deontological mention above the signature -->
+        <p class="mt-6 italic">Certificat établi à la demande de l'intéressé(e) et remis en main propre.</p>
+
+        <!-- signature: cachet image (FR-3.2) -->
+        <div class="mt-auto flex justify-between items-end pt-10">
+          <div class="text-slate-500 text-sm">Date et signature du médecin</div>
+          <div class="text-center">
+            <div class="w-40 h-24 border border-dashed border-slate-300 rounded flex items-center justify-center text-slate-500 text-xs italic">
+              [ cachet / signature<br/>du praticien ]
+            </div>
+            <div class="text-xs text-slate-500 mt-1">Dr Amine Khelifi</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>
