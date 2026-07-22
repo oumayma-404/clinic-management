@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { useSession } from '@/lib/auth/session'
 import { Button } from "@/components/ui/button"
@@ -20,8 +20,9 @@ import { NotificationPanel } from "@/components/notification-panel"
 import { PostVisitReviewPopup } from "@/components/post-visit-review-popup"
 import { useNotifications } from "@/lib/hooks/use-notifications"
 import { appointmentsApi } from "@/lib/api/appointments"
-import type { NotificationDto } from "@/lib/api/types"
-import { Bell, Search, LogOut, KeyRound } from "lucide-react"
+import { patientsApi } from "@/lib/api/patients"
+import type { NotificationDto, PatientDto } from "@/lib/api/types"
+import { Bell, Search, LogOut, KeyRound, Loader2 } from "lucide-react"
 
 export function DashboardHeader() {
   const { user, isLoading, mode, logout } = useSession()
@@ -29,6 +30,59 @@ export function DashboardHeader() {
 
   const [notifOpen, setNotifOpen] = useState(false)
   const { notifications, unreadCount, loading, error, markRead, markAllRead } = useNotifications(notifOpen)
+
+  // Global patient search (AC-6): type → debounced patient lookup → navigate to the selected patient.
+  const [searchQuery, setSearchQuery] = useState("")
+  const [searchResults, setSearchResults] = useState<PatientDto[]>([])
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searching, setSearching] = useState(false)
+  const searchBoxRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const term = searchQuery.trim()
+    if (term.length < 2) {
+      setSearchResults([])
+      setSearching(false)
+      return
+    }
+    setSearching(true)
+    let active = true
+    const handle = setTimeout(async () => {
+      try {
+        const results = await patientsApi.list({ searchTerm: term, limit: 8 })
+        if (active) {
+          setSearchResults(results)
+          setSearchOpen(true)
+        }
+      } catch {
+        if (active) setSearchResults([])
+      } finally {
+        if (active) setSearching(false)
+      }
+    }, 250)
+    return () => {
+      active = false
+      clearTimeout(handle)
+    }
+  }, [searchQuery])
+
+  // Close the results dropdown on an outside click.
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      if (searchBoxRef.current && !searchBoxRef.current.contains(e.target as Node)) {
+        setSearchOpen(false)
+      }
+    }
+    document.addEventListener("mousedown", onClick)
+    return () => document.removeEventListener("mousedown", onClick)
+  }, [])
+
+  const goToPatient = (id: string) => {
+    setSearchOpen(false)
+    setSearchQuery("")
+    setSearchResults([])
+    router.push(`/patients/${id}`)
+  }
 
   const handleNotificationClick = (notification: NotificationDto) => {
     setNotifOpen(false)
@@ -86,13 +140,47 @@ export function DashboardHeader() {
     <PostVisitReviewPopup />
     <header className="flex h-16 items-center justify-between border-b border-border bg-card px-6">
       <div className="flex flex-1 items-center gap-4">
-        <div className="relative w-full max-w-md">
+        <div ref={searchBoxRef} className="relative w-full max-w-md">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <input
             type="search"
-            placeholder="Search patients, appointments..."
-            className="h-10 w-full rounded-lg border border-input bg-background pl-10 pr-4 text-sm outline-none placeholder:text-muted-foreground focus:border-ring focus:ring-1 focus:ring-ring"
+            placeholder="Rechercher un patient…"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onFocus={() => {
+              if (searchResults.length > 0) setSearchOpen(true)
+            }}
+            className="h-10 w-full rounded-lg border border-input bg-background pl-10 pr-9 text-sm outline-none placeholder:text-muted-foreground focus:border-ring focus:ring-1 focus:ring-ring"
           />
+          {searching && (
+            <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
+          )}
+
+          {searchOpen && searchQuery.trim().length >= 2 && (
+            <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-80 overflow-y-auto rounded-lg border border-border bg-popover shadow-md">
+              {searching && searchResults.length === 0 ? (
+                <p className="px-3 py-2 text-sm text-muted-foreground">Recherche…</p>
+              ) : searchResults.length === 0 ? (
+                <p className="px-3 py-2 text-sm text-muted-foreground">Aucun patient trouvé.</p>
+              ) : (
+                searchResults.map((patient) => (
+                  <button
+                    key={patient.id}
+                    type="button"
+                    onClick={() => goToPatient(patient.id)}
+                    className="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left text-sm hover:bg-accent"
+                  >
+                    <span className="font-medium">
+                      {patient.firstName} {patient.lastName}
+                    </span>
+                    {patient.phoneNumber && (
+                      <span className="text-xs text-muted-foreground">{patient.phoneNumber}</span>
+                    )}
+                  </button>
+                ))
+              )}
+            </div>
+          )}
         </div>
       </div>
 

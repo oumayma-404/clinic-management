@@ -59,16 +59,16 @@ Note: `PatientRepository.UpdateAsync` is careful with tracked vs detached entiti
 
 ### AI
 - **`HuggingFaceAIService`** (`IHuggingFaceAIService`) — chat completions via HuggingFace router (`router.huggingface.co/v1/chat/completions`, OpenAI-compatible). Model from `HuggingFace:Model`. Injects a clinic-context system prompt; retries once if model is loading.
-- **`GoogleAIService`** (`IGoogleAIService`) — Gemini (`generativelanguage.googleapis.com`). Tries a fallback list of models. **Note: not registered in `Extensions.cs`** (HuggingFace is the wired chat backend).
+- *(The `GoogleAIService`/`IGoogleAIService` Gemini client was removed as dead code in `reliability-and-polish` — it was never registered; HuggingFace is the wired chat backend.)*
 - **`AIActionService`** (`IAIActionService`) — agentic layer: asks the AI to classify intent + extract params (JSON), with regex fallback, then dispatches to MediatR commands/repos for `create_appointment`, `search_patient`, `view_patient`, `list_appointments`, `cancel_appointment`. Scopes everything to the current user's clinic via `IClinicContext` + `IUserRepository`.
-- **`PatientSummaryService`** (`Domain.Services.IPatientSummaryService`) — generates a textual patient/appointment summary. **Placeholder** (string template, no real AI call yet; `// TODO` to integrate OpenAI/Azure).
+- *(The placeholder `PatientSummaryService`/`IPatientSummaryService` was removed as dead code in `reliability-and-polish` — the live patient AI summary is `IHuggingFaceAIService` behind `GET /api/patients/{id}/ai-summary`.)*
 
 ### Connectivity (Phase 3, Local mode) — `Services/`
 - **`InternetProbe`** (`IInternetProbe`) — judges whether the **server** has internet egress (the LAN clients can't, so the server is the source of truth). Registered as a **Singleton** over a shared `IMemoryCache`: a `SemaphoreSlim` double-checked lock collapses a herd of pollers to **one probe per TTL**. Sends a `GET` to `Connectivity:ProbeUrl` with a linked timeout token; a 2xx/3xx ⇒ reachable, any request failure ⇒ not. Uses `IHttpClientFactory` (safe in a singleton). Backs `GetConnectivityStatusQuery`.
 - **`ConnectivityConfig`** — parallel static-accessor helper (mirrors `LocalAuthConfig`'s idiom) resolving `Connectivity:ProbeUrl` (default `https://www.google.com/generate_204`), `ProbeTimeoutSeconds` (3), `ProbeCacheSeconds` (5). Kept separate from auth config on purpose.
 
 ### Notifications
-- **`NotificationService`** (`INotificationService`) — legacy email + SMS dispatch. **Placeholder/stub** (logs instead of sending); **now superseded for reminders** by the `IReminderChannelSender` senders below and no longer consumed by `NotificationJob` — retained only as the dormant email path (still registered in `Extensions.cs`).
+- *(The legacy email `NotificationService`/`INotificationService` was removed as dead code in `reliability-and-polish` — it had zero consumers. Outbound reminders go through the `IReminderChannelSender` senders below.)*
 - **SMS/WhatsApp reminder senders** (`Services/`) — the live outbound reminder channels (feature `sms-whatsapp-reminders`). `IReminderChannelSender` with `HttpSmsSender` (config-driven HTTP gateway, alphanumeric sender id) and `WhatsAppSender` (WhatsApp Business API, pre-approved utility template) over a shared `HttpReminderChannelSender` base (bounded-timeout JSON POST → `Sent`/`TransientFailure`/`NotConfigured`). `RemindersConfig` (static accessors over the `Reminders` config section; secrets `Sms:ApiKey`/`WhatsApp:AccessToken` from env only), `ReminderSchedule` (pure tiered send-time calc), `ReminderPhone` (+216 E.164 normalization + PII masking). `ReminderScheduler` (`IReminderScheduler`, from Application) enqueues/voids reminder rows best-effort, called post-commit from the appointment command handlers; the API `NotificationJob` dispatches them.
 
 ### File Storage (`IFileStorage`, mode-branched)
@@ -104,14 +104,13 @@ Static, unit-testable helpers (referenced from API `Program.cs` and controllers)
 - All repositories scoped (table above).
 - `AddHttpClient()` (used by HuggingFace/GoogleAI/Auth0).
 - `IFileStorage` (**scoped**) is **mode-branched** on `Auth:Mode`: **Local** → `LocalDiskFileStorage` (base path `FileStorage:BasePath`, no MinIO); **Cloud** → `MinioFileStorage` if `MinIO:Endpoint/AccessKey/SecretKey` present (with `IMinioClient` singleton), otherwise a stub that throws on use.
-- `INotificationService` → `NotificationService` (scoped, config injected explicitly).
-- `IPatientSummaryService`, `IGoogleCalendarService`, `IGoogleCalendarSyncService`, `IPdfGenerationService`, `IHuggingFaceAIService`, `IAIActionService` — all scoped.
+- `IGoogleCalendarService`, `IGoogleCalendarSyncService`, `IPdfGenerationService`, `IHuggingFaceAIService`, `IAIActionService` — all scoped.
 - `IInternetProbe` → `InternetProbe` (**singleton**) + `AddMemoryCache()` (idempotent) — connectivity awareness (Phase 3).
 - `IGoogleTokenStore` → `FileGoogleTokenStore` (**singleton**) — Google OAuth refresh-token file store (Phase 4).
 - `IBackupService` → `PgDumpBackupService` (**scoped**) — one-click backup (Phase 5). Registered unconditionally; on Cloud a call fails cleanly ("pg_dump introuvable").
 - `IFileStorage`'s base path is resolved via `LocalInstallPaths.Resolve(FileStorage:BasePath ?? "Files")` (Phase 5, R-6) so the disk backend + the backup service target the same install-relative folder under a Windows service.
 - **Auth-mode-branched** (`Auth:Mode`): Local → `ILocalAuthService` → `LocalAuthService` and `IAuth0ManagementService` → `NoOpAuth0ManagementService`; Cloud → the real `Auth0ManagementService`.
-- **Not registered here:** `GoogleAIService` (dead/optional). `AdminPasswordRecoveryService` is intentionally left out (console-only, no injectable reset path). `CertificateProvisioner` is intentionally left out (constructed manually pre-Build in `Program.cs`).
+- **Not registered here:** `AdminPasswordRecoveryService` is intentionally left out (console-only, no injectable reset path). `CertificateProvisioner` is intentionally left out (constructed manually pre-Build in `Program.cs`).
 
 ## Config keys consumed (names only)
 `ConnectionStrings:DefaultConnection`, `FileStorage:BasePath`, `MinIO:{Endpoint,AccessKey,SecretKey,BucketName,UseSSL}`, `Notification:Smtp:{Server,Port,Username,Password}`, `Notification:Sms:{ApiKey,ApiUrl}`, `GoogleCalendar:{ClientId,ClientSecret,RefreshToken,CalendarId,RedirectUri}`, `HuggingFace:{ApiKey,Model}`, `GoogleAI:{ApiKey,Model,ApiVersion}`, `Auth0:{Domain,ManagementApi:ClientId,ManagementApi:ClientSecret}`, `Auth:Mode` (`Cloud`|`Local`), `Auth:Local:SigningKey` (optional; else generated `.local/signing-key`), `Connectivity:{ProbeUrl,ProbeTimeoutSeconds,ProbeCacheSeconds}` (all optional; defaults `https://www.google.com/generate_204` / 3 / 5), `Cors:AllowedOrigins` (optional LAN origins, Phase 4), `GoogleCalendar:RefreshTokenPath` (optional `.local/` file override for the token store, Phase 4), `Backup:{PgDumpPath,DefaultDestination,TimeoutSeconds}` (Phase 5, consumed by `PgDumpBackupService`). *(HTTPS/Kestrel hosting keys — `Https:*`, `Hosting:*` — are read in API `Program.cs`, not here.)*

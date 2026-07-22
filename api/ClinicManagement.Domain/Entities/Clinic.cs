@@ -28,6 +28,11 @@ public class Clinic : AggregateRoot<Guid>
     /// <summary>Target TTN environment: "Sandbox" (default, safe) or "Production".</summary>
     public string TtnEnvironment { get; private set; } = TtnEnvironmentSandbox;
 
+    // Working hours as a JSON array of per-day {day, enabled, from, to} (reliability-and-polish AC-7). Null =
+    // no saved hours yet; the UI then falls back to the shared default. Opaque JSON here — the shape is owned
+    // by WorkingHoursSerializer in the Application layer.
+    public string? WorkingHoursJson { get; private set; }
+
     public const string TtnEnvironmentSandbox = "Sandbox";
     public const string TtnEnvironmentProduction = "Production";
 
@@ -121,6 +126,16 @@ public class Clinic : AggregateRoot<Guid>
     public void SetCode(string code)
     {
         Code = code;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Sets the clinic's working-hours JSON (already validated/canonicalized by the caller). A blank value
+    /// clears it (= no saved hours). reliability-and-polish AC-7.
+    /// </summary>
+    public void SetWorkingHours(string? workingHoursJson)
+    {
+        WorkingHoursJson = string.IsNullOrWhiteSpace(workingHoursJson) ? null : workingHoursJson;
         UpdatedAt = DateTime.UtcNow;
     }
 }

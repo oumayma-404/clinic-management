@@ -33,6 +33,7 @@ import { useAuthToken } from "@/lib/hooks/use-auth-token"
 import { useSession } from "@/lib/auth/session"
 import { BackupSettings } from "@/components/backup-settings"
 import { ReminderSettings } from "@/components/reminder-settings"
+import { DEFAULT_WORKING_HOURS } from "@/lib/working-hours"
 
 const tunisianGovernorates = [
   "Tunis",
@@ -70,8 +71,6 @@ const specialties = [
   "Oral Surgeon",
   "Pediatric Dentist",
 ]
-
-const weekdays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
 interface Doctor {
   id: string
@@ -120,14 +119,9 @@ export default function ClinicSettings() {
   const [ttnEInvoicingEnabled, setTtnEInvoicingEnabled] = useState(false)
   const [ttnEnvironment, setTtnEnvironment] = useState("Sandbox")
 
-  // Working Hours State
+  // Working Hours State — seeded from the shared default; overwritten by the clinic's saved hours on load.
   const [workingHours, setWorkingHours] = useState<WorkingHoursInput[]>(
-    weekdays.map((day) => ({
-      day,
-      from: "09:00",
-      to: "17:00",
-      enabled: day !== "Sunday",
-    })),
+    DEFAULT_WORKING_HOURS.map((d) => ({ ...d })),
   )
 
   // Doctors State
@@ -187,6 +181,10 @@ export default function ClinicSettings() {
         setStampDutyAmount(String(clinic.stampDutyAmount ?? 1))
         setTtnEInvoicingEnabled(clinic.ttnEInvoicingEnabled ?? false)
         setTtnEnvironment(clinic.ttnEnvironment ?? "Sandbox")
+        // Working hours (AC-7): use the clinic's saved hours; keep the default when none are stored.
+        if (clinic.workingHours && clinic.workingHours.length > 0) {
+          setWorkingHours(clinic.workingHours.map((d) => ({ ...d })))
+        }
         // Load logo from backend if it exists
         if (clinic.logoUrl) {
           loadLogoFromBackend()
@@ -469,12 +467,28 @@ export default function ClinicSettings() {
   const handleSaveHours = async () => {
     setIsSaving(true)
     try {
-      // Note: You'll need to add an update clinic endpoint
-      // For now, this is a placeholder
-      setNotification({ type: "success", message: "Working hours saved successfully!" })
+      // Re-send the clinic identity fields (the update path overwrites them) alongside the working hours,
+      // mirroring the billing save — otherwise omitting them would clear name/address/phone/email.
+      const fullAddress = address && governorate
+        ? `${address}, ${governorate}`
+        : governorate || address || undefined
+
+      const updated = await clinicsApi.update({
+        name: clinicName,
+        address: fullAddress,
+        phone,
+        email,
+        workingHoursJson: JSON.stringify(workingHours),
+      })
+
+      if (updated.workingHours && updated.workingHours.length > 0) {
+        setWorkingHours(updated.workingHours.map((d) => ({ ...d })))
+      }
+
+      setNotification({ type: "success", message: "Horaires enregistrés." })
       setIsEditingHours(false)
     } catch (error: any) {
-      setNotification({ type: "error", message: "Failed to save working hours. Please try again." })
+      setNotification({ type: "error", message: error.message || "Échec de l'enregistrement des horaires." })
     } finally {
       setIsSaving(false)
     }

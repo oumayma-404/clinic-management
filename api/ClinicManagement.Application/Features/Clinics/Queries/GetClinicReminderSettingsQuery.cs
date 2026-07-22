@@ -21,15 +21,18 @@ public class GetClinicReminderSettingsQueryHandler
     private readonly IClinicReminderSettingsRepository _settingsRepository;
     private readonly IUserRepository _userRepository;
     private readonly IClinicContext _clinicContext;
+    private readonly IReminderSettingsProvider _settingsProvider;
 
     public GetClinicReminderSettingsQueryHandler(
         IClinicReminderSettingsRepository settingsRepository,
         IUserRepository userRepository,
-        IClinicContext clinicContext)
+        IClinicContext clinicContext,
+        IReminderSettingsProvider settingsProvider)
     {
         _settingsRepository = settingsRepository;
         _userRepository = userRepository;
         _clinicContext = clinicContext;
+        _settingsProvider = settingsProvider;
     }
 
     public async Task<Result<ReminderSettingsDto>> Handle(
@@ -55,7 +58,22 @@ public class GetClinicReminderSettingsQueryHandler
             }
 
             var settings = await _settingsRepository.GetByClinicIdAsync(user.ClinicId, cancellationToken);
-            return Result<ReminderSettingsDto>.Success(settings.ToDto());
+
+            // effectiveStatus (AC-2) reflects the *resolved* settings (per-clinic override else per-install,
+            // secrets decrypted) — so a channel toggled on but missing a URL/secret reads not_configured even
+            // when a WhatsApp OAuth "connection" exists.
+            var resolved = await _settingsProvider.ResolveAsync(user.ClinicId, cancellationToken);
+            var dto = settings.ToDto() with
+            {
+                SmsEffectiveStatus = resolved.SmsConfigured
+                    ? ReminderEffectiveStatus.Configured
+                    : ReminderEffectiveStatus.NotConfigured,
+                WhatsAppEffectiveStatus = resolved.WhatsAppConfigured
+                    ? ReminderEffectiveStatus.Configured
+                    : ReminderEffectiveStatus.NotConfigured,
+            };
+
+            return Result<ReminderSettingsDto>.Success(dto);
         }
         catch (Exception ex)
         {

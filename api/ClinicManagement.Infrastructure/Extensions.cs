@@ -125,19 +125,6 @@ public static class Extensions
             }
         }
 
-        services.AddScoped<INotificationService>(sp =>
-        {
-            var logger = sp.GetRequiredService<ILogger<NotificationService>>();
-            return new NotificationService(
-                logger,
-                smtpServer: configuration["Notification:Smtp:Server"],
-                smtpPort: configuration.GetValue<int?>("Notification:Smtp:Port"),
-                smtpUsername: configuration["Notification:Smtp:Username"],
-                smtpPassword: configuration["Notification:Smtp:Password"],
-                smsApiKey: configuration["Notification:Sms:ApiKey"],
-                smsApiUrl: configuration["Notification:Sms:ApiUrl"]);
-        });
-
         // Per-clinic reminder secrets are encrypted at rest via ASP.NET Core Data Protection. The key ring is
         // persisted to a mode-resolved directory so ciphertext survives restarts: Local → the gitignored
         // per-install .local/ (via LocalInstallPaths); Cloud → an optional configured directory
@@ -179,9 +166,6 @@ public static class Extensions
 
         // WhatsApp Embedded-Signup onboarding (Cloud) — provisions a clinic's own WABA/phone via the Graph API.
         services.AddScoped<IWhatsAppOnboardingService, WhatsAppOnboardingService>();
-
-        // Domain Services
-        services.AddScoped<Domain.Services.IPatientSummaryService, PatientSummaryService>();
 
         // NOTE: CertificateProvisioner is intentionally NOT DI-registered (Finding 17) — it is constructed
         // manually pre-Build in Program.cs (Kestrel needs the cert before the DI container exists), so a

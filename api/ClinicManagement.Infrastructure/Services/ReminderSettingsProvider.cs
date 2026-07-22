@@ -66,21 +66,32 @@ public class ReminderSettingsProvider : IReminderSettingsProvider
         {
             EnabledChannels = ResolveEnabledChannels(clinic),
 
-            // Endpoint URLs stay per-install (out of scope for per-clinic override).
-            SmsApiUrl = RemindersConfig.SmsApiUrl(_configuration),
+            // Endpoint URLs are now a per-clinic override (else the per-install value) so an admin can turn a
+            // channel fully on without a server-config edit (reliability-and-polish AC-1).
+            SmsApiUrl = clinic?.SmsApiUrl ?? RemindersConfig.SmsApiUrl(_configuration),
             SmsSenderId = clinic?.SmsSenderId ?? RemindersConfig.SmsSenderId(_configuration),
             SmsApiKey = ResolveSecret(clinic?.SmsApiKeyEncrypted, RemindersConfig.SmsApiKey(_configuration), NotificationType.SMS),
 
-            WhatsAppApiUrl = RemindersConfig.WhatsAppApiUrl(_configuration),
+            WhatsAppApiUrl = clinic?.WhatsAppApiUrl ?? RemindersConfig.WhatsAppApiUrl(_configuration),
             WhatsAppPhoneNumberId = clinic?.WhatsAppPhoneNumberId ?? RemindersConfig.WhatsAppPhoneNumberId(_configuration),
             WhatsAppTemplateName = clinic?.WhatsAppTemplateName ?? RemindersConfig.WhatsAppTemplateName(_configuration),
             WhatsAppTemplateLanguage = clinic?.WhatsAppTemplateLanguage ?? RemindersConfig.WhatsAppTemplateLanguage(_configuration),
             WhatsAppAccessToken = ResolveSecret(clinic?.WhatsAppAccessTokenEncrypted, RemindersConfig.WhatsAppAccessToken(_configuration), NotificationType.WhatsApp),
             WhatsAppTemplateHasBodyParam = RemindersConfig.WhatsAppTemplateHasBodyParam(_configuration),
+
+            LeadTimeHours = ResolveLeadTimeHours(clinic),
+            MessageTemplateBody = clinic?.MessageTemplateBody,
         };
 
         _resolveCache[cacheKey] = resolved;
         return resolved;
+    }
+
+    // Per-clinic lead-time tiers where the clinic set them, else the per-install Reminders:LeadTimesHours.
+    private IReadOnlyList<int> ResolveLeadTimeHours(ClinicReminderSettings? clinic)
+    {
+        var perClinic = ClinicReminderSettings.ParseLeadTimeHours(clinic?.LeadTimeHours);
+        return perClinic.Count > 0 ? perClinic : RemindersConfig.LeadTimesHours(_configuration);
     }
 
     private Task<ClinicReminderSettings?> LoadAsync(Guid? clinicId, CancellationToken cancellationToken) =>

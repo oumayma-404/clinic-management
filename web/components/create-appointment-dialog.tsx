@@ -40,6 +40,7 @@ import type { PatientDto, ProcedureTypeDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import { useDoctors } from "@/lib/hooks/use-doctors"
 import { useAppointmentOverlap } from "@/lib/hooks/use-appointment-overlap"
+import { isDeliverablePhone, PHONE_ERROR_FR } from "@/lib/phone"
 
 // Sentinel value for the "custom procedure" option inside the procedure-type Select.
 const CUSTOM_PROCEDURE_VALUE = "__custom__"
@@ -68,6 +69,7 @@ export function CreateAppointmentDialog({
   const [selectedPatientId, setSelectedPatientId] = useState("")
   const [newPatientFirstName, setNewPatientFirstName] = useState("")
   const [newPatientLastName, setNewPatientLastName] = useState("")
+  const [newPatientPhone, setNewPatientPhone] = useState("")
   const [patients, setPatients] = useState<PatientDto[]>([])
   const [loadingPatients, setLoadingPatients] = useState(false)
 
@@ -167,6 +169,7 @@ export function CreateAppointmentDialog({
       setSelectedPatientId("")
       setNewPatientFirstName("")
       setNewPatientLastName("")
+      setNewPatientPhone("")
       setSelectedDoctorId("")
       setAppointmentType("")
       setSelectedProcedureTypeId(undefined)
@@ -283,6 +286,11 @@ export function CreateAppointmentDialog({
           setError("Please enter both first name and last name for the new patient")
           return false
         }
+        // AC-4/AC-5: capture a deliverable phone for the inline patient so reminders can actually be sent.
+        if (!isDeliverablePhone(newPatientPhone)) {
+          setError(PHONE_ERROR_FR)
+          return false
+        }
       } else if (!selectedPatientId) {
         setError("Please select a patient")
         return false
@@ -328,6 +336,7 @@ export function CreateAppointmentDialog({
             const newPatient = await patientsApi.create({
               firstName: newPatientFirstName.trim(),
               lastName: newPatientLastName.trim(),
+              phoneNumber: newPatientPhone.trim(),
             })
             patientId = newPatient.id
           } catch (err) {
@@ -480,6 +489,7 @@ export function CreateAppointmentDialog({
                       setSelectedPatientId("")
                       setNewPatientFirstName("")
                       setNewPatientLastName("")
+                      setNewPatientPhone("")
                       setSelectedProcedureTypeId(undefined)
                       setCustomProcedureMode(false)
                     }
@@ -501,38 +511,58 @@ export function CreateAppointmentDialog({
                       } else {
                         setNewPatientFirstName("")
                         setNewPatientLastName("")
+                        setNewPatientPhone("")
                       }
                     }}
                   />
                 </div>
 
                 {isNewPatient ? (
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-2">
-                      <Label htmlFor="firstName" className="text-sm">
-                        First Name *
-                      </Label>
-                      <Input
-                        id="firstName"
-                        placeholder="John"
-                        value={newPatientFirstName}
-                        onChange={(e) => setNewPatientFirstName(e.target.value)}
-                        className="h-10"
-                        required
-                      />
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-2">
+                        <Label htmlFor="firstName" className="text-sm">
+                          First Name *
+                        </Label>
+                        <Input
+                          id="firstName"
+                          placeholder="John"
+                          value={newPatientFirstName}
+                          onChange={(e) => setNewPatientFirstName(e.target.value)}
+                          className="h-10"
+                          required
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="lastName" className="text-sm">
+                          Last Name *
+                        </Label>
+                        <Input
+                          id="lastName"
+                          placeholder="Doe"
+                          value={newPatientLastName}
+                          onChange={(e) => setNewPatientLastName(e.target.value)}
+                          className="h-10"
+                          required
+                        />
+                      </div>
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="lastName" className="text-sm">
-                        Last Name *
+                      <Label htmlFor="newPatientPhone" className="text-sm">
+                        Téléphone *
                       </Label>
                       <Input
-                        id="lastName"
-                        placeholder="Doe"
-                        value={newPatientLastName}
-                        onChange={(e) => setNewPatientLastName(e.target.value)}
+                        id="newPatientPhone"
+                        type="tel"
+                        placeholder="Ex. 20 123 456"
+                        value={newPatientPhone}
+                        onChange={(e) => setNewPatientPhone(e.target.value)}
                         className="h-10"
                         required
                       />
+                      <p className="text-xs text-muted-foreground">
+                        Requis pour l&apos;envoi des rappels (numéro tunisien à 8 chiffres, ou +216…).
+                      </p>
                     </div>
                   </div>
                 ) : (

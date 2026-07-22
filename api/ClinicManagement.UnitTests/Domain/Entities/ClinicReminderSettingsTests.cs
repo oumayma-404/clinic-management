@@ -35,7 +35,11 @@ public class ClinicReminderSettingsTests
             smsSenderId: "  MaClinique  ",
             whatsAppPhoneNumberId: "PN123",
             whatsAppTemplateName: "appointment_reminder",
-            whatsAppTemplateLanguage: "fr");
+            whatsAppTemplateLanguage: "fr",
+            smsApiUrl: null,
+            whatsAppApiUrl: null,
+            leadTimeHours: null,
+            messageTemplateBody: null);
 
         Assert.True(settings.SmsEnabled);
         Assert.False(settings.WhatsAppEnabled);
@@ -51,7 +55,7 @@ public class ClinicReminderSettingsTests
     {
         var settings = new ClinicReminderSettings(ClinicId);
 
-        settings.ApplyNonSecretSettings(null, null, "   ", "", null, "  ");
+        settings.ApplyNonSecretSettings(null, null, "   ", "", null, "  ", null, null, null, null);
 
         Assert.Null(settings.SmsSenderId);
         Assert.Null(settings.WhatsAppPhoneNumberId);

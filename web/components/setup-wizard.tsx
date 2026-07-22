@@ -55,6 +55,17 @@ const specialties = [
 
 const weekdays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
+// French display labels for the (English-keyed) weekdays — the keys stay English (used as state keys).
+const weekdayLabelsFr: Record<string, string> = {
+  Monday: "Lundi",
+  Tuesday: "Mardi",
+  Wednesday: "Mercredi",
+  Thursday: "Jeudi",
+  Friday: "Vendredi",
+  Saturday: "Samedi",
+  Sunday: "Dimanche",
+}
+
 interface Doctor {
   id: string
   name: string
@@ -249,16 +260,16 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
       // Redirect to app immediately after successful creation
       window.location.href = "/"
     } catch (err: any) {
-      setError(err.message || "Failed to create clinic. Please try again.")
+      setError(err.message || "Échec de la création de la clinique. Veuillez réessayer.")
       console.error("Error creating clinic:", err)
       setIsLoading(false)
     }
   }
 
   const steps = [
-    { number: 1, title: "Clinic Info", description: "Basic details" },
-    { number: 2, title: "Your Role", description: "Role & personal info" },
-    { number: 3, title: "Working Hours", description: "Set schedule (optional)" },
+    { number: 1, title: "Clinique", description: "Informations de base" },
+    { number: 2, title: "Votre rôle", description: "Rôle et infos personnelles" },
+    { number: 3, title: "Horaires", description: "Définir les horaires (optionnel)" },
   ]
 
   return (
@@ -269,15 +280,15 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-blue-100 dark:bg-blue-900/20 mb-2">
             <Building2 className="w-8 h-8 text-blue-600 dark:text-blue-400" />
           </div>
-          <h1 className="text-3xl font-bold text-blue-900 dark:text-blue-100">Welcome to Your Clinic Management</h1>
-          <p className="text-muted-foreground">Let's get your clinic set up in just 3 simple steps</p>
+          <h1 className="text-3xl font-bold text-blue-900 dark:text-blue-100">Bienvenue dans la gestion de votre clinique</h1>
+          <p className="text-muted-foreground">Configurons votre clinique en 3 étapes simples</p>
           <div className="pt-2">
             <Button
               variant="ghost"
               onClick={() => router.push("/join")}
               className="text-muted-foreground hover:text-blue-600"
             >
-              Already have a clinic code? Join existing clinic
+              Vous avez déjà un code clinique ? Rejoindre une clinique
               <ArrowRight className="w-4 h-4 ml-2" />
             </Button>
           </div>
@@ -329,18 +340,18 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
             {currentStep === 1 && (
               <div className="space-y-6">
                 <div>
-                  <h2 className="text-2xl font-semibold text-blue-900 dark:text-blue-100 mb-2">Clinic Information</h2>
-                  <p className="text-muted-foreground">Tell us about your clinic</p>
+                  <h2 className="text-2xl font-semibold text-blue-900 dark:text-blue-100 mb-2">Informations de la clinique</h2>
+                  <p className="text-muted-foreground">Parlez-nous de votre clinique</p>
                 </div>
 
                 <div className="grid md:grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <Label htmlFor="clinic-name" className="text-sm font-medium">
-                      Clinic Name <span className="text-destructive">*</span>
+                      Nom de la clinique <span className="text-destructive">*</span>
                     </Label>
                     <Input
                       id="clinic-name"
-                      placeholder="Enter clinic name"
+                      placeholder="Saisir le nom de la clinique"
                       value={clinicName}
                       onChange={(e) => setClinicName(e.target.value)}
                       required
@@ -349,11 +360,11 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
 
                   <div className="space-y-2">
                     <Label htmlFor="governorate" className="text-sm font-medium">
-                      City / Governorate <span className="text-destructive">*</span>
+                      Ville / Gouvernorat <span className="text-destructive">*</span>
                     </Label>
                     <Select value={governorate} onValueChange={setGovernorate}>
                       <SelectTrigger id="governorate">
-                        <SelectValue placeholder="Select governorate" />
+                        <SelectValue placeholder="Sélectionner le gouvernorat" />
                       </SelectTrigger>
                       <SelectContent>
                         {tunisianGovernorates.map((gov) => (
@@ -368,11 +379,11 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
 
                 <div className="space-y-2">
                   <Label htmlFor="address" className="text-sm font-medium">
-                    Address
+                    Adresse
                   </Label>
                   <Textarea
                     id="address"
-                    placeholder="Enter full address"
+                    placeholder="Saisir l'adresse complète"
                     value={address}
                     onChange={(e) => setAddress(e.target.value)}
                     rows={3}
@@ -382,7 +393,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                 <div className="grid md:grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <Label htmlFor="phone" className="text-sm font-medium">
-                      Phone Number <span className="text-destructive">*</span>
+                      Numéro de téléphone <span className="text-destructive">*</span>
                     </Label>
                     <Input
                       id="phone"
@@ -399,7 +410,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                   {!isLocalMode && (
                     <div className="space-y-2">
                       <Label htmlFor="email" className="text-sm font-medium">
-                        Professional Email <span className="text-destructive">*</span>
+                        Email professionnel <span className="text-destructive">*</span>
                       </Label>
                       <Input
                         id="email"
@@ -414,7 +425,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                 </div>
 
                 <div className="space-y-2">
-                  <Label className="text-sm font-medium">Clinic Logo (Optional)</Label>
+                  <Label className="text-sm font-medium">Logo de la clinique (optionnel)</Label>
                   <div className="flex items-center gap-4">
                     {logoPreview ? (
                       <div className="relative w-24 h-24 rounded-lg border-2 border-blue-200 overflow-hidden">
@@ -437,7 +448,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                     ) : (
                       <label className="w-24 h-24 flex flex-col items-center justify-center border-2 border-dashed border-blue-300 rounded-lg cursor-pointer hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950/20 transition-colors">
                         <Upload className="w-6 h-6 text-blue-600 mb-1" />
-                        <span className="text-xs text-muted-foreground">Upload</span>
+                        <span className="text-xs text-muted-foreground">Téléverser</span>
                         <input type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
                       </label>
                     )}
@@ -450,19 +461,19 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
             {currentStep === 2 && (
               <div className="space-y-6">
                 <div>
-                  <h2 className="text-2xl font-semibold text-blue-900 dark:text-blue-100 mb-2">{isLocalMode ? "Admin Account" : "Your Role & Information"}</h2>
-                  <p className="text-muted-foreground">{isLocalMode ? "Create the clinic administrator account" : "Tell us about yourself"}</p>
+                  <h2 className="text-2xl font-semibold text-blue-900 dark:text-blue-100 mb-2">{isLocalMode ? "Compte administrateur" : "Votre rôle et vos informations"}</h2>
+                  <p className="text-muted-foreground">{isLocalMode ? "Créez le compte administrateur de la clinique" : "Parlez-nous de vous"}</p>
                 </div>
 
                 {isLocalMode && (
                   <div className="space-y-4">
                     <div className="space-y-2">
                       <Label htmlFor="admin-full-name" className="text-sm font-medium">
-                        Full Name <span className="text-destructive">*</span>
+                        Nom complet <span className="text-destructive">*</span>
                       </Label>
                       <Input
                         id="admin-full-name"
-                        placeholder="Dr Jane Doe"
+                        placeholder="Dr Jean Dupont"
                         value={adminFullName}
                         onChange={(e) => setAdminFullName(e.target.value)}
                         required
@@ -475,7 +486,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                       <Input
                         id="admin-email"
                         type="email"
-                        placeholder="admin@clinic.com"
+                        placeholder="admin@clinique.com"
                         value={adminEmail}
                         onChange={(e) => setAdminEmail(e.target.value)}
                         required
@@ -484,12 +495,12 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                     <div className="grid md:grid-cols-2 gap-4">
                       <div className="space-y-2">
                         <Label htmlFor="admin-password" className="text-sm font-medium">
-                          Password <span className="text-destructive">*</span>
+                          Mot de passe <span className="text-destructive">*</span>
                         </Label>
                         <Input
                           id="admin-password"
                           type="password"
-                          placeholder="At least 8 characters"
+                          placeholder="Au moins 8 caractères"
                           value={adminPassword}
                           onChange={(e) => setAdminPassword(e.target.value)}
                           required
@@ -497,12 +508,12 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="admin-password-confirm" className="text-sm font-medium">
-                          Confirm Password <span className="text-destructive">*</span>
+                          Confirmer le mot de passe <span className="text-destructive">*</span>
                         </Label>
                         <Input
                           id="admin-password-confirm"
                           type="password"
-                          placeholder="Re-enter password"
+                          placeholder="Ressaisir le mot de passe"
                           value={adminPasswordConfirm}
                           onChange={(e) => setAdminPasswordConfirm(e.target.value)}
                           required
@@ -510,10 +521,10 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                       </div>
                     </div>
                     {adminPassword.length > 0 && adminPassword.length < 8 && (
-                      <p className="text-xs text-destructive">Password must be at least 8 characters.</p>
+                      <p className="text-xs text-destructive">Le mot de passe doit contenir au moins 8 caractères.</p>
                     )}
                     {adminPasswordConfirm.length > 0 && adminPassword !== adminPasswordConfirm && (
-                      <p className="text-xs text-destructive">Passwords do not match.</p>
+                      <p className="text-xs text-destructive">Les mots de passe ne correspondent pas.</p>
                     )}
 
                     {/* Single-dentist cabinet: the admin is usually the practitioner too. When enabled, a
@@ -561,15 +572,15 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                 <div className="space-y-4">
                   <div className="space-y-2">
                     <Label htmlFor="role" className="text-sm font-medium">
-                      Your Role <span className="text-destructive">*</span>
+                      Votre rôle <span className="text-destructive">*</span>
                     </Label>
                     <Select value={role} onValueChange={(value: "doctor" | "secretary") => setRole(value)}>
                       <SelectTrigger id="role">
-                        <SelectValue placeholder="Select your role" />
+                        <SelectValue placeholder="Sélectionnez votre rôle" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="doctor">Doctor</SelectItem>
-                        <SelectItem value="secretary">Secretary / Assistant</SelectItem>
+                        <SelectItem value="doctor">Médecin</SelectItem>
+                        <SelectItem value="secretary">Secrétaire / Assistant(e)</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -579,11 +590,11 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                       <div className="grid md:grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label htmlFor="first-name" className="text-sm font-medium">
-                            First Name <span className="text-destructive">*</span>
+                            Prénom <span className="text-destructive">*</span>
                           </Label>
                           <Input
                             id="first-name"
-                            placeholder="Enter your first name"
+                            placeholder="Saisir votre prénom"
                             value={firstName}
                             onChange={(e) => setFirstName(e.target.value)}
                             required
@@ -592,11 +603,11 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
 
                         <div className="space-y-2">
                           <Label htmlFor="last-name" className="text-sm font-medium">
-                            Last Name <span className="text-destructive">*</span>
+                            Nom <span className="text-destructive">*</span>
                           </Label>
                           <Input
                             id="last-name"
-                            placeholder="Enter your last name"
+                            placeholder="Saisir votre nom"
                             value={lastName}
                             onChange={(e) => setLastName(e.target.value)}
                             required
@@ -606,11 +617,11 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
 
                       <div className="space-y-2">
                         <Label htmlFor="specialty" className="text-sm font-medium">
-                          Specialty <span className="text-destructive">*</span>
+                          Spécialité <span className="text-destructive">*</span>
                         </Label>
                         <Select value={specialty} onValueChange={setSpecialty}>
                           <SelectTrigger id="specialty">
-                            <SelectValue placeholder="Select your specialty" />
+                            <SelectValue placeholder="Sélectionnez votre spécialité" />
                           </SelectTrigger>
                           <SelectContent>
                             {specialties.map((spec) => (
@@ -624,7 +635,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
 
                       <div className="space-y-2">
                         <Label htmlFor="personal-phone" className="text-sm font-medium">
-                          Phone Number (Optional)
+                          Numéro de téléphone (optionnel)
                         </Label>
                         <Input
                           id="personal-phone"
@@ -640,8 +651,8 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                   {role === "secretary" && (
                     <div className="p-4 bg-blue-50 dark:bg-blue-950/20 rounded-lg border border-blue-200 dark:border-blue-800">
                       <p className="text-sm text-blue-700 dark:text-blue-300">
-                        As a secretary/assistant, you don't need to provide additional personal information. 
-                        Your email from your account will be used.
+                        En tant que secrétaire/assistant(e), vous n&apos;avez pas besoin de fournir d&apos;informations
+                        personnelles supplémentaires. L&apos;email de votre compte sera utilisé.
                       </p>
                     </div>
                   )}
@@ -654,8 +665,8 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
             {currentStep === 3 && (
               <div className="space-y-6">
                 <div>
-                  <h2 className="text-2xl font-semibold text-blue-900 dark:text-blue-100 mb-2">Set Working Hours</h2>
-                  <p className="text-muted-foreground">Configure your clinic's operating schedule (optional)</p>
+                  <h2 className="text-2xl font-semibold text-blue-900 dark:text-blue-100 mb-2">Définir les horaires</h2>
+                  <p className="text-muted-foreground">Configurez les horaires d&apos;ouverture de votre clinique (optionnel)</p>
                 </div>
 
                 <div className="space-y-3">
@@ -670,7 +681,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                           className="w-4 h-4 rounded border-gray-300"
                         />
                         <Label htmlFor={`day-${day}`} className="text-sm font-medium cursor-pointer">
-                          {day}
+                          {weekdayLabelsFr[day] ?? day}
                         </Label>
                       </div>
                       {workingHours[day].enabled && (
@@ -681,7 +692,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                             onChange={(e) => updateWorkingHours(day, "from", e.target.value)}
                             className="w-36"
                           />
-                          <span className="text-muted-foreground text-sm">to</span>
+                          <span className="text-muted-foreground text-sm">à</span>
                           <Input
                             type="time"
                             value={workingHours[day].to}
@@ -705,30 +716,30 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                 className="border-blue-200"
               >
                 <ChevronLeft className="w-4 h-4 mr-2" />
-                Previous
+                Précédent
               </Button>
 
               {currentStep < 3 ? (
                 <Button
                   onClick={() => setCurrentStep(currentStep + 1)}
                   disabled={
-                    currentStep === 1 ? !isStep1Valid() 
-                    : currentStep === 2 ? !isStep2Valid() 
+                    currentStep === 1 ? !isStep1Valid()
+                    : currentStep === 2 ? !isStep2Valid()
                     : false
                   }
                   className="bg-blue-600 hover:bg-blue-700"
                 >
-                  Next
+                  Suivant
                   <ChevronRight className="w-4 h-4 ml-2" />
                 </Button>
               ) : (
                 <Button onClick={handleComplete} disabled={isLoading} className="bg-green-600 hover:bg-green-700">
                   {isLoading ? (
-                    "Creating..."
+                    "Création…"
                   ) : (
                     <>
                       <CheckCircle2 className="w-4 h-4 mr-2" />
-                      Complete Setup
+                      Terminer la configuration
                     </>
                   )}
                 </Button>
@@ -741,7 +752,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
         {currentStep === 3 && (
           <div className="text-center mt-4">
             <Button variant="ghost" onClick={handleComplete} disabled={isLoading} className="text-muted-foreground hover:text-blue-600">
-              Skip for now
+              Passer pour l&apos;instant
             </Button>
           </div>
         )}

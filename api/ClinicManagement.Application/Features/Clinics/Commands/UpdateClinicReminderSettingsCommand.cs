@@ -24,6 +24,7 @@ public class UpdateClinicReminderSettingsCommandHandler
     private readonly IUserRepository _userRepository;
     private readonly IClinicContext _clinicContext;
     private readonly IReminderSecretProtector _secretProtector;
+    private readonly IReminderSettingsProvider _settingsProvider;
     private readonly IUnitOfWork _unitOfWork;
 
     public UpdateClinicReminderSettingsCommandHandler(
@@ -31,12 +32,14 @@ public class UpdateClinicReminderSettingsCommandHandler
         IUserRepository userRepository,
         IClinicContext clinicContext,
         IReminderSecretProtector secretProtector,
+        IReminderSettingsProvider settingsProvider,
         IUnitOfWork unitOfWork)
     {
         _settingsRepository = settingsRepository;
         _userRepository = userRepository;
         _clinicContext = clinicContext;
         _secretProtector = secretProtector;
+        _settingsProvider = settingsProvider;
         _unitOfWork = unitOfWork;
     }
 
@@ -74,7 +77,11 @@ public class UpdateClinicReminderSettingsCommandHandler
                 input.SmsSenderId,
                 input.WhatsAppPhoneNumberId,
                 input.WhatsAppTemplateName,
-                input.WhatsAppTemplateLanguage);
+                input.WhatsAppTemplateLanguage,
+                input.SmsApiUrl,
+                input.WhatsAppApiUrl,
+                input.LeadTimeHours,
+                input.MessageTemplateBody);
 
             // Secrets are write-only: only re-encrypt & replace when a non-blank value is supplied.
             if (!string.IsNullOrWhiteSpace(input.SmsApiKey))
@@ -98,7 +105,20 @@ public class UpdateClinicReminderSettingsCommandHandler
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            return Result<ReminderSettingsDto>.Success(settings.ToDto());
+            // Return the freshly-resolved effective status too, so the UI can immediately show whether the
+            // channel is now actually sendable (AC-2) without a second round-trip.
+            var resolved = await _settingsProvider.ResolveAsync(user.ClinicId, cancellationToken);
+            var dto = settings.ToDto() with
+            {
+                SmsEffectiveStatus = resolved.SmsConfigured
+                    ? ReminderEffectiveStatus.Configured
+                    : ReminderEffectiveStatus.NotConfigured,
+                WhatsAppEffectiveStatus = resolved.WhatsAppConfigured
+                    ? ReminderEffectiveStatus.Configured
+                    : ReminderEffectiveStatus.NotConfigured,
+            };
+
+            return Result<ReminderSettingsDto>.Success(dto);
         }
         catch (Exception ex)
         {

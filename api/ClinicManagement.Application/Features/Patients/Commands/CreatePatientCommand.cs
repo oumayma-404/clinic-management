@@ -78,12 +78,21 @@ public class CreatePatientCommandHandler : IRequestHandler<CreatePatientCommand,
 
             var clinicId = user.ClinicId;
 
+            // AC-5: a provided phone must be a deliverable Tunisian number (the same rule the reminder engine
+            // uses), else reject at entry so it never silently fails at dispatch. An empty phone is still
+            // allowed (keeps the legacy placeholder) — the patient simply can't receive reminders.
+            if (!string.IsNullOrWhiteSpace(request.PhoneNumber) && !PhoneNumber.IsDeliverable(request.PhoneNumber))
+            {
+                return Result<PatientDto>.Failure(
+                    "Numéro de téléphone invalide. Utilisez un numéro tunisien à 8 chiffres (ou +216…).");
+            }
+
             // Provide default values if email or phone are empty
-            var emailValue = string.IsNullOrWhiteSpace(request.Email) 
-                ? "noemail@example.com" 
+            var emailValue = string.IsNullOrWhiteSpace(request.Email)
+                ? "noemail@example.com"
                 : request.Email;
-            var phoneValue = string.IsNullOrWhiteSpace(request.PhoneNumber) 
-                ? "0000000000" 
+            var phoneValue = string.IsNullOrWhiteSpace(request.PhoneNumber)
+                ? "0000000000"
                 : request.PhoneNumber;
 
             var email = new Email(emailValue);

@@ -6,15 +6,31 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { BellRing, Save, MessageSquare, CheckCircle2, Link2, Unlink, Loader2, AlertCircle } from "lucide-react"
+import {
+  BellRing,
+  Save,
+  MessageSquare,
+  CheckCircle2,
+  Link2,
+  Unlink,
+  Loader2,
+  AlertCircle,
+  AlertTriangle,
+  Clock,
+  XCircle,
+  RefreshCw,
+} from "lucide-react"
 import { useSession } from "@/lib/auth/session"
 import {
   reminderSettingsApi,
   type ReminderSettingsDto,
   type UpdateReminderSettingsRequest,
   type WhatsAppConnectionStatus,
+  type ReminderEffectiveStatus,
+  type ReminderStatusDto,
 } from "@/lib/api/reminder-settings"
 
 // Tri-state channel toggle: "inherit" (null = per-install default), "on" (true), "off" (false).
@@ -74,6 +90,19 @@ export function ReminderSettings() {
   const [smsApiKeyConfigured, setSmsApiKeyConfigured] = useState(false)
   const [whatsAppAccessTokenConfigured, setWhatsAppAccessTokenConfigured] = useState(false)
 
+  // Per-clinic overrides of previously per-install-only values + resolved effective status (AC-1/AC-2).
+  const [smsApiUrl, setSmsApiUrl] = useState("")
+  const [whatsAppApiUrl, setWhatsAppApiUrl] = useState("")
+  const [leadTimeHours, setLeadTimeHours] = useState("")
+  const [messageTemplateBody, setMessageTemplateBody] = useState("")
+  const [smsEffectiveStatus, setSmsEffectiveStatus] = useState<ReminderEffectiveStatus>("not_configured")
+  const [whatsAppEffectiveStatus, setWhatsAppEffectiveStatus] = useState<ReminderEffectiveStatus>("not_configured")
+
+  // Delivery-status surface (AC-3): recent reminder outbox rows + their state.
+  const [deliveryRows, setDeliveryRows] = useState<ReminderStatusDto[]>([])
+  const [deliveryLoading, setDeliveryLoading] = useState(true)
+  const [deliveryError, setDeliveryError] = useState<string | null>(null)
+
   // WhatsApp Embedded-Signup connection (Cloud only).
   const { mode } = useSession()
   const isCloud = mode === "cloud"
@@ -102,9 +131,39 @@ export function ReminderSettings() {
     setWhatsAppTemplateLanguage(settings.whatsAppTemplateLanguage ?? "")
     setSmsApiKeyConfigured(settings.smsApiKeyConfigured)
     setWhatsAppAccessTokenConfigured(settings.whatsAppAccessTokenConfigured)
+    setSmsApiUrl(settings.smsApiUrl ?? "")
+    setWhatsAppApiUrl(settings.whatsAppApiUrl ?? "")
+    setLeadTimeHours(settings.leadTimeHours?.join(", ") ?? "")
+    setMessageTemplateBody(settings.messageTemplateBody ?? "")
+    setSmsEffectiveStatus(settings.smsEffectiveStatus)
+    setWhatsAppEffectiveStatus(settings.whatsAppEffectiveStatus)
     setWaStatus(settings.whatsAppConnectionStatus)
     setWaConnectedNumber(settings.whatsAppPhoneNumberId)
     setWaLastError(settings.whatsAppLastError)
+  }
+
+  // Parses the comma/space-separated lead-time field into positive hour tiers; null when empty (= inherit).
+  const parseLeadTimes = (raw: string): number[] | null => {
+    const values = raw
+      .split(/[,\s]+/)
+      .map((s) => Number.parseInt(s, 10))
+      .filter((n) => Number.isFinite(n) && n > 0)
+    return values.length > 0 ? values : null
+  }
+
+  const loadDelivery = async () => {
+    setDeliveryLoading(true)
+    setDeliveryError(null)
+    try {
+      const rows = await reminderSettingsApi.status()
+      if (mounted.current) setDeliveryRows(rows)
+    } catch (err) {
+      if (mounted.current) {
+        setDeliveryError(err instanceof Error ? err.message : "Échec du chargement du statut des rappels.")
+      }
+    } finally {
+      if (mounted.current) setDeliveryLoading(false)
+    }
   }
 
   useEffect(() => {
@@ -122,6 +181,7 @@ export function ReminderSettings() {
       }
     }
     void load()
+    void loadDelivery()
   }, [])
 
   // Load the Meta JS SDK once (Cloud + app id configured); captures the Embedded-Signup result via "message".
@@ -233,6 +293,10 @@ export function ReminderSettings() {
         whatsAppPhoneNumberId: whatsAppPhoneNumberId.trim() || null,
         whatsAppTemplateName: whatsAppTemplateName.trim() || null,
         whatsAppTemplateLanguage: whatsAppTemplateLanguage.trim() || null,
+        smsApiUrl: smsApiUrl.trim() || null,
+        whatsAppApiUrl: whatsAppApiUrl.trim() || null,
+        leadTimeHours: parseLeadTimes(leadTimeHours),
+        messageTemplateBody: messageTemplateBody.trim() || null,
       }
       // Secrets are write-only: only send them when the admin typed a new value (blank ⇒ unchanged).
       if (smsApiKey.trim()) payload.smsApiKey = smsApiKey.trim()
@@ -240,10 +304,11 @@ export function ReminderSettings() {
 
       const updated = await reminderSettingsApi.update(payload)
       if (mounted.current) {
+        // Re-hydrate from the canonicalized response (effective status, deduped lead times, …) then clear
+        // the write-only secret inputs.
+        hydrate(updated)
         setSmsApiKey("")
         setWhatsAppAccessToken("")
-        setSmsApiKeyConfigured(updated.smsApiKeyConfigured)
-        setWhatsAppAccessTokenConfigured(updated.whatsAppAccessTokenConfigured)
       }
       toast.success("Paramètres de rappel enregistrés")
     } catch (err) {
@@ -264,6 +329,43 @@ export function ReminderSettings() {
         Non configuré
       </Badge>
     )
+
+  // Channel readiness (AC-2): only surfaced when the admin explicitly turned the channel on. Green = the
+  // resolved settings + credentials make it sendable; amber = enabled but a URL/secret/template is missing.
+  const readinessBadge = (toggle: Toggle, status: ReminderEffectiveStatus) => {
+    if (toggle !== "on") return null
+    return status === "configured" ? (
+      <Badge variant="secondary" className="text-[10px] gap-1">
+        <CheckCircle2 className="w-3 h-3 text-green-600" /> Prêt à envoyer
+      </Badge>
+    ) : (
+      <Badge variant="outline" className="text-[10px] gap-1 text-amber-600 border-amber-400">
+        <AlertTriangle className="w-3 h-3" /> Configuration incomplète
+      </Badge>
+    )
+  }
+
+  const deliveryStatusBadge = (status: ReminderStatusDto["status"]) => {
+    if (status === "sent") {
+      return (
+        <Badge variant="secondary" className="text-[10px] gap-1">
+          <CheckCircle2 className="w-3 h-3 text-green-600" /> Envoyé
+        </Badge>
+      )
+    }
+    if (status === "failed") {
+      return (
+        <Badge variant="outline" className="text-[10px] gap-1 text-red-600 border-red-300">
+          <XCircle className="w-3 h-3" /> Échec
+        </Badge>
+      )
+    }
+    return (
+      <Badge variant="outline" className="text-[10px] gap-1 text-amber-600 border-amber-400">
+        <Clock className="w-3 h-3" /> En attente
+      </Badge>
+    )
+  }
 
   return (
     <Card className="border border-gray-200 dark:border-slate-800">
@@ -291,9 +393,12 @@ export function ReminderSettings() {
           <>
             {/* SMS */}
             <div className="space-y-3 rounded-lg border border-gray-100 dark:border-slate-800 p-3">
-              <div className="flex items-center gap-2 text-sm font-medium">
-                <MessageSquare className="w-4 h-4 text-blue-600" />
-                SMS
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <MessageSquare className="w-4 h-4 text-blue-600" />
+                  SMS
+                </div>
+                {readinessBadge(smsEnabled, smsEffectiveStatus)}
               </div>
 
               <div className="space-y-1">
@@ -308,6 +413,20 @@ export function ReminderSettings() {
                     <SelectItem value="off">Désactivé</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+
+              <div className="space-y-1">
+                <Label htmlFor="sms-api-url" className="text-xs font-medium">
+                  URL de la passerelle SMS
+                </Label>
+                <Input
+                  id="sms-api-url"
+                  placeholder="Ex. https://api.sms-gateway.tn/send"
+                  value={smsApiUrl}
+                  onChange={(e) => setSmsApiUrl(e.target.value)}
+                  disabled={saving}
+                  className="h-8 text-sm"
+                />
               </div>
 
               <div className="space-y-1">
@@ -346,18 +465,26 @@ export function ReminderSettings() {
 
             {/* WhatsApp */}
             <div className="space-y-3 rounded-lg border border-gray-100 dark:border-slate-800 p-3">
-              <div className="flex items-center gap-2 text-sm font-medium">
-                <MessageSquare className="w-4 h-4 text-green-600" />
-                WhatsApp
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <MessageSquare className="w-4 h-4 text-green-600" />
+                  WhatsApp
+                </div>
+                {readinessBadge(whatsAppEnabled, whatsAppEffectiveStatus)}
               </div>
 
               {isCloud && (
                 <div className="space-y-2 rounded-lg border border-green-100 dark:border-green-900/40 bg-green-50/40 dark:bg-green-950/10 p-3">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-medium">Connexion (Embedded Signup)</span>
-                    {waStatus === "Connected" ? (
+                    {waStatus === "Connected" && whatsAppEffectiveStatus === "configured" ? (
                       <Badge variant="secondary" className="text-[10px] gap-1">
                         <CheckCircle2 className="w-3 h-3 text-green-600" /> Connecté
+                      </Badge>
+                    ) : waStatus === "Connected" ? (
+                      // AC-2: OAuth is done but the resolved settings still can't send — warn instead of green.
+                      <Badge variant="outline" className="text-[10px] gap-1 text-amber-600 border-amber-400">
+                        <AlertTriangle className="w-3 h-3" /> Connexion incomplète
                       </Badge>
                     ) : waStatus === "Error" ? (
                       <Badge variant="outline" className="text-[10px] gap-1 text-red-600 border-red-300">
@@ -435,6 +562,20 @@ export function ReminderSettings() {
                 </Select>
               </div>
 
+              <div className="space-y-1">
+                <Label htmlFor="wa-api-url" className="text-xs font-medium">
+                  URL de base (Graph API)
+                </Label>
+                <Input
+                  id="wa-api-url"
+                  placeholder="Ex. https://graph.facebook.com/v21.0"
+                  value={whatsAppApiUrl}
+                  onChange={(e) => setWhatsAppApiUrl(e.target.value)}
+                  disabled={saving}
+                  className="h-8 text-sm"
+                />
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <Label htmlFor="wa-phone-id" className="text-xs font-medium">
@@ -498,6 +639,49 @@ export function ReminderSettings() {
               </div>
             </div>
 
+            {/* Programmation & message (partagé entre les canaux) */}
+            <div className="space-y-3 rounded-lg border border-gray-100 dark:border-slate-800 p-3">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <Clock className="w-4 h-4 text-blue-600" />
+                Programmation &amp; message
+              </div>
+
+              <div className="space-y-1">
+                <Label htmlFor="lead-time-hours" className="text-xs font-medium">
+                  Heures de rappel (avant le rendez-vous)
+                </Label>
+                <Input
+                  id="lead-time-hours"
+                  placeholder="Ex. 24, 6"
+                  value={leadTimeHours}
+                  onChange={(e) => setLeadTimeHours(e.target.value)}
+                  disabled={saving}
+                  className="h-8 text-sm"
+                />
+                <p className="text-[10px] text-muted-foreground">
+                  Séparez les paliers (heures) par des virgules. Vide = valeurs par défaut de l&apos;installation.
+                </p>
+              </div>
+
+              <div className="space-y-1">
+                <Label htmlFor="message-body" className="text-xs font-medium">
+                  Message du rappel
+                </Label>
+                <Textarea
+                  id="message-body"
+                  placeholder="Ex. Rappel : {patient}, rendez-vous le {date} chez {clinic}."
+                  value={messageTemplateBody}
+                  onChange={(e) => setMessageTemplateBody(e.target.value)}
+                  disabled={saving}
+                  rows={3}
+                  className="text-sm"
+                />
+                <p className="text-[10px] text-muted-foreground">
+                  Variables : {"{patient}"}, {"{date}"}, {"{clinic}"}. Vide = message par défaut.
+                </p>
+              </div>
+            </div>
+
             <div className="flex justify-end">
               <Button
                 onClick={handleSave}
@@ -508,6 +692,58 @@ export function ReminderSettings() {
                 <Save className="w-3.5 h-3.5 mr-1" />
                 {saving ? "Enregistrement…" : "Enregistrer"}
               </Button>
+            </div>
+
+            {/* Delivery status surface (AC-3): recent reminder outbox rows + their state. */}
+            <div className="space-y-2 rounded-lg border border-gray-100 dark:border-slate-800 p-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <BellRing className="w-4 h-4 text-blue-600" />
+                  Statut des rappels récents
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => void loadDelivery()}
+                  disabled={deliveryLoading}
+                  className="h-7 text-xs"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 mr-1 ${deliveryLoading ? "animate-spin" : ""}`} />
+                  Actualiser
+                </Button>
+              </div>
+
+              {deliveryLoading ? (
+                <p className="text-xs text-muted-foreground">Chargement…</p>
+              ) : deliveryError ? (
+                <p className="text-xs text-red-600 dark:text-red-400">{deliveryError}</p>
+              ) : deliveryRows.length === 0 ? (
+                <p className="text-xs text-muted-foreground">Aucun rappel récent.</p>
+              ) : (
+                <div className="space-y-2">
+                  {deliveryRows.map((row) => (
+                    <div
+                      key={row.id}
+                      className="flex items-start justify-between gap-2 rounded-md border border-gray-100 dark:border-slate-800 p-2"
+                    >
+                      <div className="min-w-0 space-y-0.5">
+                        <div className="flex items-center gap-2 text-xs font-medium">
+                          <span>{row.channel}</span>
+                          <span className="font-mono text-muted-foreground">{row.recipientMasked}</span>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground">
+                          Prévu : {new Date(row.scheduledAt).toLocaleString("fr-FR")}
+                          {row.sentAt ? ` · Envoyé : ${new Date(row.sentAt).toLocaleString("fr-FR")}` : ""}
+                        </p>
+                        {row.failureReason && (
+                          <p className="text-[10px] text-red-600 dark:text-red-400">{row.failureReason}</p>
+                        )}
+                      </div>
+                      {deliveryStatusBadge(row.status)}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </>
         )}

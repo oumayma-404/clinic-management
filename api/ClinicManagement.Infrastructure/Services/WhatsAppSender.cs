@@ -30,10 +30,7 @@ public class WhatsAppSender : HttpReminderChannelSender, IReminderChannelSender
     public Task<ReminderSendResult> SendAsync(
         string phoneE164, string message, ResolvedReminderSettings settings, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(settings.WhatsAppApiUrl) ||
-            string.IsNullOrWhiteSpace(settings.WhatsAppPhoneNumberId) ||
-            string.IsNullOrWhiteSpace(settings.WhatsAppTemplateName) ||
-            string.IsNullOrWhiteSpace(settings.WhatsAppAccessToken))
+        if (!settings.WhatsAppConfigured)
         {
             _logger.LogDebug("WhatsApp Business API not configured; skipping WhatsApp reminder to {Phone}.", ReminderPhone.Mask(phoneE164));
             return Task.FromResult(ReminderSendResult.NotConfigured);

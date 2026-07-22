@@ -64,6 +64,10 @@ public class ClinicConfiguration : IEntityTypeConfiguration<Clinic>
             .HasMaxLength(20)
             .HasDefaultValue(Clinic.TtnEnvironmentSandbox);
 
+        // Working hours JSON array (reliability-and-polish AC-7) — opaque, variable length.
+        builder.Property(c => c.WorkingHoursJson)
+            .HasColumnType("text");
+
         builder.HasIndex(c => c.Code)
             .IsUnique()
             .HasFilter("\"Code\" IS NOT NULL");

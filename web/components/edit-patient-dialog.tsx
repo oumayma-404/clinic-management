@@ -26,6 +26,7 @@ import { patientMedicalHistoryApi } from "@/lib/api/patient-medical-history"
 import { patientFamilyHistoryApi } from "@/lib/api/patient-family-history"
 import type { PatientDto, PatientMedicalHistoryDto, PatientFamilyHistoryDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
+import { isDeliverablePhone, PHONE_ERROR_FR } from "@/lib/phone"
 
 interface EditPatientDialogProps {
   open: boolean
@@ -293,13 +294,6 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
     return emailRegex.test(email)
   }
 
-  const validatePhone = (phone: string) => {
-    // Allow: optional + at the start, then only digits
-    // No length requirement, no format requirement
-    const phoneRegex = /^\+?\d+$/
-    return phoneRegex.test(phone)
-  }
-
   const validateForm = () => {
     const newErrors: Record<string, string> = {}
 
@@ -320,9 +314,10 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
     }
 
     if (!phone.trim()) {
-      newErrors.phone = "Phone number is required"
-    } else if (!validatePhone(phone.trim())) {
-      newErrors.phone = "Phone number can only contain digits and an optional + at the start"
+      newErrors.phone = "Numéro de téléphone requis"
+    } else if (!isDeliverablePhone(phone.trim())) {
+      // AC-5: match the reminder engine's rule so a number accepted here can actually receive reminders.
+      newErrors.phone = PHONE_ERROR_FR
     }
 
     if (email && !validateEmail(email)) {
@@ -631,7 +626,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                     type="tel"
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
-                    placeholder="+1234567890 or 1234567890"
+                    placeholder="Ex. 20 123 456 (ou +216…)"
                     aria-invalid={!!errors.phone}
                     className={cn(errors.phone && "border-destructive")}
                   />

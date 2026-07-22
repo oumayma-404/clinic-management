@@ -3,6 +3,7 @@ using System;
 using ClinicManagement.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace ClinicManagement.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260722182751_AddPerClinicReminderOverrides")]
+    partial class AddPerClinicReminderOverrides
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -167,9 +170,6 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("decimal(5,2)")
                         .HasDefaultValue(7m);
-
-                    b.Property<string>("WorkingHoursJson")
-                        .HasColumnType("text");
 
                     b.HasKey("Id");
 

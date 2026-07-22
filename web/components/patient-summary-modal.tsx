@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo } from "react"
-import { DentalChart } from "./dental-chart"
+import { RecordToothChart, type ToothPaint } from "./record-tooth-chart"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -19,6 +19,9 @@ interface PatientSummaryModalProps {
   patient: PatientDto | null
   dentalRecords: DentalRecordDto[]
 }
+
+// Fixed highlight fill for a tooth that has been worked on (read-only summary chart).
+const WORKED_TOOTH_COLOR = "#60a5fa"
 
 const formatDate = (dateString: string | undefined) => {
   if (!dateString) return "N/A"
@@ -112,6 +115,24 @@ export function PatientSummaryModal({ open, onOpenChange, patient, dentalRecords
       ...data
     }))
   }, [dentalRecords])
+
+  // Read-only paint maps for the record tooth chart: each worked tooth is highlighted with a fixed "worked"
+  // fill + the number of procedures it appears in (the per-procedure detail lives in the table below).
+  const adultToothPaint = useMemo(() => {
+    const m = new Map<number, ToothPaint>()
+    for (const t of adultWorkedTeeth) {
+      m.set(Number(t.id), { focused: false, color: WORKED_TOOTH_COLOR, count: t.procedures.length })
+    }
+    return m
+  }, [adultWorkedTeeth])
+
+  const childToothPaint = useMemo(() => {
+    const m = new Map<number, ToothPaint>()
+    for (const t of childWorkedTeeth) {
+      m.set(Number(t.id), { focused: false, color: WORKED_TOOTH_COLOR, count: t.procedures.length })
+    }
+    return m
+  }, [childWorkedTeeth])
 
   if (!patient) return null
 
@@ -249,25 +270,15 @@ export function PatientSummaryModal({ open, onOpenChange, patient, dentalRecords
               {adultWorkedTeeth.length > 0 && (
                 <div>
                   <h3 className="text-sm font-medium mb-3">Adult Teeth</h3>
-                  <DentalChart 
-                    initialData={adultWorkedTeeth}
-                    onTeethChange={() => {}} // Read-only view
-                    readOnly={true}
-                    defaultIsAdult={true}
-                  />
+                  <RecordToothChart isAdult={true} paint={adultToothPaint} onToggleTooth={() => {}} disabled />
                 </div>
               )}
-              
+
               {/* Child Teeth Chart */}
               {childWorkedTeeth.length > 0 && (
                 <div>
                   <h3 className="text-sm font-medium mb-3">Child Teeth</h3>
-                  <DentalChart 
-                    initialData={childWorkedTeeth}
-                    onTeethChange={() => {}} // Read-only view
-                    readOnly={true}
-                    defaultIsAdult={false}
-                  />
+                  <RecordToothChart isAdult={false} paint={childToothPaint} onToggleTooth={() => {}} disabled />
                 </div>
               )}
 

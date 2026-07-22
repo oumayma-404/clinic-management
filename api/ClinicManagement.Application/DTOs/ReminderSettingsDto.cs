@@ -1,5 +1,14 @@
 namespace ClinicManagement.Application.DTOs;
 
+/// <summary>Per-channel effective-status values returned by the reminder-settings GET (reliability-and-polish
+/// AC-2). "configured" = the channel would actually send; "not_configured" = a warning (missing URL/secret/…)
+/// even if a WhatsApp OAuth "connection" exists.</summary>
+public static class ReminderEffectiveStatus
+{
+    public const string Configured = "configured";
+    public const string NotConfigured = "not_configured";
+}
+
 /// <summary>
 /// A clinic's reminder settings as returned to the admin (secret-masked). Channel toggles are nullable
 /// (null = inherit the per-install default). Secret values are never returned — only a per-secret
@@ -15,6 +24,17 @@ public sealed record ReminderSettingsDto
     public string? WhatsAppTemplateLanguage { get; init; }
     public bool SmsApiKeyConfigured { get; init; }
     public bool WhatsAppAccessTokenConfigured { get; init; }
+
+    // Per-clinic overrides of previously per-install-only values (non-secret; reliability-and-polish AC-1).
+    public string? SmsApiUrl { get; init; }
+    public string? WhatsAppApiUrl { get; init; }
+    public IReadOnlyList<int>? LeadTimeHours { get; init; }
+    public string? MessageTemplateBody { get; init; }
+
+    // Per-channel effective status (AC-2): whether the resolved settings + credentials make the channel
+    // actually sendable. Values are ReminderEffectiveStatus.Configured / NotConfigured.
+    public string SmsEffectiveStatus { get; init; } = ReminderEffectiveStatus.NotConfigured;
+    public string WhatsAppEffectiveStatus { get; init; } = ReminderEffectiveStatus.NotConfigured;
 
     // WhatsApp Embedded-Signup connection metadata (read-only; token is never returned). Status is the
     // enum name ("NotConnected" | "Connected" | "Error") so the frontend badge reads a stable string.
@@ -39,6 +59,13 @@ public sealed record UpdateReminderSettingsRequest
     public string? WhatsAppTemplateLanguage { get; init; }
     public string? SmsApiKey { get; init; }
     public string? WhatsAppAccessToken { get; init; }
+
+    // Per-clinic overrides of previously per-install-only values (non-secret; reliability-and-polish AC-1).
+    // Blank/empty ⇒ cleared (inherit the per-install value).
+    public string? SmsApiUrl { get; init; }
+    public string? WhatsAppApiUrl { get; init; }
+    public IReadOnlyList<int>? LeadTimeHours { get; init; }
+    public string? MessageTemplateBody { get; init; }
 }
 
 /// <summary>

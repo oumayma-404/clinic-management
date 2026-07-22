@@ -22,6 +22,19 @@ public class ClinicReminderSettings : Entity<Guid>
     public string? SmsApiKeyEncrypted { get; private set; }
     public string? WhatsAppAccessTokenEncrypted { get; private set; }
 
+    // Per-clinic overrides of values that used to be per-install-only (reliability-and-polish). null/blank
+    // means "inherit the per-install Reminders config". Provider endpoint URLs and the reminder wording can
+    // now be set by an admin without editing server config.
+    public string? SmsApiUrl { get; private set; }
+    public string? WhatsAppApiUrl { get; private set; }
+
+    // Lead-time tiers (hours before the appointment) stored as a canonical CSV, e.g. "24,6". null = inherit.
+    public string? LeadTimeHours { get; private set; }
+
+    // Custom reminder wording. Supports the {patient}, {date} and {clinic} placeholders; null = inherit the
+    // built-in French default.
+    public string? MessageTemplateBody { get; private set; }
+
     // WhatsApp Embedded-Signup connection metadata (Cloud onboarding). Populated by ApplyWhatsAppConnection
     // on a successful connect and reset by ClearWhatsAppConnection; the manual path leaves them at defaults.
     public string? WhatsAppBusinessAccountId { get; private set; }
@@ -50,7 +63,11 @@ public class ClinicReminderSettings : Entity<Guid>
         string? smsSenderId,
         string? whatsAppPhoneNumberId,
         string? whatsAppTemplateName,
-        string? whatsAppTemplateLanguage)
+        string? whatsAppTemplateLanguage,
+        string? smsApiUrl,
+        string? whatsAppApiUrl,
+        IReadOnlyList<int>? leadTimeHours,
+        string? messageTemplateBody)
     {
         SmsEnabled = smsEnabled;
         WhatsAppEnabled = whatsAppEnabled;
@@ -58,7 +75,57 @@ public class ClinicReminderSettings : Entity<Guid>
         WhatsAppPhoneNumberId = Normalize(whatsAppPhoneNumberId);
         WhatsAppTemplateName = Normalize(whatsAppTemplateName);
         WhatsAppTemplateLanguage = Normalize(whatsAppTemplateLanguage);
+        SmsApiUrl = Normalize(smsApiUrl);
+        WhatsAppApiUrl = Normalize(whatsAppApiUrl);
+        LeadTimeHours = FormatLeadTimeHours(leadTimeHours);
+        MessageTemplateBody = Normalize(messageTemplateBody);
         UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Parses a stored lead-time CSV (e.g. <c>"24,6"</c>) into positive, de-duplicated hour tiers, preserving
+    /// order. Returns an empty list for null/blank/unparseable input (= inherit the per-install tiers).
+    /// </summary>
+    public static IReadOnlyList<int> ParseLeadTimeHours(string? csv)
+    {
+        if (string.IsNullOrWhiteSpace(csv))
+        {
+            return Array.Empty<int>();
+        }
+
+        var hours = new List<int>();
+        foreach (var part in csv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (int.TryParse(part, out var value) && value > 0 && !hours.Contains(value))
+            {
+                hours.Add(value);
+            }
+        }
+
+        return hours;
+    }
+
+    /// <summary>
+    /// Canonicalizes lead-time tiers to a stored CSV: positive, de-duplicated, order-preserving. Returns
+    /// <c>null</c> (= inherit) when the input is null/empty or has no valid tier.
+    /// </summary>
+    public static string? FormatLeadTimeHours(IReadOnlyList<int>? hours)
+    {
+        if (hours == null || hours.Count == 0)
+        {
+            return null;
+        }
+
+        var canonical = new List<int>();
+        foreach (var value in hours)
+        {
+            if (value > 0 && !canonical.Contains(value))
+            {
+                canonical.Add(value);
+            }
+        }
+
+        return canonical.Count == 0 ? null : string.Join(",", canonical);
     }
 
     /// <summary>Stores a new (already-encrypted) SMS API key. Only call when the admin supplied a new value.</summary>

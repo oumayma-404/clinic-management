@@ -23,7 +23,7 @@ export function AIChat({ className }: AIChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       role: "assistant",
-      content: "Hello! I'm your AI assistant. How can I help you with clinic management today?",
+      content: "Bonjour ! Je suis votre assistant IA. Comment puis-je vous aider dans la gestion de la clinique aujourd'hui ?",
     },
   ])
   const [input, setInput] = useState("")
@@ -73,7 +73,7 @@ export function AIChat({ className }: AIChatProps) {
       const recognition = new SpeechRecognition()
       recognition.continuous = true // Keep listening until manually stopped
       recognition.interimResults = true // Show interim results as you speak
-      recognition.lang = "en-US"
+      recognition.lang = "fr-FR"
 
       let finalTranscript = ""
 
@@ -109,8 +109,8 @@ export function AIChat({ className }: AIChatProps) {
         // Only stop if it's a critical error or manually stopped
         if (event.error === "not-allowed") {
           setIsListening(false)
-          toast.error("Microphone permission denied", {
-            description: "Please allow microphone access to use voice input",
+          toast.error("Accès au microphone refusé", {
+            description: "Autorisez l'accès au microphone pour utiliser la saisie vocale.",
           })
           recognitionRef.current?.stop()
         } else if (event.error === "aborted" && isManuallyStoppedRef.current) {
@@ -223,8 +223,8 @@ export function AIChat({ className }: AIChatProps) {
           description: "La connexion a été interrompue pendant l'envoi. Réessayez une fois la connexion rétablie.",
         })
       } else {
-        toast.error("Failed to get AI response", {
-          description: "Please try again later",
+        toast.error("Échec de la réponse de l'assistant IA", {
+          description: "Veuillez réessayer plus tard.",
         })
       }
       // Remove the user message on error
@@ -254,15 +254,15 @@ export function AIChat({ className }: AIChatProps) {
     setMessages([
       {
         role: "assistant",
-        content: "Hello! I'm your AI assistant. How can I help you with clinic management today?",
+        content: "Bonjour ! Je suis votre assistant IA. Comment puis-je vous aider dans la gestion de la clinique aujourd'hui ?",
       },
     ])
   }
 
   const handleToggleListening = () => {
     if (!isSpeechSupported) {
-      toast.error("Speech recognition not supported", {
-        description: "Your browser doesn't support speech recognition",
+      toast.error("Reconnaissance vocale non prise en charge", {
+        description: "Votre navigateur ne prend pas en charge la reconnaissance vocale.",
       })
       return
     }
@@ -297,8 +297,8 @@ export function AIChat({ className }: AIChatProps) {
           isManuallyStoppedRef.current = false
         } else {
           console.error("Error starting speech recognition:", error)
-          toast.error("Failed to start voice input", {
-            description: "Please try again",
+          toast.error("Échec du démarrage de la saisie vocale", {
+            description: "Veuillez réessayer.",
           })
         }
       }
@@ -312,7 +312,7 @@ export function AIChat({ className }: AIChatProps) {
     synthRef.current.cancel()
 
     const utterance = new SpeechSynthesisUtterance(text)
-    utterance.lang = "en-US"
+    utterance.lang = "fr-FR"
     utterance.rate = 1.0
     utterance.pitch = 1.0
     utterance.volume = 1.0
@@ -556,7 +556,7 @@ export function AIChat({ className }: AIChatProps) {
 
       // Show notification for the first correction
       const firstCorrection = corrections[corrections.length - 1]
-      toast.info("Patient name corrected", {
+      toast.info("Nom du patient corrigé", {
         description: `"${firstCorrection.original}" → "${firstCorrection.corrected}"`,
         duration: 2000,
       })
@@ -585,7 +585,7 @@ export function AIChat({ className }: AIChatProps) {
       <div className="flex items-center justify-between p-4 border-b bg-primary text-primary-foreground rounded-t-lg">
         <div className="flex items-center gap-2">
           <Bot className="h-5 w-5" />
-          <h3 className="font-semibold">AI Assistant</h3>
+          <h3 className="font-semibold">Assistant IA</h3>
         </div>
         <div className="flex items-center gap-1">
           {isSpeaking && (
@@ -594,7 +594,7 @@ export function AIChat({ className }: AIChatProps) {
               size="sm"
               className="h-8 w-8 p-0 text-primary-foreground hover:bg-primary-foreground/20"
               onClick={stopSpeaking}
-              title="Stop speaking"
+              title="Arrêter la lecture"
             >
               <MicOff className="h-4 w-4" />
             </Button>
@@ -604,7 +604,7 @@ export function AIChat({ className }: AIChatProps) {
             size="sm"
             className="h-8 w-8 p-0 text-primary-foreground hover:bg-primary-foreground/20"
             onClick={handleClear}
-            title="Clear chat"
+            title="Effacer la conversation"
           >
             <X className="h-4 w-4" />
           </Button>
@@ -613,7 +613,7 @@ export function AIChat({ className }: AIChatProps) {
             size="sm"
             className="h-8 w-8 p-0 text-primary-foreground hover:bg-primary-foreground/20"
             onClick={() => setIsMinimized(true)}
-            title="Minimize"
+            title="Réduire"
           >
             <Minimize2 className="h-4 w-4" />
           </Button>
@@ -684,7 +684,7 @@ export function AIChat({ className }: AIChatProps) {
               className={cn(
                 isListening && "animate-pulse bg-red-500 hover:bg-red-600 text-white"
               )}
-              title={isListening ? "Click to stop recording" : "Click to start voice input"}
+              title={isListening ? "Cliquez pour arrêter l'enregistrement" : "Cliquez pour la saisie vocale"}
             >
               {isListening ? (
                 <MicOff className="h-4 w-4" />
@@ -698,7 +698,7 @@ export function AIChat({ className }: AIChatProps) {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={!internetReachable ? "Connexion internet requise..." : isListening ? "Listening..." : "Type your message..."}
+            placeholder={!internetReachable ? "Connexion internet requise…" : isListening ? "À l'écoute…" : "Écrivez votre message…"}
             disabled={isLoading || isListening || !internetReachable}
             className="flex-1 min-h-[40px] max-h-[120px] resize-none"
             rows={1}
@@ -719,7 +719,7 @@ export function AIChat({ className }: AIChatProps) {
         {isListening && (
           <div className="mt-2 text-xs text-muted-foreground flex items-center gap-2">
             <div className="h-2 w-2 bg-red-500 rounded-full animate-pulse" />
-            Recording... Click the microphone again to stop
+            Enregistrement… Cliquez à nouveau sur le micro pour arrêter
           </div>
         )}
       </div>

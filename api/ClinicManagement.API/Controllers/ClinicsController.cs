@@ -208,9 +208,10 @@ public class ClinicsController : ApiControllerBase
             StampDutyEnabled = request.StampDutyEnabled,
             StampDutyAmount = request.StampDutyAmount,
             TtnEInvoicingEnabled = request.TtnEInvoicingEnabled,
-            TtnEnvironment = request.TtnEnvironment
+            TtnEnvironment = request.TtnEnvironment,
+            WorkingHoursJson = request.WorkingHoursJson
         };
-        
+
         var result = await _mediator.Send(command);
         
         if (!result.IsSuccess)
@@ -268,6 +269,25 @@ public class ClinicsController : ApiControllerBase
     {
         var command = new UpdateClinicReminderSettingsCommand { Settings = request };
         var result = await _mediator.Send(command, cancellationToken);
+
+        if (!result.IsSuccess)
+        {
+            return BadRequest(result);
+        }
+
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Get the recent reminder outbox rows for the current clinic with their delivery status (admin-only,
+    /// AC-3) — so a failed reminder is noticed instead of vanishing. Recipient phone is masked.
+    /// </summary>
+    [HttpGet("reminder-status")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<IActionResult> GetReminderStatus(
+        [FromQuery] int take = GetClinicReminderStatusQuery.DefaultTake, CancellationToken cancellationToken = default)
+    {
+        var result = await _mediator.Send(new GetClinicReminderStatusQuery { Take = take }, cancellationToken);
 
         if (!result.IsSuccess)
         {
