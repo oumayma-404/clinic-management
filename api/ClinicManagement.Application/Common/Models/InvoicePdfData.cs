@@ -22,6 +22,14 @@ public class InvoicePdfData
     public decimal StampDutyAmount { get; set; }
     public decimal TotalTtc { get; set; }
 
+    // Payment state (montant réglé / reste à payer), from the invoice's recorded payments.
+    public decimal AmountCollected { get; set; }
+    public decimal Outstanding { get; set; }
+
+    // Indicative CNAM split (never a fiscal figure): reimbursable + out-of-pocket == TTC.
+    public decimal CnamReimbursable { get; set; }
+    public decimal PatientOutOfPocket { get; set; }
+
     public bool IsCancelled { get; set; }
 
     // TTN « El Fatoora » cachet (FR-7): only populated once the invoice is validated. A null QR ⇒ render

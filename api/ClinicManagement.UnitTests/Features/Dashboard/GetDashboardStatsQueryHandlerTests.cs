@@ -14,6 +14,7 @@ public class GetDashboardStatsQueryHandlerTests
     private readonly Mock<IPatientRepository> _patientRepository = new();
     private readonly Mock<IUserRepository> _userRepository = new();
     private readonly Mock<IInvoiceRepository> _invoiceRepository = new();
+    private readonly Mock<ITreatmentPlanRepository> _planRepository = new();
     private readonly Mock<IClinicContext> _clinicContext = new();
 
     private const string Auth0Sub = "auth0|user-123";
@@ -25,7 +26,7 @@ public class GetDashboardStatsQueryHandlerTests
     private static readonly DateTime WeekEnd = new(2026, 6, 28, 23, 59, 59, DateTimeKind.Utc);
 
     private GetDashboardStatsQueryHandler CreateHandler() =>
-        new(_appointmentRepository.Object, _patientRepository.Object, _userRepository.Object, _invoiceRepository.Object, _clinicContext.Object);
+        new(_appointmentRepository.Object, _patientRepository.Object, _userRepository.Object, _invoiceRepository.Object, _planRepository.Object, _clinicContext.Object);
 
     private static GetDashboardStatsQuery CreateQuery() => new()
     {
@@ -41,6 +42,18 @@ public class GetDashboardStatsQueryHandlerTests
         _userRepository
             .Setup(r => r.GetByAuth0SubAsync(Auth0Sub, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new User(Auth0Sub, ClinicId, "doctor"));
+
+        // Money aggregates default to nothing owed/collected so these appointment-count assertions are
+        // unaffected by the unified-ledger additions (installment revenue + total outstanding).
+        _invoiceRepository
+            .Setup(r => r.GetOutstandingByPatientAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<(Guid PatientId, decimal Outstanding)>());
+        _planRepository
+            .Setup(r => r.GetInstallmentCollectedBetweenAsync(It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(0m);
+        _planRepository
+            .Setup(r => r.GetInstallmentOutstandingByPatientAsync(It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<(Guid PatientId, decimal Outstanding, DateTime? OldestOverdueDueDate)>());
     }
 
     // [AC-1][AC-3][AC-4] Returns the real, clinic-scoped counts mapped onto the DTO.

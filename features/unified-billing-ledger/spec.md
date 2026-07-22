@@ -1,6 +1,6 @@
 # Feature Specification: Unified Billing Ledger & Receivables
 
-**Status:** DRAFT
+**Status:** APPROVED
 **Type:** Small
 **Created:** 2026-07-22
 **Scope:** Full

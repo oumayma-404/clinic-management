@@ -34,6 +34,8 @@ public static class Extensions
         // Backstop tenant scoping: feeds the EF Core global query filter with the caller's clinic id.
         // Inactive (null) when no clinic is in scope so background jobs / CLI / anonymous flows are unaffected.
         services.AddScoped<ICurrentClinicProvider, CurrentClinicProvider>();
+        // Indicative CNAM reimbursable/out-of-pocket split for invoices + devis (caches the catalog per request).
+        services.AddScoped<ICnamBillingCalculator, CnamBillingCalculator>();
 
         return services;
     }
