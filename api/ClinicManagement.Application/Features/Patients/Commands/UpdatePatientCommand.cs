@@ -63,6 +63,15 @@ public class UpdatePatientCommandHandler : IRequestHandler<UpdatePatientCommand,
                 return Result<PatientDto>.Failure("Patient not found");
             }
 
+            // AC-5: a provided phone must be a deliverable Tunisian number (same rule as the reminder engine).
+            // A legacy patient whose stored number is non-conforming surfaces this error the next time it is
+            // edited (the form re-submits the stored value) — the intended tightening, not a retro-invalidation.
+            if (!string.IsNullOrWhiteSpace(request.PhoneNumber) && !PhoneNumber.IsDeliverable(request.PhoneNumber))
+            {
+                return Result<PatientDto>.Failure(
+                    "Numéro de téléphone invalide. Utilisez un numéro tunisien à 8 chiffres (ou +216…).");
+            }
+
             // Update personal info if any fields are provided
             if (request.FirstName != null || request.LastName != null || request.DateOfBirth.HasValue || 
                 request.Gender != null || request.Email != null || request.PhoneNumber != null || request.Address != null)

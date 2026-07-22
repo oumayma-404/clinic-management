@@ -14,6 +14,8 @@ import type { AppointmentDto } from "@/lib/api/types"
 import { setHours, setMinutes } from "date-fns"
 import { appointmentsApi } from "@/lib/api/appointments"
 import { googleCalendarApi } from "@/lib/api/google-calendar"
+import { ApiError } from "@/lib/api/client"
+import { toast } from "sonner"
 import { useConnectivity } from "@/lib/connectivity/connectivity"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
@@ -85,7 +87,7 @@ export default function AppointmentsPage() {
     // Check if we just came back from authorization
     const urlParams = new URLSearchParams(window.location.search)
     if (urlParams.get('googleCalendarAuthorized') === 'true') {
-      alert('Google Calendar authorization successful! Sync is now enabled.')
+      toast.success("Autorisation Google Calendar réussie ! La synchronisation est activée.")
       // Remove the query parameter from URL
       window.history.replaceState({}, '', '/appointments')
       // Refresh status
@@ -136,10 +138,17 @@ export default function AppointmentsPage() {
     setIsSyncing(true)
     try {
       await googleCalendarApi.syncFromGoogle()
-      alert("Sync from Google Calendar completed successfully!")
+      toast.success("Synchronisation depuis Google Calendar terminée.")
       setRefreshKey(prev => prev + 1) // Refresh appointments
     } catch (error) {
-      alert(`Failed to sync: ${error instanceof Error ? error.message : "Unknown error"}`)
+      // A mid-request connection drop surfaces as ApiError(status:0) — the shared offline signal (LEARNINGS).
+      if (error instanceof ApiError && error.status === 0) {
+        toast.error("Connexion perdue. Veuillez réessayer.")
+      } else {
+        toast.error("Échec de la synchronisation", {
+          description: error instanceof Error ? error.message : "Erreur inconnue.",
+        })
+      }
     } finally {
       setIsSyncing(false)
     }

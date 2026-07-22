@@ -107,18 +107,18 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
       // Redirect to app after successful join
       window.location.href = "/"
     } catch (err: any) {
-      setError(err.message || "Failed to join clinic. Please try again.")
+      setError(err.message || "Échec de l'adhésion à la clinique. Veuillez réessayer.")
       console.error("Error joining clinic:", err)
       setIsLoading(false)
     }
   }
 
   // Calculate steps based on current role
-  const steps = role === "secretary" 
-    ? [{ number: 1, title: "Role Selection", description: "Choose your role" }]
+  const steps = role === "secretary"
+    ? [{ number: 1, title: "Choix du rôle", description: "Choisissez votre rôle" }]
     : [
-        { number: 1, title: "Role Selection", description: "Choose your role" },
-        { number: 2, title: "Personal Info", description: "Your information" },
+        { number: 1, title: "Choix du rôle", description: "Choisissez votre rôle" },
+        { number: 2, title: "Infos personnelles", description: "Vos informations" },
       ]
 
   return (
@@ -129,8 +129,8 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-blue-100 dark:bg-blue-900/20 mb-2">
             <Building2 className="w-8 h-8 text-blue-600 dark:text-blue-400" />
           </div>
-          <h1 className="text-3xl font-bold text-blue-900 dark:text-blue-100">Join Clinic</h1>
-          <p className="text-muted-foreground">Complete your profile to access the clinic</p>
+          <h1 className="text-3xl font-bold text-blue-900 dark:text-blue-100">Rejoindre une clinique</h1>
+          <p className="text-muted-foreground">Complétez votre profil pour accéder à la clinique</p>
         </div>
 
         {/* Error Message */}
@@ -180,8 +180,8 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
             {currentStep === 1 && (
               <div className="space-y-6">
                 <div>
-                  <h2 className="text-2xl font-semibold text-blue-900 dark:text-blue-100 mb-2">Select Your Role</h2>
-                  <p className="text-muted-foreground">Choose the role that best describes your position</p>
+                  <h2 className="text-2xl font-semibold text-blue-900 dark:text-blue-100 mb-2">Choisissez votre rôle</h2>
+                  <p className="text-muted-foreground">Sélectionnez le rôle qui décrit le mieux votre fonction</p>
                 </div>
 
                 <div className="space-y-4">
@@ -189,11 +189,11 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
                     <div className="space-y-4 pb-4 border-b">
                       <div className="space-y-2">
                         <Label htmlFor="reg-full-name" className="text-sm font-medium">
-                          Full Name <span className="text-destructive">*</span>
+                          Nom complet <span className="text-destructive">*</span>
                         </Label>
                         <Input
                           id="reg-full-name"
-                          placeholder="Your full name"
+                          placeholder="Votre nom complet"
                           value={regFullName}
                           onChange={(e) => setRegFullName(e.target.value)}
                           required
@@ -206,7 +206,7 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
                         <Input
                           id="reg-email"
                           type="email"
-                          placeholder="you@clinic.com"
+                          placeholder="vous@clinique.com"
                           value={regEmail}
                           onChange={(e) => setRegEmail(e.target.value)}
                           required
@@ -215,12 +215,12 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
                       <div className="grid md:grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label htmlFor="reg-password" className="text-sm font-medium">
-                            Password <span className="text-destructive">*</span>
+                            Mot de passe <span className="text-destructive">*</span>
                           </Label>
                           <Input
                             id="reg-password"
                             type="password"
-                            placeholder="At least 8 characters"
+                            placeholder="Au moins 8 caractères"
                             value={regPassword}
                             onChange={(e) => setRegPassword(e.target.value)}
                             required
@@ -228,12 +228,12 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
                         </div>
                         <div className="space-y-2">
                           <Label htmlFor="reg-password-confirm" className="text-sm font-medium">
-                            Confirm Password <span className="text-destructive">*</span>
+                            Confirmer le mot de passe <span className="text-destructive">*</span>
                           </Label>
                           <Input
                             id="reg-password-confirm"
                             type="password"
-                            placeholder="Re-enter password"
+                            placeholder="Ressaisir le mot de passe"
                             value={regPasswordConfirm}
                             onChange={(e) => setRegPasswordConfirm(e.target.value)}
                             required
@@ -241,24 +241,24 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
                         </div>
                       </div>
                       {regPassword.length > 0 && regPassword.length < 8 && (
-                        <p className="text-xs text-destructive">Password must be at least 8 characters.</p>
+                        <p className="text-xs text-destructive">Le mot de passe doit contenir au moins 8 caractères.</p>
                       )}
                       {regPasswordConfirm.length > 0 && regPassword !== regPasswordConfirm && (
-                        <p className="text-xs text-destructive">Passwords do not match.</p>
+                        <p className="text-xs text-destructive">Les mots de passe ne correspondent pas.</p>
                       )}
                     </div>
                   )}
                   <div className="space-y-2">
                     <Label htmlFor="role" className="text-sm font-medium">
-                      Your Role <span className="text-destructive">*</span>
+                      Votre rôle <span className="text-destructive">*</span>
                     </Label>
                     <Select value={role} onValueChange={(value: "doctor" | "secretary") => setRole(value)}>
                       <SelectTrigger id="role" className="h-12">
-                        <SelectValue placeholder="Select your role" />
+                        <SelectValue placeholder="Sélectionnez votre rôle" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="doctor">Doctor</SelectItem>
-                        <SelectItem value="secretary">Secretary / Assistant</SelectItem>
+                        <SelectItem value="doctor">Médecin</SelectItem>
+                        <SelectItem value="secretary">Secrétaire / Assistant(e)</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -266,8 +266,8 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
                   {role === "secretary" && (
                     <div className="p-4 bg-blue-50 dark:bg-blue-950/20 rounded-lg border border-blue-200 dark:border-blue-800">
                       <p className="text-sm text-blue-700 dark:text-blue-300">
-                        As a secretary/assistant, you don't need to provide additional personal information. 
-                        Your email from your account will be used.
+                        En tant que secrétaire/assistant(e), vous n&apos;avez pas besoin de fournir d&apos;informations
+                        personnelles supplémentaires. L&apos;email de votre compte sera utilisé.
                       </p>
                     </div>
                   )}
@@ -279,8 +279,8 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
             {currentStep === 2 && role === "doctor" && (
               <div className="space-y-6">
                 <div>
-                  <h2 className="text-2xl font-semibold text-blue-900 dark:text-blue-100 mb-2">Your Information</h2>
-                  <p className="text-muted-foreground">Tell us about yourself</p>
+                  <h2 className="text-2xl font-semibold text-blue-900 dark:text-blue-100 mb-2">Vos informations</h2>
+                  <p className="text-muted-foreground">Parlez-nous de vous</p>
                 </div>
 
                 {role === "doctor" ? (
@@ -288,11 +288,11 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
                     <div className="grid md:grid-cols-2 gap-4">
                       <div className="space-y-2">
                         <Label htmlFor="first-name" className="text-sm font-medium">
-                          First Name <span className="text-destructive">*</span>
+                          Prénom <span className="text-destructive">*</span>
                         </Label>
                         <Input
                           id="first-name"
-                          placeholder="Enter your first name"
+                          placeholder="Saisir votre prénom"
                           value={firstName}
                           onChange={(e) => setFirstName(e.target.value)}
                           required
@@ -301,11 +301,11 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
 
                       <div className="space-y-2">
                         <Label htmlFor="last-name" className="text-sm font-medium">
-                          Last Name <span className="text-destructive">*</span>
+                          Nom <span className="text-destructive">*</span>
                         </Label>
                         <Input
                           id="last-name"
-                          placeholder="Enter your last name"
+                          placeholder="Saisir votre nom"
                           value={lastName}
                           onChange={(e) => setLastName(e.target.value)}
                           required
@@ -315,11 +315,11 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
 
                     <div className="space-y-2">
                       <Label htmlFor="specialty" className="text-sm font-medium">
-                        Specialty <span className="text-destructive">*</span>
+                        Spécialité <span className="text-destructive">*</span>
                       </Label>
                       <Select value={specialty} onValueChange={setSpecialty}>
                         <SelectTrigger id="specialty">
-                          <SelectValue placeholder="Select your specialty" />
+                          <SelectValue placeholder="Sélectionnez votre spécialité" />
                         </SelectTrigger>
                         <SelectContent>
                           {specialties.map((spec) => (
@@ -333,7 +333,7 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
 
                     <div className="space-y-2">
                       <Label htmlFor="personal-phone" className="text-sm font-medium">
-                        Phone Number (Optional)
+                        Numéro de téléphone (optionnel)
                       </Label>
                       <Input
                         id="personal-phone"
@@ -347,8 +347,8 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
                 ) : (
                   <div className="p-4 bg-green-50 dark:bg-green-950/20 rounded-lg border border-green-200 dark:border-green-800">
                     <p className="text-sm text-green-700 dark:text-green-300">
-                      You're all set! As a secretary/assistant, no additional information is needed. 
-                      Click "Complete" to join the clinic.
+                      Tout est prêt ! En tant que secrétaire/assistant(e), aucune information supplémentaire
+                      n&apos;est nécessaire. Cliquez sur « Terminer » pour rejoindre la clinique.
                     </p>
                   </div>
                 )}
@@ -363,7 +363,7 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
                 disabled={currentStep === 1 || isLoading}
                 className="border-blue-200"
               >
-                Previous
+                Précédent
               </Button>
 
               {currentStep < steps.length ? (
@@ -379,17 +379,17 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
                   disabled={!isStep1Valid()}
                   className="bg-blue-600 hover:bg-blue-700"
                 >
-                  {role === "secretary" && currentStep === 1 ? "Complete" : "Next"}
+                  {role === "secretary" && currentStep === 1 ? "Terminer" : "Suivant"}
                   <ChevronRight className="w-4 h-4 ml-2" />
                 </Button>
               ) : (
                 <Button onClick={handleComplete} disabled={isLoading || !isStep2Valid()} className="bg-green-600 hover:bg-green-700">
                   {isLoading ? (
-                    "Joining..."
+                    "Adhésion…"
                   ) : (
                     <>
                       <CheckCircle2 className="w-4 h-4 mr-2" />
-                      Complete
+                      Terminer
                     </>
                   )}
                 </Button>

@@ -26,9 +26,7 @@ public class HttpSmsSender : HttpReminderChannelSender, IReminderChannelSender
     public Task<ReminderSendResult> SendAsync(
         string phoneE164, string message, ResolvedReminderSettings settings, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(settings.SmsApiUrl) ||
-            string.IsNullOrWhiteSpace(settings.SmsSenderId) ||
-            string.IsNullOrWhiteSpace(settings.SmsApiKey))
+        if (!settings.SmsConfigured)
         {
             _logger.LogDebug("SMS gateway not configured; skipping SMS reminder to {Phone}.", ReminderPhone.Mask(phoneE164));
             return Task.FromResult(ReminderSendResult.NotConfigured);

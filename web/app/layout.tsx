@@ -46,7 +46,7 @@ export default function RootLayout({
   const SessionProvider = resolveAuthMode() === "local" ? LocalSessionProvider : CloudSessionProvider
 
   return (
-    <html lang="en">
+    <html lang="fr">
       <body className={`font-sans antialiased`}>
         <SessionProvider>
           <ConnectivityProvider>

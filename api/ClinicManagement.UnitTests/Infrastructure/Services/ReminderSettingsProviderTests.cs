@@ -78,7 +78,7 @@ public class ReminderSettingsProviderTests
     public async Task ResolveEnabledChannels_Clinic_Toggle_Overrides_Install()
     {
         var settings = new ClinicReminderSettings(ClinicId);
-        settings.ApplyNonSecretSettings(smsEnabled: true, whatsAppEnabled: false, null, null, null, null);
+        settings.ApplyNonSecretSettings(smsEnabled: true, whatsAppEnabled: false, null, null, null, null, null, null, null, null);
         HasClinicSettings(settings);
 
         var channels = await Provider(InstallConfig()).ResolveEnabledChannelsAsync(ClinicId);
@@ -104,7 +104,7 @@ public class ReminderSettingsProviderTests
     public async Task ResolveAsync_Uses_Clinic_Identity_And_Decrypts_Clinic_Secret()
     {
         var settings = new ClinicReminderSettings(ClinicId);
-        settings.ApplyNonSecretSettings(true, null, "ClinicSms", null, null, null);
+        settings.ApplyNonSecretSettings(true, null, "ClinicSms", null, null, null, null, null, null, null);
         settings.SetSmsApiKeyEncrypted("cipher-sms");
         HasClinicSettings(settings);
         _protector.Setup(p => p.Unprotect("cipher-sms")).Returns("clinic-sms-key");

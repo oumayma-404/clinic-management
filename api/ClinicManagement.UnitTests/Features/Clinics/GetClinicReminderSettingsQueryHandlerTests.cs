@@ -1,6 +1,8 @@
 using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Features.Clinics.Queries;
 using ClinicManagement.Domain.Entities;
+using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 using Moq;
 using Xunit;
@@ -19,9 +21,18 @@ public class GetClinicReminderSettingsQueryHandlerTests
     private readonly Mock<IClinicReminderSettingsRepository> _settings = new();
     private readonly Mock<IUserRepository> _users = new();
     private readonly Mock<IClinicContext> _context = new();
+    private readonly Mock<IReminderSettingsProvider> _provider = new();
+
+    public GetClinicReminderSettingsQueryHandlerTests()
+    {
+        // effectiveStatus resolution — a permissive default (no channels/creds → not_configured). The
+        // per-clinic-override / effectiveStatus scenarios are covered in /test-small-feature.
+        _provider.Setup(p => p.ResolveAsync(It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ResolvedReminderSettings { EnabledChannels = Array.Empty<NotificationType>() });
+    }
 
     private GetClinicReminderSettingsQueryHandler Handler() =>
-        new(_settings.Object, _users.Object, _context.Object);
+        new(_settings.Object, _users.Object, _context.Object, _provider.Object);
 
     private static User Local(string role) =>
         User.CreateLocalUser(ClinicId, role, $"{role}@clinic.com", "HASH", $"{role} name");
@@ -67,7 +78,7 @@ public class GetClinicReminderSettingsQueryHandlerTests
     {
         CallerIs(Local("admin"));
         var settings = new ClinicReminderSettings(ClinicId);
-        settings.ApplyNonSecretSettings(true, false, "MaClinique", "PN123", "tpl", "fr");
+        settings.ApplyNonSecretSettings(true, false, "MaClinique", "PN123", "tpl", "fr", null, null, null, null);
         settings.SetSmsApiKeyEncrypted("enc-sms");
         _settings.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<CancellationToken>())).ReturnsAsync(settings);
 

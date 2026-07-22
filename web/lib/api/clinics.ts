@@ -1,4 +1,5 @@
 import { apiGet, apiPost, apiPostFormData, apiPut, apiPutFormData } from './client';
+import type { WorkingDay } from '@/lib/working-hours';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
 
@@ -69,6 +70,8 @@ export interface ClinicDto {
   // TTN « El Fatoora » e-invoicing settings.
   ttnEInvoicingEnabled?: boolean;
   ttnEnvironment?: string;
+  // Working hours (AC-7). Null/absent = no saved hours (the UI falls back to a default).
+  workingHours?: WorkingDay[] | null;
   createdAt: string;
 }
 
@@ -228,6 +231,8 @@ export const clinicsApi = {
     stampDutyAmount?: number;
     ttnEInvoicingEnabled?: boolean;
     ttnEnvironment?: string;
+    // Working hours serialized as a JSON array (AC-7). Omit to leave the stored hours unchanged.
+    workingHoursJson?: string;
   }): Promise<ClinicDto> => {
     const formData = new FormData();
     formData.append('name', data.name);
@@ -246,6 +251,8 @@ export const clinicsApi = {
     // TTN e-invoicing settings (optional).
     if (data.ttnEInvoicingEnabled !== undefined) formData.append('ttnEInvoicingEnabled', String(data.ttnEInvoicingEnabled));
     if (data.ttnEnvironment !== undefined) formData.append('ttnEnvironment', data.ttnEnvironment);
+    // Working hours JSON (optional).
+    if (data.workingHoursJson !== undefined) formData.append('workingHoursJson', data.workingHoursJson);
 
     const result = await apiPutFormData<Result<ClinicDto>>('/clinics', formData);
     if (!result.isSuccess || !result.value) {

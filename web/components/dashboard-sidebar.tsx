@@ -6,27 +6,29 @@ import { cn } from "@/lib/utils"
 import { Calendar, Users, FileText, Settings, LayoutDashboard, Stethoscope, Package, FileCheck, ChevronLeft, ChevronRight, FolderOpen, UserCog, Receipt, UserCircle, ClipboardList, Pill, ClipboardCheck, ScrollText, HandCoins } from "lucide-react"
 import { useSidebar } from "@/contexts/sidebar-context"
 import { useSession } from "@/lib/auth/session"
+import { useClinicAccess } from "@/lib/hooks/use-clinic-access"
+import { DEFAULT_WORKING_HOURS, summarizeWorkingHours } from "@/lib/working-hours"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
 const navigation = [
-  { name: "Dashboard", href: "/", icon: LayoutDashboard },
-  { name: "Appointments", href: "/appointments", icon: Calendar },
+  { name: "Tableau de bord", href: "/", icon: LayoutDashboard },
+  { name: "Rendez-vous", href: "/appointments", icon: Calendar },
   { name: "Patients", href: "/patients", icon: Users },
-  { name: "Procedure Types", href: "/procedure-types", icon: Stethoscope },
-  { name: "Medical Records", href: "/records", icon: FileText },
+  { name: "Types de procédures", href: "/procedure-types", icon: Stethoscope },
+  { name: "Dossiers médicaux", href: "/records", icon: FileText },
   { name: "Documents", href: "/documents", icon: FileCheck },
   { name: "Factures", href: "/factures", icon: Receipt },
   { name: "Créances", href: "/creances", icon: HandCoins },
   { name: "Plans / Devis", href: "/treatment-plans", icon: ClipboardCheck },
-  { name: "Files", href: "/files", icon: FolderOpen },
+  { name: "Fichiers", href: "/files", icon: FolderOpen },
   { name: "Stock", href: "/stock", icon: Package },
   { name: "Mon profil", href: "/mon-profil", icon: UserCircle },
-  { name: "Settings", href: "/settings", icon: Settings },
+  { name: "Paramètres", href: "/settings", icon: Settings },
 ]
 
 // Admin-only entry, shown only for local-mode admins (offline user management — AC-5.4).
-const adminNavItem = { name: "Users", href: "/users", icon: UserCog }
+const adminNavItem = { name: "Utilisateurs", href: "/users", icon: UserCog }
 // CNAM nomenclature admin screen — shown to any admin (global catalog management, FR-5.4).
 const cnamNavItem = { name: "Nomenclature CNAM", href: "/cnam-nomenclature", icon: ClipboardList }
 // Medication catalog admin screen — shown to any admin (global catalog management, backs the ordonnance picker).
@@ -38,6 +40,13 @@ export function DashboardSidebar() {
   const pathname = usePathname()
   const { isCollapsed, toggleSidebar } = useSidebar()
   const { user, mode } = useSession()
+  // Working hours shown in the footer come from the clinic's saved settings (AC-7); no redirect (ClinicGuard
+  // owns that). Falls back to the shared default when nothing is saved.
+  const { status } = useClinicAccess(false)
+  const workingHours = status?.clinic?.workingHours && status.clinic.workingHours.length > 0
+    ? status.clinic.workingHours
+    : DEFAULT_WORKING_HOURS
+  const hoursSummary = summarizeWorkingHours(workingHours)
 
   const isAdmin = user?.role === "admin"
   const navItems = [
@@ -104,13 +113,16 @@ export function DashboardSidebar() {
         </TooltipProvider>
       </nav>
 
-      {/* Footer */}
+      {/* Footer — clinic hours from the saved settings (single source, AC-7). */}
       {!isCollapsed && (
         <div className="border-t border-border p-4">
           <div className="text-xs text-muted-foreground">
-            <p className="font-medium">Clinic Hours</p>
-            <p className="mt-1">Mon-Fri: 8:00 AM - 6:00 PM</p>
-            <p>Sat: 9:00 AM - 2:00 PM</p>
+            <p className="font-medium">Horaires d&apos;ouverture</p>
+            {hoursSummary.map((line, i) => (
+              <p key={i} className={i === 0 ? "mt-1" : ""}>
+                {line}
+              </p>
+            ))}
           </div>
         </div>
       )}

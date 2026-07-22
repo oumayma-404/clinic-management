@@ -1,7 +1,9 @@
 using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Clinics.Commands;
 using ClinicManagement.Domain.Entities;
+using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 using Moq;
 using Xunit;
@@ -20,10 +22,19 @@ public class UpdateClinicReminderSettingsCommandHandlerTests
     private readonly Mock<IUserRepository> _users = new();
     private readonly Mock<IClinicContext> _context = new();
     private readonly Mock<IReminderSecretProtector> _protector = new();
+    private readonly Mock<IReminderSettingsProvider> _provider = new();
     private readonly Mock<IUnitOfWork> _uow = new();
 
+    public UpdateClinicReminderSettingsCommandHandlerTests()
+    {
+        // Post-save effectiveStatus resolution — a permissive default (no channels/creds → not_configured).
+        // The per-clinic-override / effectiveStatus scenarios are covered in /test-small-feature.
+        _provider.Setup(p => p.ResolveAsync(It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ResolvedReminderSettings { EnabledChannels = Array.Empty<NotificationType>() });
+    }
+
     private UpdateClinicReminderSettingsCommandHandler Handler() =>
-        new(_settings.Object, _users.Object, _context.Object, _protector.Object, _uow.Object);
+        new(_settings.Object, _users.Object, _context.Object, _protector.Object, _provider.Object, _uow.Object);
 
     private static User Local(string role) =>
         User.CreateLocalUser(ClinicId, role, $"{role}@clinic.com", "HASH", $"{role} name");

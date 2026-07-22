@@ -14,16 +14,14 @@ Feature/screen components for the clinic frontend. `components/ui/` holds shadcn
 | `stats-card.tsx` | Small KPI card (title, value, icon, description, `default`/`urgent` variant). Used on dashboard. |
 | `appointment-list.tsx` | Dashboard appointment list — API-wired via `useAppointments` (today's appointments). |
 | `notification-panel.tsx` | The in-app notification feed popover opened by the header bell: 50 newest rows (category icon, title, message, relative French timestamp), unread styling, empty ("Aucune notification") / loading / non-blocking error states, "mark all read". Deep-links a row to its record. Driven by `useNotifications()`. |
-| `notifications-list.tsx` | **Legacy static-sample list — no longer mounted** (superseded by `notification-panel.tsx`). |
 | `appointment-calendar.tsx` | Day/week calendar grid (24h hourly slots); renders appointments, handles slot/appointment clicks. Core of `/appointments`. Phase 3: a shared `renderSyncControls(appointment)` helper adds a "non synchronisé" badge + per-card "Push to Google" in both week/day views (gated on `useConnectivity().internetReachable`; hidden on synced/cancelled/completed and very-short cards); push success calls `onChanged` so the page refetches and the badge clears. |
 | `create-appointment-dialog.tsx` | Dialog to create an appointment (patient, procedure type, doctor, date/time, duration). |
 | `edit-appointment-dialog.tsx` | Dialog to edit/cancel/delete an appointment (with confirm AlertDialog). |
 | `patients-table.tsx` | Patients list table; filters by `searchQuery` and `showFlaggedOnly`; fetches via `patientsApi`. |
 | `edit-patient-dialog.tsx` | Create/edit patient dialog (demographics, address, insurance, medical/family history). |
-| `patient-record-modal.tsx` | Patient dental-record entry modal (uses `dental-chart`). |
-| `patient-summary-modal.tsx` | Read-only patient summary (info + dental records). Used on `/records`. |
-| `patient-files-manager.tsx` | Per-patient folder/file browser: list, create folder, upload, download, delete (`patientFilesApi`). |
-| `dental-chart.tsx` | Interactive teeth chart (adult/child), per-tooth procedures/notes; emits selection. Read-only mode supported. |
+| `patient-record-modal.tsx` | Patient dental-record entry modal (interactive tooth chart). |
+| `patient-summary-modal.tsx` | Read-only patient summary (info + dental records + a read-only `record-tooth-chart` of worked teeth). Used on `/records`. |
+| `patient-files-manager.tsx` | Per-patient folder/file browser: list, create folder, upload, download, delete (`patientFilesApi`); destructive deletes use `ui/alert-dialog`. |
 | `procedure-types-table.tsx` | Procedure types CRUD table with delete confirm. |
 | `procedure-type-form-modal.tsx` | Create/edit procedure type (name, duration, cost, color, description). |
 | `stock-table.tsx` | Inventory table with delete confirm — API-wired via `stockApi` (list/delete). Listens for the `clinic:deeplink` event to scroll-to + highlight a low-stock notification's target row. |

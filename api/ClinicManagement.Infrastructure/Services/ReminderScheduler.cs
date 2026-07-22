@@ -79,9 +79,10 @@ public class ReminderScheduler : IReminderScheduler
         Guid clinicId, Guid appointmentId, Guid patientId, string patientName, DateTime appointmentDateTimeUtc,
         CancellationToken cancellationToken)
     {
-        // AC-4: which channels to enqueue is per-clinic (its toggles where set, else the install default).
-        var channels = await _settingsProvider.ResolveEnabledChannelsAsync(clinicId, cancellationToken);
-        if (channels.Count == 0)
+        // AC-4: which channels to enqueue is per-clinic (its toggles where set, else the install default); the
+        // full resolve also yields the per-clinic lead-time tiers + custom wording (else the install defaults).
+        var settings = await _settingsProvider.ResolveAsync(clinicId, cancellationToken);
+        if (settings.EnabledChannels.Count == 0)
         {
             return;
         }
@@ -90,7 +91,7 @@ public class ReminderScheduler : IReminderScheduler
         var sendTime = ReminderSchedule.ComputeSendTimeUtc(
             appointmentUtc,
             DateTime.UtcNow,
-            RemindersConfig.LeadTimesHours(_configuration),
+            settings.LeadTimeHours,
             RemindersConfig.MinLeadHours(_configuration));
         if (sendTime == null)
         {
@@ -98,9 +99,9 @@ public class ReminderScheduler : IReminderScheduler
         }
 
         var clinic = await _clinics.GetByIdAsync(clinicId, cancellationToken);
-        var message = BuildMessage(patientName, appointmentUtc, clinic?.Name ?? FallbackClinicName);
+        var message = BuildMessage(patientName, appointmentUtc, clinic?.Name ?? FallbackClinicName, settings.MessageTemplateBody);
 
-        foreach (var channel in channels)
+        foreach (var channel in settings.EnabledChannels)
         {
             var reminder = new Notification(
                 Guid.NewGuid(), channel, ReminderSubject, message, sendTime.Value,
@@ -131,8 +132,21 @@ public class ReminderScheduler : IReminderScheduler
         }
     }
 
-    private static string BuildMessage(string patientName, DateTime appointmentUtc, string clinicName) =>
-        $"Rappel : {patientName}, vous avez un rendez-vous le {FormatFr(appointmentUtc)} chez {clinicName}.";
+    // Uses the clinic's custom wording when set (with {patient}/{date}/{clinic} placeholders), else the
+    // built-in French default.
+    private static string BuildMessage(string patientName, DateTime appointmentUtc, string clinicName, string? template)
+    {
+        var when = FormatFr(appointmentUtc);
+        if (!string.IsNullOrWhiteSpace(template))
+        {
+            return template
+                .Replace("{patient}", patientName)
+                .Replace("{date}", when)
+                .Replace("{clinic}", clinicName);
+        }
+
+        return $"Rappel : {patientName}, vous avez un rendez-vous le {when} chez {clinicName}.";
+    }
 
     private static string FormatFr(DateTime utc)
     {

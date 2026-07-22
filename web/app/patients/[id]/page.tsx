@@ -56,7 +56,6 @@ import { ApiError } from "@/lib/api/client"
 import { format, parseISO } from "date-fns"
 import { EditPatientDialog } from "@/components/edit-patient-dialog"
 import { PatientRecordModal } from "@/components/patient-record-modal"
-import { PatientSummaryModal } from "@/components/patient-summary-modal"
 import { Edit } from "lucide-react"
 import { Receipt } from "lucide-react"
 import { Smile, ClipboardCheck } from "lucide-react"
@@ -151,7 +150,6 @@ export default function PatientDetailsPage() {
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [recordModalOpen, setRecordModalOpen] = useState(false)
   const [editingRecord, setEditingRecord] = useState<DentalRecordDto | null>(null)
-  const [summaryModalOpen, setSummaryModalOpen] = useState(false)
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set())
   // Dental records already tied to a non-cancelled invoice (guards against double-invoicing).
   const [invoicedDentalRecordIds, setInvoicedDentalRecordIds] = useState<Set<string>>(new Set())
@@ -487,10 +485,6 @@ export default function PatientDetailsPage() {
                 )}
               </div>
               <div className="flex gap-2">
-                <Button variant="default" onClick={() => setSummaryModalOpen(true)} className="gap-2">
-                  <Eye className="h-4 w-4" />
-                  Patient Summary
-                </Button>
                 <Button variant="outline" onClick={() => setEditDialogOpen(true)} className="gap-2">
                   <Edit className="h-4 w-4" />
                   Edit Patient
@@ -1487,13 +1481,6 @@ export default function PatientDetailsPage() {
           setSeededPlanOpen(false)
           setRefreshKey((k) => k + 1)
         }}
-      />
-
-      <PatientSummaryModal
-        open={summaryModalOpen}
-        onOpenChange={setSummaryModalOpen}
-        patient={patient}
-        dentalRecords={dentalRecords}
       />
 
       {/* Facturer cette intervention — pre-filled draft from a dental record (create-only). */}

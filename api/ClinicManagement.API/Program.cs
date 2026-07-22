@@ -465,12 +465,6 @@ try
         job => job.DispatchQueuedInvoices(),
         Cron.Minutely);
 
-    // AI summary generation stays DISABLED (PatientSummaryService is a placeholder, not a real AI call).
-    /*RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.AISummaryJob>(
-        "generate-ai-summaries",
-        job => job.GenerateSummariesForUpcomingAppointments(),
-        Cron.Minutely);*/
-
     // Google Calendar sync from Google Calendar to App is disabled for now
     // We only sync from App to Google Calendar (triggered on create/update actions)
     // Remove the recurring job if it exists in Hangfire

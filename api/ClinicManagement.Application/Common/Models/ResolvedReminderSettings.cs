@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using ClinicManagement.Domain.Enums;
 
 namespace ClinicManagement.Application.Common.Models;
@@ -29,4 +30,33 @@ public sealed record ResolvedReminderSettings
     /// (e.g. a canned <c>hello_world</c>) where the sender must omit the body component or Meta rejects it.
     /// </summary>
     public bool WhatsAppTemplateHasBodyParam { get; init; } = true;
+
+    /// <summary>Effective lead-time tiers (hours before the appointment) — per-clinic override else per-install.</summary>
+    public IReadOnlyList<int> LeadTimeHours { get; init; } = Array.Empty<int>();
+
+    /// <summary>Custom reminder wording (per-clinic). Null ⇒ the built-in French default is used.</summary>
+    public string? MessageTemplateBody { get; init; }
+
+    /// <summary>
+    /// Whether the SMS channel has everything it needs to actually send (gateway URL + sender id + API key).
+    /// This is the single source of truth for "SMS is sendable" — the SMS sender and the admin effective-status
+    /// surface both read it, so they never drift. The <see cref="MemberNotNullWhenAttribute"/> lets the sender
+    /// dereference those fields without a null warning once this returns true.
+    /// </summary>
+    [MemberNotNullWhen(true, nameof(SmsApiUrl), nameof(SmsSenderId), nameof(SmsApiKey))]
+    public bool SmsConfigured =>
+        !string.IsNullOrWhiteSpace(SmsApiUrl) &&
+        !string.IsNullOrWhiteSpace(SmsSenderId) &&
+        !string.IsNullOrWhiteSpace(SmsApiKey);
+
+    /// <summary>
+    /// Whether the WhatsApp channel has everything it needs to actually send (Graph URL + phone-number id +
+    /// template name + access token). Single source of truth for "WhatsApp is sendable".
+    /// </summary>
+    [MemberNotNullWhen(true, nameof(WhatsAppApiUrl), nameof(WhatsAppPhoneNumberId), nameof(WhatsAppTemplateName), nameof(WhatsAppAccessToken))]
+    public bool WhatsAppConfigured =>
+        !string.IsNullOrWhiteSpace(WhatsAppApiUrl) &&
+        !string.IsNullOrWhiteSpace(WhatsAppPhoneNumberId) &&
+        !string.IsNullOrWhiteSpace(WhatsAppTemplateName) &&
+        !string.IsNullOrWhiteSpace(WhatsAppAccessToken);
 }

@@ -27,6 +27,9 @@ public class UpdateClinicCommand : IRequest<Result<ClinicDto>>
     // TTN « El Fatoora » e-invoicing settings (null = leave the current value unchanged).
     public bool? TtnEInvoicingEnabled { get; set; }
     public string? TtnEnvironment { get; set; }
+
+    // Working hours JSON array (reliability-and-polish AC-7). Null/blank = leave the current value unchanged.
+    public string? WorkingHoursJson { get; set; }
 }
 
 public class UpdateClinicCommandHandler : IRequestHandler<UpdateClinicCommand, Result<ClinicDto>>
@@ -92,6 +95,18 @@ public class UpdateClinicCommandHandler : IRequestHandler<UpdateClinicCommand, R
                 return Result<ClinicDto>.Failure("Seul un administrateur peut modifier les paramètres de facturation électronique.");
             }
 
+            // AC-7: validate the working-hours payload up front (before any logo upload) so a bad payload
+            // fails fast; a blank/omitted payload leaves the stored hours unchanged.
+            string? normalizedWorkingHours = null;
+            if (!string.IsNullOrWhiteSpace(request.WorkingHoursJson))
+            {
+                normalizedWorkingHours = WorkingHoursSerializer.Normalize(request.WorkingHoursJson);
+                if (normalizedWorkingHours == null)
+                {
+                    return Result<ClinicDto>.Failure("Horaires de travail invalides.");
+                }
+            }
+
             // Handle logo upload if provided
             var originalLogoUrl = clinic.LogoUrl; // Persisted value, used for orphan cleanup below
             string? logoUrl = originalLogoUrl;    // Keep existing logo by default
@@ -144,6 +159,12 @@ public class UpdateClinicCommandHandler : IRequestHandler<UpdateClinicCommand, R
                     request.TtnEInvoicingEnabled ?? clinic.TtnEInvoicingEnabled,
                     request.TtnEnvironment ?? clinic.TtnEnvironment);
 
+                // Working hours (AC-7): only touched when a valid payload was supplied.
+                if (normalizedWorkingHours != null)
+                {
+                    clinic.SetWorkingHours(normalizedWorkingHours);
+                }
+
                 await _clinicRepository.UpdateAsync(clinic, cancellationToken);
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
             }
@@ -177,7 +198,8 @@ public class UpdateClinicCommandHandler : IRequestHandler<UpdateClinicCommand, R
                 StampDutyEnabled = clinic.StampDutyEnabled,
                 StampDutyAmount = clinic.StampDutyAmount,
                 TtnEInvoicingEnabled = clinic.TtnEInvoicingEnabled,
-                TtnEnvironment = clinic.TtnEnvironment
+                TtnEnvironment = clinic.TtnEnvironment,
+                WorkingHours = WorkingHoursSerializer.Parse(clinic.WorkingHoursJson)
             };
 
             return Result<ClinicDto>.Success(clinicDto);

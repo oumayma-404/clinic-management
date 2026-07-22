@@ -37,6 +37,16 @@ public class NotificationRepository : INotificationRepository
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IEnumerable<Notification>> GetRecentByClinicIdAsync(Guid clinicId, int take, CancellationToken cancellationToken = default)
+    {
+        return await _context.Notifications
+            .Include(n => n.Patient)
+            .Where(n => n.ClinicId == clinicId)
+            .OrderByDescending(n => n.CreatedAt)
+            .Take(take)
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<Notification> AddAsync(Notification notification, CancellationToken cancellationToken = default)
     {
         await _context.Notifications.AddAsync(notification, cancellationToken);

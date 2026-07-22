@@ -29,6 +29,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { cn } from "@/lib/utils"
 import { patientFilesApi } from "@/lib/api/patient-files"
 import type { PatientFileDto, PatientFolderDto } from "@/lib/api/types"
@@ -52,6 +62,11 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
   const [previewFile, setPreviewFile] = useState<PatientFileDto | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
+  // Destructive-delete confirmation (replaces native confirm() — AC-9).
+  const [pendingDelete, setPendingDelete] = useState<
+    { kind: "file"; fileId: string } | { kind: "folder"; folderId: string } | null
+  >(null)
+  const [deletePending, setDeletePending] = useState(false)
 
   const currentFolder = folders.find((f) => f.id === currentFolderId)
   const currentFiles = files.filter((f) => 
@@ -183,9 +198,11 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
     }
   }
 
-  const handleDeleteFile = async (fileId: string) => {
-    if (!confirm("Are you sure you want to delete this file?")) return
+  const handleDeleteFile = (fileId: string) => {
+    setPendingDelete({ kind: "file", fileId })
+  }
 
+  const performDeleteFile = async (fileId: string) => {
     setDeletingFileId(fileId)
     try {
       const file = files.find(f => f.id === fileId)
@@ -277,15 +294,13 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
     setPreviewLoading(false)
   }
 
-  const handleDeleteFolder = async (folderId: string) => {
+  const handleDeleteFolder = (folderId: string) => {
+    setPendingDelete({ kind: "folder", folderId })
+  }
+
+  const performDeleteFolder = async (folderId: string) => {
     const folder = folders.find(f => f.id === folderId)
     const hasFiles = folder && folder.fileCount > 0
-    
-    const message = hasFiles
-      ? `Are you sure you want to delete "${folder?.name}"? This folder contains ${folder.fileCount} file(s). All files inside will be deleted. This action cannot be undone.`
-      : `Are you sure you want to delete "${folder?.name}"? This action cannot be undone.`
-    
-    if (!confirm(message)) return
 
     try {
       const folderName = folder?.name || "le dossier"
@@ -307,6 +322,21 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
         description: errorMessage,
         duration: 4000,
       })
+    }
+  }
+
+  const confirmPendingDelete = async () => {
+    if (!pendingDelete) return
+    setDeletePending(true)
+    try {
+      if (pendingDelete.kind === "file") {
+        await performDeleteFile(pendingDelete.fileId)
+      } else {
+        await performDeleteFolder(pendingDelete.folderId)
+      }
+    } finally {
+      setDeletePending(false)
+      setPendingDelete(null)
     }
   }
 
@@ -675,6 +705,41 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Destructive-delete confirmation (replaces native confirm() — AC-9). */}
+      <AlertDialog open={!!pendingDelete} onOpenChange={(open) => { if (!open) setPendingDelete(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {pendingDelete?.kind === "folder" ? "Supprimer le dossier ?" : "Supprimer le fichier ?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingDelete?.kind === "folder"
+                ? (() => {
+                    const folder = folders.find((f) => f.id === pendingDelete.folderId)
+                    const count = folder?.fileCount ?? 0
+                    return count > 0
+                      ? `Le dossier « ${folder?.name} » contient ${count} fichier(s). Tous les fichiers qu'il contient seront supprimés. Cette action est irréversible.`
+                      : `Voulez-vous vraiment supprimer « ${folder?.name} » ? Cette action est irréversible.`
+                  })()
+                : "Voulez-vous vraiment supprimer ce fichier ? Cette action est irréversible."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletePending}>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                void confirmPendingDelete()
+              }}
+              disabled={deletePending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deletePending ? "Suppression…" : "Supprimer"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

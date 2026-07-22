@@ -91,11 +91,7 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
       setProcedureToDelete(null)
     } catch (err) {
       console.error("Failed to delete procedure type:", err)
-      if (err instanceof ApiError) {
-        alert(`Failed to delete: ${err.message}`)
-      } else {
-        alert("Failed to delete procedure type. Please try again.")
-      }
+      toast.error(err instanceof ApiError ? err.message : "Échec de la suppression du type de procédure.")
     } finally {
       setDeleting(false)
     }

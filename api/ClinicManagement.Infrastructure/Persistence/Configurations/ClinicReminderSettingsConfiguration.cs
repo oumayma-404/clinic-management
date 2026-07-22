@@ -30,6 +30,12 @@ public class ClinicReminderSettingsConfiguration : IEntityTypeConfiguration<Clin
         builder.Property(s => s.WhatsAppTemplateName).HasMaxLength(200);
         builder.Property(s => s.WhatsAppTemplateLanguage).HasMaxLength(20);
 
+        // Per-clinic overrides of previously per-install-only values (reliability-and-polish).
+        builder.Property(s => s.SmsApiUrl).HasMaxLength(500);
+        builder.Property(s => s.WhatsAppApiUrl).HasMaxLength(500);
+        builder.Property(s => s.LeadTimeHours).HasMaxLength(200);
+        builder.Property(s => s.MessageTemplateBody).HasColumnType("text");
+
         // Data-Protection ciphertext — opaque, variable length.
         builder.Property(s => s.SmsApiKeyEncrypted).HasColumnType("text");
         builder.Property(s => s.WhatsAppAccessTokenEncrypted).HasColumnType("text");

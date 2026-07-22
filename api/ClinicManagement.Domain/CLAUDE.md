@@ -112,7 +112,7 @@ Async, `CancellationToken`-aware contracts implemented in the Infrastructure lay
 
 ## Domain services (`Services/`)
 
-- **`IPatientSummaryService`** (`Services/IPatientSummaryService.cs`) — `GenerateSummaryAsync(Patient, Appointment, ...)`; produces an AI summary (implemented in Infrastructure).
+- *(Empty.)* The former `IPatientSummaryService` was removed as dead code (`reliability-and-polish`) — the live patient AI summary is a HuggingFace call via the Application/Infrastructure `IHuggingFaceAIService`, not a Domain service.
 
 ## Gotchas
 - `User` is keyed by **string** — the Auth0 `sub` in Cloud mode, or `local|{guid}` in Local mode — unlike all other `Guid`-keyed types.
