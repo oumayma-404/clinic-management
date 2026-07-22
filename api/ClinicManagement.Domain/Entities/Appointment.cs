@@ -23,6 +23,8 @@ public class Appointment : AggregateRoot<Guid>
     public Guid? ProcedureTypeId { get; private set; }
     public int? ProcedureDurationMinutes { get; private set; }
     public string? ProcedureColorHex { get; private set; }
+    /// <summary>Optional link to the treatment-plan step this appointment schedules (null for ad-hoc visits).</summary>
+    public Guid? TreatmentPlanItemId { get; private set; }
 
     // Navigation properties
     public Clinic Clinic { get; private set; } = null!;
@@ -43,7 +45,8 @@ public class Appointment : AggregateRoot<Guid>
         Guid? recurringAppointmentId = null,
         Guid? procedureTypeId = null,
         int? procedureDurationMinutes = null,
-        string? procedureColorHex = null)
+        string? procedureColorHex = null,
+        Guid? treatmentPlanItemId = null)
     {
         Id = id;
         ClinicId = clinicId;
@@ -58,6 +61,7 @@ public class Appointment : AggregateRoot<Guid>
         ProcedureTypeId = procedureTypeId;
         ProcedureDurationMinutes = procedureDurationMinutes;
         ProcedureColorHex = procedureColorHex;
+        TreatmentPlanItemId = treatmentPlanItemId;
         CreatedAt = DateTime.UtcNow;
 
         if (patientId.HasValue)
@@ -203,6 +207,13 @@ public class Appointment : AggregateRoot<Guid>
         ProcedureTypeId = procedureTypeId;
         ProcedureDurationMinutes = procedureDurationMinutes;
         ProcedureColorHex = procedureColorHex;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>Link (or unlink) the treatment-plan step this appointment schedules.</summary>
+    public void SetTreatmentPlanItem(Guid? treatmentPlanItemId)
+    {
+        TreatmentPlanItemId = treatmentPlanItemId;
         UpdatedAt = DateTime.UtcNow;
     }
 

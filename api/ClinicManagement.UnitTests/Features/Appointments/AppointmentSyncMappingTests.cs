@@ -109,6 +109,7 @@ public class AppointmentSyncMappingTests
             new Mock<IAppointmentRepository>().Object,
             new Mock<IPatientRepository>().Object,
             new Mock<IProcedureTypeRepository>().Object,
+            new Mock<ITreatmentPlanRepository>().Object,
             users.Object,
             context.Object,
             new Mock<IUnitOfWork>().Object,

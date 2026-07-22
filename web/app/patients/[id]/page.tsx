@@ -51,7 +51,7 @@ import { patientMedicalHistoryApi } from "@/lib/api/patient-medical-history"
 import { patientFamilyHistoryApi } from "@/lib/api/patient-family-history"
 import { dentalRecordsApi } from "@/lib/api/dental-records"
 import { patientFilesApi } from "@/lib/api/patient-files"
-import type { PatientDto, AppointmentDto, PatientMedicalHistoryDto, PatientFamilyHistoryDto, DentalRecordDto, PatientFileDto, PatientFolderDto } from "@/lib/api/types"
+import type { PatientDto, AppointmentDto, PatientMedicalHistoryDto, PatientFamilyHistoryDto, DentalRecordDto, PatientFileDto, PatientFolderDto, TreatmentPlanDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import { format, parseISO } from "date-fns"
 import { EditPatientDialog } from "@/components/edit-patient-dialog"
@@ -64,6 +64,9 @@ import { InvoicesTable } from "@/components/factures/invoices-table"
 import { InvoiceFormModal } from "@/components/factures/invoice-form-modal"
 import { Odontogram } from "@/components/odontogram"
 import { TreatmentPlansTable } from "@/components/treatment-plans/treatment-plans-table"
+import { TreatmentPlanFormModal, type TreatmentPlanSeedLine } from "@/components/treatment-plans/treatment-plan-form-modal"
+import { treatmentPlansApi } from "@/lib/api/treatment-plans"
+import type { PlanItemOption } from "@/components/patient-record-modal"
 import { invoicesApi } from "@/lib/api/invoices"
 import { billingApi } from "@/lib/api/billing"
 import type { PatientBillingSummaryDto } from "@/lib/api/types"
@@ -162,6 +165,9 @@ export default function PatientDetailsPage() {
   const [aiSummary, setAiSummary] = useState("")
   const [aiLoading, setAiLoading] = useState(false)
   const [aiError, setAiError] = useState(false)
+  const [treatmentPlans, setTreatmentPlans] = useState<TreatmentPlanDto[]>([])
+  const [planSeeds, setPlanSeeds] = useState<TreatmentPlanSeedLine[]>([])
+  const [seededPlanOpen, setSeededPlanOpen] = useState(false)
   const { internetReachable } = useConnectivity()
 
   // Real AI summary (HuggingFace via GET /patients/{id}/ai-summary). Offline (Local) → skip + FR fallback.
@@ -257,6 +263,15 @@ export default function PatientDetailsPage() {
     }
   }, [patientId, refreshKey])
 
+  // Load the patient's treatment plans (for the record-modal plan-step picker). Refreshes with the page.
+  useEffect(() => {
+    if (!patientId) return
+    treatmentPlansApi
+      .list({ patientId })
+      .then(setTreatmentPlans)
+      .catch(() => setTreatmentPlans([]))
+  }, [patientId, refreshKey])
+
   // Reload files when folder changes
   useEffect(() => {
     const loadFilesForFolder = async () => {
@@ -283,18 +298,20 @@ export default function PatientDetailsPage() {
         setAppointments(appointmentsData)
         
         // Reload medical and family history entries, dental records, files, and folders
-        const [medicalHistory, familyHistory, dentalRecordsData, filesData, foldersData] = await Promise.all([
+        const [medicalHistory, familyHistory, dentalRecordsData, filesData, foldersData, plansData] = await Promise.all([
           patientMedicalHistoryApi.list(patientId).catch(() => []),
           patientFamilyHistoryApi.list(patientId).catch(() => []),
           dentalRecordsApi.list(patientId).catch(() => []),
           patientFilesApi.getFiles(patientId).catch(() => []),
-          patientFilesApi.getFolders(patientId).catch(() => [])
+          patientFilesApi.getFolders(patientId).catch(() => []),
+          treatmentPlansApi.list({ patientId }).catch(() => [])
         ])
         setMedicalHistoryEntries(medicalHistory)
         setFamilyHistoryEntries(familyHistory)
         setDentalRecords(dentalRecordsData)
         setFiles(filesData)
         setFolders(foldersData)
+        setTreatmentPlans(plansData)
       } catch (err) {
         console.error("Failed to reload patient data:", err)
       }
@@ -343,7 +360,21 @@ export default function PatientDetailsPage() {
   const patientName = getPatientName(patient)
   const age = calculateAge(patient.dateOfBirth)
   const hasFlags = hasActiveFlags(patient)
-  
+
+  // Open (not-yet-done) steps of the patient's active plans — offered in the record modal to close the
+  // plan→record loop, and completed automatically when a linked record is saved.
+  const openPlanItems: PlanItemOption[] = treatmentPlans
+    .filter((p) => p.status === "Accepted" || p.status === "InProgress")
+    .flatMap((p) =>
+      p.items
+        .filter((it) => it.status !== "Done")
+        .map((it) => ({
+          itemId: it.id,
+          planId: p.id,
+          label: `${p.number ?? p.title} · ${it.designationFr}${it.toothNumbers.length > 0 ? ` (dents ${it.toothNumbers.join(", ")})` : ""}`,
+        })),
+    )
+
   // Compute current files based on folder selection
   // When in a folder, all loaded files belong to that folder
   // When at root, show only root files (files without folderId)
@@ -811,7 +842,13 @@ export default function PatientDetailsPage() {
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <Odontogram patientId={patientId} />
+                    <Odontogram
+                      patientId={patientId}
+                      onCreatePlan={(seeds) => {
+                        setPlanSeeds(seeds)
+                        setSeededPlanOpen(true)
+                      }}
+                    />
                   </CardContent>
                 </Card>
               </TabsContent>
@@ -1434,7 +1471,22 @@ export default function PatientDetailsPage() {
         patientId={patient.id}
         record={editingRecord}
         isInvoiced={editingRecord ? invoicedDentalRecordIds.has(editingRecord.id) : false}
+        patient={patient}
+        planItems={openPlanItems}
         onSuccess={handleEditSuccess}
+      />
+
+      {/* Create a plan pre-filled from charted diagnoses ("Créer un plan depuis l'odontogramme"). */}
+      <TreatmentPlanFormModal
+        open={seededPlanOpen}
+        onOpenChange={setSeededPlanOpen}
+        presetPatientId={patient.id}
+        presetPatientName={patientName}
+        seedLines={planSeeds}
+        onSuccess={() => {
+          setSeededPlanOpen(false)
+          setRefreshKey((k) => k + 1)
+        }}
       />
 
       <PatientSummaryModal

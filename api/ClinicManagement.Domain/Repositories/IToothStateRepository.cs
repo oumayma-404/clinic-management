@@ -11,6 +11,7 @@ public interface IToothStateRepository
 {
     Task<IEnumerable<ToothState>> GetByPatientIdAsync(Guid patientId, CancellationToken cancellationToken = default);
     Task<IEnumerable<ToothState>> GetByDentalRecordIdAsync(Guid dentalRecordId, CancellationToken cancellationToken = default);
+    Task<ToothState?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
     Task<ToothState> AddAsync(ToothState toothState, CancellationToken cancellationToken = default);
     Task DeleteAsync(Guid id, CancellationToken cancellationToken = default);
 }

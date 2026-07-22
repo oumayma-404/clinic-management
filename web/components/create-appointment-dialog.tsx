@@ -53,6 +53,12 @@ interface CreateAppointmentDialogProps {
   defaultDate?: Date
   defaultTime?: string
   onSuccess?: () => void
+  /** When scheduling a treatment-plan step ("Planifier"): fixes the patient and links the appointment. */
+  presetPatientId?: string
+  presetPatientName?: string
+  presetPlanId?: string
+  presetPlanItemId?: string
+  presetProcedureName?: string
 }
 
 export function CreateAppointmentDialog({
@@ -61,7 +67,14 @@ export function CreateAppointmentDialog({
   defaultDate,
   defaultTime,
   onSuccess,
+  presetPatientId,
+  presetPatientName,
+  presetPlanId,
+  presetPlanItemId,
+  presetProcedureName,
 }: CreateAppointmentDialogProps) {
+  // True when this dialog was opened to schedule a specific treatment-plan step.
+  const isPlanScheduling = Boolean(presetPlanItemId)
   // Patient state
   const [isBusySlot, setIsBusySlot] = useState(false)
   const [isNewPatient, setIsNewPatient] = useState(false)
@@ -140,6 +153,16 @@ export function CreateAppointmentDialog({
       loadProcedureTypes()
     }
   }, [open])
+
+  // When opened to schedule a plan step, fix the patient and record the act name in the notes.
+  useEffect(() => {
+    if (open && isPlanScheduling) {
+      setIsBusySlot(false)
+      setIsNewPatient(false)
+      if (presetPatientId) setSelectedPatientId(presetPatientId)
+      if (presetProcedureName) setAppointmentType(presetProcedureName)
+    }
+  }, [open, isPlanScheduling, presetPatientId, presetProcedureName])
 
   // Update date and time when defaultDate or defaultTime changes (when dialog is open)
   useEffect(() => {
@@ -365,6 +388,8 @@ export function CreateAppointmentDialog({
         doctorId: selectedDoctorId || undefined,
         notes: appointmentNotes || undefined,
         procedureTypeId: isBusySlot ? undefined : selectedProcedureTypeId,
+        treatmentPlanId: isPlanScheduling ? presetPlanId : undefined,
+        treatmentPlanItemId: isPlanScheduling ? presetPlanItemId : undefined,
       })
 
       onSuccess?.()
@@ -469,26 +494,37 @@ export function CreateAppointmentDialog({
                 <User className="h-5 w-5 text-muted-foreground" />
                 <h3 className="font-semibold">Patient</h3>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-muted-foreground">Créneau occupé</span>
-                <Switch
-                  checked={isBusySlot}
-                  onCheckedChange={(checked) => {
-                    setIsBusySlot(checked)
-                    if (checked) {
-                      setIsNewPatient(false)
-                      setSelectedPatientId("")
-                      setNewPatientFirstName("")
-                      setNewPatientLastName("")
-                      setSelectedProcedureTypeId(undefined)
-                      setCustomProcedureMode(false)
-                    }
-                  }}
-                />
-              </div>
+              {!isPlanScheduling && (
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">Créneau occupé</span>
+                  <Switch
+                    checked={isBusySlot}
+                    onCheckedChange={(checked) => {
+                      setIsBusySlot(checked)
+                      if (checked) {
+                        setIsNewPatient(false)
+                        setSelectedPatientId("")
+                        setNewPatientFirstName("")
+                        setNewPatientLastName("")
+                        setSelectedProcedureTypeId(undefined)
+                        setCustomProcedureMode(false)
+                      }
+                    }}
+                  />
+                </div>
+              )}
             </div>
 
-            {!isBusySlot ? (
+            {isPlanScheduling ? (
+              <div className="space-y-2">
+                <div className="rounded-md border bg-background p-3">
+                  <p className="text-sm font-medium">{presetPatientName ?? "Patient"}</p>
+                  <Badge variant="secondary" className="mt-1 gap-1 text-xs">
+                    <Stethoscope className="h-3 w-3" /> Acte du plan{presetProcedureName ? ` : ${presetProcedureName}` : ""}
+                  </Badge>
+                </div>
+              </div>
+            ) : !isBusySlot ? (
               <>
                 <div className="flex items-center justify-end gap-2">
                   <span className="text-sm text-muted-foreground">Nouveau patient</span>

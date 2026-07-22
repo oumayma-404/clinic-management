@@ -54,6 +54,12 @@ public class AppointmentConfiguration : IEntityTypeConfiguration<Appointment>
         builder.Property(a => a.ProcedureColorHex)
             .HasMaxLength(7);
 
+        // Plain column, no FK: treatment-plan item ids are regenerated when a Draft plan's lines are
+        // edited, so a referential constraint would be brittle; existence is validated at the handler.
+        builder.Property(a => a.TreatmentPlanItemId);
+
+        builder.HasIndex(a => a.TreatmentPlanItemId);
+
         builder.Property(a => a.CreatedAt)
             .IsRequired();
 

@@ -49,6 +49,12 @@ const emptyLine = (): LineRow => ({
   toothNumbers: [],
 })
 
+/** A draft act line pre-filled from the odontogram ("Créer un plan depuis l'odontogramme"). */
+export interface TreatmentPlanSeedLine {
+  toothNumbers: number[]
+  designationFr: string
+}
+
 interface TreatmentPlanFormModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -56,6 +62,8 @@ interface TreatmentPlanFormModalProps {
   /** When opened from a patient page, the patient is preset and locked. */
   presetPatientId?: string
   presetPatientName?: string
+  /** Pre-fill the act lines from charted diagnoses (new plans only). */
+  seedLines?: TreatmentPlanSeedLine[]
   onSuccess?: () => void
 }
 
@@ -65,6 +73,7 @@ export function TreatmentPlanFormModal({
   editingPlan,
   presetPatientId,
   presetPatientName,
+  seedLines,
   onSuccess,
 }: TreatmentPlanFormModalProps) {
   const [patients, setPatients] = useState<PatientDto[]>([])
@@ -127,14 +136,25 @@ export function TreatmentPlanFormModal({
       )
     } else {
       setPatientId(presetPatientId ?? "")
-      setTitle("")
+      const seeded = seedLines && seedLines.length > 0
+      setTitle(seeded ? "Plan de traitement" : "")
       setNotes("")
-      setLines([emptyLine()])
+      setLines(
+        seeded
+          ? seedLines!.map((s) => ({
+              dentalActCodeId: null,
+              codeActe: null,
+              designationFr: s.designationFr,
+              plannedCost: "",
+              toothNumbers: s.toothNumbers,
+            }))
+          : [emptyLine()],
+      )
       setInstallments([])
     }
     setError(null)
     // Seeds once when the dialog opens.
-  }, [open, editingPlan, presetPatientId])
+  }, [open, editingPlan, presetPatientId, seedLines])
 
   const updateLine = (index: number, patch: Partial<LineRow>) => {
     setLines((prev) => prev.map((l, i) => (i === index ? { ...l, ...patch } : l)))

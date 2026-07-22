@@ -117,6 +117,7 @@ public class AppointmentTenantIsolationTests
             appts.Object,
             patients.Object,
             procedures.Object,
+            new Mock<ITreatmentPlanRepository>().Object,
             users.Object,
             context.Object,
             uow.Object,

@@ -16,6 +16,10 @@ public class CreateAppointmentCommand : IRequest<Result<AppointmentDto>>
     public string? DoctorName { get; set; }
     public string? Notes { get; set; }
     public Guid? ProcedureTypeId { get; set; }
+    /// <summary>Optional treatment plan the linked step belongs to (required when <see cref="TreatmentPlanItemId"/> is set).</summary>
+    public Guid? TreatmentPlanId { get; set; }
+    /// <summary>Optional treatment-plan step this appointment schedules.</summary>
+    public Guid? TreatmentPlanItemId { get; set; }
 }
 
 public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointmentCommand, Result<AppointmentDto>>
@@ -23,6 +27,7 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
     private readonly IAppointmentRepository _appointmentRepository;
     private readonly IPatientRepository _patientRepository;
     private readonly IProcedureTypeRepository _procedureTypeRepository;
+    private readonly ITreatmentPlanRepository _treatmentPlanRepository;
     private readonly IUserRepository _userRepository;
     private readonly IClinicContext _clinicContext;
     private readonly IUnitOfWork _unitOfWork;
@@ -34,6 +39,7 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
         IAppointmentRepository appointmentRepository,
         IPatientRepository patientRepository,
         IProcedureTypeRepository procedureTypeRepository,
+        ITreatmentPlanRepository treatmentPlanRepository,
         IUserRepository userRepository,
         IClinicContext clinicContext,
         IUnitOfWork unitOfWork,
@@ -44,6 +50,7 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
         _appointmentRepository = appointmentRepository;
         _patientRepository = patientRepository;
         _procedureTypeRepository = procedureTypeRepository;
+        _treatmentPlanRepository = treatmentPlanRepository;
         _userRepository = userRepository;
         _clinicContext = clinicContext;
         _unitOfWork = unitOfWork;
@@ -110,6 +117,18 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
                 }
             }
 
+            // Validate the treatment-plan step link, if one was chosen (must belong to this clinic + patient).
+            if (request.TreatmentPlanItemId.HasValue)
+            {
+                var linkResult = await AppointmentPlanLink.ValidateAsync(
+                    _treatmentPlanRepository, request.TreatmentPlanId, request.TreatmentPlanItemId.Value,
+                    clinicId, request.PatientId, cancellationToken);
+                if (linkResult.IsFailure)
+                {
+                    return Result<AppointmentDto>.Failure(linkResult.Error!);
+                }
+            }
+
             var duration = TimeSpan.FromMinutes(request.DurationMinutes);
             var appointment = new Appointment(
                 Guid.NewGuid(),
@@ -123,7 +142,8 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
                 null, // recurringAppointmentId
                 procedureTypeId,
                 procedureDurationMinutes,
-                procedureColorHex);
+                procedureColorHex,
+                request.TreatmentPlanItemId);
 
             await _appointmentRepository.AddAsync(appointment, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -168,6 +188,7 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
                 ProcedureTypeId = appointment.ProcedureTypeId,
                 ProcedureTypeName = procedureTypeName,
                 ProcedureColorHex = appointment.ProcedureColorHex,
+                TreatmentPlanItemId = appointment.TreatmentPlanItemId,
                 CreatedAt = appointment.CreatedAt,
                 IsSyncedToGoogle = appointment.GoogleCalendarEventId != null
             };

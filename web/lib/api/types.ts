@@ -145,6 +145,8 @@ export interface AppointmentDto {
   procedureTypeId?: string;
   procedureTypeName?: string;
   procedureColorHex?: string;
+  /** The treatment-plan step this appointment schedules, if any. */
+  treatmentPlanItemId?: string | null;
   /** True when the appointment is reflected in Google Calendar (derived server-side from the event id). */
   isSyncedToGoogle: boolean;
 }
@@ -389,6 +391,8 @@ export interface ToothStateDto {
   id: string;
   toothNumber: number;
   condition: string;
+  /** "Diagnosis" (charted directly) or "Treatment" (from a dental record). */
+  source: string;
   surfaces: string | null;
   note: string | null;
   treatmentDate: string;

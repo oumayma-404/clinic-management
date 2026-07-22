@@ -15,6 +15,8 @@ public class AppointmentDto
     public Guid? ProcedureTypeId { get; set; }
     public string? ProcedureTypeName { get; set; }
     public string? ProcedureColorHex { get; set; }
+    /// <summary>The treatment-plan step this appointment schedules, if any.</summary>
+    public Guid? TreatmentPlanItemId { get; set; }
     public DateTime CreatedAt { get; set; }
 
     /// <summary>
