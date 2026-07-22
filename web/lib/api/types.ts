@@ -233,25 +233,55 @@ export interface ProcedureTypeDto {
   defaultCost?: number;
   colorHex: string;
   description?: string;
+  /** ToothCondition name this procedure produces on the odontogram, or null. */
+  resultingCondition?: string | null;
   isActive: boolean;
   createdAt: string;
   updatedAt?: string;
+}
+
+// A single act line on a dental record. A record can carry many acts.
+export interface DentalRecordActDto {
+  id: string;
+  procedureTypeId?: string | null;
+  procedureName: string;
+  cost: number;
+  toothNumbers: number[];
+  /** ToothCondition name this act results in on the odontogram, or null. */
+  resultingCondition?: string | null;
+  surfaces?: string | null;
+  note?: string | null;
 }
 
 export interface DentalRecordDto {
   id: string;
   patientId: string;
   interventionDate: string;
+  /** Derived summary string over the acts (read-only). */
   procedureType: string;
+  /** Derived sum of act costs (read-only). */
   cost: number;
   amountPaid: number;
   balance: number;
   notes: string[];
   importantNotes: string[];
   isAdultTeeth: boolean;
+  /** Derived union of all act teeth (read-only). */
   toothNumbers: number[];
+  acts: DentalRecordActDto[];
   createdAt: string;
   updatedAt?: string;
+}
+
+// Per-act input when creating/updating a dental record (used for both create and update).
+export interface DentalActInput {
+  procedureTypeId?: string | null;
+  procedureName: string;
+  cost: number;
+  toothNumbers: number[];
+  resultingCondition?: string | null;
+  surfaces?: string | null;
+  note?: string | null;
 }
 
 // Practitioner document identity (FR-2.5 / FR-3.1): CNOMDT ordre number + whether a cachet image is on file.
@@ -340,14 +370,6 @@ export interface ToothStateDto {
   treatmentDate: string;
   dentalRecordId: string | null;
   createdAt: string;
-}
-
-// Per-tooth condition captured when creating/updating a dental record.
-export interface ToothConditionInput {
-  toothNumber: number;
-  condition: string;
-  surfaces?: string | null;
-  note?: string | null;
 }
 
 // A single act line on a treatment plan / devis. Either a catalog act (dentalActCodeId + codeActe set) or

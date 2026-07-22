@@ -1391,7 +1391,13 @@ export default function PatientDetailsPage() {
         presetPatientName={patientName}
         presetLines={
           billingRecord
-            ? [{ designation: billingRecord.procedureType, quantity: 1, unitPriceHt: billingRecord.cost }]
+            ? billingRecord.acts && billingRecord.acts.length > 0
+              ? billingRecord.acts.map((act) => ({
+                  designation: act.procedureName,
+                  quantity: 1,
+                  unitPriceHt: act.cost,
+                }))
+              : [{ designation: billingRecord.procedureType, quantity: 1, unitPriceHt: billingRecord.cost }]
             : undefined
         }
         dentalRecordId={billingRecord?.id}

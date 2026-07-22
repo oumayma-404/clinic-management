@@ -9,6 +9,8 @@ import type { ToothStateDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import { formatDateFr } from "@/lib/format"
 import { CONDITION_ORDER, conditionStyle } from "@/components/odontogram-conditions"
+import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
+import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 
 // FDI layout (mirrors dental-chart.tsx). Adult = quadrants 1–4 (32 teeth), child = quadrants 5–8 (20 teeth).
 const ADULT_TEETH = {
@@ -64,6 +66,10 @@ export function Odontogram({ patientId }: OdontogramProps) {
   useEffect(() => {
     load()
   }, [load])
+
+  // Odontogram entries are written by the dental-record flow (broadcasts the "patients" key),
+  // so refresh live when a record is added/edited/removed instead of only on mount.
+  useClinicRealtime(RealtimeResource.Patients, load)
 
   const teeth = isAdult ? ADULT_TEETH : CHILD_TEETH
 

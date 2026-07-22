@@ -76,4 +76,9 @@ public static class RemindersConfig
 
     public static string WhatsAppTemplateLanguage(IConfiguration configuration) =>
         configuration["Reminders:WhatsApp:TemplateLanguage"] ?? DefaultWhatsAppTemplateLanguage;
+
+    /// <summary>Whether the WhatsApp template has a single body variable {{1}} (default true). Set false to
+    /// use a parameter-less template (e.g. hello_world) — the sender then omits the body component.</summary>
+    public static bool WhatsAppTemplateHasBodyParam(IConfiguration configuration) =>
+        configuration.GetValue<bool?>("Reminders:WhatsApp:TemplateHasBodyParam") ?? true;
 }

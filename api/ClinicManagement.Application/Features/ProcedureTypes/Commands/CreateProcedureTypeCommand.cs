@@ -3,6 +3,7 @@ using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Domain.Entities;
+using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Domain.ValueObjects;
 using Microsoft.Extensions.Logging;
@@ -16,6 +17,8 @@ public class CreateProcedureTypeCommand : IRequest<Result<ProcedureTypeDto>>
     public decimal? DefaultCost { get; set; }
     public string ColorHex { get; set; } = string.Empty;
     public string? Description { get; set; }
+    /// <summary>Resulting odontogram state (ToothCondition name) for acts of this procedure; null/empty = none.</summary>
+    public string? ResultingCondition { get; set; }
 }
 
 public class CreateProcedureTypeCommandHandler : IRequestHandler<CreateProcedureTypeCommand, Result<ProcedureTypeDto>>
@@ -91,6 +94,17 @@ public class CreateProcedureTypeCommandHandler : IRequestHandler<CreateProcedure
                 return Result<ProcedureTypeDto>.Failure(ex.Message);
             }
 
+            // Parse the optional resulting odontogram state.
+            ToothCondition? resultingCondition = null;
+            if (!string.IsNullOrWhiteSpace(request.ResultingCondition))
+            {
+                if (!Enum.TryParse<ToothCondition>(request.ResultingCondition, ignoreCase: true, out var rc))
+                {
+                    return Result<ProcedureTypeDto>.Failure("État résultant invalide.");
+                }
+                resultingCondition = rc;
+            }
+
             // Create procedure type
             var procedureType = new ProcedureType(
                 Guid.NewGuid(),
@@ -99,7 +113,8 @@ public class CreateProcedureTypeCommandHandler : IRequestHandler<CreateProcedure
                 request.DefaultDurationMinutes,
                 color,
                 request.Description,
-                request.DefaultCost);
+                request.DefaultCost,
+                resultingCondition);
 
             await _procedureTypeRepository.AddAsync(procedureType, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -114,6 +129,7 @@ public class CreateProcedureTypeCommandHandler : IRequestHandler<CreateProcedure
                 DefaultCost = procedureType.DefaultCost,
                 ColorHex = procedureType.Color.Value,
                 Description = procedureType.Description,
+                ResultingCondition = procedureType.ResultingCondition?.ToString(),
                 IsActive = procedureType.IsActive,
                 CreatedAt = procedureType.CreatedAt,
                 UpdatedAt = procedureType.UpdatedAt

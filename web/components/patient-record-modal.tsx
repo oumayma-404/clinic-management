@@ -1,20 +1,22 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { DentalChart } from "./dental-chart"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Badge } from "@/components/ui/badge"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
+import { Trash2, Plus, Search, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { dentalRecordsApi } from "@/lib/api/dental-records"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
-import { odontogramApi } from "@/lib/api/odontogram"
 import { ApiError } from "@/lib/api/client"
 import { toast } from "sonner"
-import type { ProcedureTypeDto, DentalRecordDto, ToothConditionInput } from "@/lib/api/types"
+import type { ProcedureTypeDto, DentalRecordDto, DentalActInput } from "@/lib/api/types"
 import { formatDT } from "@/lib/format"
 import {
   CONDITION_ORDER,
@@ -24,31 +26,39 @@ import {
   parseSurfaces,
   serializeSurfaces,
 } from "@/components/odontogram-conditions"
+import { ADULT_FDI, CHILD_FDI } from "@/components/tooth-multiselect"
+import { RecordToothChart, type ToothPaint } from "@/components/record-tooth-chart"
 
-interface ToothCondForm {
-  condition: string
+// Sentinel value for the "no resulting condition" option in the État résultant Select
+// (Radix Select forbids an empty-string item value).
+const NO_CONDITION = "__none__"
+
+interface ActRow {
+  procedureTypeId: string | null
+  procedureName: string
+  cost: string
+  toothNumbers: number[]
+  resultingCondition: string | null
   surfaces: Set<string>
   note: string
 }
 
-const emptyToothForm = (): ToothCondForm => ({ condition: "Sain", surfaces: new Set<string>(), note: "" })
-
-type ToothStatus = {
-  id: string
-  worked: boolean
-  procedures: Array<{
-    type: string
-    notes: string
-    date: string
-  }>
-}
+const emptyAct = (): ActRow => ({
+  procedureTypeId: null,
+  procedureName: "",
+  cost: "",
+  toothNumbers: [],
+  resultingCondition: null,
+  surfaces: new Set<string>(),
+  note: "",
+})
 
 interface PatientRecordModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   patientName?: string
   patientId?: string
-  record?: DentalRecordDto | null // Record to edit, null for new record
+  record?: DentalRecordDto | null // Record to edit, null for a new record
   onSuccess?: () => void
 }
 
@@ -61,320 +71,465 @@ export function PatientRecordModal({
   onSuccess,
 }: PatientRecordModalProps) {
   const [patientName, setPatientName] = useState(initialPatientName)
-  const [selectedTeeth, setSelectedTeeth] = useState<ToothStatus[]>([])
-  const [isAdultTeeth, setIsAdultTeeth] = useState(true)
   const [interventionDate, setInterventionDate] = useState(new Date().toISOString().split("T")[0])
-  const [procedureType, setProcedureType] = useState("")
-  const [customProcedure, setCustomProcedure] = useState("")
-  const [cost, setCost] = useState("")
+  const [isAdultTeeth, setIsAdultTeeth] = useState(true)
   const [amountPaid, setAmountPaid] = useState("")
   const [notes, setNotes] = useState<string[]>([])
   const [importantNotes, setImportantNotes] = useState<string[]>([])
-  const [loading, setLoading] = useState(false)
+  const [acts, setActs] = useState<ActRow[]>([emptyAct()])
+  const [focusedActIndex, setFocusedActIndex] = useState(0)
   const [procedureTypes, setProcedureTypes] = useState<ProcedureTypeDto[]>([])
-  const [loadingProcedureTypes, setLoadingProcedureTypes] = useState(false)
-  // Per-tooth conditions captured with this record, keyed by tooth number.
-  const [toothConds, setToothConds] = useState<Record<number, ToothCondForm>>({})
+  const [pickerOpenIndex, setPickerOpenIndex] = useState<number | null>(null)
+  const [loading, setLoading] = useState(false)
 
-  const patchToothForm = (n: number, patch: Partial<ToothCondForm>) =>
-    setToothConds((prev) => ({ ...prev, [n]: { ...(prev[n] ?? emptyToothForm()), ...patch } }))
-
-  const toggleToothSurface = (n: number, s: string) => {
-    setToothConds((prev) => {
-      const current = prev[n] ?? emptyToothForm()
-      const next = new Set(current.surfaces)
-      if (next.has(s)) next.delete(s)
-      else next.add(s)
-      return { ...prev, [n]: { ...current, surfaces: next } }
-    })
-  }
-
-  // Load procedure types when modal opens
+  // Load the active procedure catalog (the "Mes actes" picker source) when the modal opens.
   useEffect(() => {
-    if (open) {
-      loadProcedureTypes()
-    }
+    if (!open) return
+    procedureTypesApi
+      .list(false)
+      .then((data) => setProcedureTypes(data || []))
+      .catch(() => setProcedureTypes([]))
   }, [open])
 
-  const loadProcedureTypes = async () => {
-    try {
-      setLoadingProcedureTypes(true)
-      const data = await procedureTypesApi.list(false) // Only active procedure types
-      setProcedureTypes(data || [])
-    } catch (err) {
-      console.error("Failed to load procedure types:", err)
-      setProcedureTypes([]) // Ensure it's always an array
-    } finally {
-      setLoadingProcedureTypes(false)
-    }
-  }
-
-  // Reset form when modal opens/closes, or load record data if editing
+  // Reset (create) or prefill (edit) the form when the modal opens.
   useEffect(() => {
-    if (open) {
-      setPatientName(initialPatientName)
-      // Reset per-tooth conditions; edit mode re-hydrates them from the odontogram below.
-      setToothConds({})
+    if (!open) return
+    setPatientName(initialPatientName)
+    setFocusedActIndex(0)
 
-      if (record) {
-        // Edit mode: load record data
-        setInterventionDate(new Date(record.interventionDate).toISOString().split("T")[0])
-        
-        // Check if procedure type exists in the list, if not, treat as custom
-        const procedureExists = procedureTypes.some(p => p.name === record.procedureType)
-        if (procedureExists) {
-          setProcedureType(record.procedureType)
-          setCustomProcedure("")
-        } else {
-          setProcedureType("Custom")
-          setCustomProcedure(record.procedureType)
-        }
-        
-        setCost(record.cost.toString())
-        setAmountPaid(record.amountPaid.toString())
-        setIsAdultTeeth(record.isAdultTeeth)
-        setNotes([...record.notes])
-        setImportantNotes([...record.importantNotes])
-        
-        // Set selected teeth based on toothNumbers
-        const teethStatus: ToothStatus[] = record.toothNumbers.map(toothNum => ({
-          id: toothNum.toString(),
-          worked: true,
-          procedures: [{
-            type: record.procedureType,
-            notes: [...record.notes, ...record.importantNotes].filter(Boolean).join("; "),
-            date: record.interventionDate
-          }]
-        }))
-        setSelectedTeeth(teethStatus)
-      } else {
-        // Create mode: reset form
-        setSelectedTeeth([])
-        setIsAdultTeeth(true)
-        setInterventionDate(new Date().toISOString().split("T")[0])
-        setProcedureType("")
-        setCustomProcedure("")
-        setCost("")
-        setAmountPaid("")
-        setNotes([])
-        setImportantNotes([])
-      }
+    if (record) {
+      setInterventionDate(new Date(record.interventionDate).toISOString().split("T")[0])
+      setIsAdultTeeth(record.isAdultTeeth)
+      setAmountPaid(String(record.amountPaid))
+      setNotes([...record.notes])
+      setImportantNotes([...record.importantNotes])
+      setActs(
+        record.acts && record.acts.length > 0
+          ? record.acts.map((a) => ({
+              procedureTypeId: a.procedureTypeId ?? null,
+              procedureName: a.procedureName,
+              cost: String(a.cost),
+              toothNumbers: a.toothNumbers ?? [],
+              resultingCondition: a.resultingCondition ?? null,
+              surfaces: parseSurfaces(a.surfaces),
+              note: a.note ?? "",
+            }))
+          : [emptyAct()],
+      )
+    } else {
+      setInterventionDate(new Date().toISOString().split("T")[0])
+      setIsAdultTeeth(true)
+      setAmountPaid("")
+      setNotes([])
+      setImportantNotes([])
+      setActs([emptyAct()])
     }
   }, [open, initialPatientName, record])
 
-  // Edit mode: prefill the per-tooth condition rows from the odontogram entries recorded by THIS record.
-  useEffect(() => {
-    if (!open || !record || !patientId) return
-    let active = true
-    odontogramApi
-      .get(patientId)
-      .then((entries) => {
-        if (!active) return
-        const next: Record<number, ToothCondForm> = {}
-        for (const e of entries) {
-          if (e.dentalRecordId === record.id) {
-            next[e.toothNumber] = { condition: e.condition, surfaces: parseSurfaces(e.surfaces), note: e.note ?? "" }
-          }
+  const updateAct = (index: number, patch: Partial<ActRow>) => {
+    setActs((prev) => prev.map((a, i) => (i === index ? { ...a, ...patch } : a)))
+  }
+  const addAct = () => {
+    setActs((prev) => [...prev, emptyAct()])
+    setFocusedActIndex(acts.length) // the appended act lands at the current length
+  }
+  const removeAct = (index: number) => {
+    setActs((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== index) : prev))
+    setFocusedActIndex((prev) => {
+      if (acts.length <= 1) return 0
+      if (index < prev) return prev - 1
+      if (index === prev) return Math.min(prev, acts.length - 2)
+      return prev
+    })
+  }
+
+  // Chart-driven tooth selection: toggle a tooth in the currently focused act.
+  const toggleTooth = (n: number) => {
+    setActs((prev) =>
+      prev.map((a, i) => {
+        if (i !== focusedActIndex) return a
+        const has = a.toothNumbers.includes(n)
+        return {
+          ...a,
+          toothNumbers: has ? a.toothNumbers.filter((t) => t !== n) : [...a.toothNumbers, n].sort((x, y) => x - y),
         }
-        setToothConds(next)
-      })
-      .catch(() => {
-        // Non-blocking: the rows just start at "Sain" if the odontogram can't be fetched.
-      })
-    return () => {
-      active = false
-    }
-  }, [open, record, patientId])
+      }),
+    )
+  }
+  const clearActTeeth = (index: number) => updateAct(index, { toothNumbers: [] })
 
-  // Reclassify a known-vs-custom procedure once the async procedure-types list has loaded, WITHOUT re-running
-  // the full form reset (which would discard in-progress edits and, via the auto-fill-cost effect below, had
-  // overwritten an edited record's stored cost). Only touches procedureType/customProcedure.
+  const selectProcedureType = (index: number, pt: ProcedureTypeDto) => {
+    setActs((prev) =>
+      prev.map((a, i) =>
+        i === index
+          ? {
+              ...a,
+              procedureTypeId: pt.id,
+              procedureName: pt.name,
+              // Prefill the fee only when empty; prefill the resulting condition from the procedure.
+              cost: a.cost.trim() === "" && pt.defaultCost != null ? String(pt.defaultCost) : a.cost,
+              resultingCondition: pt.resultingCondition ?? a.resultingCondition,
+            }
+          : a,
+      ),
+    )
+    setPickerOpenIndex(null)
+  }
+
+  const detachProcedure = (index: number) => updateAct(index, { procedureTypeId: null })
+
+  const toggleActSurface = (index: number, s: string) => {
+    setActs((prev) =>
+      prev.map((a, i) => {
+        if (i !== index) return a
+        const next = new Set(a.surfaces)
+        if (next.has(s)) next.delete(s)
+        else next.add(s)
+        return { ...a, surfaces: next }
+      }),
+    )
+  }
+
+  const total = acts.reduce((sum, a) => {
+    const c = Number(a.cost)
+    return Number.isFinite(c) ? sum + c : sum
+  }, 0)
+
+  // Prefill amount paid to the full total only while it hasn't been set yet (never overwrites an entry).
   useEffect(() => {
-    if (!open || !record) return
-    const known = procedureTypes.some((p) => p.name === record.procedureType)
-    setProcedureType(known ? record.procedureType : "Custom")
-    setCustomProcedure(known ? "" : record.procedureType)
-  }, [open, record, procedureTypes])
+    if (total > 0 && amountPaid.trim() === "") setAmountPaid(String(total))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [total])
 
-  // Auto-fill cost when procedure type is selected (using useEffect to ensure latest state)
-  useEffect(() => {
-    // Only proceed if we have a procedure type selected, it's not Custom, and procedure types are loaded
-    if (!procedureType || procedureType === "Custom" || procedureTypes.length === 0 || loadingProcedureTypes) {
-      return
-    }
+  const reste = Math.max(0, total - (Number.parseFloat(amountPaid) || 0))
 
-    const selectedProcedure = procedureTypes.find(p => p.name === procedureType)
-    if (selectedProcedure && selectedProcedure.defaultCost != null && selectedProcedure.defaultCost > 0) {
-      const costValue = String(selectedProcedure.defaultCost)
-      // Only fill when cost is currently empty — never overwrite a value already present (an existing
-      // record's stored cost, or a value the user typed). Functional update reads the latest cost.
-      setCost(prev => (prev && prev.length > 0 ? prev : costValue))
+  // Per-tooth paint for the chart: focused act wins; otherwise the latest non-focused act's condition color.
+  const toothPaint = new Map<number, ToothPaint>()
+  acts.forEach((act, i) => {
+    const focused = i === focusedActIndex
+    const color = act.resultingCondition ? conditionStyle(act.resultingCondition).color : null
+    for (const n of act.toothNumbers) {
+      const prev = toothPaint.get(n)
+      const count = (prev?.count ?? 0) + 1
+      if (focused) {
+        toothPaint.set(n, { focused: true, color, count })
+      } else if (prev?.focused) {
+        toothPaint.set(n, { focused: true, color: prev.color, count })
+      } else {
+        toothPaint.set(n, { focused: false, color, count })
+      }
     }
-  }, [procedureType, procedureTypes, loadingProcedureTypes])
-
-  // Prefill amount paid to the full cost only when it hasn't been entered yet — a partial advance
-  // (amountPaid < cost) must not be silently overwritten to the full cost on save (AC-3).
-  useEffect(() => {
-    if (cost && !amountPaid) {
-      setAmountPaid(cost)
-    }
-  }, [cost])
+  })
 
   const handleSave = async () => {
     if (!patientId) {
-      toast.error("ID patient requis", {
-        description: "L'identifiant du patient est nécessaire pour sauvegarder",
-        duration: 3000,
-      })
+      toast.error("Identifiant du patient requis")
       return
     }
 
-    if (!procedureType) {
-      toast.error("Type de procédure requis", {
-        description: "Veuillez sélectionner un type de procédure",
-        duration: 3000,
-      })
+    const parsedActs: DentalActInput[] = acts
+      .map((a) => ({
+        procedureTypeId: a.procedureTypeId,
+        procedureName: a.procedureName.trim(),
+        cost: Number(a.cost) || 0,
+        toothNumbers: a.toothNumbers,
+        resultingCondition: a.resultingCondition, // null when "Aucun"
+        surfaces: serializeSurfaces(a.surfaces) || null,
+        note: a.note.trim() || null,
+      }))
+      .filter((a) => a.procedureName !== "")
+
+    if (parsedActs.length === 0) {
+      toast.error("Ajoutez au moins un acte", { description: "Chaque acte nécessite une désignation." })
       return
     }
 
-    if (procedureType === "Custom" && !customProcedure.trim()) {
-      toast.error("Nom de procédure requis", {
-        description: "Veuillez entrer un nom pour la procédure personnalisée",
-        duration: 3000,
-      })
-      return
+    // Teeth must match the selected dentition (backend also enforces).
+    const allowed = new Set(isAdultTeeth ? ADULT_FDI : CHILD_FDI)
+    for (const a of parsedActs) {
+      if (a.toothNumbers.some((t) => !allowed.has(t))) {
+        toast.error("Dents incompatibles", {
+          description: `Les dents d'un acte ne correspondent pas à la dentition ${isAdultTeeth ? "adulte" : "enfant"}.`,
+        })
+        return
+      }
     }
 
     setLoading(true)
-
     try {
-      // Get tooth numbers from selected teeth, or use empty array if none selected
-      const toothNumbers = selectedTeeth.length > 0 
-        ? selectedTeeth.map((t) => parseInt(t.id))
-        : []
-      
-      // Determine isAdultTeeth based on selected teeth, or default to true if no teeth selected
-      const finalIsAdultTeeth = toothNumbers.length > 0
-        ? isAdultTeeth
-        : true // Default to adult if no teeth selected
-
-      // Per-tooth conditions — only teeth whose condition ≠ "Sain" produce an entry.
-      const toothConditions: ToothConditionInput[] = toothNumbers
-        .map((n) => {
-          const form = toothConds[n] ?? emptyToothForm()
-          const surfaces = serializeSurfaces(form.surfaces)
-          return {
-            toothNumber: n,
-            condition: form.condition,
-            surfaces: surfaces || null,
-            note: form.note.trim() || null,
-          }
-        })
-        .filter((tc) => tc.condition !== "Sain")
-
       const recordData = {
         interventionDate,
-        procedureType: procedureType === "Custom" ? customProcedure.trim() : procedureType,
-        cost: Number.parseFloat(cost) || 0,
         amountPaid: Number.parseFloat(amountPaid) || 0,
-        isAdultTeeth: finalIsAdultTeeth,
-        toothNumbers,
-        notes: notes.filter(n => n.trim()).map(n => n.trim()),
-        importantNotes: importantNotes.filter(n => n.trim()).map(n => n.trim()),
-        toothConditions,
+        isAdultTeeth,
+        notes: notes.filter((n) => n.trim()).map((n) => n.trim()),
+        importantNotes: importantNotes.filter((n) => n.trim()).map((n) => n.trim()),
+        acts: parsedActs,
       }
 
       if (record) {
-        // Update existing record
         await dentalRecordsApi.update(patientId, record.id, recordData)
-        toast.success("Fiche dentaire mise à jour", {
-          description: "Les modifications ont été enregistrées avec succès",
-          duration: 3000,
-        })
+        toast.success("Fiche dentaire mise à jour")
       } else {
-        // Create new record
         await dentalRecordsApi.create(patientId, recordData)
-        toast.success("Fiche dentaire sauvegardée", {
-          description: "La nouvelle fiche dentaire a été créée avec succès",
-          duration: 3000,
-        })
+        toast.success("Fiche dentaire enregistrée")
       }
       onSuccess?.()
       onOpenChange(false)
     } catch (err) {
-      console.error("Failed to save dental record:", err)
-      const errorMessage = err instanceof ApiError ? err.message : "Une erreur s'est produite"
-      toast.error("Erreur lors de la sauvegarde", {
-        description: errorMessage,
-        duration: 4000,
+      toast.error("Erreur lors de l'enregistrement", {
+        description: err instanceof ApiError ? err.message : "Une erreur s'est produite.",
       })
     } finally {
       setLoading(false)
     }
   }
 
-  const isCustomProcedure = procedureType === "Custom"
-
-  // Currently-selected teeth (deduped, ascending) — drive the per-tooth condition rows.
-  const selectedToothNumbers = Array.from(
-    new Set(selectedTeeth.map((t) => parseInt(t.id, 10)).filter((n) => !Number.isNaN(n))),
-  ).sort((a, b) => a - b)
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto p-0 gap-0">
-        <DialogHeader className="p-6 pb-4">
-          <DialogTitle className="text-2xl">
-            {record ? "Edit Medical Record" : "Add Medical Record"}
-          </DialogTitle>
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{record ? "Modifier la fiche médicale" : "Ajouter une fiche médicale"}</DialogTitle>
+          <DialogDescription>
+            Détaillez les actes réalisés. L'état résultant de chaque acte alimente l'odontogramme du patient.
+          </DialogDescription>
         </DialogHeader>
 
-        <div className="overflow-y-auto max-h-[calc(90vh-180px)] px-6 pb-6 space-y-6">
+        <div className="space-y-5">
+          <div className="space-y-1.5">
+            <Label htmlFor="patient-name">Patient</Label>
+            <Input id="patient-name" value={patientName} readOnly className="font-medium" />
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="date">Date</Label>
+              <Input
+                id="date"
+                type="date"
+                value={interventionDate}
+                onChange={(e) => setInterventionDate(e.target.value)}
+                disabled={loading}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Dentition</Label>
+              <div className="flex items-center gap-1 rounded-lg bg-muted p-1 w-fit">
+                <Button
+                  type="button"
+                  variant={isAdultTeeth ? "default" : "ghost"}
+                  size="sm"
+                  className="h-8 px-4 text-xs"
+                  onClick={() => setIsAdultTeeth(true)}
+                  disabled={loading}
+                >
+                  Adulte
+                </Button>
+                <Button
+                  type="button"
+                  variant={!isAdultTeeth ? "default" : "ghost"}
+                  size="sm"
+                  className="h-8 px-4 text-xs"
+                  onClick={() => setIsAdultTeeth(false)}
+                  disabled={loading}
+                >
+                  Enfant
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {/* Visual dental chart — click a tooth to toggle it in the focused act. */}
           <div className="space-y-2">
-            <Label htmlFor="patient-name" className="text-sm font-semibold">
-              Patient Name
-            </Label>
-            <Input
-              id="patient-name"
-              value={patientName}
-              onChange={(e) => setPatientName(e.target.value)}
-              className="text-base font-medium"
-              placeholder="Enter patient name"
-              readOnly
-            />
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <Label>Schéma dentaire</Label>
+              <span className="text-xs text-muted-foreground">
+                Cliquez une dent pour l'ajouter/retirer de l'acte ciblé.
+              </span>
+            </div>
+            <RecordToothChart isAdult={isAdultTeeth} paint={toothPaint} onToggleTooth={toggleTooth} disabled={loading} />
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
+              {CONDITION_ORDER.filter((c) => c !== "Sain").map((c) => (
+                <span key={c} className="flex items-center gap-1">
+                  <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: conditionStyle(c).color }} />
+                  <span className="text-muted-foreground">{conditionStyle(c).label}</span>
+                </span>
+              ))}
+            </div>
           </div>
 
-          <div className="space-y-3">
-            <h3 className="text-sm font-semibold">Dental Chart (Optional)</h3>
-            <p className="text-xs text-muted-foreground">Select teeth if this procedure involved specific teeth. Leave empty if no teeth were involved.</p>
-            <DentalChart
-              onTeethChange={setSelectedTeeth}
-              initialData={selectedTeeth}
-              onTeethTypeChange={setIsAdultTeeth}
-            />
-          </div>
-
-          {/* Per-tooth conditions — captured on the odontogram for each selected tooth. */}
-          {selectedToothNumbers.length > 0 && (
-            <div className="space-y-3 border-t pt-4">
-              <h3 className="text-sm font-semibold">État des dents sélectionnées</h3>
-              <p className="text-xs text-muted-foreground">
-                Définissez l'état de chaque dent traitée (facultatif). « Sain » = aucun état enregistré.
-              </p>
-              <div className="space-y-2">
-                {selectedToothNumbers.map((n) => {
-                  const form = toothConds[n] ?? emptyToothForm()
-                  return (
-                    <div key={n} className="flex flex-wrap items-center gap-2 rounded-lg border p-2">
-                      <span className="flex h-7 w-9 shrink-0 items-center justify-center rounded-md border bg-muted text-xs font-semibold">
-                        {n}
+          {/* Acts */}
+          <div className="space-y-2">
+            <Label>Actes</Label>
+            <div className="space-y-3">
+              {acts.map((act, index) => {
+                const chipStyle = conditionStyle(act.resultingCondition ?? "Sain")
+                const isFocused = index === focusedActIndex
+                return (
+                  <div
+                    key={index}
+                    onClick={() => setFocusedActIndex(index)}
+                    className={cn(
+                      "cursor-pointer space-y-2 rounded-lg border p-3 transition-colors",
+                      isFocused ? "border-primary ring-2 ring-primary/60" : "hover:border-muted-foreground/40",
+                    )}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="flex items-center gap-1.5 text-xs font-medium">
+                        <span className={cn("h-2 w-2 rounded-full", isFocused ? "bg-primary" : "bg-muted-foreground/40")} />
+                        Acte {index + 1}
+                        {isFocused && <Badge variant="secondary" className="ml-1 text-[10px]">Ciblé</Badge>}
                       </span>
-                      <span className={cn("h-3 w-3 shrink-0 rounded-full border", conditionStyle(form.condition).swatch)} />
-                      <Select value={form.condition} onValueChange={(v) => patchToothForm(n, { condition: v })}>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          removeAct(index)
+                        }}
+                        disabled={loading || acts.length === 1}
+                        aria-label="Supprimer l'acte"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <Input
+                          value={act.procedureName}
+                          onChange={(e) => updateAct(index, { procedureName: e.target.value })}
+                          placeholder="Désignation de l'acte (ou choisir au catalogue)"
+                          disabled={loading}
+                        />
+                        <Popover
+                          open={pickerOpenIndex === index}
+                          onOpenChange={(o) => setPickerOpenIndex(o ? index : null)}
+                          modal
+                        >
+                          <PopoverTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-9 px-3 shrink-0"
+                              disabled={loading}
+                              title="Choisir un acte du catalogue"
+                            >
+                              <Search className="h-4 w-4" />
+                              <span className="sr-only">Choisir un acte du catalogue</span>
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="p-0 w-80" align="end">
+                            <Command>
+                              <CommandInput placeholder="Rechercher un acte…" />
+                              <CommandList>
+                                <CommandEmpty>Aucun acte trouvé.</CommandEmpty>
+                                <CommandGroup heading="Mes actes">
+                                  {procedureTypes.map((pt) => (
+                                    <CommandItem
+                                      key={pt.id}
+                                      value={`pt ${pt.name}`}
+                                      onSelect={() => selectProcedureType(index, pt)}
+                                    >
+                                      <div className="flex flex-col">
+                                        <span className="text-sm font-medium">{pt.name}</span>
+                                        {pt.defaultCost != null && pt.defaultCost > 0 && (
+                                          <span className="text-xs text-muted-foreground">{formatDT(pt.defaultCost)}</span>
+                                        )}
+                                      </div>
+                                    </CommandItem>
+                                  ))}
+                                </CommandGroup>
+                              </CommandList>
+                            </Command>
+                          </PopoverContent>
+                        </Popover>
+                      </div>
+                      {act.procedureTypeId && (
+                        <Badge variant="secondary" className="gap-1 text-xs">
+                          Catalogue
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              detachProcedure(index)
+                            }}
+                            className="ml-1 rounded-full hover:text-destructive"
+                            title="Détacher du catalogue (texte libre)"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </Badge>
+                      )}
+                    </div>
+
+                    {/* Teeth — set from the chart above (focus this act, then click teeth). */}
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-xs text-muted-foreground">Dents :</span>
+                      {act.toothNumbers.length > 0 ? (
+                        <>
+                          {act.toothNumbers.map((t) => (
+                            <Badge key={t} variant="secondary" className="text-xs">
+                              {t}
+                            </Badge>
+                          ))}
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-2 text-xs"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              clearActTeeth(index)
+                            }}
+                            disabled={loading}
+                          >
+                            Vider
+                          </Button>
+                        </>
+                      ) : (
+                        <span className="text-xs italic text-muted-foreground">
+                          {isFocused ? "cliquez une dent sur le schéma" : "aucune — ciblez cet acte pour en ajouter"}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs text-muted-foreground">Coût (DT)</span>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.001"
+                        value={act.cost}
+                        onChange={(e) => updateAct(index, { cost: e.target.value })}
+                        className="w-28"
+                        disabled={loading}
+                      />
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs text-muted-foreground">État résultant</span>
+                      <span className="inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs">
+                        <span
+                          className={cn(
+                            "h-2.5 w-2.5 rounded-full border",
+                            act.resultingCondition ? chipStyle.swatch : "bg-background",
+                          )}
+                        />
+                        {act.resultingCondition ? chipStyle.label : "Aucun"}
+                      </span>
+                      <Select
+                        value={act.resultingCondition ?? NO_CONDITION}
+                        onValueChange={(v) => updateAct(index, { resultingCondition: v === NO_CONDITION ? null : v })}
+                        disabled={loading}
+                      >
                         <SelectTrigger className="h-8 w-44 text-xs">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
+                          <SelectItem value={NO_CONDITION}>Aucun</SelectItem>
                           {CONDITION_ORDER.map((c) => (
                             <SelectItem key={c} value={c}>
                               {conditionStyle(c).label}
@@ -382,15 +537,20 @@ export function PatientRecordModal({
                           ))}
                         </SelectContent>
                       </Select>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs text-muted-foreground">Faces</span>
                       <div className="flex items-center gap-1">
                         {SURFACE_ORDER.map((s) => (
                           <Button
                             key={s}
                             type="button"
                             size="sm"
-                            variant={form.surfaces.has(s) ? "default" : "outline"}
+                            variant={act.surfaces.has(s) ? "default" : "outline"}
                             className="h-8 w-8 p-0 text-xs"
-                            onClick={() => toggleToothSurface(n, s)}
+                            onClick={() => toggleActSurface(index, s)}
+                            disabled={loading}
                             title={SURFACE_LABELS[s]}
                           >
                             {s}
@@ -398,255 +558,151 @@ export function PatientRecordModal({
                         ))}
                       </div>
                       <Input
-                        value={form.note}
-                        onChange={(e) => patchToothForm(n, { note: e.target.value })}
+                        value={act.note}
+                        onChange={(e) => updateAct(index, { note: e.target.value })}
                         placeholder="Note (optionnel)"
                         className="h-8 min-w-[8rem] flex-1 text-xs"
+                        disabled={loading}
                       />
                     </div>
-                  )
-                })}
-              </div>
-            </div>
-          )}
-
-          <div className="space-y-4 border-t pt-4">
-            <h3 className="text-sm font-semibold">Intervention Details</h3>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="date" className="text-sm font-medium">
-                  Date
-                </Label>
-                <Input
-                  id="date"
-                  type="date"
-                  value={interventionDate}
-                  onChange={(e) => setInterventionDate(e.target.value)}
-                  className="text-sm"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="procedure" className="text-sm font-medium">
-                  Procedure Type
-                </Label>
-                <Select 
-                  value={procedureType} 
-                  onValueChange={(value) => {
-                    setProcedureType(value)
-                    // Immediately try to set cost if procedure types are already loaded
-                    if (value && value !== "Custom" && procedureTypes.length > 0 && !loadingProcedureTypes) {
-                      const selectedProcedure = procedureTypes.find(p => p.name === value)
-                      if (selectedProcedure?.defaultCost != null && selectedProcedure.defaultCost > 0) {
-                        setCost(String(selectedProcedure.defaultCost))
-                      }
-                    }
-                  }} 
-                  disabled={loadingProcedureTypes}
-                >
-                  <SelectTrigger id="procedure" className="text-sm">
-                    <SelectValue placeholder={loadingProcedureTypes ? "Loading..." : "Select procedure"} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {procedureTypes.length === 0 && !loadingProcedureTypes ? (
-                      <div className="px-2 py-1.5 text-sm text-muted-foreground">No procedure types available</div>
-                    ) : (
-                      <>
-                        {procedureTypes.map((type) => (
-                          <SelectItem key={type.id} value={type.name}>
-                            <div className="flex items-center gap-2">
-                              <div
-                                className="h-3 w-3 rounded-full"
-                                style={{ backgroundColor: type.colorHex }}
-                              />
-                              {type.name}
-                            </div>
-                          </SelectItem>
-                        ))}
-                        <SelectItem value="Custom">Custom</SelectItem>
-                      </>
-                    )}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            {isCustomProcedure && (
-              <div className="space-y-2">
-                <Label htmlFor="custom-procedure" className="text-sm font-medium">
-                  Custom Procedure
-                </Label>
-                <Input
-                  id="custom-procedure"
-                  value={customProcedure}
-                  onChange={(e) => setCustomProcedure(e.target.value)}
-                  placeholder="Enter custom procedure"
-                  className="text-sm"
-                />
-              </div>
-            )}
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="cost" className="text-sm font-medium">
-                  Total Cost
-                </Label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
-                  <Input
-                    id="cost"
-                    type="number"
-                    value={cost}
-                    onChange={(e) => setCost(e.target.value)}
-                    placeholder="0.00"
-                    className="text-sm pl-7"
-                    step="0.01"
-                    min="0"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="paid" className="text-sm font-medium">
-                  Amount Paid
-                </Label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
-                  <Input
-                    id="paid"
-                    type="number"
-                    value={amountPaid}
-                    onChange={(e) => setAmountPaid(e.target.value)}
-                    placeholder="0.00"
-                    className="text-sm pl-7"
-                    step="0.01"
-                    min="0"
-                  />
-                </div>
-                {(() => {
-                  const reste = Math.max(0, (Number.parseFloat(cost) || 0) - (Number.parseFloat(amountPaid) || 0))
-                  return (
-                    <p className="text-xs text-muted-foreground">
-                      Reste à payer&nbsp;:{" "}
-                      <span className={reste > 0 ? "font-semibold text-amber-600" : "font-medium text-foreground"}>
-                        {formatDT(reste)}
-                      </span>
-                    </p>
-                  )
-                })()}
-              </div>
-            </div>
-
-            {/* Notes Section */}
-            <div className="space-y-3">
-              <Label className="text-sm font-medium">
-                Notes <span className="text-muted-foreground font-normal">(Optional)</span>
-              </Label>
-              <div className="space-y-2">
-                {notes.map((note, index) => (
-                  <div key={index} className="flex gap-2">
-                    <Textarea
-                      value={note}
-                      onChange={(e) => {
-                        const newNotes = [...notes]
-                        newNotes[index] = e.target.value
-                        setNotes(newNotes)
-                      }}
-                      placeholder="Enter a note..."
-                      className="text-sm min-h-[80px] resize-y"
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => {
-                        const newNotes = notes.filter((_, i) => i !== index)
-                        setNotes(newNotes)
-                      }}
-                      className="shrink-0"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M3 6h18" />
-                        <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                        <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-                      </svg>
-                    </Button>
                   </div>
-                ))}
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setNotes([...notes, ""])}
-                  className="w-full"
-                >
-                  + Add Note
-                </Button>
+                )
+              })}
+            </div>
+            <Button type="button" variant="outline" size="sm" onClick={addAct} disabled={loading} className="gap-2">
+              <Plus className="h-4 w-4" /> Ajouter un acte
+            </Button>
+          </div>
+
+          {/* Totals + payment */}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="paid">Montant payé (DT)</Label>
+              <Input
+                id="paid"
+                type="number"
+                min="0"
+                step="0.001"
+                value={amountPaid}
+                onChange={(e) => setAmountPaid(e.target.value)}
+                placeholder="0.000"
+                disabled={loading}
+              />
+              <p className="text-xs text-muted-foreground">
+                Reste à payer :{" "}
+                <span className={reste > 0 ? "font-semibold text-amber-600" : "font-medium text-foreground"}>
+                  {formatDT(reste)}
+                </span>
+              </p>
+            </div>
+            <div className="flex items-end justify-end">
+              <div className="text-sm">
+                <span className="text-muted-foreground">Total :&nbsp;</span>
+                <span className="font-semibold">{formatDT(total)}</span>
               </div>
             </div>
+          </div>
 
-            {/* Important Notes Section */}
-            <div className="space-y-3">
-              <Label className="text-sm font-medium">
-                Important Notes <span className="text-muted-foreground font-normal">(Optional)</span>
-                <span className="ml-2 text-xs text-amber-600 dark:text-amber-500">⚠ Highlighted for doctors</span>
-              </Label>
-              <div className="space-y-2">
-                {importantNotes.map((note, index) => (
-                  <div key={index} className="flex gap-2">
-                    <Textarea
-                      value={note}
-                      onChange={(e) => {
-                        const newNotes = [...importantNotes]
-                        newNotes[index] = e.target.value
-                        setImportantNotes(newNotes)
-                      }}
-                      placeholder="Enter an important note (will be highlighted)..."
-                      className="text-sm min-h-[80px] resize-y border-amber-300 dark:border-amber-700 bg-amber-50/50 dark:bg-amber-950/20"
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => {
-                        const newNotes = importantNotes.filter((_, i) => i !== index)
-                        setImportantNotes(newNotes)
-                      }}
-                      className="shrink-0"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M3 6h18" />
-                        <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                        <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-                      </svg>
-                    </Button>
-                  </div>
-                ))}
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setImportantNotes([...importantNotes, ""])}
-                  className="w-full border-amber-300 dark:border-amber-700"
-                >
-                  + Add Important Note
-                </Button>
-              </div>
+          {/* Notes */}
+          <div className="space-y-3">
+            <Label>
+              Notes <span className="font-normal text-muted-foreground">(facultatif)</span>
+            </Label>
+            <div className="space-y-2">
+              {notes.map((note, index) => (
+                <div key={index} className="flex gap-2">
+                  <Textarea
+                    value={note}
+                    onChange={(e) => {
+                      const next = [...notes]
+                      next[index] = e.target.value
+                      setNotes(next)
+                    }}
+                    placeholder="Saisir une note…"
+                    className="min-h-[70px] resize-y text-sm"
+                    disabled={loading}
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="shrink-0"
+                    onClick={() => setNotes(notes.filter((_, i) => i !== index))}
+                    disabled={loading}
+                    aria-label="Supprimer la note"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setNotes([...notes, ""])}
+                className="w-full"
+                disabled={loading}
+              >
+                <Plus className="mr-1 h-4 w-4" /> Ajouter une note
+              </Button>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <Label>
+              Notes importantes <span className="font-normal text-muted-foreground">(facultatif)</span>
+              <span className="ml-2 text-xs text-amber-600 dark:text-amber-500">⚠ Mises en évidence</span>
+            </Label>
+            <div className="space-y-2">
+              {importantNotes.map((note, index) => (
+                <div key={index} className="flex gap-2">
+                  <Textarea
+                    value={note}
+                    onChange={(e) => {
+                      const next = [...importantNotes]
+                      next[index] = e.target.value
+                      setImportantNotes(next)
+                    }}
+                    placeholder="Saisir une note importante…"
+                    className="min-h-[70px] resize-y border-amber-300 bg-amber-50/50 text-sm dark:border-amber-700 dark:bg-amber-950/20"
+                    disabled={loading}
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="shrink-0"
+                    onClick={() => setImportantNotes(importantNotes.filter((_, i) => i !== index))}
+                    disabled={loading}
+                    aria-label="Supprimer la note importante"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setImportantNotes([...importantNotes, ""])}
+                className="w-full border-amber-300 dark:border-amber-700"
+                disabled={loading}
+              >
+                <Plus className="mr-1 h-4 w-4" /> Ajouter une note importante
+              </Button>
             </div>
           </div>
         </div>
 
-        <DialogFooter className="p-6 pt-4 border-t">
+        <DialogFooter className="gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
-            Cancel
+            Annuler
           </Button>
-          <Button onClick={handleSave} className="bg-blue-600 hover:bg-blue-700 min-w-[140px]" disabled={loading}>
-            {loading ? (record ? "Updating..." : "Saving...") : (record ? "Update Record" : "Save Record")}
+          <Button onClick={handleSave} disabled={loading} className="min-w-[140px]">
+            {loading ? "Enregistrement…" : record ? "Enregistrer" : "Créer la fiche"}
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   )
 }
-

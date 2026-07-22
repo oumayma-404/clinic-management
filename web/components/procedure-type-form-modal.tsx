@@ -15,11 +15,16 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Check } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
 import type { ProcedureTypeDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
+import { CONDITION_ORDER, conditionStyle } from "@/components/odontogram-conditions"
+
+// Sentinel for the "no resulting condition" option (Radix Select forbids an empty-string value).
+const NO_CONDITION = "__none__"
 
 // Curated color palette - must match backend ColorHex value object
 const COLOR_PALETTE = [
@@ -48,6 +53,7 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
   const [defaultCost, setDefaultCost] = useState("")
   const [description, setDescription] = useState("")
   const [selectedColor, setSelectedColor] = useState(COLOR_PALETTE[0].value)
+  const [resultingCondition, setResultingCondition] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -59,6 +65,7 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
       setDefaultCost(editingProcedure.defaultCost ? String(editingProcedure.defaultCost) : "")
       setDescription(editingProcedure.description || "")
       setSelectedColor(editingProcedure.colorHex)
+      setResultingCondition(editingProcedure.resultingCondition ?? null)
     } else {
       // Reset form for new procedure
       setName("")
@@ -66,6 +73,7 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
       setDefaultCost("")
       setDescription("")
       setSelectedColor(COLOR_PALETTE[0].value)
+      setResultingCondition(null)
     }
     setError(null)
   }, [editingProcedure, open])
@@ -112,6 +120,7 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
           defaultCost: defaultCostValue,
           colorHex: selectedColor,
           description: description.trim() || undefined,
+          resultingCondition,
         })
       } else {
         // Create new procedure
@@ -121,6 +130,7 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
           defaultCost: defaultCostValue,
           colorHex: selectedColor,
           description: description.trim() || undefined,
+          resultingCondition,
         })
       }
 
@@ -227,6 +237,32 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
               className="resize-none"
               disabled={loading}
             />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="resultingCondition" className="text-sm">
+              État résultant sur l'odontogramme (facultatif)
+            </Label>
+            <Select
+              value={resultingCondition ?? NO_CONDITION}
+              onValueChange={(v) => setResultingCondition(v === NO_CONDITION ? null : v)}
+              disabled={loading}
+            >
+              <SelectTrigger id="resultingCondition">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NO_CONDITION}>Aucun</SelectItem>
+                {CONDITION_ORDER.map((c) => (
+                  <SelectItem key={c} value={c}>
+                    {conditionStyle(c).label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              État appliqué automatiquement aux dents traitées par cet acte dans l'odontogramme.
+            </p>
           </div>
 
           <div className="space-y-2">

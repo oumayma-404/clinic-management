@@ -7,18 +7,20 @@ export interface ConditionStyle {
   box: string
   /** Legend / dot swatch background classes. */
   swatch: string
+  /** SVG fill hex (dental chart tooth glyph). */
+  color: string
 }
 
 export const CONDITIONS: Record<string, ConditionStyle> = {
-  Sain: { label: "Sain", box: "bg-background text-foreground border-border", swatch: "bg-background border-border" },
-  Carie: { label: "Carie", box: "bg-red-500 text-white border-red-600", swatch: "bg-red-500" },
-  Obturation: { label: "Obturation", box: "bg-blue-500 text-white border-blue-600", swatch: "bg-blue-500" },
-  Couronne: { label: "Couronne", box: "bg-amber-500 text-white border-amber-600", swatch: "bg-amber-500" },
-  TraitementDeCanal: { label: "Traitement de canal", box: "bg-purple-500 text-white border-purple-600", swatch: "bg-purple-500" },
-  Bridge: { label: "Bridge", box: "bg-teal-500 text-white border-teal-600", swatch: "bg-teal-500" },
-  Implant: { label: "Implant", box: "bg-slate-600 text-white border-slate-700", swatch: "bg-slate-600" },
-  ExtraitAbsent: { label: "Extrait / Absent", box: "bg-gray-300 text-gray-500 border-gray-400 line-through dark:bg-gray-700 dark:text-gray-400", swatch: "bg-gray-300 dark:bg-gray-700" },
-  ATraiter: { label: "À traiter", box: "bg-orange-400 text-white border-orange-500", swatch: "bg-orange-400" },
+  Sain: { label: "Sain", box: "bg-background text-foreground border-border", swatch: "bg-background border-border", color: "#e5e7eb" },
+  Carie: { label: "Carie", box: "bg-red-500 text-white border-red-600", swatch: "bg-red-500", color: "#ef4444" },
+  Obturation: { label: "Obturation", box: "bg-blue-500 text-white border-blue-600", swatch: "bg-blue-500", color: "#3b82f6" },
+  Couronne: { label: "Couronne", box: "bg-amber-500 text-white border-amber-600", swatch: "bg-amber-500", color: "#f59e0b" },
+  TraitementDeCanal: { label: "Traitement de canal", box: "bg-purple-500 text-white border-purple-600", swatch: "bg-purple-500", color: "#a855f7" },
+  Bridge: { label: "Bridge", box: "bg-teal-500 text-white border-teal-600", swatch: "bg-teal-500", color: "#14b8a6" },
+  Implant: { label: "Implant", box: "bg-slate-600 text-white border-slate-700", swatch: "bg-slate-600", color: "#475569" },
+  ExtraitAbsent: { label: "Extrait / Absent", box: "bg-gray-300 text-gray-500 border-gray-400 line-through dark:bg-gray-700 dark:text-gray-400", swatch: "bg-gray-300 dark:bg-gray-700", color: "#9ca3af" },
+  ATraiter: { label: "À traiter", box: "bg-orange-400 text-white border-orange-500", swatch: "bg-orange-400", color: "#fb923c" },
 }
 
 // Order for the condition <Select> and the legend.

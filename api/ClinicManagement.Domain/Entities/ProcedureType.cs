@@ -12,6 +12,8 @@ public class ProcedureType : AggregateRoot<Guid>
     public decimal? DefaultCost { get; private set; }
     public ColorHex Color { get; private set; }
     public string? Description { get; private set; }
+    /// <summary>Odontogram state a dental act of this procedure produces (null = no tooth-state change). Editable.</summary>
+    public ToothCondition? ResultingCondition { get; private set; }
     public bool IsActive { get; private set; }
     public DateTime CreatedAt { get; private set; }
     public DateTime? UpdatedAt { get; private set; }
@@ -28,7 +30,8 @@ public class ProcedureType : AggregateRoot<Guid>
         int defaultDurationMinutes,
         ColorHex color,
         string? description = null,
-        decimal? defaultCost = null)
+        decimal? defaultCost = null,
+        ToothCondition? resultingCondition = null)
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new ArgumentException("Name cannot be null or empty", nameof(name));
@@ -52,8 +55,15 @@ public class ProcedureType : AggregateRoot<Guid>
         DefaultCost = defaultCost;
         Color = color;
         Description = description?.Trim();
+        ResultingCondition = resultingCondition == ToothCondition.Sain ? null : resultingCondition;
         IsActive = true;
         CreatedAt = DateTime.UtcNow;
+    }
+
+    public void UpdateResultingCondition(ToothCondition? resultingCondition)
+    {
+        ResultingCondition = resultingCondition == ToothCondition.Sain ? null : resultingCondition;
+        UpdatedAt = DateTime.UtcNow;
     }
 
     public void UpdateName(string name)

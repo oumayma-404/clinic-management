@@ -1,17 +1,14 @@
 import { apiGet, apiPost, apiPut, apiDelete } from './client';
-import type { DentalRecordDto, ToothConditionInput } from './types';
+import type { DentalRecordDto, DentalActInput } from './types';
 
 export interface CreateDentalRecordRequest {
   interventionDate: string;
-  procedureType: string;
-  cost: number;
   amountPaid: number;
   isAdultTeeth: boolean;
-  toothNumbers: number[];
   notes: string[];
   importantNotes: string[];
-  // Per-tooth conditions recorded with this act (used for both create and update).
-  toothConditions: ToothConditionInput[];
+  // Act line items (used for both create and update). procedureType/cost/teeth are derived server-side.
+  acts: DentalActInput[];
 }
 
 export const dentalRecordsApi = {

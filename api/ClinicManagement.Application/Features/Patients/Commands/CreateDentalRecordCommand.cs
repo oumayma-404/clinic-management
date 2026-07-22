@@ -2,6 +2,7 @@ using MediatR;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Features.Patients;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
@@ -12,13 +13,10 @@ public class CreateDentalRecordCommand : IRequest<Result<DentalRecordDto>>
 {
     public Guid PatientId { get; set; }
     public DateTime InterventionDate { get; set; }
-    public string ProcedureType { get; set; } = string.Empty;
-    public decimal Cost { get; set; }
     public decimal AmountPaid { get; set; }
     public bool IsAdultTeeth { get; set; }
-    public List<int> ToothNumbers { get; set; } = new();
-    /// <summary>Per-tooth condition recorded for this session — feeds the patient's odontogram.</summary>
-    public List<ToothConditionInput> ToothConditions { get; set; } = new();
+    /// <summary>The acts performed this session — the record's procedure summary + cost are derived from these.</summary>
+    public List<DentalActInput> Acts { get; set; } = new();
     public List<string> Notes { get; set; } = new();
     public List<string> ImportantNotes { get; set; } = new();
 }
@@ -49,9 +47,9 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
     {
         try
         {
-            if (string.IsNullOrWhiteSpace(request.ProcedureType))
+            if (request.Acts.Count == 0)
             {
-                return Result<DentalRecordDto>.Failure("Procedure type is required");
+                return Result<DentalRecordDto>.Failure("Au moins un acte est requis.");
             }
 
             var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
@@ -66,63 +64,35 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
                 return Result<DentalRecordDto>.Failure("Patient not found");
             }
 
-            // Validate tooth numbers match the teeth type (adult vs child)
-            foreach (var toothNumber in request.ToothNumbers)
+            var parsed = DentalRecordActParser.Parse(request.Acts, request.IsAdultTeeth);
+            if (parsed.IsFailure)
             {
-                var isAdultTooth = DentalRecordTooth.IsAdultTooth(toothNumber);
-                if (isAdultTooth != request.IsAdultTeeth)
-                {
-                    return Result<DentalRecordDto>.Failure(
-                        $"Tooth number {toothNumber} is {(isAdultTooth ? "an adult" : "a child")} tooth, but the record is marked for {(request.IsAdultTeeth ? "adult" : "child")} teeth");
-                }
+                return Result<DentalRecordDto>.Failure(parsed.Error!);
             }
 
-            var dentalRecord = new DentalRecord(
+            var record = new DentalRecord(
                 Guid.NewGuid(),
                 request.PatientId,
                 request.InterventionDate,
-                request.ProcedureType,
-                request.Cost,
                 request.AmountPaid,
                 request.IsAdultTeeth,
                 request.Notes,
                 request.ImportantNotes);
 
-            // Add teeth
-            foreach (var toothNumber in request.ToothNumbers)
-            {
-                dentalRecord.AddTooth(toothNumber);
-            }
+            record.SetActs(parsed.Value!.Select(p =>
+                (p.Input.ProcedureTypeId, p.Input.ProcedureName, p.Input.Cost,
+                 (IReadOnlyList<int>)p.Input.ToothNumbers, p.Condition, p.Input.Surfaces, p.Input.Note)));
 
-            await _dentalRecordRepository.AddAsync(dentalRecord, cancellationToken);
+            await _dentalRecordRepository.AddAsync(record, cancellationToken);
 
-            // Record each tooth's condition into the odontogram (linked to this record + its date).
-            var toothStatesResult = await AddToothStatesAsync(request, dentalRecord, cancellationToken);
-            if (toothStatesResult.IsFailure)
+            foreach (var toothState in DentalRecordActParser.BuildToothStates(parsed.Value!, request.PatientId, request.InterventionDate, record.Id))
             {
-                return Result<DentalRecordDto>.Failure(toothStatesResult.Error!);
+                await _toothStateRepository.AddAsync(toothState, cancellationToken);
             }
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var dto = new DentalRecordDto
-            {
-                Id = dentalRecord.Id,
-                PatientId = dentalRecord.PatientId,
-                InterventionDate = dentalRecord.InterventionDate,
-                ProcedureType = dentalRecord.ProcedureType,
-                Cost = dentalRecord.Cost,
-                AmountPaid = dentalRecord.AmountPaid,
-                Balance = dentalRecord.Cost - dentalRecord.AmountPaid,
-                Notes = dentalRecord.Notes.ToList(),
-                ImportantNotes = dentalRecord.ImportantNotes.ToList(),
-                IsAdultTeeth = dentalRecord.IsAdultTeeth,
-                ToothNumbers = dentalRecord.Teeth.Select(t => t.ToothNumber).OrderBy(t => t).ToList(),
-                CreatedAt = dentalRecord.CreatedAt,
-                UpdatedAt = dentalRecord.UpdatedAt
-            };
-
-            return Result<DentalRecordDto>.Success(dto);
+            return Result<DentalRecordDto>.Success(record.ToDto());
         }
         catch (ArgumentException ex)
         {
@@ -132,35 +102,5 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
         {
             return Result<DentalRecordDto>.Failure($"Error creating dental record: {ex.Message}");
         }
-    }
-
-    private async Task<Result> AddToothStatesAsync(CreateDentalRecordCommand request, DentalRecord dentalRecord, CancellationToken cancellationToken)
-    {
-        foreach (var tc in request.ToothConditions)
-        {
-            if (!Enum.TryParse<ToothCondition>(tc.Condition, ignoreCase: true, out var condition))
-            {
-                return Result.Failure("État de dent invalide.");
-            }
-            // "Sain" is the implicit default — not a recorded treatment.
-            if (condition == ToothCondition.Sain)
-            {
-                continue;
-            }
-
-            var toothState = new ToothState(
-                Guid.NewGuid(),
-                request.PatientId,
-                tc.ToothNumber,
-                condition,
-                request.InterventionDate,
-                tc.Surfaces,
-                tc.Note,
-                dentalRecord.Id);
-
-            await _toothStateRepository.AddAsync(toothState, cancellationToken);
-        }
-
-        return Result.Success();
     }
 }

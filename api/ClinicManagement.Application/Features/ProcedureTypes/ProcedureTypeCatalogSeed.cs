@@ -1,4 +1,5 @@
 using ClinicManagement.Domain.Entities;
+using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.ValueObjects;
 
 namespace ClinicManagement.Application.Features.ProcedureTypes;
@@ -33,6 +34,18 @@ public static class ProcedureTypeCatalogSeed
     };
 
     private const string FallbackColor = "#6C757D";
+
+    // Default odontogram state a procedure of each category produces (editable per procedure; overridable per act).
+    // Coarse defaults — categories mixing states (e.g. Pédodontie, Prothèse fixe with bridges) rely on the
+    // admin/per-act override. Categories not listed produce no tooth-state change.
+    private static readonly Dictionary<string, ToothCondition?> CategoryResultingConditions = new()
+    {
+        ["Soins conservateurs"] = ToothCondition.Obturation,
+        ["Endodontie"] = ToothCondition.TraitementDeCanal,
+        ["Chirurgie/Extraction"] = ToothCondition.ExtraitAbsent,
+        ["Prothèse fixe"] = ToothCondition.Couronne,
+        ["Implantologie"] = ToothCondition.Implant,
+    };
 
     public static IReadOnlyList<SeedRow> Rows { get; } = new List<SeedRow>
     {
@@ -89,5 +102,6 @@ public static class ProcedureTypeCatalogSeed
             r.DurationMinutes,
             ColorHex.FromString(CategoryColors.TryGetValue(r.Category, out var color) ? color : FallbackColor),
             r.Category,
-            r.DefaultCost));
+            r.DefaultCost,
+            CategoryResultingConditions.TryGetValue(r.Category, out var condition) ? condition : null));
 }

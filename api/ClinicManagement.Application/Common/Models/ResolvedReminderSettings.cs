@@ -22,4 +22,11 @@ public sealed record ResolvedReminderSettings
     public string? WhatsAppTemplateName { get; init; }
     public string? WhatsAppTemplateLanguage { get; init; }
     public string? WhatsAppAccessToken { get; init; }
+
+    /// <summary>
+    /// Whether the WhatsApp template carries a single body variable (<c>{{1}}</c>) that receives the rendered
+    /// reminder text. True (default) for a proper reminder template; false for a parameter-less template
+    /// (e.g. a canned <c>hello_world</c>) where the sender must omit the body component or Meta rejects it.
+    /// </summary>
+    public bool WhatsAppTemplateHasBodyParam { get; init; } = true;
 }

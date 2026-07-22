@@ -16,6 +16,7 @@ export const procedureTypesApi = {
     defaultCost?: number | null;
     colorHex: string;
     description?: string;
+    resultingCondition?: string | null;
   }): Promise<ProcedureTypeDto> => {
     return apiPost<ProcedureTypeDto>('/procedure-types', {
       name: data.name,
@@ -23,6 +24,7 @@ export const procedureTypesApi = {
       defaultCost: data.defaultCost,
       colorHex: data.colorHex,
       description: data.description,
+      resultingCondition: data.resultingCondition,
     });
   },
 
@@ -32,6 +34,7 @@ export const procedureTypesApi = {
     defaultCost?: number | null;
     colorHex?: string;
     description?: string;
+    resultingCondition?: string | null;
   }): Promise<ProcedureTypeDto> => {
     return apiPut<ProcedureTypeDto>(`/procedure-types/${id}`, data);
   },

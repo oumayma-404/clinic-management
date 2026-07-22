@@ -42,6 +42,7 @@ public class ApplicationDbContext : DbContext
     public DbSet<PatientFamilyHistory> PatientFamilyHistories { get; set; }
     public DbSet<DentalRecord> DentalRecords { get; set; }
     public DbSet<DentalRecordTooth> DentalRecordTeeth { get; set; }
+    public DbSet<DentalRecordAct> DentalRecordActs { get; set; }
     // Persistent odontogram — child-of-patient (no ClinicId, no HasQueryFilter); tenant-scoped via the patient.
     public DbSet<ToothState> ToothStates { get; set; }
     public DbSet<PatientFolder> PatientFolders { get; set; }

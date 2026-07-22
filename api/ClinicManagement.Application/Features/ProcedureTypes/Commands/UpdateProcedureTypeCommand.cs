@@ -2,6 +2,7 @@ using MediatR;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Domain.ValueObjects;
 using Microsoft.Extensions.Logging;
@@ -16,6 +17,8 @@ public class UpdateProcedureTypeCommand : IRequest<Result<ProcedureTypeDto>>
     public decimal? DefaultCost { get; set; }
     public string? ColorHex { get; set; }
     public string? Description { get; set; }
+    /// <summary>When provided, sets the resulting odontogram state ("" clears it).</summary>
+    public string? ResultingCondition { get; set; }
 }
 
 public class UpdateProcedureTypeCommandHandler : IRequestHandler<UpdateProcedureTypeCommand, Result<ProcedureTypeDto>>
@@ -141,6 +144,21 @@ public class UpdateProcedureTypeCommandHandler : IRequestHandler<UpdateProcedure
                 procedureType.UpdateDescription(request.Description);
             }
 
+            // Update resulting odontogram state if provided ("" clears it).
+            if (request.ResultingCondition != null)
+            {
+                ToothCondition? rc = null;
+                if (!string.IsNullOrWhiteSpace(request.ResultingCondition))
+                {
+                    if (!Enum.TryParse<ToothCondition>(request.ResultingCondition, ignoreCase: true, out var parsedRc))
+                    {
+                        return Result<ProcedureTypeDto>.Failure("État résultant invalide.");
+                    }
+                    rc = parsedRc;
+                }
+                procedureType.UpdateResultingCondition(rc);
+            }
+
             // Update all appointments that use this procedure type if name or color changed
             bool needsAppointmentUpdate = (request.Name != null && oldName != request.Name) || 
                                          (request.ColorHex != null && oldColorHex != request.ColorHex);
@@ -185,6 +203,7 @@ public class UpdateProcedureTypeCommandHandler : IRequestHandler<UpdateProcedure
                 DefaultCost = procedureType.DefaultCost,
                 ColorHex = procedureType.Color.Value,
                 Description = procedureType.Description,
+                ResultingCondition = procedureType.ResultingCondition?.ToString(),
                 IsActive = procedureType.IsActive,
                 CreatedAt = procedureType.CreatedAt,
                 UpdatedAt = procedureType.UpdatedAt

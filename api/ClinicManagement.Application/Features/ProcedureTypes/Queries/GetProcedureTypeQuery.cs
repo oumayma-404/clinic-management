@@ -54,6 +54,7 @@ public class GetProcedureTypeQueryHandler : IRequestHandler<GetProcedureTypeQuer
                 DefaultCost = procedureType.DefaultCost,
                 ColorHex = procedureType.Color.Value,
                 Description = procedureType.Description,
+                ResultingCondition = procedureType.ResultingCondition?.ToString(),
                 IsActive = procedureType.IsActive,
                 CreatedAt = procedureType.CreatedAt,
                 UpdatedAt = procedureType.UpdatedAt

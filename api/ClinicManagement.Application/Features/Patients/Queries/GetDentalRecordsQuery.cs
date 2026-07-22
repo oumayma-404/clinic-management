@@ -2,6 +2,7 @@ using MediatR;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Features.Patients;
 using ClinicManagement.Domain.Repositories;
 
 namespace ClinicManagement.Application.Features.Patients.Queries;
@@ -48,22 +49,7 @@ public class GetDentalRecordsQueryHandler : IRequestHandler<GetDentalRecordsQuer
 
             var records = await _dentalRecordRepository.GetByPatientIdAsync(request.PatientId, cancellationToken);
 
-            var dtos = records.Select(dr => new DentalRecordDto
-            {
-                Id = dr.Id,
-                PatientId = dr.PatientId,
-                InterventionDate = dr.InterventionDate,
-                ProcedureType = dr.ProcedureType,
-                Cost = dr.Cost,
-                AmountPaid = dr.AmountPaid,
-                Balance = dr.Cost - dr.AmountPaid,
-                Notes = dr.Notes.ToList(),
-                ImportantNotes = dr.ImportantNotes.ToList(),
-                IsAdultTeeth = dr.IsAdultTeeth,
-                ToothNumbers = dr.Teeth.Select(t => t.ToothNumber).OrderBy(t => t).ToList(),
-                CreatedAt = dr.CreatedAt,
-                UpdatedAt = dr.UpdatedAt
-            });
+            var dtos = records.Select(dr => dr.ToDto()).ToList();
 
             return Result<IEnumerable<DentalRecordDto>>.Success(dtos);
         }

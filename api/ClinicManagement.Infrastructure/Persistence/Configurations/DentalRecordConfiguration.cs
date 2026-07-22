@@ -76,6 +76,15 @@ public class DentalRecordConfiguration : IEntityTypeConfiguration<DentalRecord>
             .WithOne(t => t.DentalRecord)
             .HasForeignKey(t => t.DentalRecordId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        // Relationship with Acts (the line items; cascade-deleted with the record).
+        builder.HasMany(dr => dr.Acts)
+            .WithOne()
+            .HasForeignKey(a => a.DentalRecordId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        builder.Navigation(dr => dr.Teeth).UsePropertyAccessMode(PropertyAccessMode.Field);
+        builder.Navigation(dr => dr.Acts).UsePropertyAccessMode(PropertyAccessMode.Field);
     }
 }
 

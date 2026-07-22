@@ -45,28 +45,46 @@ public class WhatsAppSender : HttpReminderChannelSender, IReminderChannelSender
             : settings.WhatsAppTemplateLanguage;
 
         // Graph API "to" wants the E.164 number without the leading '+'.
-        var payload = new
-        {
-            messaging_product = "whatsapp",
-            to = phoneE164.TrimStart('+'),
-            type = "template",
-            template = new
+        var to = phoneE164.TrimStart('+');
+        var language = new { code = templateLanguage };
+
+        // A proper reminder template has one body variable {{1}} that receives the rendered text. A
+        // parameter-less template (e.g. hello_world) must be sent WITHOUT a components array, or Meta rejects
+        // it with "#132000 number of params does not match". Branch on the resolved setting.
+        object payload = settings.WhatsAppTemplateHasBodyParam
+            ? new
             {
-                name = settings.WhatsAppTemplateName,
-                language = new { code = templateLanguage },
-                components = new[]
+                messaging_product = "whatsapp",
+                to,
+                type = "template",
+                template = new
                 {
-                    new
+                    name = settings.WhatsAppTemplateName,
+                    language,
+                    components = new[]
                     {
-                        type = "body",
-                        parameters = new[]
+                        new
                         {
-                            new { type = "text", text = message }
+                            type = "body",
+                            parameters = new[]
+                            {
+                                new { type = "text", text = message }
+                            }
                         }
                     }
                 }
             }
-        };
+            : new
+            {
+                messaging_product = "whatsapp",
+                to,
+                type = "template",
+                template = new
+                {
+                    name = settings.WhatsAppTemplateName,
+                    language
+                }
+            };
 
         return PostJsonAsync(endpoint, payload, settings.WhatsAppAccessToken, "WhatsApp", cancellationToken);
     }

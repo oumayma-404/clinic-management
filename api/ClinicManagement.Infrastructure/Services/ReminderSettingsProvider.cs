@@ -76,6 +76,7 @@ public class ReminderSettingsProvider : IReminderSettingsProvider
             WhatsAppTemplateName = clinic?.WhatsAppTemplateName ?? RemindersConfig.WhatsAppTemplateName(_configuration),
             WhatsAppTemplateLanguage = clinic?.WhatsAppTemplateLanguage ?? RemindersConfig.WhatsAppTemplateLanguage(_configuration),
             WhatsAppAccessToken = ResolveSecret(clinic?.WhatsAppAccessTokenEncrypted, RemindersConfig.WhatsAppAccessToken(_configuration), NotificationType.WhatsApp),
+            WhatsAppTemplateHasBodyParam = RemindersConfig.WhatsAppTemplateHasBodyParam(_configuration),
         };
 
         _resolveCache[cacheKey] = resolved;

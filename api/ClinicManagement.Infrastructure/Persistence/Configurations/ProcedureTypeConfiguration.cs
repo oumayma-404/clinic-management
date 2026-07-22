@@ -46,6 +46,9 @@ public class ProcedureTypeConfiguration : IEntityTypeConfiguration<ProcedureType
         builder.Property(pt => pt.Description)
             .HasMaxLength(1000);
 
+        builder.Property(pt => pt.ResultingCondition)
+            .HasConversion<int?>();
+
         builder.Property(pt => pt.IsActive)
             .IsRequired()
             .HasDefaultValue(true);

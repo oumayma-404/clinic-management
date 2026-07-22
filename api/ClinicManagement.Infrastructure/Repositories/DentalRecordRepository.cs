@@ -18,6 +18,7 @@ public class DentalRecordRepository : IDentalRecordRepository
     {
         return await _context.DentalRecords
             .Include(dr => dr.Teeth)
+            .Include(dr => dr.Acts)
             .FirstOrDefaultAsync(dr => dr.Id == id, cancellationToken);
     }
 
@@ -25,6 +26,7 @@ public class DentalRecordRepository : IDentalRecordRepository
     {
         return await _context.DentalRecords
             .Include(dr => dr.Teeth)
+            .Include(dr => dr.Acts)
             .Where(dr => dr.PatientId == patientId)
             .OrderByDescending(dr => dr.InterventionDate)
             .ThenByDescending(dr => dr.CreatedAt)
