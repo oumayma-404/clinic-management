@@ -27,6 +27,17 @@ public interface IInvoiceRepository
     Task<decimal> GetCollectedBetweenAsync(Guid clinicId, DateTime from, DateTime to, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Outstanding invoice balance per patient (TTC − collected) across the clinic's issued, non-cancelled,
+    /// non-draft invoices — only patients whose invoice balance is &gt; 0. Feeds the unified per-patient
+    /// balance, the clinic receivables list, and the dashboard total-outstanding figure.
+    /// </summary>
+    Task<IReadOnlyList<(Guid PatientId, decimal Outstanding)>> GetOutstandingByPatientAsync(
+        Guid clinicId, CancellationToken cancellationToken = default);
+
+    /// <summary>Load the invoice that owns a given payment (with lines + payments), or null. Clinic-agnostic — the caller guards the clinic.</summary>
+    Task<Invoice?> GetByPaymentIdAsync(Guid paymentId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// El Fatoora outbox: invoices <c>Queued</c> for e-invoicing and due for a dispatch attempt
     /// (<c>EInvoiceNextAttemptAt &lt;= now</c>), across all clinics, oldest-due first, capped at
     /// <paramref name="maxCount"/>. Loaded with lines + payments for TEIF generation.

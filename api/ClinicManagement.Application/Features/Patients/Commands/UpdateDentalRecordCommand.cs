@@ -17,6 +17,10 @@ public class UpdateDentalRecordCommand : IRequest<Result<DentalRecordDto>>
     public List<DentalActInput> Acts { get; set; } = new();
     public List<string> Notes { get; set; } = new();
     public List<string> ImportantNotes { get; set; } = new();
+    /// <summary>Optional treatment plan whose step this record completes (required when <see cref="TreatmentPlanItemId"/> is set).</summary>
+    public Guid? TreatmentPlanId { get; set; }
+    /// <summary>Optional plan step this record carries out — marked "réalisé" and linked to this record on save.</summary>
+    public Guid? TreatmentPlanItemId { get; set; }
 }
 
 public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalRecordCommand, Result<DentalRecordDto>>
@@ -24,6 +28,7 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
     private readonly IDentalRecordRepository _dentalRecordRepository;
     private readonly IPatientRepository _patientRepository;
     private readonly IToothStateRepository _toothStateRepository;
+    private readonly ITreatmentPlanRepository _treatmentPlanRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
 
@@ -31,12 +36,14 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
         IDentalRecordRepository dentalRecordRepository,
         IPatientRepository patientRepository,
         IToothStateRepository toothStateRepository,
+        ITreatmentPlanRepository treatmentPlanRepository,
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork)
     {
         _dentalRecordRepository = dentalRecordRepository;
         _patientRepository = patientRepository;
         _toothStateRepository = toothStateRepository;
+        _treatmentPlanRepository = treatmentPlanRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
     }
@@ -87,9 +94,30 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
             {
                 await _toothStateRepository.DeleteAsync(state.Id, cancellationToken);
             }
-            foreach (var toothState in DentalRecordActParser.BuildToothStates(parsed.Value!, dentalRecord.PatientId, request.InterventionDate, dentalRecord.Id))
+
+            var toothStates = DentalRecordActParser
+                .BuildToothStates(parsed.Value!, dentalRecord.PatientId, request.InterventionDate, dentalRecord.Id)
+                .ToList();
+
+            // Treating a tooth closes any open diagnosis charted on it (AC-5).
+            await DentalRecordLinker.ClearDiagnosesForTreatedTeethAsync(
+                _toothStateRepository, dentalRecord.PatientId, toothStates, cancellationToken);
+
+            foreach (var toothState in toothStates)
             {
                 await _toothStateRepository.AddAsync(toothState, cancellationToken);
+            }
+
+            // Completing a scheduled plan step: mark it "réalisé" and link it to this record (AC-4).
+            if (request.TreatmentPlanItemId.HasValue)
+            {
+                var link = await DentalRecordLinker.LinkPlanItemAsync(
+                    _treatmentPlanRepository, request.TreatmentPlanId, request.TreatmentPlanItemId.Value,
+                    dentalRecord.PatientId, clinicResult.Value, dentalRecord.Id, request.InterventionDate, cancellationToken);
+                if (link.IsFailure)
+                {
+                    return Result<DentalRecordDto>.Failure(link.Error!);
+                }
             }
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -98,6 +126,10 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
             return Result<DentalRecordDto>.Success(dentalRecord!.ToDto());
         }
         catch (ArgumentException ex)
+        {
+            return Result<DentalRecordDto>.Failure(ex.Message);
+        }
+        catch (InvalidOperationException ex)
         {
             return Result<DentalRecordDto>.Failure(ex.Message);
         }

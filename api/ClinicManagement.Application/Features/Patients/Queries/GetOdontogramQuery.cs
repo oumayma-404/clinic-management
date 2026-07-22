@@ -58,6 +58,7 @@ public class GetOdontogramQueryHandler : IRequestHandler<GetOdontogramQuery, Res
                     Id = t.Id,
                     ToothNumber = t.ToothNumber,
                     Condition = t.Condition.ToString(),
+                    Source = t.Source.ToString(),
                     Surfaces = t.Surfaces,
                     Note = t.Note,
                     TreatmentDate = t.TreatmentDate,

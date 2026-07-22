@@ -83,6 +83,41 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
         return max;
     }
 
+    public async Task<decimal> GetInstallmentCollectedBetweenAsync(Guid clinicId, DateTime from, DateTime to, CancellationToken cancellationToken = default)
+    {
+        return await _context.TreatmentPlans
+            .Where(p => p.ClinicId == clinicId && p.Status != TreatmentPlanStatus.Cancelled)
+            .SelectMany(p => p.Installments)
+            .Where(i => i.LastPaidOn != null && i.LastPaidOn >= from && i.LastPaidOn <= to)
+            .SumAsync(i => (decimal?)i.AmountPaid, cancellationToken) ?? 0m;
+    }
+
+    public async Task<IReadOnlyList<(Guid PatientId, decimal Outstanding, DateTime? OldestOverdueDueDate)>> GetInstallmentOutstandingByPatientAsync(
+        Guid clinicId, DateTime asOfUtc, CancellationToken cancellationToken = default)
+    {
+        // Flatten each non-cancelled plan's not-fully-paid installments (carrying the plan's patient id), then
+        // aggregate per patient in memory — a clinic's open-installment set is small, and Amount/AmountPaid
+        // arithmetic + a conditional min are clearer this way than as a grouped SQL projection.
+        var rows = await _context.TreatmentPlans
+            .Where(p => p.ClinicId == clinicId && p.Status != TreatmentPlanStatus.Cancelled)
+            .SelectMany(p => p.Installments
+                .Where(i => i.Amount > i.AmountPaid)
+                .Select(i => new { p.PatientId, i.Amount, i.AmountPaid, i.DueDate }))
+            .ToListAsync(cancellationToken);
+
+        return rows
+            .GroupBy(r => r.PatientId)
+            .Select(g =>
+            {
+                var outstanding = g.Sum(r => r.Amount - r.AmountPaid);
+                var overdueDates = g.Where(r => r.DueDate < asOfUtc).Select(r => r.DueDate).ToList();
+                DateTime? oldestOverdue = overdueDates.Count > 0 ? overdueDates.Min() : null;
+                return (PatientId: g.Key, Outstanding: outstanding, OldestOverdueDueDate: oldestOverdue);
+            })
+            .Where(r => r.Outstanding > 0m)
+            .ToList();
+    }
+
     public async Task<TreatmentPlan> AddAsync(TreatmentPlan plan, CancellationToken cancellationToken = default)
     {
         await _context.TreatmentPlans.AddAsync(plan, cancellationToken);

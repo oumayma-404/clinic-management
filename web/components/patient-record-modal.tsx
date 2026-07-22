@@ -10,13 +10,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
-import { Trash2, Plus, Search, X } from "lucide-react"
+import { Trash2, Plus, Search, X, AlertTriangle } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { dentalRecordsApi } from "@/lib/api/dental-records"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
 import { ApiError } from "@/lib/api/client"
 import { toast } from "sonner"
-import type { ProcedureTypeDto, DentalRecordDto, DentalActInput } from "@/lib/api/types"
+import type { ProcedureTypeDto, DentalRecordDto, DentalActInput, PatientDto } from "@/lib/api/types"
 import { formatDT } from "@/lib/format"
 import {
   CONDITION_ORDER,
@@ -32,6 +32,15 @@ import { RecordToothChart, type ToothPaint } from "@/components/record-tooth-cha
 // Sentinel value for the "no resulting condition" option in the État résultant Select
 // (Radix Select forbids an empty-string item value).
 const NO_CONDITION = "__none__"
+// Sentinel for "not linked to a treatment-plan step".
+const NO_PLAN_ITEM = "__none__"
+
+/** An open treatment-plan step offered for linking a dental record (closes the plan→record loop). */
+export interface PlanItemOption {
+  itemId: string
+  planId: string
+  label: string
+}
 
 interface ActRow {
   procedureTypeId: string | null
@@ -59,6 +68,12 @@ interface PatientRecordModalProps {
   patientName?: string
   patientId?: string
   record?: DentalRecordDto | null // Record to edit, null for a new record
+  /** True when the record is already billed by a (non-cancelled) invoice — its payment is invoice-managed (AC-8). */
+  isInvoiced?: boolean
+  /** Patient — used to surface allergy / flag / medical-history alerts at the point of care. */
+  patient?: PatientDto | null
+  /** Open treatment-plan steps the record can complete (marks the step "réalisé" on save). */
+  planItems?: PlanItemOption[]
   onSuccess?: () => void
 }
 
@@ -68,6 +83,9 @@ export function PatientRecordModal({
   patientName: initialPatientName = "",
   patientId,
   record,
+  isInvoiced = false,
+  patient,
+  planItems = [],
   onSuccess,
 }: PatientRecordModalProps) {
   const [patientName, setPatientName] = useState(initialPatientName)
@@ -80,7 +98,13 @@ export function PatientRecordModal({
   const [focusedActIndex, setFocusedActIndex] = useState(0)
   const [procedureTypes, setProcedureTypes] = useState<ProcedureTypeDto[]>([])
   const [pickerOpenIndex, setPickerOpenIndex] = useState<number | null>(null)
+  const [linkedPlanItemId, setLinkedPlanItemId] = useState<string>(NO_PLAN_ITEM)
   const [loading, setLoading] = useState(false)
+
+  // Active point-of-care alerts for this patient (allergies / flags / medical history).
+  const activeFlags = (patient?.flags ?? []).filter((f) => f.isActive)
+  const hasAlerts =
+    Boolean(patient?.allergies?.trim()) || activeFlags.length > 0 || Boolean(patient?.medicalHistory?.trim())
 
   // Load the active procedure catalog (the "Mes actes" picker source) when the modal opens.
   useEffect(() => {
@@ -96,6 +120,7 @@ export function PatientRecordModal({
     if (!open) return
     setPatientName(initialPatientName)
     setFocusedActIndex(0)
+    setLinkedPlanItemId(NO_PLAN_ITEM)
 
     if (record) {
       setInterventionDate(new Date(record.interventionDate).toISOString().split("T")[0])
@@ -257,6 +282,7 @@ export function PatientRecordModal({
 
     setLoading(true)
     try {
+      const linkedItem = planItems.find((p) => p.itemId === linkedPlanItemId)
       const recordData = {
         interventionDate,
         amountPaid: Number.parseFloat(amountPaid) || 0,
@@ -264,6 +290,8 @@ export function PatientRecordModal({
         notes: notes.filter((n) => n.trim()).map((n) => n.trim()),
         importantNotes: importantNotes.filter((n) => n.trim()).map((n) => n.trim()),
         acts: parsedActs,
+        treatmentPlanId: linkedItem?.planId ?? null,
+        treatmentPlanItemId: linkedItem?.itemId ?? null,
       }
 
       if (record) {
@@ -295,10 +323,65 @@ export function PatientRecordModal({
         </DialogHeader>
 
         <div className="space-y-5">
+          {/* Point-of-care medical alerts — surfaced before treatment (safety). */}
+          {hasAlerts && (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/40">
+              <p className="flex items-center gap-1.5 text-sm font-semibold text-amber-800 dark:text-amber-200">
+                <AlertTriangle className="h-4 w-4" /> Alertes médicales
+              </p>
+              <div className="mt-2 space-y-1.5 text-xs">
+                {patient?.allergies?.trim() && (
+                  <p className="text-red-700 dark:text-red-300">
+                    <span className="font-semibold">Allergies :</span> {patient.allergies}
+                  </p>
+                )}
+                {activeFlags.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {activeFlags.map((f) => (
+                      <Badge key={f.id} variant="destructive" className="text-[10px]">
+                        {f.description || f.flagType}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+                {patient?.medicalHistory?.trim() && (
+                  <p className="text-amber-800 dark:text-amber-200">
+                    <span className="font-semibold">Antécédents :</span> {patient.medicalHistory}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
           <div className="space-y-1.5">
             <Label htmlFor="patient-name">Patient</Label>
             <Input id="patient-name" value={patientName} readOnly className="font-medium" />
           </div>
+
+          {/* Optional link to a scheduled treatment-plan step — marks it "réalisé" on save. */}
+          {planItems.length > 0 && (
+            <div className="space-y-1.5">
+              <Label htmlFor="plan-item">
+                Acte du plan de traitement <span className="font-normal text-muted-foreground">(optionnel)</span>
+              </Label>
+              <Select value={linkedPlanItemId} onValueChange={setLinkedPlanItemId} disabled={loading}>
+                <SelectTrigger id="plan-item">
+                  <SelectValue placeholder="Lier cette fiche à un acte planifié" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_PLAN_ITEM}>Aucun</SelectItem>
+                  {planItems.map((p) => (
+                    <SelectItem key={p.itemId} value={p.itemId}>
+                      {p.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                L'acte planifié sera marqué « réalisé » et lié à cette fiche.
+              </p>
+            </div>
+          )}
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
@@ -586,14 +669,20 @@ export function PatientRecordModal({
                 value={amountPaid}
                 onChange={(e) => setAmountPaid(e.target.value)}
                 placeholder="0.000"
-                disabled={loading}
+                disabled={loading || isInvoiced}
               />
-              <p className="text-xs text-muted-foreground">
-                Reste à payer :{" "}
-                <span className={reste > 0 ? "font-semibold text-amber-600" : "font-medium text-foreground"}>
-                  {formatDT(reste)}
-                </span>
-              </p>
+              {isInvoiced ? (
+                <p className="text-xs text-muted-foreground">
+                  Facturé — le paiement est géré par la facture (voir l'onglet Factures).
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Reste à payer :{" "}
+                  <span className={reste > 0 ? "font-semibold text-amber-600" : "font-medium text-foreground"}>
+                    {formatDT(reste)}
+                  </span>
+                </p>
+              )}
             </div>
             <div className="flex items-end justify-end">
               <div className="text-sm">

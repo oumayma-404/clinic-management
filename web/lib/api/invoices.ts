@@ -21,6 +21,9 @@ export interface InvoiceLineInput {
   quantity: number;
   unitPriceHt: number;
   dentalRecordId?: string | null;
+  /** Optional catalog CNAM/DCH act this line bills (drives the reimbursable split); omit for free text. */
+  dentalActCodeId?: string | null;
+  codeActe?: string | null;
 }
 
 export interface CreateInvoiceRequest {

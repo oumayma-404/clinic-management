@@ -79,6 +79,9 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<int>("Status")
                         .HasColumnType("integer");
 
+                    b.Property<Guid?>("TreatmentPlanItemId")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -89,6 +92,8 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.HasIndex("PatientId");
 
                     b.HasIndex("ProcedureTypeId");
+
+                    b.HasIndex("TreatmentPlanItemId");
 
                     b.ToTable("Appointments", (string)null);
                 });
@@ -710,6 +715,13 @@ namespace ClinicManagement.Infrastructure.Migrations
             modelBuilder.Entity("ClinicManagement.Domain.Entities.InvoiceLine", b =>
                 {
                     b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CodeActe")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<Guid?>("DentalActCodeId")
                         .HasColumnType("uuid");
 
                     b.Property<Guid?>("DentalRecordId")
@@ -1459,6 +1471,9 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                     b.Property<Guid>("PatientId")
                         .HasColumnType("uuid");
+
+                    b.Property<int>("Source")
+                        .HasColumnType("integer");
 
                     b.Property<string>("Surfaces")
                         .HasMaxLength(5)

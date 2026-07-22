@@ -19,6 +19,7 @@ public class GetDevisPdfQueryHandler : IRequestHandler<GetDevisPdfQuery, Result<
     private readonly IClinicRepository _clinicRepository;
     private readonly IPatientRepository _patientRepository;
     private readonly IPdfGenerationService _pdfGenerationService;
+    private readonly ICnamBillingCalculator _cnamBillingCalculator;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly ILogger<GetDevisPdfQueryHandler> _logger;
 
@@ -27,6 +28,7 @@ public class GetDevisPdfQueryHandler : IRequestHandler<GetDevisPdfQuery, Result<
         IClinicRepository clinicRepository,
         IPatientRepository patientRepository,
         IPdfGenerationService pdfGenerationService,
+        ICnamBillingCalculator cnamBillingCalculator,
         ICurrentClinicResolver clinicResolver,
         ILogger<GetDevisPdfQueryHandler> logger)
     {
@@ -34,6 +36,7 @@ public class GetDevisPdfQueryHandler : IRequestHandler<GetDevisPdfQuery, Result<
         _clinicRepository = clinicRepository;
         _patientRepository = patientRepository;
         _pdfGenerationService = pdfGenerationService;
+        _cnamBillingCalculator = cnamBillingCalculator;
         _clinicResolver = clinicResolver;
         _logger = logger;
     }
@@ -59,6 +62,17 @@ public class GetDevisPdfQueryHandler : IRequestHandler<GetDevisPdfQuery, Result<
             var patient = await _patientRepository.GetByIdAsync(plan.PatientId, cancellationToken);
 
             var data = BuildPdfData(plan, clinic, patient?.GetFullName() ?? string.Empty);
+
+            // Indicative CNAM split over the coded act lines (reimbursable + out-of-pocket == total planned).
+            var careDate = plan.AcceptedDate ?? plan.CreatedAt;
+            var cnamLines = plan.Items
+                .Select(i => new CnamBillingLine(i.DentalActCodeId, i.PlannedCost))
+                .ToList();
+            var split = await _cnamBillingCalculator.ComputeAsync(
+                cnamLines, plan.TotalPlanned, patient?.DateOfBirth, careDate, cancellationToken);
+            data.CnamReimbursable = split.Reimbursable;
+            data.PatientOutOfPocket = split.OutOfPocket;
+
             var bytes = await _pdfGenerationService.GenerateDevisPdfAsync(data, cancellationToken);
 
             var suffix = string.IsNullOrWhiteSpace(plan.Number) ? plan.Id.ToString("N")[..8] : plan.Number;
@@ -87,6 +101,8 @@ public class GetDevisPdfQueryHandler : IRequestHandler<GetDevisPdfQuery, Result<
         Date = plan.AcceptedDate ?? plan.CreatedAt,
         Status = plan.Status.ToString(),
         TotalPlanned = plan.TotalPlanned,
+        AmountPaid = plan.AmountPaid,
+        Outstanding = plan.Outstanding,
         Lines = plan.Items
             .Select(i => new DevisPdfLine
             {

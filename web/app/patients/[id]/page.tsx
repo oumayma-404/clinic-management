@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Separator } from "@/components/ui/separator"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { formatDT } from "@/lib/format"
+import { formatDT, formatDateFr } from "@/lib/format"
 import {
   ArrowLeft,
   Flag,
@@ -51,7 +51,7 @@ import { patientMedicalHistoryApi } from "@/lib/api/patient-medical-history"
 import { patientFamilyHistoryApi } from "@/lib/api/patient-family-history"
 import { dentalRecordsApi } from "@/lib/api/dental-records"
 import { patientFilesApi } from "@/lib/api/patient-files"
-import type { PatientDto, AppointmentDto, PatientMedicalHistoryDto, PatientFamilyHistoryDto, DentalRecordDto, PatientFileDto, PatientFolderDto } from "@/lib/api/types"
+import type { PatientDto, AppointmentDto, PatientMedicalHistoryDto, PatientFamilyHistoryDto, DentalRecordDto, PatientFileDto, PatientFolderDto, TreatmentPlanDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import { format, parseISO } from "date-fns"
 import { EditPatientDialog } from "@/components/edit-patient-dialog"
@@ -63,7 +63,13 @@ import { InvoicesTable } from "@/components/factures/invoices-table"
 import { InvoiceFormModal } from "@/components/factures/invoice-form-modal"
 import { Odontogram } from "@/components/odontogram"
 import { TreatmentPlansTable } from "@/components/treatment-plans/treatment-plans-table"
+import { TreatmentPlanFormModal, type TreatmentPlanSeedLine } from "@/components/treatment-plans/treatment-plan-form-modal"
+import { treatmentPlansApi } from "@/lib/api/treatment-plans"
+import type { PlanItemOption } from "@/components/patient-record-modal"
 import { invoicesApi } from "@/lib/api/invoices"
+import { billingApi } from "@/lib/api/billing"
+import type { PatientBillingSummaryDto } from "@/lib/api/types"
+import { HandCoins } from "lucide-react"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 
@@ -147,6 +153,7 @@ export default function PatientDetailsPage() {
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set())
   // Dental records already tied to a non-cancelled invoice (guards against double-invoicing).
   const [invoicedDentalRecordIds, setInvoicedDentalRecordIds] = useState<Set<string>>(new Set())
+  const [billingSummary, setBillingSummary] = useState<PatientBillingSummaryDto | null>(null)
   // The dental record being invoiced (drives the pre-filled invoice modal); null = closed.
   const [billingRecord, setBillingRecord] = useState<DentalRecordDto | null>(null)
   const [previewFile, setPreviewFile] = useState<PatientFileDto | null>(null)
@@ -156,6 +163,9 @@ export default function PatientDetailsPage() {
   const [aiSummary, setAiSummary] = useState("")
   const [aiLoading, setAiLoading] = useState(false)
   const [aiError, setAiError] = useState(false)
+  const [treatmentPlans, setTreatmentPlans] = useState<TreatmentPlanDto[]>([])
+  const [planSeeds, setPlanSeeds] = useState<TreatmentPlanSeedLine[]>([])
+  const [seededPlanOpen, setSeededPlanOpen] = useState(false)
   const { internetReachable } = useConnectivity()
 
   // Real AI summary (HuggingFace via GET /patients/{id}/ai-summary). Offline (Local) → skip + FR fallback.
@@ -210,19 +220,21 @@ export default function PatientDetailsPage() {
         
         // Load medical and family history entries, dental records, files, folders, and invoices
         // (invoices power the "already billed" guard on the dental-records list).
-        const [medicalHistory, familyHistory, dentalRecordsData, filesData, foldersData, invoicesData] = await Promise.all([
+        const [medicalHistory, familyHistory, dentalRecordsData, filesData, foldersData, invoicesData, billingSummaryData] = await Promise.all([
           patientMedicalHistoryApi.list(patientId).catch(() => []),
           patientFamilyHistoryApi.list(patientId).catch(() => []),
           dentalRecordsApi.list(patientId).catch(() => []),
           patientFilesApi.getFiles(patientId).catch(() => []),
           patientFilesApi.getFolders(patientId).catch(() => []),
-          invoicesApi.list({ patientId }).catch(() => [])
+          invoicesApi.list({ patientId }).catch(() => []),
+          billingApi.getPatientSummary(patientId).catch(() => null)
         ])
         setMedicalHistoryEntries(medicalHistory)
         setFamilyHistoryEntries(familyHistory)
         setDentalRecords(dentalRecordsData)
         setFiles(filesData)
         setFolders(foldersData)
+        setBillingSummary(billingSummaryData)
         // A dental record counts as "already invoiced" only if a NON-cancelled invoice links to it
         // (a cancelled invoice frees it for re-billing) — via the header link OR any line link (a
         // multi-record note d'honoraires links each billed record at the line level). Safe degradation:
@@ -247,6 +259,15 @@ export default function PatientDetailsPage() {
     if (patientId) {
       loadPatientData()
     }
+  }, [patientId, refreshKey])
+
+  // Load the patient's treatment plans (for the record-modal plan-step picker). Refreshes with the page.
+  useEffect(() => {
+    if (!patientId) return
+    treatmentPlansApi
+      .list({ patientId })
+      .then(setTreatmentPlans)
+      .catch(() => setTreatmentPlans([]))
   }, [patientId, refreshKey])
 
   // Reload files when folder changes
@@ -275,18 +296,20 @@ export default function PatientDetailsPage() {
         setAppointments(appointmentsData)
         
         // Reload medical and family history entries, dental records, files, and folders
-        const [medicalHistory, familyHistory, dentalRecordsData, filesData, foldersData] = await Promise.all([
+        const [medicalHistory, familyHistory, dentalRecordsData, filesData, foldersData, plansData] = await Promise.all([
           patientMedicalHistoryApi.list(patientId).catch(() => []),
           patientFamilyHistoryApi.list(patientId).catch(() => []),
           dentalRecordsApi.list(patientId).catch(() => []),
           patientFilesApi.getFiles(patientId).catch(() => []),
-          patientFilesApi.getFolders(patientId).catch(() => [])
+          patientFilesApi.getFolders(patientId).catch(() => []),
+          treatmentPlansApi.list({ patientId }).catch(() => [])
         ])
         setMedicalHistoryEntries(medicalHistory)
         setFamilyHistoryEntries(familyHistory)
         setDentalRecords(dentalRecordsData)
         setFiles(filesData)
         setFolders(foldersData)
+        setTreatmentPlans(plansData)
       } catch (err) {
         console.error("Failed to reload patient data:", err)
       }
@@ -335,7 +358,21 @@ export default function PatientDetailsPage() {
   const patientName = getPatientName(patient)
   const age = calculateAge(patient.dateOfBirth)
   const hasFlags = hasActiveFlags(patient)
-  
+
+  // Open (not-yet-done) steps of the patient's active plans — offered in the record modal to close the
+  // plan→record loop, and completed automatically when a linked record is saved.
+  const openPlanItems: PlanItemOption[] = treatmentPlans
+    .filter((p) => p.status === "Accepted" || p.status === "InProgress")
+    .flatMap((p) =>
+      p.items
+        .filter((it) => it.status !== "Done")
+        .map((it) => ({
+          itemId: it.id,
+          planId: p.id,
+          label: `${p.number ?? p.title} · ${it.designationFr}${it.toothNumbers.length > 0 ? ` (dents ${it.toothNumbers.join(", ")})` : ""}`,
+        })),
+    )
+
   // Compute current files based on folder selection
   // When in a folder, all loaded files belong to that folder
   // When at root, show only root files (files without folderId)
@@ -494,6 +531,50 @@ export default function PatientDetailsPage() {
               </CardContent>
             </Card>
 
+            {/* Unified per-patient balance (« Solde patient ») across invoices + treatment-plan installments. */}
+            {billingSummary && (
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <HandCoins className="h-5 w-5 text-muted-foreground" />
+                    Solde patient
+                  </CardTitle>
+                  <CardDescription>
+                    Solde unifié sur les deux circuits de facturation (factures + échéanciers).
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                    <div>
+                      <p className="text-xs text-muted-foreground">Solde dû (total)</p>
+                      <p className={`text-2xl font-semibold ${billingSummary.totalOutstanding > 0 ? "text-amber-600" : "text-foreground"}`}>
+                        {formatDT(billingSummary.totalOutstanding)}
+                      </p>
+                      {billingSummary.oldestOverdueDate && (
+                        <Badge variant="destructive" className="mt-1">
+                          En retard depuis le {formatDateFr(billingSummary.oldestOverdueDate)}
+                        </Badge>
+                      )}
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Dont factures</p>
+                      <p className="text-lg font-medium">{formatDT(billingSummary.invoiceOutstanding)}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">Dont échéanciers</p>
+                      <p className="text-lg font-medium">{formatDT(billingSummary.installmentOutstanding)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Estimation CNAM</p>
+                      <p className="text-lg font-medium">{formatDT(billingSummary.cnamReimbursable)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Reste à charge patient</p>
+                      <p className="text-lg font-medium">{formatDT(billingSummary.patientOutOfPocket)}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             <Tabs defaultValue="medical-records" className="space-y-4">
               <TabsList className="grid w-full grid-cols-7">
                 <TabsTrigger value="medical-records" className="gap-2">
@@ -590,9 +671,19 @@ export default function PatientDetailsPage() {
                                     <span className="text-muted-foreground text-sm">-</span>
                                   )}
                                 </TableCell>
-                                <TableCell>{formatDT(record.amountPaid)}</TableCell>
                                 <TableCell>
-                                  {(() => {
+                                  {invoicedDentalRecordIds.has(record.id) ? (
+                                    <span className="text-muted-foreground line-through" title="Facturé — le montant est géré par la facture">
+                                      {formatDT(record.amountPaid)}
+                                    </span>
+                                  ) : (
+                                    formatDT(record.amountPaid)
+                                  )}
+                                </TableCell>
+                                <TableCell>
+                                  {invoicedDentalRecordIds.has(record.id) ? (
+                                    <span className="text-muted-foreground text-xs">Facturé</span>
+                                  ) : (() => {
                                     const reste = Math.max(0, record.balance ?? (record.cost - record.amountPaid))
                                     return reste > 0
                                       ? <span className="font-semibold text-amber-600">{formatDT(reste)}</span>
@@ -745,7 +836,13 @@ export default function PatientDetailsPage() {
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <Odontogram patientId={patientId} />
+                    <Odontogram
+                      patientId={patientId}
+                      onCreatePlan={(seeds) => {
+                        setPlanSeeds(seeds)
+                        setSeededPlanOpen(true)
+                      }}
+                    />
                   </CardContent>
                 </Card>
               </TabsContent>
@@ -1367,7 +1464,23 @@ export default function PatientDetailsPage() {
         patientName={patientName}
         patientId={patient.id}
         record={editingRecord}
+        isInvoiced={editingRecord ? invoicedDentalRecordIds.has(editingRecord.id) : false}
+        patient={patient}
+        planItems={openPlanItems}
         onSuccess={handleEditSuccess}
+      />
+
+      {/* Create a plan pre-filled from charted diagnoses ("Créer un plan depuis l'odontogramme"). */}
+      <TreatmentPlanFormModal
+        open={seededPlanOpen}
+        onOpenChange={setSeededPlanOpen}
+        presetPatientId={patient.id}
+        presetPatientName={patientName}
+        seedLines={planSeeds}
+        onSuccess={() => {
+          setSeededPlanOpen(false)
+          setRefreshKey((k) => k + 1)
+        }}
       />
 
       {/* Facturer cette intervention — pre-filled draft from a dental record (create-only). */}

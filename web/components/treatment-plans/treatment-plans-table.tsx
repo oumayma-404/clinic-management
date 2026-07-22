@@ -14,17 +14,28 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { FileDown, Pencil, Trash2, CheckCircle2, Ban, ListChecks, CreditCard, Check, Plus, Loader2 } from "lucide-react"
+import { FileDown, Pencil, Trash2, CheckCircle2, Ban, ListChecks, CreditCard, CalendarPlus, Plus, Loader2, ReceiptText } from "lucide-react"
 import { toast } from "sonner"
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
 import { ApiError } from "@/lib/api/client"
 import type { TreatmentPlanDto, InstallmentDto } from "@/lib/api/types"
 import { formatDT, formatDateFr } from "@/lib/format"
+import { downloadBlob } from "@/lib/download"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { TreatmentPlanFormModal } from "./treatment-plan-form-modal"
 import { InstallmentPaymentModal } from "./installment-payment-modal"
 import { planStatusLabel, planStatusBadgeClass, itemStatusLabel } from "./treatment-plan-labels"
+import { CreateAppointmentDialog } from "@/components/create-appointment-dialog"
+
+/** Target for the "Planifier" action: an open plan item to schedule as an appointment. */
+interface ScheduleTarget {
+  patientId: string
+  patientName: string
+  planId: string
+  itemId: string
+  label: string
+}
 
 interface TreatmentPlansTableProps {
   patientId?: string
@@ -61,6 +72,7 @@ export function TreatmentPlansTable({
   const [deleteTarget, setDeleteTarget] = useState<TreatmentPlanDto | null>(null)
   const [cancelTarget, setCancelTarget] = useState<TreatmentPlanDto | null>(null)
   const [cancelReason, setCancelReason] = useState("")
+  const [scheduleTarget, setScheduleTarget] = useState<ScheduleTarget | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -109,15 +121,13 @@ export function TreatmentPlansTable({
     }
   }
 
-  const handleMarkItemDone = async (planId: string, itemId: string) => {
-    setBusyId(itemId)
+  const handleDownloadInstallmentReceipt = async (planId: string, installmentId: string) => {
+    setBusyId(installmentId)
     try {
-      const updated = await treatmentPlansApi.markItemDone(planId, itemId, {})
-      toast.success("Acte marqué comme réalisé")
-      setManageTarget(updated)
-      afterMutation()
+      const blob = await treatmentPlansApi.downloadInstallmentReceipt(planId, installmentId)
+      downloadBlob(blob, `recu-echeance-${installmentId.slice(0, 8)}.pdf`)
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Échec de la mise à jour de l'acte.")
+      toast.error(err instanceof Error ? err.message : "Échec du téléchargement du reçu.")
     } finally {
       setBusyId(null)
     }
@@ -341,24 +351,39 @@ export function TreatmentPlansTable({
                             </Badge>
                           </TableCell>
                           <TableCell className="text-right">
-                            {item.status !== "Done" && manageTarget.status !== "Cancelled" && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-8 gap-1"
-                                onClick={() => handleMarkItemDone(manageTarget.id, item.id)}
-                                disabled={busyId === item.id}
-                              >
-                                <Check className="h-4 w-4" />
-                                Réalisé
-                              </Button>
-                            )}
+                            {item.status !== "Done" &&
+                              (manageTarget.status === "Accepted" || manageTarget.status === "InProgress") && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 gap-1"
+                                  onClick={() =>
+                                    setScheduleTarget({
+                                      patientId: manageTarget.patientId,
+                                      patientName: manageTarget.patientName ?? "Patient",
+                                      planId: manageTarget.id,
+                                      itemId: item.id,
+                                      label:
+                                        item.toothNumbers.length > 0
+                                          ? `${item.designationFr} (dents ${item.toothNumbers.join(", ")})`
+                                          : item.designationFr,
+                                    })
+                                  }
+                                >
+                                  <CalendarPlus className="h-4 w-4" />
+                                  Planifier
+                                </Button>
+                              )}
                           </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
                   </Table>
                 </div>
+                <p className="text-xs text-muted-foreground">
+                  Un acte est marqué « réalisé » automatiquement lors de l'enregistrement de la fiche de soins liée
+                  (choisissez l'acte du plan dans la fiche). Utilisez « Planifier » pour créer le rendez-vous.
+                </p>
               </div>
 
               {/* Installments */}
@@ -380,32 +405,54 @@ export function TreatmentPlansTable({
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {manageTarget.installments.map((inst) => (
+                        {manageTarget.installments.map((inst) => {
+                          const isOverdue = !inst.isPaid && new Date(inst.dueDate).getTime() < Date.now()
+                          return (
                           <TableRow key={inst.id}>
                             <TableCell>{formatDateFr(inst.dueDate)}</TableCell>
                             <TableCell className="text-right">{formatDT(inst.amount)}</TableCell>
                             <TableCell className="text-right">{formatDT(inst.amountPaid)}</TableCell>
                             <TableCell className="text-right">{formatDT(inst.outstanding)}</TableCell>
                             <TableCell>
-                              <Badge variant={inst.isPaid ? "secondary" : "outline"}>
-                                {inst.isPaid ? "Payée" : "En attente"}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-right">
-                              {!inst.isPaid && manageTarget.status !== "Cancelled" && (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-8 gap-1"
-                                  onClick={() => setPaymentTarget({ planId: manageTarget.id, installment: inst })}
-                                >
-                                  <CreditCard className="h-4 w-4" />
-                                  Encaisser
-                                </Button>
+                              {inst.isPaid ? (
+                                <Badge variant="secondary">Payée</Badge>
+                              ) : isOverdue ? (
+                                <Badge variant="destructive">En retard</Badge>
+                              ) : (
+                                <Badge variant="outline">En attente</Badge>
                               )}
                             </TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex justify-end gap-1">
+                                {!inst.isPaid && manageTarget.status !== "Cancelled" && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 gap-1"
+                                    onClick={() => setPaymentTarget({ planId: manageTarget.id, installment: inst })}
+                                    disabled={busyId === inst.id}
+                                  >
+                                    <CreditCard className="h-4 w-4" />
+                                    Encaisser
+                                  </Button>
+                                )}
+                                {inst.amountPaid > 0 && (
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8"
+                                    title="Télécharger le reçu"
+                                    onClick={() => handleDownloadInstallmentReceipt(manageTarget.id, inst.id)}
+                                    disabled={busyId === inst.id}
+                                  >
+                                    <ReceiptText className="h-4 w-4" />
+                                  </Button>
+                                )}
+                              </div>
+                            </TableCell>
                           </TableRow>
-                        ))}
+                          )
+                        })}
                       </TableBody>
                     </Table>
                   </div>
@@ -427,6 +474,21 @@ export function TreatmentPlansTable({
         installment={paymentTarget?.installment ?? null}
         onSuccess={() => {
           if (manageTarget) refreshManaged(manageTarget.id)
+          afterMutation()
+        }}
+      />
+
+      {/* Schedule an appointment for a plan step ("Planifier") — links the appointment to the plan item. */}
+      <CreateAppointmentDialog
+        open={!!scheduleTarget}
+        onOpenChange={(open) => !open && setScheduleTarget(null)}
+        presetPatientId={scheduleTarget?.patientId}
+        presetPatientName={scheduleTarget?.patientName}
+        presetPlanId={scheduleTarget?.planId}
+        presetPlanItemId={scheduleTarget?.itemId}
+        presetProcedureName={scheduleTarget?.label}
+        onSuccess={() => {
+          setScheduleTarget(null)
           afterMutation()
         }}
       />

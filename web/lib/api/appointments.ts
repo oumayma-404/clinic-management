@@ -23,6 +23,8 @@ export const appointmentsApi = {
     doctorName?: string;
     notes?: string;
     procedureTypeId?: string;
+    treatmentPlanId?: string | null;
+    treatmentPlanItemId?: string | null;
   }): Promise<AppointmentDto> => {
     return apiPost<AppointmentDto>('/appointments', {
       patientId: data.patientId || null,
@@ -32,6 +34,8 @@ export const appointmentsApi = {
       doctorName: data.doctorName,
       notes: data.notes,
       procedureTypeId: data.procedureTypeId,
+      treatmentPlanId: data.treatmentPlanId || null,
+      treatmentPlanItemId: data.treatmentPlanItemId || null,
     });
   },
 

@@ -223,6 +223,20 @@ public class PdfGenerationService : IPdfGenerationService
                                     totals.Item().Text($"Timbre fiscal : {FormatDt(data.StampDutyAmount)}").FontSize(11).FontFamily("Helvetica");
                                 }
                                 totals.Item().PaddingTop(3).Text($"Total TTC : {FormatDt(data.TotalTtc)}").FontSize(13).Bold().FontColor(Colors.Blue.Darken2).FontFamily("Helvetica");
+
+                                // Payment state (montant réglé / reste à payer) — kept off a cancelled note.
+                                if (!data.IsCancelled)
+                                {
+                                    totals.Item().PaddingTop(3).Text($"Montant réglé : {FormatDt(data.AmountCollected)}").FontSize(11).FontFamily("Helvetica");
+                                    totals.Item().Text($"Reste à payer : {FormatDt(data.Outstanding)}").FontSize(11).Bold().FontColor(Colors.Blue.Darken2).FontFamily("Helvetica");
+                                }
+
+                                // Indicative CNAM split — shown only when there is a reimbursable portion.
+                                if (data.CnamReimbursable > 0)
+                                {
+                                    totals.Item().PaddingTop(3).Text($"Dont estimation CNAM : {FormatDt(data.CnamReimbursable)}").FontSize(10).FontColor(Colors.Grey.Darken2).FontFamily("Helvetica");
+                                    totals.Item().Text($"Reste à charge patient : {FormatDt(data.PatientOutOfPocket)}").FontSize(10).FontColor(Colors.Grey.Darken2).FontFamily("Helvetica");
+                                }
                             });
 
                             // TTN « cachet électronique visible » — only present once the invoice is validated (FR-7).
@@ -343,8 +357,26 @@ public class PdfGenerationService : IPdfGenerationService
                                 }
                             });
 
-                            column.Item().AlignRight().Text($"Total : {FormatDt(data.TotalPlanned)}")
-                                .FontSize(13).Bold().FontColor(Colors.Blue.Darken2).FontFamily("Helvetica");
+                            column.Item().AlignRight().Column(totals =>
+                            {
+                                totals.Spacing(3);
+                                totals.Item().Text($"Total : {FormatDt(data.TotalPlanned)}")
+                                    .FontSize(13).Bold().FontColor(Colors.Blue.Darken2).FontFamily("Helvetica");
+
+                                // Payment state — only once installment payments have been recorded.
+                                if (data.AmountPaid > 0)
+                                {
+                                    totals.Item().Text($"Montant réglé : {FormatDt(data.AmountPaid)}").FontSize(11).FontFamily("Helvetica");
+                                    totals.Item().Text($"Reste à payer : {FormatDt(data.Outstanding)}").FontSize(11).Bold().FontColor(Colors.Blue.Darken2).FontFamily("Helvetica");
+                                }
+
+                                // Indicative CNAM split — shown only when there is a reimbursable portion.
+                                if (data.CnamReimbursable > 0)
+                                {
+                                    totals.Item().Text($"Dont estimation CNAM : {FormatDt(data.CnamReimbursable)}").FontSize(10).FontColor(Colors.Grey.Darken2).FontFamily("Helvetica");
+                                    totals.Item().Text($"Reste à charge patient : {FormatDt(data.PatientOutOfPocket)}").FontSize(10).FontColor(Colors.Grey.Darken2).FontFamily("Helvetica");
+                                }
+                            });
 
                             // Échéancier
                             if (data.Installments.Count > 0)
@@ -396,6 +428,99 @@ public class PdfGenerationService : IPdfGenerationService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error generating devis PDF for plan {Number}", data.Number ?? "(brouillon)");
+            throw;
+        }
+    }
+
+    public async Task<byte[]> GenerateReceiptPdfAsync(ReceiptPdfData data, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            _logger.LogInformation("Generating payment receipt PDF for {Patient}", data.PatientName);
+
+            var pdfBytes = await Task.Run(() =>
+            {
+                return Document.Create(container =>
+                {
+                    container.Page(page =>
+                    {
+                        page.Size(PageSizes.A4);
+                        page.Margin(2, Unit.Centimetre);
+                        page.PageColor(Colors.White);
+                        page.DefaultTextStyle(x => x.FontSize(11).FontFamily("Helvetica"));
+
+                        page.Content().Column(column =>
+                        {
+                            column.Spacing(16);
+
+                            // Clinic identity header
+                            column.Item().Column(header =>
+                            {
+                                header.Spacing(3);
+                                header.Item().Text(data.ClinicName).FontSize(14).Bold().FontColor(Colors.Blue.Darken2).FontFamily("Helvetica");
+                                if (!string.IsNullOrWhiteSpace(data.ClinicAddress))
+                                    header.Item().Text(data.ClinicAddress).FontSize(10).FontFamily("Helvetica");
+                                if (!string.IsNullOrWhiteSpace(data.ClinicPhone))
+                                    header.Item().Text($"Tél : {data.ClinicPhone}").FontSize(10).FontFamily("Helvetica");
+                                if (!string.IsNullOrWhiteSpace(data.MatriculeFiscal))
+                                    header.Item().Text($"Matricule fiscal : {data.MatriculeFiscal}").FontSize(10).FontFamily("Helvetica");
+                            });
+
+                            column.Item().PaddingTop(4).AlignCenter().Text("REÇU DE PAIEMENT").FontSize(16).Bold().FontFamily("Helvetica");
+
+                            if (!string.IsNullOrWhiteSpace(data.Reference))
+                            {
+                                column.Item().AlignCenter().Text($"Réf. {data.Reference}").FontSize(10).FontColor(Colors.Grey.Darken1).FontFamily("Helvetica");
+                            }
+
+                            // Fields
+                            column.Item().PaddingTop(8).Table(table =>
+                            {
+                                table.ColumnsDefinition(cols =>
+                                {
+                                    cols.RelativeColumn(3);
+                                    cols.RelativeColumn(5);
+                                });
+
+                                void Row(string label, string value)
+                                {
+                                    table.Cell().Element(BodyCell).Text(label).FontFamily("Helvetica");
+                                    table.Cell().Element(BodyCell).Text(value).FontFamily("Helvetica");
+                                }
+
+                                Row("Date", $"{data.PaidOn:dd/MM/yyyy}");
+                                Row("Patient", data.PatientName);
+                                Row("Objet", data.For);
+                                Row("Mode de règlement", data.Method);
+                            });
+
+                            // Amount received (emphasised) + remaining balance
+                            column.Item().PaddingTop(6).AlignRight().Column(totals =>
+                            {
+                                totals.Spacing(3);
+                                totals.Item().Text($"Montant réglé : {FormatDt(data.Amount)}").FontSize(14).Bold().FontColor(Colors.Blue.Darken2).FontFamily("Helvetica");
+                                totals.Item().Text($"Reste à payer : {FormatDt(data.RemainingBalance)}").FontSize(11).FontFamily("Helvetica");
+                            });
+
+                            column.Item().ExtendVertical();
+                        });
+
+                        page.Footer().PaddingTop(20).Column(footer =>
+                        {
+                            footer.Item().LineHorizontal(0.5f).LineColor(Colors.Grey.Medium);
+                            footer.Item().PaddingTop(6).Text("Reçu de paiement — Montants exprimés en dinars tunisiens (DT).")
+                                .FontSize(8).FontColor(Colors.Grey.Darken1).FontFamily("Helvetica");
+                        });
+                    });
+                }).GeneratePdf();
+            }, cancellationToken);
+
+            _logger.LogInformation("Receipt PDF generated, size: {Size} bytes", pdfBytes.Length);
+            return pdfBytes;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error generating receipt PDF for {Patient}", data.PatientName);
             throw;
         }
     }

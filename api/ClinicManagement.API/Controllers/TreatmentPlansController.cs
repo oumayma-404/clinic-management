@@ -108,4 +108,16 @@ public class TreatmentPlansController : ApiControllerBase
         }
         return File(result.Value!.Content, "application/pdf", result.Value.FileName);
     }
+
+    /// <summary>Download the receipt (reçu) PDF for an installment payment. 404 if the plan/installment is not found or unpaid.</summary>
+    [HttpGet("{id:guid}/installments/{installmentId:guid}/receipt-pdf")]
+    public async Task<IActionResult> GetInstallmentReceiptPdf(Guid id, Guid installmentId)
+    {
+        var result = await _mediator.Send(new GetInstallmentReceiptPdfQuery { PlanId = id, InstallmentId = installmentId });
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+        return File(result.Value!.Content, "application/pdf", result.Value.FileName);
+    }
 }

@@ -95,6 +95,34 @@ public class InvoiceRepository : IInvoiceRepository
             .SumAsync(p => (decimal?)p.Amount, cancellationToken) ?? 0m;
     }
 
+    public async Task<IReadOnlyList<(Guid PatientId, decimal Outstanding)>> GetOutstandingByPatientAsync(
+        Guid clinicId, CancellationToken cancellationToken = default)
+    {
+        // Only issued invoices carry a real balance: drafts aren't billed yet and cancelled ones are void.
+        // TTC − collected can't be overpaid (domain guard), so the per-patient sum is always >= 0.
+        var rows = await _context.Invoices
+            .Where(i => i.ClinicId == clinicId
+                        && i.Status != InvoiceStatus.Draft
+                        && i.Status != InvoiceStatus.Cancelled
+                        && i.TotalTtc > i.AmountCollected)
+            .GroupBy(i => i.PatientId)
+            .Select(g => new { PatientId = g.Key, Outstanding = g.Sum(i => i.TotalTtc - i.AmountCollected) })
+            .ToListAsync(cancellationToken);
+
+        return rows
+            .Where(r => r.Outstanding > 0m)
+            .Select(r => (r.PatientId, r.Outstanding))
+            .ToList();
+    }
+
+    public async Task<Invoice?> GetByPaymentIdAsync(Guid paymentId, CancellationToken cancellationToken = default)
+    {
+        return await _context.Invoices
+            .Include(i => i.Lines)
+            .Include(i => i.Payments)
+            .FirstOrDefaultAsync(i => i.Payments.Any(p => p.Id == paymentId), cancellationToken);
+    }
+
     public async Task<IEnumerable<Invoice>> GetDueForElFatooraDispatchAsync(int maxCount, DateTime now, CancellationToken cancellationToken = default)
     {
         return await _context.Invoices

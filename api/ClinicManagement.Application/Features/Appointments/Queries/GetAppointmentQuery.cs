@@ -75,6 +75,7 @@ public class GetAppointmentQueryHandler : IRequestHandler<GetAppointmentQuery, R
                 ProcedureTypeName = appointment.ProcedureType?.Name,
                 // Use current procedure type color if available, otherwise use stored color
                 ProcedureColorHex = appointment.ProcedureType?.Color.Value ?? appointment.ProcedureColorHex,
+                TreatmentPlanItemId = appointment.TreatmentPlanItemId,
                 IsSyncedToGoogle = appointment.GoogleCalendarEventId != null
             };
 

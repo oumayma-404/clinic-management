@@ -69,6 +69,7 @@ public class GetAppointmentsQueryHandler : IRequestHandler<GetAppointmentsQuery,
                 ProcedureTypeId = a.ProcedureTypeId,
                 ProcedureTypeName = a.ProcedureType?.Name,
                 ProcedureColorHex = a.ProcedureColorHex,
+                TreatmentPlanItemId = a.TreatmentPlanItemId,
                 CreatedAt = a.CreatedAt,
                 IsSyncedToGoogle = a.GoogleCalendarEventId != null
             });

@@ -332,6 +332,7 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                 ProcedureTypeName = appointment.ProcedureType?.Name,
                 // Use current procedure type color if available, otherwise use stored color
                 ProcedureColorHex = appointment.ProcedureType?.Color.Value ?? appointment.ProcedureColorHex,
+                TreatmentPlanItemId = appointment.TreatmentPlanItemId,
                 // Reflects committed state; the async Google sync below may set the id afterwards, and
                 // the frontend refetches (bumps refreshKey) to clear the "non synchronisé" badge.
                 IsSyncedToGoogle = appointment.GoogleCalendarEventId != null

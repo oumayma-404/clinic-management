@@ -28,6 +28,10 @@ public class ToothStateConfiguration : IEntityTypeConfiguration<ToothState>
             .IsRequired()
             .HasConversion<int>();
 
+        builder.Property(t => t.Source)
+            .IsRequired()
+            .HasConversion<int>();
+
         builder.Property(t => t.Surfaces)
             .HasMaxLength(5);
 
