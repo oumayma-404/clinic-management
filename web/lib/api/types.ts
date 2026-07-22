@@ -45,8 +45,10 @@ export interface DashboardStats {
   upcomingPending: number;
   thisWeekAppointments: number;
   urgentPatients: number;
-  /** Total collected (encaissé) in the current month, in TND. */
+  /** Total collected (encaissé) in the current month, in TND — includes invoice + installment payments. */
   monthlyRevenueCollected: number;
+  /** Total outstanding across the clinic (invoice + installment balances), in TND. */
+  totalOutstanding: number;
 }
 
 export interface InvoiceLineDto {
@@ -56,6 +58,28 @@ export interface InvoiceLineDto {
   unitPriceHt: number;
   lineTotalHt: number;
   dentalRecordId?: string | null;
+  /** Optional catalog CNAM/DCH act this line bills (drives the reimbursable split); null = free text. */
+  dentalActCodeId?: string | null;
+  codeActe?: string | null;
+}
+
+/** The unified per-patient balance (« Solde patient ») across invoices + installments, plus the CNAM split. */
+export interface PatientBillingSummaryDto {
+  invoiceOutstanding: number;
+  installmentOutstanding: number;
+  totalOutstanding: number;
+  oldestOverdueDate: string | null;
+  cnamReimbursable: number;
+  patientOutOfPocket: number;
+}
+
+/** One row of the clinic-wide « Créances » (accounts-receivable) list. */
+export interface ReceivableDto {
+  patientId: string;
+  patientName: string;
+  totalOutstanding: number;
+  oldestOverdueDate: string | null;
+  daysOverdue: number | null;
 }
 
 export interface PaymentDto {

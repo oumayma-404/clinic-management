@@ -5,19 +5,26 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Trash2, Plus } from "lucide-react"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
+import { Trash2, Plus, Search, X } from "lucide-react"
 import { toast } from "sonner"
 import { invoicesApi, type InvoiceLineInput, type CreateInvoiceRequest } from "@/lib/api/invoices"
 import { patientsApi } from "@/lib/api/patients"
+import { dentalActsApi } from "@/lib/api/dental-acts"
 import { ApiError } from "@/lib/api/client"
-import type { InvoiceDto, PatientDto } from "@/lib/api/types"
+import type { InvoiceDto, PatientDto, DentalActDto } from "@/lib/api/types"
 import { formatDT } from "@/lib/format"
 
 interface LineRow {
   designation: string
   quantity: string
   unitPriceHt: string
+  /** Catalog CNAM/DCH act attached to the line (drives the reimbursable split); null for free text. */
+  dentalActCodeId: string | null
+  codeActe: string | null
 }
 
 interface InvoiceFormModalProps {
@@ -34,7 +41,7 @@ interface InvoiceFormModalProps {
   onSuccess?: () => void
 }
 
-const emptyLine = (): LineRow => ({ designation: "", quantity: "1", unitPriceHt: "" })
+const emptyLine = (): LineRow => ({ designation: "", quantity: "1", unitPriceHt: "", dentalActCodeId: null, codeActe: null })
 
 export function InvoiceFormModal({
   open,
@@ -47,8 +54,10 @@ export function InvoiceFormModal({
   onSuccess,
 }: InvoiceFormModalProps) {
   const [patients, setPatients] = useState<PatientDto[]>([])
+  const [acts, setActs] = useState<DentalActDto[]>([])
   const [patientId, setPatientId] = useState("")
   const [lines, setLines] = useState<LineRow[]>([emptyLine()])
+  const [pickerOpenIndex, setPickerOpenIndex] = useState<number | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -56,6 +65,12 @@ export function InvoiceFormModal({
 
   useEffect(() => {
     if (!open) return
+
+    // Load the active CNAM dental act catalog for the per-line act picker (drives the reimbursable split).
+    dentalActsApi
+      .list()
+      .then(setActs)
+      .catch(() => setActs([]))
 
     // Only load a patient list when the caller doesn't preset one.
     if (!presetPatientId) {
@@ -73,6 +88,8 @@ export function InvoiceFormModal({
               designation: l.designation,
               quantity: String(l.quantity),
               unitPriceHt: String(l.unitPriceHt),
+              dentalActCodeId: l.dentalActCodeId ?? null,
+              codeActe: l.codeActe ?? null,
             }))
           : [emptyLine()],
       )
@@ -84,6 +101,8 @@ export function InvoiceFormModal({
               designation: l.designation,
               quantity: String(l.quantity),
               unitPriceHt: String(l.unitPriceHt),
+              dentalActCodeId: l.dentalActCodeId ?? null,
+              codeActe: l.codeActe ?? null,
             }))
           : [emptyLine()],
       )
@@ -99,6 +118,26 @@ export function InvoiceFormModal({
   const addLine = () => setLines((prev) => [...prev, emptyLine()])
   const removeLine = (index: number) =>
     setLines((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== index) : prev))
+
+  const selectAct = (index: number, act: DentalActDto) => {
+    setLines((prev) =>
+      prev.map((l, i) =>
+        i === index
+          ? {
+              ...l,
+              dentalActCodeId: act.id,
+              codeActe: act.codeActe,
+              // Fill the designation from the act, and the price from its default fee, only when empty.
+              designation: l.designation.trim() === "" ? act.designationFr : l.designation,
+              unitPriceHt: l.unitPriceHt.trim() === "" && act.defaultFee != null ? String(act.defaultFee) : l.unitPriceHt,
+            }
+          : l,
+      ),
+    )
+    setPickerOpenIndex(null)
+  }
+
+  const detachAct = (index: number) => updateLine(index, { dentalActCodeId: null, codeActe: null })
 
   const totalHt = lines.reduce((sum, l) => {
     const qty = Number(l.quantity)
@@ -116,11 +155,13 @@ export function InvoiceFormModal({
       return
     }
 
-    const parsedLines = lines
+    const parsedLines: InvoiceLineInput[] = lines
       .map((l) => ({
         designation: l.designation.trim(),
         quantity: Number(l.quantity),
         unitPriceHt: Number(l.unitPriceHt),
+        dentalActCodeId: l.dentalActCodeId,
+        codeActe: l.codeActe,
       }))
       .filter((l) => l.designation !== "")
 
@@ -202,52 +243,124 @@ export function InvoiceFormModal({
 
           <div className="space-y-2">
             <Label>Actes</Label>
-            <div className="space-y-2">
-              {lines.map((line, index) => (
-                <div key={index} className="flex items-end gap-2">
-                  <div className="flex-1 space-y-1">
-                    {index === 0 && <span className="text-xs text-muted-foreground">Désignation</span>}
-                    <Input
-                      value={line.designation}
-                      onChange={(e) => updateLine(index, { designation: e.target.value })}
-                      placeholder="Ex. Détartrage"
-                      disabled={loading}
-                    />
+            <div className="space-y-3">
+              {lines.map((line, index) => {
+                const qty = Number(line.quantity)
+                const price = Number(line.unitPriceHt)
+                const lineTotal = Number.isFinite(qty) && Number.isFinite(price) ? qty * price : 0
+                return (
+                  <div key={index} className="rounded-lg border p-3 space-y-2">
+                    <div className="flex items-start gap-2">
+                      <div className="flex-1 space-y-1">
+                        <div className="flex items-center gap-2">
+                          <Input
+                            value={line.designation}
+                            onChange={(e) => updateLine(index, { designation: e.target.value })}
+                            placeholder="Ex. Détartrage (ou choisir un acte CNAM)"
+                            disabled={loading}
+                          />
+                          <Popover
+                            open={pickerOpenIndex === index}
+                            onOpenChange={(o) => setPickerOpenIndex(o ? index : null)}
+                            modal
+                          >
+                            <PopoverTrigger asChild>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-9 px-3 shrink-0"
+                                disabled={loading}
+                                title="Rattacher un acte CNAM (pour le calcul du remboursement)"
+                              >
+                                <Search className="h-4 w-4" />
+                                <span className="sr-only">Rattacher un acte CNAM</span>
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="p-0 w-80" align="end">
+                              <Command>
+                                <CommandInput placeholder="Rechercher un acte…" />
+                                <CommandList>
+                                  <CommandEmpty>Aucun acte trouvé.</CommandEmpty>
+                                  <CommandGroup heading="Nomenclature CNAM">
+                                    {acts.map((act) => (
+                                      <CommandItem
+                                        key={act.id}
+                                        value={`${act.codeActe} ${act.designationFr} ${act.lettreCle}`}
+                                        onSelect={() => selectAct(index, act)}
+                                      >
+                                        <div className="flex flex-col">
+                                          <span className="text-sm font-medium">{act.designationFr}</span>
+                                          <span className="text-xs text-muted-foreground">
+                                            {act.codeActe} · {act.category}
+                                            {act.defaultFee != null ? ` · ${formatDT(act.defaultFee)}` : ""}
+                                          </span>
+                                        </div>
+                                      </CommandItem>
+                                    ))}
+                                  </CommandGroup>
+                                </CommandList>
+                              </Command>
+                            </PopoverContent>
+                          </Popover>
+                        </div>
+                        {line.codeActe && (
+                          <Badge variant="secondary" className="gap-1 font-mono text-xs">
+                            {line.codeActe}
+                            <button
+                              type="button"
+                              onClick={() => detachAct(index)}
+                              className="ml-1 rounded-full hover:text-destructive"
+                              title="Détacher l'acte CNAM (reste à charge intégral)"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </Badge>
+                        )}
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => removeLine(index)}
+                        disabled={loading || lines.length === 1}
+                        aria-label="Supprimer la ligne"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs text-muted-foreground">Qté</span>
+                        <Input
+                          type="number"
+                          min="1"
+                          step="1"
+                          value={line.quantity}
+                          onChange={(e) => updateLine(index, { quantity: e.target.value })}
+                          className="w-20"
+                          disabled={loading}
+                        />
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs text-muted-foreground">P.U. HT (DT)</span>
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.001"
+                          value={line.unitPriceHt}
+                          onChange={(e) => updateLine(index, { unitPriceHt: e.target.value })}
+                          className="w-32"
+                          disabled={loading}
+                        />
+                      </div>
+                      <span className="ml-auto text-sm text-muted-foreground">
+                        Total HT : <span className="font-medium text-foreground">{formatDT(lineTotal)}</span>
+                      </span>
+                    </div>
                   </div>
-                  <div className="w-16 space-y-1">
-                    {index === 0 && <span className="text-xs text-muted-foreground">Qté</span>}
-                    <Input
-                      type="number"
-                      min="1"
-                      step="1"
-                      value={line.quantity}
-                      onChange={(e) => updateLine(index, { quantity: e.target.value })}
-                      disabled={loading}
-                    />
-                  </div>
-                  <div className="w-28 space-y-1">
-                    {index === 0 && <span className="text-xs text-muted-foreground">P.U. HT</span>}
-                    <Input
-                      type="number"
-                      min="0"
-                      step="0.001"
-                      value={line.unitPriceHt}
-                      onChange={(e) => updateLine(index, { unitPriceHt: e.target.value })}
-                      disabled={loading}
-                    />
-                  </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => removeLine(index)}
-                    disabled={loading || lines.length === 1}
-                    aria-label="Supprimer la ligne"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              ))}
+                )
+              })}
             </div>
             <Button type="button" variant="outline" size="sm" onClick={addLine} disabled={loading} className="gap-2">
               <Plus className="h-4 w-4" /> Ajouter une ligne

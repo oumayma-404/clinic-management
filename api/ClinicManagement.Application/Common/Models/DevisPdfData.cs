@@ -21,6 +21,14 @@ public class DevisPdfData
 
     public decimal TotalPlanned { get; set; }
 
+    // Payment state, from the plan's installment collections (montant réglé / reste à payer).
+    public decimal AmountPaid { get; set; }
+    public decimal Outstanding { get; set; }
+
+    // Indicative CNAM split (never a fiscal figure): reimbursable + out-of-pocket == total planned.
+    public decimal CnamReimbursable { get; set; }
+    public decimal PatientOutOfPocket { get; set; }
+
     public List<DevisPdfLine> Lines { get; set; } = new();
     public List<DevisPdfInstallment> Installments { get; set; } = new();
 }

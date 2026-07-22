@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
-import { Calendar, Users, FileText, Settings, LayoutDashboard, Stethoscope, Package, FileCheck, ChevronLeft, ChevronRight, FolderOpen, UserCog, Receipt, UserCircle, ClipboardList, Pill, ClipboardCheck, ScrollText } from "lucide-react"
+import { Calendar, Users, FileText, Settings, LayoutDashboard, Stethoscope, Package, FileCheck, ChevronLeft, ChevronRight, FolderOpen, UserCog, Receipt, UserCircle, ClipboardList, Pill, ClipboardCheck, ScrollText, HandCoins } from "lucide-react"
 import { useSidebar } from "@/contexts/sidebar-context"
 import { useSession } from "@/lib/auth/session"
 import { Button } from "@/components/ui/button"
@@ -17,6 +17,7 @@ const navigation = [
   { name: "Medical Records", href: "/records", icon: FileText },
   { name: "Documents", href: "/documents", icon: FileCheck },
   { name: "Factures", href: "/factures", icon: Receipt },
+  { name: "Créances", href: "/creances", icon: HandCoins },
   { name: "Plans / Devis", href: "/treatment-plans", icon: ClipboardCheck },
   { name: "Files", href: "/files", icon: FolderOpen },
   { name: "Stock", href: "/stock", icon: Package },

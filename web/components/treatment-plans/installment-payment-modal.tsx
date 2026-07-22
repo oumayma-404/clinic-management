@@ -11,6 +11,7 @@ import { treatmentPlansApi } from "@/lib/api/treatment-plans"
 import { ApiError } from "@/lib/api/client"
 import type { InstallmentDto } from "@/lib/api/types"
 import { formatDT, formatDateFr } from "@/lib/format"
+import { downloadBlob } from "@/lib/download"
 import { PAYMENT_METHODS, paymentMethodLabel } from "@/components/factures/invoice-labels"
 
 interface InstallmentPaymentModalProps {
@@ -53,12 +54,24 @@ export function InstallmentPaymentModal({ open, onOpenChange, planId, installmen
 
     setLoading(true)
     try {
-      await treatmentPlansApi.recordInstallmentPayment(planId, installment.id, {
+      const currentPlanId = planId
+      const currentInstallmentId = installment.id
+      await treatmentPlansApi.recordInstallmentPayment(currentPlanId, currentInstallmentId, {
         amount: parsedAmount,
         method,
         paidOn: new Date(paidOn).toISOString(),
       })
-      toast.success("Paiement enregistré")
+      toast.success("Paiement enregistré", {
+        action: {
+          label: "Télécharger le reçu",
+          onClick: () => {
+            treatmentPlansApi
+              .downloadInstallmentReceipt(currentPlanId, currentInstallmentId)
+              .then((blob) => downloadBlob(blob, `recu-echeance-${currentInstallmentId.slice(0, 8)}.pdf`))
+              .catch((e) => toast.error(e instanceof Error ? e.message : "Échec du téléchargement du reçu."))
+          },
+        },
+      })
       onSuccess?.()
       onOpenChange(false)
     } catch (err) {

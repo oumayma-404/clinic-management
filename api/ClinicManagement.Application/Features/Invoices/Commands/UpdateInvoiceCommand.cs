@@ -71,7 +71,7 @@ public class UpdateInvoiceCommandHandler : IRequestHandler<UpdateInvoiceCommand,
                 request.PatientId,
                 request.DentalRecordId ?? invoice.DentalRecordId,
                 request.AppointmentId ?? invoice.AppointmentId);
-            invoice.SetLines(request.Lines.Select(l => (l.Designation, l.Quantity, l.UnitPriceHt, l.DentalRecordId)));
+            invoice.SetLines(request.Lines.Select(l => (l.Designation, l.Quantity, l.UnitPriceHt, l.DentalRecordId, l.DentalActCodeId, l.CodeActe)));
 
             await _invoiceRepository.UpdateAsync(invoice, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);

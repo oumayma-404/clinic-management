@@ -112,4 +112,27 @@ export const treatmentPlansApi = {
     }
     return response.blob();
   },
+
+  // The installment receipt PDF is a binary blob — drop to raw fetch and attach the bearer token ourselves.
+  downloadInstallmentReceipt: async (id: string, installmentId: string): Promise<Blob> => {
+    const token = await getAccessToken();
+    const headers: HeadersInit = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const base = typeof window !== 'undefined' ? window.location.origin : undefined;
+    const url = new URL(`${API_BASE_URL}/treatment-plans/${id}/installments/${installmentId}/receipt-pdf`, base);
+
+    const response = await fetch(url.toString(), {
+      method: 'GET',
+      headers,
+      credentials: 'include',
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      let message = text;
+      try { message = JSON.parse(text)?.error ?? text; } catch { /* body is not JSON */ }
+      throw new Error(message || `Échec du téléchargement du reçu (HTTP ${response.status})`);
+    }
+    return response.blob();
+  },
 };

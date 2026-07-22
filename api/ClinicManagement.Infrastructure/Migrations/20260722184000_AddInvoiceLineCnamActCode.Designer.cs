@@ -3,6 +3,7 @@ using System;
 using ClinicManagement.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace ClinicManagement.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260722184000_AddInvoiceLineCnamActCode")]
+    partial class AddInvoiceLineCnamActCode
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -79,9 +82,6 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<int>("Status")
                         .HasColumnType("integer");
 
-                    b.Property<Guid?>("TreatmentPlanItemId")
-                        .HasColumnType("uuid");
-
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -92,8 +92,6 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.HasIndex("PatientId");
 
                     b.HasIndex("ProcedureTypeId");
-
-                    b.HasIndex("TreatmentPlanItemId");
 
                     b.ToTable("Appointments", (string)null);
                 });
@@ -1453,9 +1451,6 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                     b.Property<Guid>("PatientId")
                         .HasColumnType("uuid");
-
-                    b.Property<int>("Source")
-                        .HasColumnType("integer");
 
                     b.Property<string>("Surfaces")
                         .HasMaxLength(5)

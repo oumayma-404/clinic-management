@@ -4,6 +4,7 @@ using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
+using ClinicManagement.Domain.Services;
 
 namespace ClinicManagement.Application.Features.Dashboard.Queries;
 
@@ -31,6 +32,7 @@ public class GetDashboardStatsQueryHandler : IRequestHandler<GetDashboardStatsQu
     private readonly IPatientRepository _patientRepository;
     private readonly IUserRepository _userRepository;
     private readonly IInvoiceRepository _invoiceRepository;
+    private readonly ITreatmentPlanRepository _planRepository;
     private readonly IClinicContext _clinicContext;
 
     public GetDashboardStatsQueryHandler(
@@ -38,12 +40,14 @@ public class GetDashboardStatsQueryHandler : IRequestHandler<GetDashboardStatsQu
         IPatientRepository patientRepository,
         IUserRepository userRepository,
         IInvoiceRepository invoiceRepository,
+        ITreatmentPlanRepository planRepository,
         IClinicContext clinicContext)
     {
         _appointmentRepository = appointmentRepository;
         _patientRepository = patientRepository;
         _userRepository = userRepository;
         _invoiceRepository = invoiceRepository;
+        _planRepository = planRepository;
         _clinicContext = clinicContext;
     }
 
@@ -86,8 +90,19 @@ public class GetDashboardStatsQueryHandler : IRequestHandler<GetDashboardStatsQu
 
             var monthStart = request.MonthStart ?? new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
             var monthEnd = request.MonthEnd ?? monthStart.AddMonths(1).AddTicks(-1);
-            var monthlyRevenueCollected = await _invoiceRepository.GetCollectedBetweenAsync(
+            // Encaissé ce mois-ci = invoice payments + treatment-plan installment collections (both tracks).
+            var invoiceCollected = await _invoiceRepository.GetCollectedBetweenAsync(
                 clinicId, monthStart, monthEnd, cancellationToken);
+            var installmentCollected = await _planRepository.GetInstallmentCollectedBetweenAsync(
+                clinicId, monthStart, monthEnd, cancellationToken);
+            var monthlyRevenueCollected = InvoiceCalculator.RoundMoney(invoiceCollected + installmentCollected);
+
+            // En attente de recouvrement = clinic-wide outstanding across both tracks.
+            var invoiceOutstanding = (await _invoiceRepository.GetOutstandingByPatientAsync(clinicId, cancellationToken))
+                .Sum(r => r.Outstanding);
+            var installmentOutstanding = (await _planRepository.GetInstallmentOutstandingByPatientAsync(clinicId, now, cancellationToken))
+                .Sum(r => r.Outstanding);
+            var totalOutstanding = InvoiceCalculator.RoundMoney(invoiceOutstanding + installmentOutstanding);
 
             var dto = new DashboardStatsDto
             {
@@ -96,7 +111,8 @@ public class GetDashboardStatsQueryHandler : IRequestHandler<GetDashboardStatsQu
                 UpcomingPending = upcomingPending,
                 ThisWeekAppointments = thisWeekAppointments,
                 UrgentPatients = urgentPatients,
-                MonthlyRevenueCollected = monthlyRevenueCollected
+                MonthlyRevenueCollected = monthlyRevenueCollected,
+                TotalOutstanding = totalOutstanding
             };
 
             return Result<DashboardStatsDto>.Success(dto);
