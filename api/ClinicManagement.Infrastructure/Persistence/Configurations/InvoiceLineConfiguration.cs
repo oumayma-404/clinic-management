@@ -35,6 +35,13 @@ public class InvoiceLineConfiguration : IEntityTypeConfiguration<InvoiceLine>
         // read by the "already invoiced" guard so a multi-record honoraires marks each record invoiced.
         builder.Property(l => l.DentalRecordId);
 
+        // Optional link to the catalog CNAM/DCH act (no FK — the catalog is global reference data, mirrors
+        // TreatmentPlanItem). Drives the indicative CNAM reimbursable/out-of-pocket split on the invoice.
+        builder.Property(l => l.DentalActCodeId);
+
+        builder.Property(l => l.CodeActe)
+            .HasMaxLength(50);
+
         builder.HasIndex(l => l.InvoiceId);
         builder.HasIndex(l => l.DentalRecordId);
     }

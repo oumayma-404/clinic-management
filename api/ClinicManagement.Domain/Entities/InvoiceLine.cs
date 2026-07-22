@@ -21,9 +21,27 @@ public class InvoiceLine : Entity<Guid>
     /// </summary>
     public Guid? DentalRecordId { get; private set; }
 
+    /// <summary>
+    /// Optional link to the catalog CNAM/DCH act this line bills (mirrors <see cref="TreatmentPlanItem"/>).
+    /// Drives the indicative CNAM-reimbursable vs. patient-out-of-pocket split on the invoice; a line with
+    /// no act (free-text honoraires) is counted fully out-of-pocket.
+    /// </summary>
+    public Guid? DentalActCodeId { get; private set; }
+
+    /// <summary>Snapshot of the DCH code (e.g. <c>DCH020030</c>) at billing time, for display.</summary>
+    public string? CodeActe { get; private set; }
+
     private InvoiceLine() { } // For EF Core
 
-    public InvoiceLine(Guid id, Guid invoiceId, string designation, int quantity, decimal unitPriceHt, Guid? dentalRecordId = null)
+    public InvoiceLine(
+        Guid id,
+        Guid invoiceId,
+        string designation,
+        int quantity,
+        decimal unitPriceHt,
+        Guid? dentalRecordId = null,
+        Guid? dentalActCodeId = null,
+        string? codeActe = null)
     {
         if (string.IsNullOrWhiteSpace(designation))
             throw new ArgumentException("La désignation de la ligne est requise.", nameof(designation));
@@ -41,5 +59,7 @@ public class InvoiceLine : Entity<Guid>
         UnitPriceHt = unitPriceHt;
         LineTotalHt = InvoiceCalculator.LineTotal(quantity, unitPriceHt);
         DentalRecordId = dentalRecordId;
+        DentalActCodeId = dentalActCodeId;
+        CodeActe = string.IsNullOrWhiteSpace(codeActe) ? null : codeActe.Trim();
     }
 }

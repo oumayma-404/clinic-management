@@ -46,6 +46,10 @@ public class InvoiceLineDto
     public decimal UnitPriceHt { get; set; }
     public decimal LineTotalHt { get; set; }
     public Guid? DentalRecordId { get; set; }
+
+    /// <summary>Optional catalog CNAM/DCH act this line bills (drives the reimbursable split); null = free-text.</summary>
+    public Guid? DentalActCodeId { get; set; }
+    public string? CodeActe { get; set; }
 }
 
 public class PaymentDto
@@ -73,4 +77,8 @@ public class InvoiceLineRequest
 
     /// <summary>Optional dental record this line bills (drives the "already invoiced" guard, FR-1.2).</summary>
     public Guid? DentalRecordId { get; set; }
+
+    /// <summary>Optional catalog CNAM/DCH act this line bills (drives the reimbursable split); null = free-text.</summary>
+    public Guid? DentalActCodeId { get; set; }
+    public string? CodeActe { get; set; }
 }

@@ -44,7 +44,9 @@ public static class InvoiceMappingExtensions
                 Quantity = l.Quantity,
                 UnitPriceHt = l.UnitPriceHt,
                 LineTotalHt = l.LineTotalHt,
-                DentalRecordId = l.DentalRecordId
+                DentalRecordId = l.DentalRecordId,
+                DentalActCodeId = l.DentalActCodeId,
+                CodeActe = l.CodeActe
             })
             .ToList(),
         Payments = invoice.Payments

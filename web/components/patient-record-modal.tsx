@@ -59,6 +59,8 @@ interface PatientRecordModalProps {
   patientName?: string
   patientId?: string
   record?: DentalRecordDto | null // Record to edit, null for a new record
+  /** True when the record is already billed by a (non-cancelled) invoice — its payment is invoice-managed (AC-8). */
+  isInvoiced?: boolean
   onSuccess?: () => void
 }
 
@@ -68,6 +70,7 @@ export function PatientRecordModal({
   patientName: initialPatientName = "",
   patientId,
   record,
+  isInvoiced = false,
   onSuccess,
 }: PatientRecordModalProps) {
   const [patientName, setPatientName] = useState(initialPatientName)
@@ -586,14 +589,20 @@ export function PatientRecordModal({
                 value={amountPaid}
                 onChange={(e) => setAmountPaid(e.target.value)}
                 placeholder="0.000"
-                disabled={loading}
+                disabled={loading || isInvoiced}
               />
-              <p className="text-xs text-muted-foreground">
-                Reste à payer :{" "}
-                <span className={reste > 0 ? "font-semibold text-amber-600" : "font-medium text-foreground"}>
-                  {formatDT(reste)}
-                </span>
-              </p>
+              {isInvoiced ? (
+                <p className="text-xs text-muted-foreground">
+                  Facturé — le paiement est géré par la facture (voir l'onglet Factures).
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Reste à payer :{" "}
+                  <span className={reste > 0 ? "font-semibold text-amber-600" : "font-medium text-foreground"}>
+                    {formatDT(reste)}
+                  </span>
+                </p>
+              )}
             </div>
             <div className="flex items-end justify-end">
               <div className="text-sm">

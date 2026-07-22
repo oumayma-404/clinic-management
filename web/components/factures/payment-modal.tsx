@@ -8,9 +8,11 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { toast } from "sonner"
 import { invoicesApi } from "@/lib/api/invoices"
+import { billingApi } from "@/lib/api/billing"
 import { ApiError } from "@/lib/api/client"
 import type { InvoiceDto } from "@/lib/api/types"
 import { formatDT } from "@/lib/format"
+import { downloadBlob } from "@/lib/download"
 import { PAYMENT_METHODS, paymentMethodLabel } from "./invoice-labels"
 
 interface PaymentModalProps {
@@ -52,12 +54,27 @@ export function PaymentModal({ open, onOpenChange, invoice, onSuccess }: Payment
 
     setLoading(true)
     try {
-      await invoicesApi.recordPayment(invoice.id, {
+      const priorPaymentIds = new Set(invoice.payments.map((p) => p.id))
+      const updated = await invoicesApi.recordPayment(invoice.id, {
         amount: parsedAmount,
         method,
         paidOn: new Date(paidOn).toISOString(),
       })
-      toast.success("Paiement enregistré")
+      const newPayment =
+        updated.payments.find((p) => !priorPaymentIds.has(p.id)) ??
+        updated.payments[updated.payments.length - 1]
+
+      toast.success("Paiement enregistré", newPayment ? {
+        action: {
+          label: "Télécharger le reçu",
+          onClick: () => {
+            billingApi
+              .downloadPaymentReceipt(newPayment.id)
+              .then((blob) => downloadBlob(blob, `recu-${updated.number ?? updated.id}.pdf`))
+              .catch((e) => toast.error(e instanceof Error ? e.message : "Échec du téléchargement du reçu."))
+          },
+        },
+      } : undefined)
       onSuccess?.()
       onOpenChange(false)
     } catch (err) {

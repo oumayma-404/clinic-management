@@ -11,5 +11,8 @@ public interface IPdfGenerationService
 
     /// <summary>Render a dental devis (quote) to PDF — a non-fiscal estimate, amounts in TND.</summary>
     Task<byte[]> GenerateDevisPdfAsync(DevisPdfData devisData, CancellationToken cancellationToken = default);
+
+    /// <summary>Render a patient payment receipt (reçu) to PDF — amounts in TND.</summary>
+    Task<byte[]> GenerateReceiptPdfAsync(ReceiptPdfData receiptData, CancellationToken cancellationToken = default);
 }
 

@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Separator } from "@/components/ui/separator"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { formatDT } from "@/lib/format"
+import { formatDT, formatDateFr } from "@/lib/format"
 import {
   ArrowLeft,
   Flag,
@@ -65,6 +65,9 @@ import { InvoiceFormModal } from "@/components/factures/invoice-form-modal"
 import { Odontogram } from "@/components/odontogram"
 import { TreatmentPlansTable } from "@/components/treatment-plans/treatment-plans-table"
 import { invoicesApi } from "@/lib/api/invoices"
+import { billingApi } from "@/lib/api/billing"
+import type { PatientBillingSummaryDto } from "@/lib/api/types"
+import { HandCoins } from "lucide-react"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 
@@ -149,6 +152,7 @@ export default function PatientDetailsPage() {
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set())
   // Dental records already tied to a non-cancelled invoice (guards against double-invoicing).
   const [invoicedDentalRecordIds, setInvoicedDentalRecordIds] = useState<Set<string>>(new Set())
+  const [billingSummary, setBillingSummary] = useState<PatientBillingSummaryDto | null>(null)
   // The dental record being invoiced (drives the pre-filled invoice modal); null = closed.
   const [billingRecord, setBillingRecord] = useState<DentalRecordDto | null>(null)
   const [previewFile, setPreviewFile] = useState<PatientFileDto | null>(null)
@@ -212,19 +216,21 @@ export default function PatientDetailsPage() {
         
         // Load medical and family history entries, dental records, files, folders, and invoices
         // (invoices power the "already billed" guard on the dental-records list).
-        const [medicalHistory, familyHistory, dentalRecordsData, filesData, foldersData, invoicesData] = await Promise.all([
+        const [medicalHistory, familyHistory, dentalRecordsData, filesData, foldersData, invoicesData, billingSummaryData] = await Promise.all([
           patientMedicalHistoryApi.list(patientId).catch(() => []),
           patientFamilyHistoryApi.list(patientId).catch(() => []),
           dentalRecordsApi.list(patientId).catch(() => []),
           patientFilesApi.getFiles(patientId).catch(() => []),
           patientFilesApi.getFolders(patientId).catch(() => []),
-          invoicesApi.list({ patientId }).catch(() => [])
+          invoicesApi.list({ patientId }).catch(() => []),
+          billingApi.getPatientSummary(patientId).catch(() => null)
         ])
         setMedicalHistoryEntries(medicalHistory)
         setFamilyHistoryEntries(familyHistory)
         setDentalRecords(dentalRecordsData)
         setFiles(filesData)
         setFolders(foldersData)
+        setBillingSummary(billingSummaryData)
         // A dental record counts as "already invoiced" only if a NON-cancelled invoice links to it
         // (a cancelled invoice frees it for re-billing) — via the header link OR any line link (a
         // multi-record note d'honoraires links each billed record at the line level). Safe degradation:
@@ -500,6 +506,50 @@ export default function PatientDetailsPage() {
               </CardContent>
             </Card>
 
+            {/* Unified per-patient balance (« Solde patient ») across invoices + treatment-plan installments. */}
+            {billingSummary && (
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <HandCoins className="h-5 w-5 text-muted-foreground" />
+                    Solde patient
+                  </CardTitle>
+                  <CardDescription>
+                    Solde unifié sur les deux circuits de facturation (factures + échéanciers).
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                    <div>
+                      <p className="text-xs text-muted-foreground">Solde dû (total)</p>
+                      <p className={`text-2xl font-semibold ${billingSummary.totalOutstanding > 0 ? "text-amber-600" : "text-foreground"}`}>
+                        {formatDT(billingSummary.totalOutstanding)}
+                      </p>
+                      {billingSummary.oldestOverdueDate && (
+                        <Badge variant="destructive" className="mt-1">
+                          En retard depuis le {formatDateFr(billingSummary.oldestOverdueDate)}
+                        </Badge>
+                      )}
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Dont factures</p>
+                      <p className="text-lg font-medium">{formatDT(billingSummary.invoiceOutstanding)}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">Dont échéanciers</p>
+                      <p className="text-lg font-medium">{formatDT(billingSummary.installmentOutstanding)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Estimation CNAM</p>
+                      <p className="text-lg font-medium">{formatDT(billingSummary.cnamReimbursable)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Reste à charge patient</p>
+                      <p className="text-lg font-medium">{formatDT(billingSummary.patientOutOfPocket)}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             <Tabs defaultValue="medical-records" className="space-y-4">
               <TabsList className="grid w-full grid-cols-7">
                 <TabsTrigger value="medical-records" className="gap-2">
@@ -596,9 +646,19 @@ export default function PatientDetailsPage() {
                                     <span className="text-muted-foreground text-sm">-</span>
                                   )}
                                 </TableCell>
-                                <TableCell>{formatDT(record.amountPaid)}</TableCell>
                                 <TableCell>
-                                  {(() => {
+                                  {invoicedDentalRecordIds.has(record.id) ? (
+                                    <span className="text-muted-foreground line-through" title="Facturé — le montant est géré par la facture">
+                                      {formatDT(record.amountPaid)}
+                                    </span>
+                                  ) : (
+                                    formatDT(record.amountPaid)
+                                  )}
+                                </TableCell>
+                                <TableCell>
+                                  {invoicedDentalRecordIds.has(record.id) ? (
+                                    <span className="text-muted-foreground text-xs">Facturé</span>
+                                  ) : (() => {
                                     const reste = Math.max(0, record.balance ?? (record.cost - record.amountPaid))
                                     return reste > 0
                                       ? <span className="font-semibold text-amber-600">{formatDT(reste)}</span>
@@ -1373,6 +1433,7 @@ export default function PatientDetailsPage() {
         patientName={patientName}
         patientId={patient.id}
         record={editingRecord}
+        isInvoiced={editingRecord ? invoicedDentalRecordIds.has(editingRecord.id) : false}
         onSuccess={handleEditSuccess}
       />
 

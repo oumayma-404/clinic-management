@@ -105,19 +105,26 @@ public class Invoice : AggregateRoot<Guid>
 
     /// <summary>Replace all act lines. Draft only.</summary>
     public void SetLines(IEnumerable<(string designation, int quantity, decimal unitPriceHt)> lines)
-        => SetLines(lines.Select(l => (l.designation, l.quantity, l.unitPriceHt, (Guid?)null)));
+        => SetLines(lines.Select(l => (l.designation, l.quantity, l.unitPriceHt, (Guid?)null, (Guid?)null, (string?)null)));
 
     /// <summary>
     /// Replace all act lines, each optionally linked to the dental record it bills (so a multi-record note
     /// d'honoraires marks every seeded record invoiced, not only the single header link). Draft only.
     /// </summary>
     public void SetLines(IEnumerable<(string designation, int quantity, decimal unitPriceHt, Guid? dentalRecordId)> lines)
+        => SetLines(lines.Select(l => (l.designation, l.quantity, l.unitPriceHt, l.dentalRecordId, (Guid?)null, (string?)null)));
+
+    /// <summary>
+    /// Replace all act lines, each optionally linked to the dental record it bills and to the catalog CNAM/DCH
+    /// act it charges (the act link drives the indicative CNAM-reimbursable vs. out-of-pocket split). Draft only.
+    /// </summary>
+    public void SetLines(IEnumerable<(string designation, int quantity, decimal unitPriceHt, Guid? dentalRecordId, Guid? dentalActCodeId, string? codeActe)> lines)
     {
         EnsureDraft();
         _lines.Clear();
-        foreach (var (designation, quantity, unitPriceHt, dentalRecordId) in lines)
+        foreach (var (designation, quantity, unitPriceHt, dentalRecordId, dentalActCodeId, codeActe) in lines)
         {
-            _lines.Add(new InvoiceLine(Guid.NewGuid(), Id, designation, quantity, unitPriceHt, dentalRecordId));
+            _lines.Add(new InvoiceLine(Guid.NewGuid(), Id, designation, quantity, unitPriceHt, dentalRecordId, dentalActCodeId, codeActe));
         }
         RecomputeTotals();
         Touch();

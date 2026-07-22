@@ -14,12 +14,13 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { FileDown, Pencil, Trash2, CheckCircle2, Ban, ListChecks, CreditCard, Check, Plus, Loader2 } from "lucide-react"
+import { FileDown, Pencil, Trash2, CheckCircle2, Ban, ListChecks, CreditCard, Check, Plus, Loader2, ReceiptText } from "lucide-react"
 import { toast } from "sonner"
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
 import { ApiError } from "@/lib/api/client"
 import type { TreatmentPlanDto, InstallmentDto } from "@/lib/api/types"
 import { formatDT, formatDateFr } from "@/lib/format"
+import { downloadBlob } from "@/lib/download"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { TreatmentPlanFormModal } from "./treatment-plan-form-modal"
@@ -118,6 +119,18 @@ export function TreatmentPlansTable({
       afterMutation()
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Échec de la mise à jour de l'acte.")
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  const handleDownloadInstallmentReceipt = async (planId: string, installmentId: string) => {
+    setBusyId(installmentId)
+    try {
+      const blob = await treatmentPlansApi.downloadInstallmentReceipt(planId, installmentId)
+      downloadBlob(blob, `recu-echeance-${installmentId.slice(0, 8)}.pdf`)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Échec du téléchargement du reçu.")
     } finally {
       setBusyId(null)
     }
@@ -380,32 +393,54 @@ export function TreatmentPlansTable({
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {manageTarget.installments.map((inst) => (
+                        {manageTarget.installments.map((inst) => {
+                          const isOverdue = !inst.isPaid && new Date(inst.dueDate).getTime() < Date.now()
+                          return (
                           <TableRow key={inst.id}>
                             <TableCell>{formatDateFr(inst.dueDate)}</TableCell>
                             <TableCell className="text-right">{formatDT(inst.amount)}</TableCell>
                             <TableCell className="text-right">{formatDT(inst.amountPaid)}</TableCell>
                             <TableCell className="text-right">{formatDT(inst.outstanding)}</TableCell>
                             <TableCell>
-                              <Badge variant={inst.isPaid ? "secondary" : "outline"}>
-                                {inst.isPaid ? "Payée" : "En attente"}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-right">
-                              {!inst.isPaid && manageTarget.status !== "Cancelled" && (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-8 gap-1"
-                                  onClick={() => setPaymentTarget({ planId: manageTarget.id, installment: inst })}
-                                >
-                                  <CreditCard className="h-4 w-4" />
-                                  Encaisser
-                                </Button>
+                              {inst.isPaid ? (
+                                <Badge variant="secondary">Payée</Badge>
+                              ) : isOverdue ? (
+                                <Badge variant="destructive">En retard</Badge>
+                              ) : (
+                                <Badge variant="outline">En attente</Badge>
                               )}
                             </TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex justify-end gap-1">
+                                {!inst.isPaid && manageTarget.status !== "Cancelled" && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 gap-1"
+                                    onClick={() => setPaymentTarget({ planId: manageTarget.id, installment: inst })}
+                                    disabled={busyId === inst.id}
+                                  >
+                                    <CreditCard className="h-4 w-4" />
+                                    Encaisser
+                                  </Button>
+                                )}
+                                {inst.amountPaid > 0 && (
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8"
+                                    title="Télécharger le reçu"
+                                    onClick={() => handleDownloadInstallmentReceipt(manageTarget.id, inst.id)}
+                                    disabled={busyId === inst.id}
+                                  >
+                                    <ReceiptText className="h-4 w-4" />
+                                  </Button>
+                                )}
+                              </div>
+                            </TableCell>
                           </TableRow>
-                        ))}
+                          )
+                        })}
                       </TableBody>
                     </Table>
                   </div>

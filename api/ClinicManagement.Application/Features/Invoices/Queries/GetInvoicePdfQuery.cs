@@ -21,6 +21,7 @@ public class GetInvoicePdfQueryHandler : IRequestHandler<GetInvoicePdfQuery, Res
     private readonly IPatientRepository _patientRepository;
     private readonly IPdfGenerationService _pdfGenerationService;
     private readonly IQrCodeGenerator _qrCodeGenerator;
+    private readonly ICnamBillingCalculator _cnamBillingCalculator;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly ILogger<GetInvoicePdfQueryHandler> _logger;
 
@@ -30,6 +31,7 @@ public class GetInvoicePdfQueryHandler : IRequestHandler<GetInvoicePdfQuery, Res
         IPatientRepository patientRepository,
         IPdfGenerationService pdfGenerationService,
         IQrCodeGenerator qrCodeGenerator,
+        ICnamBillingCalculator cnamBillingCalculator,
         ICurrentClinicResolver clinicResolver,
         ILogger<GetInvoicePdfQueryHandler> logger)
     {
@@ -38,6 +40,7 @@ public class GetInvoicePdfQueryHandler : IRequestHandler<GetInvoicePdfQuery, Res
         _patientRepository = patientRepository;
         _pdfGenerationService = pdfGenerationService;
         _qrCodeGenerator = qrCodeGenerator;
+        _cnamBillingCalculator = cnamBillingCalculator;
         _clinicResolver = clinicResolver;
         _logger = logger;
     }
@@ -68,6 +71,16 @@ public class GetInvoicePdfQueryHandler : IRequestHandler<GetInvoicePdfQuery, Res
             var patient = await _patientRepository.GetByIdAsync(invoice.PatientId, cancellationToken);
 
             var data = BuildPdfData(invoice, clinic, patient?.GetFullName() ?? string.Empty);
+
+            // Indicative CNAM split over the coded lines (reimbursable + out-of-pocket == TTC).
+            var careDate = invoice.IssueDate ?? invoice.CreatedAt;
+            var cnamLines = invoice.Lines
+                .Select(l => new CnamBillingLine(l.DentalActCodeId, l.LineTotalHt))
+                .ToList();
+            var split = await _cnamBillingCalculator.ComputeAsync(
+                cnamLines, invoice.TotalTtc, patient?.DateOfBirth, careDate, cancellationToken);
+            data.CnamReimbursable = split.Reimbursable;
+            data.PatientOutOfPocket = split.OutOfPocket;
 
             // FR-7: once validated, stamp the QR « cachet électronique visible » + TTN reference onto the PDF.
             // Degrade gracefully — a QR render failure must not block the (legally-important) invoice PDF, so
@@ -115,6 +128,8 @@ public class GetInvoicePdfQueryHandler : IRequestHandler<GetInvoicePdfQuery, Res
         TotalVat = invoice.TotalVat,
         StampDutyAmount = invoice.StampDutyAmount,
         TotalTtc = invoice.TotalTtc,
+        AmountCollected = invoice.AmountCollected,
+        Outstanding = invoice.Outstanding,
         IsCancelled = invoice.Status == InvoiceStatus.Cancelled,
         Lines = invoice.Lines
             .Select(l => new InvoicePdfLine
