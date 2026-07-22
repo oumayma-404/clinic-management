@@ -35,6 +35,11 @@ public class ToothStateRepository : IToothStateRepository
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<ToothState?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        return await _context.ToothStates.FirstOrDefaultAsync(t => t.Id == id, cancellationToken);
+    }
+
     public async Task<ToothState> AddAsync(ToothState toothState, CancellationToken cancellationToken = default)
     {
         await _context.ToothStates.AddAsync(toothState, cancellationToken);

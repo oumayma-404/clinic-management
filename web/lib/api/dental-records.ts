@@ -9,6 +9,9 @@ export interface CreateDentalRecordRequest {
   importantNotes: string[];
   // Act line items (used for both create and update). procedureType/cost/teeth are derived server-side.
   acts: DentalActInput[];
+  // Optional: mark a scheduled treatment-plan step "réalisé" and link it to this record.
+  treatmentPlanId?: string | null;
+  treatmentPlanItemId?: string | null;
 }
 
 export const dentalRecordsApi = {

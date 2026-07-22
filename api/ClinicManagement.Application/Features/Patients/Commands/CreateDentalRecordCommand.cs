@@ -19,6 +19,10 @@ public class CreateDentalRecordCommand : IRequest<Result<DentalRecordDto>>
     public List<DentalActInput> Acts { get; set; } = new();
     public List<string> Notes { get; set; } = new();
     public List<string> ImportantNotes { get; set; } = new();
+    /// <summary>Optional treatment plan whose step this record completes (required when <see cref="TreatmentPlanItemId"/> is set).</summary>
+    public Guid? TreatmentPlanId { get; set; }
+    /// <summary>Optional plan step this record carries out — marked "réalisé" and linked to this record on save.</summary>
+    public Guid? TreatmentPlanItemId { get; set; }
 }
 
 public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalRecordCommand, Result<DentalRecordDto>>
@@ -26,6 +30,7 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
     private readonly IPatientRepository _patientRepository;
     private readonly IDentalRecordRepository _dentalRecordRepository;
     private readonly IToothStateRepository _toothStateRepository;
+    private readonly ITreatmentPlanRepository _treatmentPlanRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
 
@@ -33,12 +38,14 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
         IPatientRepository patientRepository,
         IDentalRecordRepository dentalRecordRepository,
         IToothStateRepository toothStateRepository,
+        ITreatmentPlanRepository treatmentPlanRepository,
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork)
     {
         _patientRepository = patientRepository;
         _dentalRecordRepository = dentalRecordRepository;
         _toothStateRepository = toothStateRepository;
+        _treatmentPlanRepository = treatmentPlanRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
     }
@@ -85,9 +92,29 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
 
             await _dentalRecordRepository.AddAsync(record, cancellationToken);
 
-            foreach (var toothState in DentalRecordActParser.BuildToothStates(parsed.Value!, request.PatientId, request.InterventionDate, record.Id))
+            var toothStates = DentalRecordActParser
+                .BuildToothStates(parsed.Value!, request.PatientId, request.InterventionDate, record.Id)
+                .ToList();
+
+            // Treating a tooth closes any open diagnosis charted on it (AC-5).
+            await DentalRecordLinker.ClearDiagnosesForTreatedTeethAsync(
+                _toothStateRepository, request.PatientId, toothStates, cancellationToken);
+
+            foreach (var toothState in toothStates)
             {
                 await _toothStateRepository.AddAsync(toothState, cancellationToken);
+            }
+
+            // Completing a scheduled plan step: mark it "réalisé" and link it to this record (AC-4).
+            if (request.TreatmentPlanItemId.HasValue)
+            {
+                var link = await DentalRecordLinker.LinkPlanItemAsync(
+                    _treatmentPlanRepository, request.TreatmentPlanId, request.TreatmentPlanItemId.Value,
+                    request.PatientId, clinicResult.Value, record.Id, request.InterventionDate, cancellationToken);
+                if (link.IsFailure)
+                {
+                    return Result<DentalRecordDto>.Failure(link.Error!);
+                }
             }
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -95,6 +122,10 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
             return Result<DentalRecordDto>.Success(record.ToDto());
         }
         catch (ArgumentException ex)
+        {
+            return Result<DentalRecordDto>.Failure(ex.Message);
+        }
+        catch (InvalidOperationException ex)
         {
             return Result<DentalRecordDto>.Failure(ex.Message);
         }
