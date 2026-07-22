@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
-import { Calendar, Users, FileText, Settings, LayoutDashboard, Stethoscope, Package, FileCheck, ChevronLeft, ChevronRight, FolderOpen, UserCog, Receipt, UserCircle, ClipboardList, Pill } from "lucide-react"
+import { Calendar, Users, FileText, Settings, LayoutDashboard, Stethoscope, Package, FileCheck, ChevronLeft, ChevronRight, FolderOpen, UserCog, Receipt, UserCircle, ClipboardList, Pill, ClipboardCheck, ScrollText } from "lucide-react"
 import { useSidebar } from "@/contexts/sidebar-context"
 import { useSession } from "@/lib/auth/session"
 import { Button } from "@/components/ui/button"
@@ -17,6 +17,7 @@ const navigation = [
   { name: "Medical Records", href: "/records", icon: FileText },
   { name: "Documents", href: "/documents", icon: FileCheck },
   { name: "Factures", href: "/factures", icon: Receipt },
+  { name: "Plans / Devis", href: "/treatment-plans", icon: ClipboardCheck },
   { name: "Files", href: "/files", icon: FolderOpen },
   { name: "Stock", href: "/stock", icon: Package },
   { name: "Mon profil", href: "/mon-profil", icon: UserCircle },
@@ -29,6 +30,8 @@ const adminNavItem = { name: "Users", href: "/users", icon: UserCog }
 const cnamNavItem = { name: "Nomenclature CNAM", href: "/cnam-nomenclature", icon: ClipboardList }
 // Medication catalog admin screen — shown to any admin (global catalog management, backs the ordonnance picker).
 const medicationsNavItem = { name: "Médicaments", href: "/medications", icon: Pill }
+// Dental act catalog admin screen — shown to any admin (backs the treatment-plan act picker).
+const dentalActsNavItem = { name: "Actes dentaires", href: "/dental-acts", icon: ScrollText }
 
 export function DashboardSidebar() {
   const pathname = usePathname()
@@ -38,7 +41,7 @@ export function DashboardSidebar() {
   const isAdmin = user?.role === "admin"
   const navItems = [
     ...navigation,
-    ...(isAdmin ? [cnamNavItem, medicationsNavItem] : []),
+    ...(isAdmin ? [cnamNavItem, medicationsNavItem, dentalActsNavItem] : []),
     ...(mode === "local" && isAdmin ? [adminNavItem] : []),
   ]
 

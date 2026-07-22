@@ -310,3 +310,91 @@ export interface MedicalDocumentDto {
   updatedAt?: string;
 }
 
+// A dental act catalog entry (DB-backed reference data from GET /api/dental-acts). Used by the treatment
+// plan editor to pick an act (snapshots codeActe + designationFr onto the line and prefills the fee from
+// defaultFee) and by the admin catalog screen. Writes are admin-only.
+export interface DentalActDto {
+  id: string;
+  codeActe: string;
+  designationFr: string;
+  lettreCle: string;
+  coefficient: number | null;
+  category: string;
+  defaultFee: number | null;
+  requiresAccordPrealable: boolean;
+  isActive: boolean;
+  isProvisional: boolean;
+}
+
+// A recorded tooth-condition entry on a patient's odontogram (GET /patients/{id}/odontogram). A tooth can
+// have MANY entries — one per recorded treatment. `condition` is a ToothCondition enum name: Sain | Carie |
+// Obturation | Couronne | TraitementDeCanal | Bridge | Implant | ExtraitAbsent | ATraiter. `surfaces` is a
+// compact string like "MOD" (M/O/D/V/L). Conditions are captured when adding/editing a dental record, so
+// each entry links back to its source record via `dentalRecordId`.
+export interface ToothStateDto {
+  id: string;
+  toothNumber: number;
+  condition: string;
+  surfaces: string | null;
+  note: string | null;
+  treatmentDate: string;
+  dentalRecordId: string | null;
+  createdAt: string;
+}
+
+// Per-tooth condition captured when creating/updating a dental record.
+export interface ToothConditionInput {
+  toothNumber: number;
+  condition: string;
+  surfaces?: string | null;
+  note?: string | null;
+}
+
+// A single act line on a treatment plan / devis. Either a catalog act (dentalActCodeId + codeActe set) or
+// a free-text designation. `status` is Planned | Done.
+export interface TreatmentPlanItemDto {
+  id: string;
+  dentalActCodeId: string | null;
+  codeActe: string | null;
+  designationFr: string;
+  toothNumbers: number[];
+  plannedCost: number;
+  status: string;
+  doneDate: string | null;
+  linkedDentalRecordId: string | null;
+}
+
+// A payment installment (échéance) on an accepted treatment plan. `lastMethod` is a PaymentMethod enum
+// name: Cash | Cheque | Card | Transfer.
+export interface InstallmentDto {
+  id: string;
+  dueDate: string;
+  amount: number;
+  amountPaid: number;
+  outstanding: number;
+  isPaid: boolean;
+  lastMethod: string | null;
+  lastPaidOn: string | null;
+}
+
+// A treatment plan / devis for a patient. `status` is a TreatmentPlanStatus enum name: Draft | Accepted |
+// InProgress | Completed | Cancelled.
+export interface TreatmentPlanDto {
+  id: string;
+  patientId: string;
+  patientName: string | null;
+  number: string | null;
+  status: string;
+  title: string;
+  notes: string | null;
+  acceptedDate: string | null;
+  cancellationReason: string | null;
+  totalPlanned: number;
+  amountPaid: number;
+  outstanding: number;
+  createdAt: string;
+  updatedAt: string;
+  items: TreatmentPlanItemDto[];
+  installments: InstallmentDto[];
+}
+

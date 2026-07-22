@@ -11,10 +11,27 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { cn } from "@/lib/utils"
 import { dentalRecordsApi } from "@/lib/api/dental-records"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
+import { odontogramApi } from "@/lib/api/odontogram"
 import { ApiError } from "@/lib/api/client"
 import { toast } from "sonner"
-import type { ProcedureTypeDto, DentalRecordDto } from "@/lib/api/types"
+import type { ProcedureTypeDto, DentalRecordDto, ToothConditionInput } from "@/lib/api/types"
 import { formatDT } from "@/lib/format"
+import {
+  CONDITION_ORDER,
+  conditionStyle,
+  SURFACE_ORDER,
+  SURFACE_LABELS,
+  parseSurfaces,
+  serializeSurfaces,
+} from "@/components/odontogram-conditions"
+
+interface ToothCondForm {
+  condition: string
+  surfaces: Set<string>
+  note: string
+}
+
+const emptyToothForm = (): ToothCondForm => ({ condition: "Sain", surfaces: new Set<string>(), note: "" })
 
 type ToothStatus = {
   id: string
@@ -56,6 +73,21 @@ export function PatientRecordModal({
   const [loading, setLoading] = useState(false)
   const [procedureTypes, setProcedureTypes] = useState<ProcedureTypeDto[]>([])
   const [loadingProcedureTypes, setLoadingProcedureTypes] = useState(false)
+  // Per-tooth conditions captured with this record, keyed by tooth number.
+  const [toothConds, setToothConds] = useState<Record<number, ToothCondForm>>({})
+
+  const patchToothForm = (n: number, patch: Partial<ToothCondForm>) =>
+    setToothConds((prev) => ({ ...prev, [n]: { ...(prev[n] ?? emptyToothForm()), ...patch } }))
+
+  const toggleToothSurface = (n: number, s: string) => {
+    setToothConds((prev) => {
+      const current = prev[n] ?? emptyToothForm()
+      const next = new Set(current.surfaces)
+      if (next.has(s)) next.delete(s)
+      else next.add(s)
+      return { ...prev, [n]: { ...current, surfaces: next } }
+    })
+  }
 
   // Load procedure types when modal opens
   useEffect(() => {
@@ -81,7 +113,9 @@ export function PatientRecordModal({
   useEffect(() => {
     if (open) {
       setPatientName(initialPatientName)
-      
+      // Reset per-tooth conditions; edit mode re-hydrates them from the odontogram below.
+      setToothConds({})
+
       if (record) {
         // Edit mode: load record data
         setInterventionDate(new Date(record.interventionDate).toISOString().split("T")[0])
@@ -127,6 +161,30 @@ export function PatientRecordModal({
       }
     }
   }, [open, initialPatientName, record])
+
+  // Edit mode: prefill the per-tooth condition rows from the odontogram entries recorded by THIS record.
+  useEffect(() => {
+    if (!open || !record || !patientId) return
+    let active = true
+    odontogramApi
+      .get(patientId)
+      .then((entries) => {
+        if (!active) return
+        const next: Record<number, ToothCondForm> = {}
+        for (const e of entries) {
+          if (e.dentalRecordId === record.id) {
+            next[e.toothNumber] = { condition: e.condition, surfaces: parseSurfaces(e.surfaces), note: e.note ?? "" }
+          }
+        }
+        setToothConds(next)
+      })
+      .catch(() => {
+        // Non-blocking: the rows just start at "Sain" if the odontogram can't be fetched.
+      })
+    return () => {
+      active = false
+    }
+  }, [open, record, patientId])
 
   // Reclassify a known-vs-custom procedure once the async procedure-types list has loaded, WITHOUT re-running
   // the full form reset (which would discard in-progress edits and, via the auto-fill-cost effect below, had
@@ -196,10 +254,24 @@ export function PatientRecordModal({
         : []
       
       // Determine isAdultTeeth based on selected teeth, or default to true if no teeth selected
-      const finalIsAdultTeeth = toothNumbers.length > 0 
-        ? isAdultTeeth 
+      const finalIsAdultTeeth = toothNumbers.length > 0
+        ? isAdultTeeth
         : true // Default to adult if no teeth selected
-      
+
+      // Per-tooth conditions — only teeth whose condition ≠ "Sain" produce an entry.
+      const toothConditions: ToothConditionInput[] = toothNumbers
+        .map((n) => {
+          const form = toothConds[n] ?? emptyToothForm()
+          const surfaces = serializeSurfaces(form.surfaces)
+          return {
+            toothNumber: n,
+            condition: form.condition,
+            surfaces: surfaces || null,
+            note: form.note.trim() || null,
+          }
+        })
+        .filter((tc) => tc.condition !== "Sain")
+
       const recordData = {
         interventionDate,
         procedureType: procedureType === "Custom" ? customProcedure.trim() : procedureType,
@@ -209,6 +281,7 @@ export function PatientRecordModal({
         toothNumbers,
         notes: notes.filter(n => n.trim()).map(n => n.trim()),
         importantNotes: importantNotes.filter(n => n.trim()).map(n => n.trim()),
+        toothConditions,
       }
 
       if (record) {
@@ -242,6 +315,11 @@ export function PatientRecordModal({
 
   const isCustomProcedure = procedureType === "Custom"
 
+  // Currently-selected teeth (deduped, ascending) — drive the per-tooth condition rows.
+  const selectedToothNumbers = Array.from(
+    new Set(selectedTeeth.map((t) => parseInt(t.id, 10)).filter((n) => !Number.isNaN(n))),
+  ).sort((a, b) => a - b)
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto p-0 gap-0">
@@ -269,12 +347,68 @@ export function PatientRecordModal({
           <div className="space-y-3">
             <h3 className="text-sm font-semibold">Dental Chart (Optional)</h3>
             <p className="text-xs text-muted-foreground">Select teeth if this procedure involved specific teeth. Leave empty if no teeth were involved.</p>
-            <DentalChart 
+            <DentalChart
               onTeethChange={setSelectedTeeth}
               initialData={selectedTeeth}
               onTeethTypeChange={setIsAdultTeeth}
             />
           </div>
+
+          {/* Per-tooth conditions — captured on the odontogram for each selected tooth. */}
+          {selectedToothNumbers.length > 0 && (
+            <div className="space-y-3 border-t pt-4">
+              <h3 className="text-sm font-semibold">État des dents sélectionnées</h3>
+              <p className="text-xs text-muted-foreground">
+                Définissez l'état de chaque dent traitée (facultatif). « Sain » = aucun état enregistré.
+              </p>
+              <div className="space-y-2">
+                {selectedToothNumbers.map((n) => {
+                  const form = toothConds[n] ?? emptyToothForm()
+                  return (
+                    <div key={n} className="flex flex-wrap items-center gap-2 rounded-lg border p-2">
+                      <span className="flex h-7 w-9 shrink-0 items-center justify-center rounded-md border bg-muted text-xs font-semibold">
+                        {n}
+                      </span>
+                      <span className={cn("h-3 w-3 shrink-0 rounded-full border", conditionStyle(form.condition).swatch)} />
+                      <Select value={form.condition} onValueChange={(v) => patchToothForm(n, { condition: v })}>
+                        <SelectTrigger className="h-8 w-44 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {CONDITION_ORDER.map((c) => (
+                            <SelectItem key={c} value={c}>
+                              {conditionStyle(c).label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <div className="flex items-center gap-1">
+                        {SURFACE_ORDER.map((s) => (
+                          <Button
+                            key={s}
+                            type="button"
+                            size="sm"
+                            variant={form.surfaces.has(s) ? "default" : "outline"}
+                            className="h-8 w-8 p-0 text-xs"
+                            onClick={() => toggleToothSurface(n, s)}
+                            title={SURFACE_LABELS[s]}
+                          >
+                            {s}
+                          </Button>
+                        ))}
+                      </div>
+                      <Input
+                        value={form.note}
+                        onChange={(e) => patchToothForm(n, { note: e.target.value })}
+                        placeholder="Note (optionnel)"
+                        className="h-8 min-w-[8rem] flex-1 text-xs"
+                      />
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
 
           <div className="space-y-4 border-t pt-4">
             <h3 className="text-sm font-semibold">Intervention Details</h3>

@@ -8,5 +8,8 @@ public interface IPdfGenerationService
 
     /// <summary>Render a Tunisian note-d'honoraires (numbered invoice) to PDF — amounts in TND.</summary>
     Task<byte[]> GenerateInvoicePdfAsync(InvoicePdfData invoiceData, CancellationToken cancellationToken = default);
+
+    /// <summary>Render a dental devis (quote) to PDF — a non-fiscal estimate, amounts in TND.</summary>
+    Task<byte[]> GenerateDevisPdfAsync(DevisPdfData devisData, CancellationToken cancellationToken = default);
 }
 

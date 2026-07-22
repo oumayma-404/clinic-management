@@ -42,11 +42,15 @@ public class ApplicationDbContext : DbContext
     public DbSet<PatientFamilyHistory> PatientFamilyHistories { get; set; }
     public DbSet<DentalRecord> DentalRecords { get; set; }
     public DbSet<DentalRecordTooth> DentalRecordTeeth { get; set; }
+    // Persistent odontogram — child-of-patient (no ClinicId, no HasQueryFilter); tenant-scoped via the patient.
+    public DbSet<ToothState> ToothStates { get; set; }
     public DbSet<PatientFolder> PatientFolders { get; set; }
     public DbSet<MedicalDocument> MedicalDocuments { get; set; }
     public DbSet<StaffNotification> StaffNotifications { get; set; }
     public DbSet<NotificationRead> NotificationReads { get; set; }
     public DbSet<Invoice> Invoices { get; set; }
+    // Treatment plans / devis (clinic-scoped aggregate root; children TreatmentPlanItem/Installment reached via it).
+    public DbSet<TreatmentPlan> TreatmentPlans { get; set; }
     public DbSet<ClinicReminderSettings> ClinicReminderSettings { get; set; }
     // Global CNAM reference data — deliberately NOT clinic-scoped (no HasQueryFilter below), so every
     // clinic reads the same catalog + VLC values (FR-5.1 / plan R-5).
@@ -56,6 +60,9 @@ public class ApplicationDbContext : DbContext
     // reads the same catalog. Backs the ordonnance medication picker.
     public DbSet<Medication> Medications { get; set; }
     public DbSet<MedicationActiveIngredient> MedicationActiveIngredients { get; set; }
+    // Global dental act catalog (chapitre DCH) — deliberately NOT clinic-scoped (no HasQueryFilter below),
+    // so every clinic reads the same catalog. Backs the treatment-plan act picker.
+    public DbSet<DentalActCode> DentalActCodes { get; set; }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -87,6 +94,9 @@ public class ApplicationDbContext : DbContext
         // Invoice is directly clinic-owned → filtered like the other aggregate roots. Its children
         // (InvoiceLine/Payment) are reached only through the invoice, so they need no filter of their own.
         modelBuilder.Entity<Invoice>().HasQueryFilter(i => !IsClinicScoped || i.ClinicId == ScopedClinicId);
+        // TreatmentPlan is directly clinic-owned → filtered like the other aggregate roots. Its children
+        // (TreatmentPlanItem/Installment) are reached only through the plan, so they need no filter of their own.
+        modelBuilder.Entity<TreatmentPlan>().HasQueryFilter(p => !IsClinicScoped || p.ClinicId == ScopedClinicId);
         // ClinicReminderSettings is keyed by the clinic id (shared PK) → filter on Id. The reminder dispatcher
         // runs with no clinic in scope (filter inactive) so it can still resolve any clinic's settings by id.
         modelBuilder.Entity<ClinicReminderSettings>().HasQueryFilter(s => !IsClinicScoped || s.Id == ScopedClinicId);

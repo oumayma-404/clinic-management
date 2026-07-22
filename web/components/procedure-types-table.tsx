@@ -15,10 +15,11 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { Stethoscope, Pencil, Trash2, Clock, Plus, DollarSign } from "lucide-react"
+import { Stethoscope, Pencil, Trash2, Clock, Plus, DollarSign, ListPlus, Loader2 } from "lucide-react"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
 import type { ProcedureTypeDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
+import { toast } from "sonner"
 
 interface ProcedureTypesTableProps {
   onEdit: (procedure: ProcedureTypeDto) => void
@@ -32,6 +33,7 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [seeding, setSeeding] = useState(false)
 
   const loadProcedures = async () => {
     try {
@@ -58,6 +60,24 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
   const handleDelete = (procedure: ProcedureTypeDto) => {
     setProcedureToDelete(procedure)
     setDeleteDialogOpen(true)
+  }
+
+  // Seeds the clinic menu with the common Tunisian dental procedures (idempotent — skips existing names).
+  const handleLoadDefaults = async () => {
+    try {
+      setSeeding(true)
+      const { added } = await procedureTypesApi.initializeDefaults()
+      if (added > 0) {
+        toast.success(`${added} acte(s) ajouté(s)`)
+      } else {
+        toast.info("Aucun nouvel acte à ajouter.")
+      }
+      await loadProcedures() // Reload the list in place.
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Échec du chargement des actes courants.")
+    } finally {
+      setSeeding(false)
+    }
   }
 
   const confirmDelete = async () => {
@@ -103,10 +123,16 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
                 {procedures.length} {procedures.length === 1 ? "type" : "types"}
               </Badge>
             </CardTitle>
-            <Button onClick={onAdd} size="sm" className="gap-2">
-              <Plus className="h-4 w-4" />
-              Add Procedure Type
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button onClick={handleLoadDefaults} variant="outline" size="sm" className="gap-2" disabled={seeding}>
+                {seeding ? <Loader2 className="h-4 w-4 animate-spin" /> : <ListPlus className="h-4 w-4" />}
+                {seeding ? "Chargement…" : "Charger les actes courants"}
+              </Button>
+              <Button onClick={onAdd} size="sm" className="gap-2">
+                <Plus className="h-4 w-4" />
+                Add Procedure Type
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent>

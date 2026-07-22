@@ -3,6 +3,7 @@ using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Domain.Entities;
+using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 
 namespace ClinicManagement.Application.Features.Patients.Commands;
@@ -16,6 +17,8 @@ public class CreateDentalRecordCommand : IRequest<Result<DentalRecordDto>>
     public decimal AmountPaid { get; set; }
     public bool IsAdultTeeth { get; set; }
     public List<int> ToothNumbers { get; set; } = new();
+    /// <summary>Per-tooth condition recorded for this session — feeds the patient's odontogram.</summary>
+    public List<ToothConditionInput> ToothConditions { get; set; } = new();
     public List<string> Notes { get; set; } = new();
     public List<string> ImportantNotes { get; set; } = new();
 }
@@ -24,17 +27,20 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
 {
     private readonly IPatientRepository _patientRepository;
     private readonly IDentalRecordRepository _dentalRecordRepository;
+    private readonly IToothStateRepository _toothStateRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
 
     public CreateDentalRecordCommandHandler(
         IPatientRepository patientRepository,
         IDentalRecordRepository dentalRecordRepository,
+        IToothStateRepository toothStateRepository,
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork)
     {
         _patientRepository = patientRepository;
         _dentalRecordRepository = dentalRecordRepository;
+        _toothStateRepository = toothStateRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
     }
@@ -89,6 +95,14 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
             }
 
             await _dentalRecordRepository.AddAsync(dentalRecord, cancellationToken);
+
+            // Record each tooth's condition into the odontogram (linked to this record + its date).
+            var toothStatesResult = await AddToothStatesAsync(request, dentalRecord, cancellationToken);
+            if (toothStatesResult.IsFailure)
+            {
+                return Result<DentalRecordDto>.Failure(toothStatesResult.Error!);
+            }
+
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             var dto = new DentalRecordDto
@@ -110,10 +124,43 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
 
             return Result<DentalRecordDto>.Success(dto);
         }
+        catch (ArgumentException ex)
+        {
+            return Result<DentalRecordDto>.Failure(ex.Message);
+        }
         catch (Exception ex)
         {
             return Result<DentalRecordDto>.Failure($"Error creating dental record: {ex.Message}");
         }
     }
-}
 
+    private async Task<Result> AddToothStatesAsync(CreateDentalRecordCommand request, DentalRecord dentalRecord, CancellationToken cancellationToken)
+    {
+        foreach (var tc in request.ToothConditions)
+        {
+            if (!Enum.TryParse<ToothCondition>(tc.Condition, ignoreCase: true, out var condition))
+            {
+                return Result.Failure("État de dent invalide.");
+            }
+            // "Sain" is the implicit default — not a recorded treatment.
+            if (condition == ToothCondition.Sain)
+            {
+                continue;
+            }
+
+            var toothState = new ToothState(
+                Guid.NewGuid(),
+                request.PatientId,
+                tc.ToothNumber,
+                condition,
+                request.InterventionDate,
+                tc.Surfaces,
+                tc.Note,
+                dentalRecord.Id);
+
+            await _toothStateRepository.AddAsync(toothState, cancellationToken);
+        }
+
+        return Result.Success();
+    }
+}

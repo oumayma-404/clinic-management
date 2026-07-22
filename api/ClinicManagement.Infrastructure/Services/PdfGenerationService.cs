@@ -265,6 +265,141 @@ public class PdfGenerationService : IPdfGenerationService
         }
     }
 
+    public async Task<byte[]> GenerateDevisPdfAsync(DevisPdfData data, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            _logger.LogInformation("Generating devis PDF for plan {Number}", data.Number ?? "(brouillon)");
+
+            var pdfBytes = await Task.Run(() =>
+            {
+                return Document.Create(container =>
+                {
+                    container.Page(page =>
+                    {
+                        page.Size(PageSizes.A4);
+                        page.Margin(2, Unit.Centimetre);
+                        page.PageColor(Colors.White);
+                        page.DefaultTextStyle(x => x.FontSize(11).FontFamily("Helvetica"));
+
+                        page.Content().Column(column =>
+                        {
+                            column.Spacing(16);
+
+                            // Clinic identity header
+                            column.Item().Column(header =>
+                            {
+                                header.Spacing(3);
+                                header.Item().Text(data.ClinicName).FontSize(14).Bold().FontColor(Colors.Blue.Darken2).FontFamily("Helvetica");
+                                if (!string.IsNullOrWhiteSpace(data.ClinicAddress))
+                                    header.Item().Text(data.ClinicAddress).FontSize(10).FontFamily("Helvetica");
+                                if (!string.IsNullOrWhiteSpace(data.ClinicPhone))
+                                    header.Item().Text($"Tél : {data.ClinicPhone}").FontSize(10).FontFamily("Helvetica");
+                                if (!string.IsNullOrWhiteSpace(data.MatriculeFiscal))
+                                    header.Item().Text($"Matricule fiscal : {data.MatriculeFiscal}").FontSize(10).FontFamily("Helvetica");
+                            });
+
+                            column.Item().PaddingTop(4).AlignCenter().Text("DEVIS").FontSize(16).Bold().FontFamily("Helvetica");
+
+                            // Number + date + patient + title
+                            column.Item().Row(row =>
+                            {
+                                row.RelativeItem().Column(col =>
+                                {
+                                    if (!string.IsNullOrWhiteSpace(data.Number))
+                                        col.Item().Text($"N° {data.Number}").FontSize(12).Bold().FontFamily("Helvetica");
+                                    col.Item().Text($"Patient : {data.PatientName}").FontSize(11).FontFamily("Helvetica");
+                                    if (!string.IsNullOrWhiteSpace(data.Title))
+                                        col.Item().Text($"Plan : {data.Title}").FontSize(11).FontFamily("Helvetica");
+                                });
+                                row.RelativeItem().AlignRight().Text($"Le {data.Date:dd/MM/yyyy}").FontSize(11).FontFamily("Helvetica");
+                            });
+
+                            // Act lines table
+                            column.Item().Table(table =>
+                            {
+                                table.ColumnsDefinition(cols =>
+                                {
+                                    cols.RelativeColumn(2);
+                                    cols.RelativeColumn(5);
+                                    cols.RelativeColumn(2);
+                                    cols.RelativeColumn(2);
+                                });
+
+                                table.Header(h =>
+                                {
+                                    h.Cell().Element(HeaderCell).Text("Code");
+                                    h.Cell().Element(HeaderCell).Text("Désignation");
+                                    h.Cell().Element(HeaderCell).Text("Dents");
+                                    h.Cell().Element(HeaderCell).AlignRight().Text("Coût prévu");
+                                });
+
+                                foreach (var line in data.Lines)
+                                {
+                                    table.Cell().Element(BodyCell).Text(line.CodeActe ?? string.Empty);
+                                    table.Cell().Element(BodyCell).Text(line.Designation);
+                                    table.Cell().Element(BodyCell).Text(line.Teeth);
+                                    table.Cell().Element(BodyCell).AlignRight().Text(FormatDt(line.PlannedCost));
+                                }
+                            });
+
+                            column.Item().AlignRight().Text($"Total : {FormatDt(data.TotalPlanned)}")
+                                .FontSize(13).Bold().FontColor(Colors.Blue.Darken2).FontFamily("Helvetica");
+
+                            // Échéancier
+                            if (data.Installments.Count > 0)
+                            {
+                                column.Item().PaddingTop(8).Text("Échéancier").FontSize(12).Bold().FontFamily("Helvetica");
+                                column.Item().Table(table =>
+                                {
+                                    table.ColumnsDefinition(cols =>
+                                    {
+                                        cols.RelativeColumn(1);
+                                        cols.RelativeColumn(3);
+                                        cols.RelativeColumn(3);
+                                    });
+
+                                    table.Header(h =>
+                                    {
+                                        h.Cell().Element(HeaderCell).Text("N°");
+                                        h.Cell().Element(HeaderCell).Text("Échéance");
+                                        h.Cell().Element(HeaderCell).AlignRight().Text("Montant");
+                                    });
+
+                                    var index = 1;
+                                    foreach (var installment in data.Installments)
+                                    {
+                                        table.Cell().Element(BodyCell).Text(index.ToString());
+                                        table.Cell().Element(BodyCell).Text($"{installment.DueDate:dd/MM/yyyy}");
+                                        table.Cell().Element(BodyCell).AlignRight().Text(FormatDt(installment.Amount));
+                                        index++;
+                                    }
+                                });
+                            }
+
+                            column.Item().ExtendVertical();
+                        });
+
+                        page.Footer().PaddingTop(20).Column(footer =>
+                        {
+                            footer.Item().LineHorizontal(0.5f).LineColor(Colors.Grey.Medium);
+                            footer.Item().PaddingTop(6).Text("Devis — estimation non contractuelle. Montants exprimés en dinars tunisiens (DT).")
+                                .FontSize(8).FontColor(Colors.Grey.Darken1).FontFamily("Helvetica");
+                        });
+                    });
+                }).GeneratePdf();
+            }, cancellationToken);
+
+            _logger.LogInformation("Devis PDF generated, size: {Size} bytes", pdfBytes.Length);
+            return pdfBytes;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error generating devis PDF for plan {Number}", data.Number ?? "(brouillon)");
+            throw;
+        }
+    }
+
     // Format a TND amount to millimes (3 decimals) with the "DT" suffix, French grouping.
     private static string FormatDt(decimal amount) =>
         amount.ToString("#,##0.000", System.Globalization.CultureInfo.GetCultureInfo("fr-FR")) + " DT";

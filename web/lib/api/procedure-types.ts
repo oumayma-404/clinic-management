@@ -39,6 +39,12 @@ export const procedureTypesApi = {
   delete: async (id: string): Promise<void> => {
     return apiDelete<void>(`/procedure-types/${id}`);
   },
+
+  // Idempotently seeds the clinic's ProcedureType menu with ~42 common Tunisian dental procedures,
+  // skipping names already present. Returns the number of newly-added entries.
+  initializeDefaults: async (): Promise<{ added: number }> => {
+    return apiPost<{ added: number }>('/procedure-types/initialize-defaults', {});
+  },
 };
 
 

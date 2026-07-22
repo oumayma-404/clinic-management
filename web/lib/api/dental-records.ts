@@ -1,5 +1,5 @@
 import { apiGet, apiPost, apiPut, apiDelete } from './client';
-import type { DentalRecordDto } from './types';
+import type { DentalRecordDto, ToothConditionInput } from './types';
 
 export interface CreateDentalRecordRequest {
   interventionDate: string;
@@ -10,6 +10,8 @@ export interface CreateDentalRecordRequest {
   toothNumbers: number[];
   notes: string[];
   importantNotes: string[];
+  // Per-tooth conditions recorded with this act (used for both create and update).
+  toothConditions: ToothConditionInput[];
 }
 
 export const dentalRecordsApi = {

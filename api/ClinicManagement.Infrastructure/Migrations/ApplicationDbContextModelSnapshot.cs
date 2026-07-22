@@ -313,6 +313,60 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.ToTable("CnamNomenclatureEntries", (string)null);
                 });
 
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.DentalActCode", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("CodeActe")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<decimal?>("Coefficient")
+                        .HasColumnType("decimal(18,3)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<decimal?>("DefaultFee")
+                        .HasColumnType("decimal(18,3)");
+
+                    b.Property<string>("DesignationFr")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsProvisional")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("LettreCle")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<bool>("RequiresAccordPrealable")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CodeActe")
+                        .IsUnique();
+
+                    b.ToTable("DentalActCodes", (string)null);
+                });
+
             modelBuilder.Entity("ClinicManagement.Domain.Entities.DentalRecord", b =>
                 {
                     b.Property<Guid>("Id")
@@ -447,6 +501,36 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasFilter("\"UserId\" IS NOT NULL");
 
                     b.ToTable("Doctors", (string)null);
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.Installment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Amount")
+                        .HasColumnType("decimal(18,3)");
+
+                    b.Property<decimal>("AmountPaid")
+                        .HasColumnType("decimal(18,3)");
+
+                    b.Property<DateTime>("DueDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("LastMethod")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("LastPaidOn")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("TreatmentPlanId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TreatmentPlanId");
+
+                    b.ToTable("Installments", (string)null);
                 });
 
             modelBuilder.Entity("ClinicManagement.Domain.Entities.Invoice", b =>
@@ -1290,6 +1374,143 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.ToTable("StockItems", (string)null);
                 });
 
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.ToothState", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Condition")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("DentalRecordId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<Guid>("PatientId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Surfaces")
+                        .HasMaxLength(5)
+                        .HasColumnType("character varying(5)");
+
+                    b.Property<int>("ToothNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("TreatmentDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DentalRecordId");
+
+                    b.HasIndex("PatientId", "ToothNumber");
+
+                    b.ToTable("ToothStates", (string)null);
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.TreatmentPlan", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("AcceptedDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CancellationReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<Guid>("ClinicId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("Number")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid>("PatientId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<decimal>("TotalPlanned")
+                        .HasColumnType("decimal(18,3)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ClinicId", "Number")
+                        .IsUnique()
+                        .HasFilter("\"Number\" IS NOT NULL");
+
+                    b.HasIndex("ClinicId", "PatientId");
+
+                    b.ToTable("TreatmentPlans", (string)null);
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.TreatmentPlanItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CodeActe")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<Guid?>("DentalActCodeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("DesignationFr")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<DateTime?>("DoneDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("LinkedDentalRecordId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("PlannedCost")
+                        .HasColumnType("decimal(18,3)");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ToothNumbers")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("TreatmentPlanId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TreatmentPlanId");
+
+                    b.ToTable("TreatmentPlanItems", (string)null);
+                });
+
             modelBuilder.Entity("ClinicManagement.Domain.Entities.User", b =>
                 {
                     b.Property<string>("Id")
@@ -1421,6 +1642,15 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("Clinic");
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.Installment", b =>
+                {
+                    b.HasOne("ClinicManagement.Domain.Entities.TreatmentPlan", null)
+                        .WithMany("Installments")
+                        .HasForeignKey("TreatmentPlanId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("ClinicManagement.Domain.Entities.InvoiceLine", b =>
@@ -1823,6 +2053,29 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.ToothState", b =>
+                {
+                    b.HasOne("ClinicManagement.Domain.Entities.DentalRecord", null)
+                        .WithMany()
+                        .HasForeignKey("DentalRecordId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("ClinicManagement.Domain.Entities.Patient", null)
+                        .WithMany()
+                        .HasForeignKey("PatientId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.TreatmentPlanItem", b =>
+                {
+                    b.HasOne("ClinicManagement.Domain.Entities.TreatmentPlan", null)
+                        .WithMany("Items")
+                        .HasForeignKey("TreatmentPlanId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("ClinicManagement.Domain.Entities.User", b =>
                 {
                     b.HasOne("ClinicManagement.Domain.Entities.Clinic", "Clinic")
@@ -1883,6 +2136,13 @@ namespace ClinicManagement.Infrastructure.Migrations
             modelBuilder.Entity("ClinicManagement.Domain.Entities.ProcedureType", b =>
                 {
                     b.Navigation("Appointments");
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.TreatmentPlan", b =>
+                {
+                    b.Navigation("Installments");
+
+                    b.Navigation("Items");
                 });
 #pragma warning restore 612, 618
         }

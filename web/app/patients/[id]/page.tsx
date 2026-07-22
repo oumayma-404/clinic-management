@@ -59,8 +59,11 @@ import { PatientRecordModal } from "@/components/patient-record-modal"
 import { PatientSummaryModal } from "@/components/patient-summary-modal"
 import { Edit } from "lucide-react"
 import { Receipt } from "lucide-react"
+import { Smile, ClipboardCheck } from "lucide-react"
 import { InvoicesTable } from "@/components/factures/invoices-table"
 import { InvoiceFormModal } from "@/components/factures/invoice-form-modal"
+import { Odontogram } from "@/components/odontogram"
+import { TreatmentPlansTable } from "@/components/treatment-plans/treatment-plans-table"
 import { invoicesApi } from "@/lib/api/invoices"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
@@ -498,10 +501,14 @@ export default function PatientDetailsPage() {
             </Card>
 
             <Tabs defaultValue="medical-records" className="space-y-4">
-              <TabsList className="grid w-full grid-cols-5">
+              <TabsList className="grid w-full grid-cols-7">
                 <TabsTrigger value="medical-records" className="gap-2">
                   <FileCheck className="h-4 w-4" />
                   Medical Records
+                </TabsTrigger>
+                <TabsTrigger value="odontogram" className="gap-2">
+                  <Smile className="h-4 w-4" />
+                  Odontogramme
                 </TabsTrigger>
                 <TabsTrigger value="appointments" className="gap-2">
                   <Calendar className="h-4 w-4" />
@@ -518,6 +525,10 @@ export default function PatientDetailsPage() {
                 <TabsTrigger value="factures" className="gap-2">
                   <Receipt className="h-4 w-4" />
                   Factures
+                </TabsTrigger>
+                <TabsTrigger value="treatment-plans" className="gap-2">
+                  <ClipboardCheck className="h-4 w-4" />
+                  Plan de traitement
                 </TabsTrigger>
               </TabsList>
 
@@ -723,6 +734,24 @@ export default function PatientDetailsPage() {
                         </Table>
                       </div>
                     )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              {/* Odontogramme Tab */}
+              <TabsContent value="odontogram">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Smile className="h-5 w-5" />
+                      Odontogramme
+                    </CardTitle>
+                    <CardDescription>
+                      Historique des traitements par dent (lecture seule). Les états sont enregistrés lors de l'ajout d'un acte médical.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <Odontogram patientId={patientId} />
                   </CardContent>
                 </Card>
               </TabsContent>
@@ -1128,6 +1157,22 @@ export default function PatientDetailsPage() {
                   </CardHeader>
                   <CardContent>
                     <InvoicesTable patientId={patientId} patientName={patientName} showPatientColumn={false} />
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              {/* Plan de traitement Tab */}
+              <TabsContent value="treatment-plans" className="space-y-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <ClipboardCheck className="h-5 w-5" />
+                      Plans de traitement
+                    </CardTitle>
+                    <CardDescription>Devis, actes planifiés et échéanciers de paiement du patient.</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <TreatmentPlansTable patientId={patientId} patientName={patientName} showPatientColumn={false} />
                   </CardContent>
                 </Card>
               </TabsContent>

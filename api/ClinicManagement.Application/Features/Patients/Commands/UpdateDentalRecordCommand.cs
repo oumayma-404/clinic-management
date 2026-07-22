@@ -3,6 +3,7 @@ using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Domain.Entities;
+using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 
 namespace ClinicManagement.Application.Features.Patients.Commands;
@@ -17,6 +18,8 @@ public class UpdateDentalRecordCommand : IRequest<Result<DentalRecordDto>>
     public decimal AmountPaid { get; set; }
     public bool IsAdultTeeth { get; set; }
     public List<int> ToothNumbers { get; set; } = new();
+    /// <summary>Per-tooth condition recorded for this session — replaces this record's odontogram entries.</summary>
+    public List<ToothConditionInput> ToothConditions { get; set; } = new();
     public List<string> Notes { get; set; } = new();
     public List<string> ImportantNotes { get; set; } = new();
 }
@@ -25,17 +28,20 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
 {
     private readonly IDentalRecordRepository _dentalRecordRepository;
     private readonly IPatientRepository _patientRepository;
+    private readonly IToothStateRepository _toothStateRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
 
     public UpdateDentalRecordCommandHandler(
         IDentalRecordRepository dentalRecordRepository,
         IPatientRepository patientRepository,
+        IToothStateRepository toothStateRepository,
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork)
     {
         _dentalRecordRepository = dentalRecordRepository;
         _patientRepository = patientRepository;
+        _toothStateRepository = toothStateRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
     }
@@ -107,6 +113,38 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
             }
 
             await _dentalRecordRepository.UpdateAsync(dentalRecord, cancellationToken);
+
+            // Replace this record's odontogram entries (delete old, re-add from the new conditions).
+            var existingStates = await _toothStateRepository.GetByDentalRecordIdAsync(dentalRecord.Id, cancellationToken);
+            foreach (var state in existingStates)
+            {
+                await _toothStateRepository.DeleteAsync(state.Id, cancellationToken);
+            }
+
+            foreach (var tc in request.ToothConditions)
+            {
+                if (!Enum.TryParse<ToothCondition>(tc.Condition, ignoreCase: true, out var condition))
+                {
+                    return Result<DentalRecordDto>.Failure("État de dent invalide.");
+                }
+                if (condition == ToothCondition.Sain)
+                {
+                    continue;
+                }
+
+                var toothState = new ToothState(
+                    Guid.NewGuid(),
+                    dentalRecord.PatientId,
+                    tc.ToothNumber,
+                    condition,
+                    request.InterventionDate,
+                    tc.Surfaces,
+                    tc.Note,
+                    dentalRecord.Id);
+
+                await _toothStateRepository.AddAsync(toothState, cancellationToken);
+            }
+
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             // Reload to get updated data
@@ -131,10 +169,13 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
 
             return Result<DentalRecordDto>.Success(dto);
         }
+        catch (ArgumentException ex)
+        {
+            return Result<DentalRecordDto>.Failure(ex.Message);
+        }
         catch (Exception ex)
         {
             return Result<DentalRecordDto>.Failure($"Error updating dental record: {ex.Message}");
         }
     }
 }
-

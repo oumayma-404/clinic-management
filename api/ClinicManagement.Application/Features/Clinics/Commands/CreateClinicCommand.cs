@@ -3,6 +3,7 @@ using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.Features.ProcedureTypes;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 
@@ -31,6 +32,7 @@ public class CreateClinicCommand : IRequest<Result<ClinicDto>>
 public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, Result<ClinicDto>>
 {
     private readonly IClinicRepository _clinicRepository;
+    private readonly IProcedureTypeRepository _procedureTypeRepository;
     private readonly IUserRepository _userRepository;
     private readonly IDoctorRepository _doctorRepository;
     private readonly IClinicContext _clinicContext;
@@ -41,6 +43,7 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
 
     public CreateClinicCommandHandler(
         IClinicRepository clinicRepository,
+        IProcedureTypeRepository procedureTypeRepository,
         IUserRepository userRepository,
         IDoctorRepository doctorRepository,
         IClinicContext clinicContext,
@@ -50,6 +53,7 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
         IUnitOfWork unitOfWork)
     {
         _clinicRepository = clinicRepository;
+        _procedureTypeRepository = procedureTypeRepository;
         _userRepository = userRepository;
         _doctorRepository = doctorRepository;
         _clinicContext = clinicContext;
@@ -215,6 +219,9 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
                 }
             }
 
+            // Seed the clinic's procedure menu with the common Tunisian dental procedures (all editable).
+            await SeedDefaultProcedureTypesAsync(clinic.Id, cancellationToken);
+
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             // Update Auth0 app_metadata
@@ -324,6 +331,9 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
             await _doctorRepository.AddAsync(doctor, cancellationToken);
         }
 
+        // Seed the clinic's procedure menu with the common Tunisian dental procedures (all editable).
+        await SeedDefaultProcedureTypesAsync(clinic.Id, cancellationToken);
+
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return Result<ClinicDto>.Success(new ClinicDto
@@ -337,6 +347,14 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
             LogoUrl = clinic.LogoUrl,
             CreatedAt = clinic.CreatedAt
         });
+    }
+
+    private async Task SeedDefaultProcedureTypesAsync(Guid clinicId, CancellationToken cancellationToken)
+    {
+        foreach (var procedureType in ProcedureTypeCatalogSeed.CreateFor(clinicId))
+        {
+            await _procedureTypeRepository.AddAsync(procedureType, cancellationToken);
+        }
     }
 }
 

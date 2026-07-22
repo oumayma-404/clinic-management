@@ -106,6 +106,22 @@ public class ProcedureTypesController : ApiControllerBase
     }
 
     /// <summary>
+    /// Backfill the clinic's procedure menu with the common Tunisian dental procedures (idempotent —
+    /// skips any whose name already exists). Returns the number added.
+    /// </summary>
+    [HttpPost("initialize-defaults")]
+    public async Task<IActionResult> InitializeDefaults()
+    {
+        var result = await _mediator.Send(new InitializeDefaultProcedureTypesCommand());
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+
+        return Ok(new { added = result.Value });
+    }
+
+    /// <summary>
     /// Get available color palette
     /// </summary>
     [HttpGet("colors")]

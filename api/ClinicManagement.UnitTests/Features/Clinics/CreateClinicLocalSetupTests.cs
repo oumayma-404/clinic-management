@@ -15,6 +15,7 @@ namespace ClinicManagement.UnitTests.Features.Clinics;
 public class CreateClinicLocalSetupTests
 {
     private readonly Mock<IClinicRepository> _clinics = new();
+    private readonly Mock<IProcedureTypeRepository> _procedureTypes = new();
     private readonly Mock<IUserRepository> _users = new();
     private readonly Mock<IDoctorRepository> _doctors = new();
     private readonly Mock<IClinicContext> _clinicContext = new();
@@ -27,7 +28,7 @@ public class CreateClinicLocalSetupTests
     private Clinic? _capturedClinic;
 
     private CreateClinicCommandHandler Handler() => new(
-        _clinics.Object, _users.Object, _doctors.Object, _clinicContext.Object,
+        _clinics.Object, _procedureTypes.Object, _users.Object, _doctors.Object, _clinicContext.Object,
         _auth0.Object, _fileStorage.Object, _localAuth.Object, _uow.Object);
 
     private void FreshInstall()
