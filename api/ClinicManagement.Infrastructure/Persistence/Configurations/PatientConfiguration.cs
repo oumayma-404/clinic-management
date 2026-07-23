@@ -95,6 +95,14 @@ public class PatientConfiguration : IEntityTypeConfiguration<Patient>
                 .HasMaxLength(20);
         });
 
+        // Patient recall / relance (clinical-workflow-depth).
+        builder.Property(p => p.RecallReason)
+            .HasMaxLength(100);
+
+        builder.Property(p => p.RecallSnoozedUntil);
+
+        builder.Property(p => p.LastRecallContactedAt);
+
         builder.Property(p => p.CreatedAt)
             .IsRequired();
 

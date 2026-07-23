@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
-import { Calendar, Users, FileText, Settings, LayoutDashboard, Stethoscope, Package, FileCheck, ChevronLeft, ChevronRight, FolderOpen, UserCog, Receipt, UserCircle, ClipboardList, Pill, ClipboardCheck, ScrollText, HandCoins } from "lucide-react"
+import { Calendar, Users, FileText, Settings, LayoutDashboard, Stethoscope, Package, FileCheck, ChevronLeft, ChevronRight, FolderOpen, UserCog, Receipt, UserCircle, ClipboardList, Pill, ClipboardCheck, ScrollText, HandCoins, PhoneCall, Clock, FlaskConical, Wallet } from "lucide-react"
 import { useSidebar } from "@/contexts/sidebar-context"
 import { useSession } from "@/lib/auth/session"
 import { useClinicAccess } from "@/lib/hooks/use-clinic-access"
@@ -23,6 +23,10 @@ const navigation = [
   { name: "Plans / Devis", href: "/treatment-plans", icon: ClipboardCheck },
   { name: "Fichiers", href: "/files", icon: FolderOpen },
   { name: "Stock", href: "/stock", icon: Package },
+  { name: "Relances", href: "/recalls", icon: PhoneCall },
+  { name: "Salle d'attente", href: "/waiting-list", icon: Clock },
+  { name: "Laboratoire", href: "/lab-orders", icon: FlaskConical },
+  { name: "Caisse", href: "/caisse", icon: Wallet },
   { name: "Mon profil", href: "/mon-profil", icon: UserCircle },
   { name: "Paramètres", href: "/settings", icon: Settings },
 ]

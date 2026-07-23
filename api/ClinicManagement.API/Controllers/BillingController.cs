@@ -40,6 +40,17 @@ public class BillingController : ApiControllerBase
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
     }
 
+    /// <summary>
+    /// The caisse (daily cash) summary — encaissements (collected payments) minus dépenses (expenses)
+    /// and the net, over [from, to). Both default to the current day when omitted.
+    /// </summary>
+    [HttpGet("billing/caisse")]
+    public async Task<ActionResult<CaisseSummaryDto>> GetCaisseSummary([FromQuery] DateTime? from = null, [FromQuery] DateTime? to = null, CancellationToken cancellationToken = default)
+    {
+        var result = await _mediator.Send(new GetCaisseSummaryQuery { From = from, To = to }, cancellationToken);
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
     /// <summary>Download the receipt (reçu) PDF for a single invoice payment. 404 if the payment is not found.</summary>
     [HttpGet("payments/{paymentId:guid}/receipt-pdf")]
     public async Task<IActionResult> GetPaymentReceiptPdf(Guid paymentId, CancellationToken cancellationToken = default)

@@ -51,6 +51,9 @@ public class DoctorConfiguration : IEntityTypeConfiguration<Doctor>
         builder.Property(d => d.CachetContentType)
             .HasMaxLength(100);
 
+        builder.Property(d => d.WorkingHoursJson)
+            .HasColumnType("text");
+
         builder.Property(d => d.CreatedAt)
             .IsRequired();
 

@@ -10,7 +10,7 @@ namespace ClinicManagement.Application.Features.Appointments.Commands;
 public class CreateAppointmentCommand : IRequest<Result<AppointmentDto>>
 {
     public Guid? PatientId { get; set; }
-    public string? DoctorId { get; set; }
+    public Guid? DoctorId { get; set; }
     public DateTime AppointmentDateTime { get; set; }
     public int DurationMinutes { get; set; }
     public string? DoctorName { get; set; }
@@ -26,6 +26,7 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
 {
     private readonly IAppointmentRepository _appointmentRepository;
     private readonly IPatientRepository _patientRepository;
+    private readonly IDoctorRepository _doctorRepository;
     private readonly IProcedureTypeRepository _procedureTypeRepository;
     private readonly ITreatmentPlanRepository _treatmentPlanRepository;
     private readonly IUserRepository _userRepository;
@@ -38,6 +39,7 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
     public CreateAppointmentCommandHandler(
         IAppointmentRepository appointmentRepository,
         IPatientRepository patientRepository,
+        IDoctorRepository doctorRepository,
         IProcedureTypeRepository procedureTypeRepository,
         ITreatmentPlanRepository treatmentPlanRepository,
         IUserRepository userRepository,
@@ -49,6 +51,7 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
     {
         _appointmentRepository = appointmentRepository;
         _patientRepository = patientRepository;
+        _doctorRepository = doctorRepository;
         _procedureTypeRepository = procedureTypeRepository;
         _treatmentPlanRepository = treatmentPlanRepository;
         _userRepository = userRepository;
@@ -87,6 +90,17 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
                 if (patient == null || patient.ClinicId != clinicId)
                 {
                     return Result<AppointmentDto>.Failure("Patient not found");
+                }
+            }
+
+            // Validate the practitioner (if one was chosen) belongs to this clinic — the DoctorId FK plus
+            // an explicit tenant guard (no cross-clinic doctor assignment).
+            if (request.DoctorId.HasValue)
+            {
+                var doctor = await _doctorRepository.GetByIdAsync(request.DoctorId.Value, cancellationToken);
+                if (doctor == null || doctor.ClinicId != clinicId)
+                {
+                    return Result<AppointmentDto>.Failure("Doctor not found");
                 }
             }
 

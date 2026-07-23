@@ -1,4 +1,5 @@
 using ClinicManagement.API.Models;
+using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Doctors.Commands;
 using ClinicManagement.Application.Features.Doctors.Queries;
 using MediatR;
@@ -59,6 +60,23 @@ public class DoctorsController : ApiControllerBase
         // (defence-in-depth on top of the upload-time PNG/JPEG allow-list + magic-byte check).
         Response.Headers["X-Content-Type-Options"] = "nosniff";
         return File(result.Value!.FileStream, result.Value.ContentType, $"cachet-{id}");
+    }
+
+    /// <summary>Get a dentist's per-practitioner working hours (AC-3.3). Empty = no override (clinic hours apply).</summary>
+    [HttpGet("{id:guid}/working-hours")]
+    public async Task<ActionResult<IEnumerable<WorkingDayDto>>> GetWorkingHours(Guid id, CancellationToken cancellationToken)
+    {
+        var result = await _mediator.Send(new GetDoctorWorkingHoursQuery { DoctorId = id }, cancellationToken);
+        return result.IsFailure ? HandleFailure(result, StatusCodes.Status404NotFound) : Ok(result.Value);
+    }
+
+    /// <summary>Set a dentist's per-practitioner working hours (AC-3.3). An empty list clears the override.</summary>
+    [HttpPut("{id:guid}/working-hours")]
+    public async Task<ActionResult<IEnumerable<WorkingDayDto>>> SetWorkingHours(Guid id, [FromBody] SetDoctorWorkingHoursCommand command, CancellationToken cancellationToken)
+    {
+        command.DoctorId = id;
+        var result = await _mediator.Send(command, cancellationToken);
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
     }
 
     private static UpdateDoctorProfileCommand ToCommand(Guid? doctorId, UpdateDoctorProfileRequest request) => new()

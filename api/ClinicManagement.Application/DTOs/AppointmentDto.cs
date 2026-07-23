@@ -6,7 +6,7 @@ public class AppointmentDto
     public Guid ClinicId { get; set; }
     public Guid? PatientId { get; set; }
     public string? PatientName { get; set; }
-    public string? DoctorId { get; set; }
+    public Guid? DoctorId { get; set; }
     public string? DoctorName { get; set; }
     public DateTime AppointmentDateTime { get; set; }
     public TimeSpan Duration { get; set; }
