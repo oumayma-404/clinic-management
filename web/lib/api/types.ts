@@ -136,6 +136,8 @@ export interface AppointmentDto {
   id: string;
   patientId: string | null;
   patientName: string;
+  /** The practitioner (Doctor) this appointment is booked with (FK; null = unassigned). */
+  doctorId?: string | null;
   appointmentDateTime: string;
   duration: string; // TimeSpan format from backend (e.g., "00:30:00")
   doctorName?: string;
@@ -425,6 +427,109 @@ export interface InstallmentDto {
   isPaid: boolean;
   lastMethod: string | null;
   lastPaidOn: string | null;
+}
+
+// ---- Clinical-workflow-depth DTOs ----------------------------------------------------------------
+
+/** A clinic expense / caisse cash-out. `method` is a PaymentMethod name: Cash | Cheque | Card | Transfer. */
+export interface ExpenseDto {
+  id: string;
+  clinicId: string;
+  expenseDate: string;
+  category: string;
+  amount: number;
+  method: string;
+  description?: string | null;
+  createdAt: string;
+  updatedAt?: string | null;
+}
+
+/** The caisse (daily cash) summary — encaissements (cash in) minus dépenses (cash out) and the net. */
+export interface CaisseSummaryDto {
+  fromDate: string;
+  toDate: string;
+  cashIn: number;
+  cashOut: number;
+  net: number;
+}
+
+/** A salle-d'attente entry. `priority` is Low|Normal|High; `status` is Waiting|Promoted|Cancelled. */
+export interface WaitingListEntryDto {
+  id: string;
+  clinicId: string;
+  patientId: string;
+  patientName?: string | null;
+  preferredDoctorId?: string | null;
+  priority: string;
+  desiredTimeframe?: string | null;
+  note?: string | null;
+  status: string;
+  resultingAppointmentId?: string | null;
+  createdAt: string;
+  updatedAt?: string | null;
+}
+
+/** A dental-lab work order. `status` is Sent|InProgress|Received|Fitted. */
+export interface LabWorkOrderDto {
+  id: string;
+  clinicId: string;
+  patientId: string;
+  patientName?: string | null;
+  toothNumber?: number | null;
+  prosthetist: string;
+  workDescription: string;
+  sentDate?: string | null;
+  expectedDate?: string | null;
+  receivedDate?: string | null;
+  cost?: number | null;
+  status: string;
+  notes?: string | null;
+  createdAt: string;
+  updatedAt?: string | null;
+}
+
+/** One patient due/overdue for a recall (« à relancer »). */
+export interface RecallDto {
+  patientId: string;
+  patientName: string;
+  phoneNumber?: string | null;
+  lastVisitDate?: string | null;
+  dueDate: string;
+  daysOverdue: number;
+  reason?: string | null;
+  lastContactedAt?: string | null;
+}
+
+export interface RecallSettingsDto {
+  intervalMonths: number;
+}
+
+/** A recurring appointment series template. `recurrencePattern` is Daily|Weekly|Monthly. */
+export interface RecurringAppointmentDto {
+  id: string;
+  clinicId: string;
+  patientId: string;
+  patientName?: string | null;
+  doctorId?: string | null;
+  doctorName?: string | null;
+  procedureTypeId?: string | null;
+  startDate: string;
+  endDate?: string | null;
+  occurrenceCount?: number | null;
+  recurrencePattern: string;
+  interval: number;
+  notes?: string | null;
+  isActive: boolean;
+  appointmentCount: number;
+  createdAt: string;
+}
+
+/** The outcome of creating a recurring series. */
+export interface RecurringSeriesResultDto {
+  recurringAppointmentId: string;
+  createdCount: number;
+  skippedPastCount: number;
+  conflicts: string[];
 }
 
 // A treatment plan / devis for a patient. `status` is a TreatmentPlanStatus enum name: Draft | Accepted |

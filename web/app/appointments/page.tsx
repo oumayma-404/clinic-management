@@ -19,6 +19,8 @@ import { toast } from "sonner"
 import { useConnectivity } from "@/lib/connectivity/connectivity"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
+import { useDoctors } from "@/lib/hooks/use-doctors"
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select"
 
 export default function AppointmentsPage() {
   const [view, setView] = useState<"day" | "week" | "month">("day")
@@ -34,6 +36,10 @@ export default function AppointmentsPage() {
   // Google Calendar needs the server's internet egress; gate its controls in Local offline mode
   // (AC-6.2). Cloud always reports online (R-3).
   const { internetReachable } = useConnectivity()
+  // Per-practitioner filter (AC-3.2): "all" = no filter. Passed down to the calendar's fetch.
+  const { doctors } = useDoctors()
+  const [selectedDoctorId, setSelectedDoctorId] = useState<string>("all")
+  const doctorFilterId = selectedDoctorId === "all" ? undefined : selectedDoctorId
 
   const handleTimeSlotClick = useCallback((date: Date, time: string) => {
     const [hours, minutes] = time.split(':').map(Number)
@@ -177,9 +183,9 @@ export default function AppointmentsPage() {
             <Tabs value={view} onValueChange={(v) => setView(v as "day" | "week" | "month")} className="flex-1 flex flex-col min-h-0">
               <div className="flex items-center justify-between mb-3 flex-shrink-0">
                 <TabsList>
-                  <TabsTrigger value="day">Day View</TabsTrigger>
-                  <TabsTrigger value="week">Week View</TabsTrigger>
-                  <TabsTrigger value="month">Month View</TabsTrigger>
+                  <TabsTrigger value="day">Jour</TabsTrigger>
+                  <TabsTrigger value="week">Semaine</TabsTrigger>
+                  <TabsTrigger value="month">Mois</TabsTrigger>
                 </TabsList>
                 <div className="flex items-center gap-2">
                   {!isGoogleCalendarAuthorized ? (
@@ -192,7 +198,7 @@ export default function AppointmentsPage() {
                       title={!internetReachable ? "Connexion internet requise" : undefined}
                     >
                       <Calendar className="h-4 w-4" />
-                      Sync to Google Calendar
+                      Synchroniser avec Google Calendar
                     </Button>
                   ) : (
                     <Button
@@ -204,15 +210,28 @@ export default function AppointmentsPage() {
                       title={!internetReachable ? "Connexion internet requise" : undefined}
                     >
                       <RefreshCw className={`h-4 w-4 ${isSyncing ? "animate-spin" : ""}`} />
-                      {isSyncing ? "Syncing..." : "Sync from Google"}
+                      {isSyncing ? "Synchronisation…" : "Importer depuis Google"}
                     </Button>
                   )}
                   {!internetReachable && (
                     <span className="text-xs text-amber-600 dark:text-amber-400">Connexion requise</span>
                   )}
+                  <Select value={selectedDoctorId} onValueChange={setSelectedDoctorId}>
+                    <SelectTrigger className="h-9 w-[180px]">
+                      <SelectValue placeholder="Praticien" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Tous les praticiens</SelectItem>
+                      {doctors.filter((doc) => doc.id).map((doc) => (
+                        <SelectItem key={doc.id} value={doc.id!}>
+                          {doc.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                   <Button onClick={() => setDialogOpen(true)} className="gap-2" size="sm">
                     <Plus className="h-4 w-4" />
-                    New Appointment
+                    Nouveau rendez-vous
                   </Button>
                 </div>
               </div>
@@ -230,6 +249,7 @@ export default function AppointmentsPage() {
                   onShowCancelledChange={setShowCancelled}
                   onShowCompletedChange={setShowCompleted}
                   onChanged={handleAppointmentUpdated}
+                  doctorId={doctorFilterId}
                 />
               </TabsContent>
 
@@ -246,6 +266,7 @@ export default function AppointmentsPage() {
                   onShowCancelledChange={setShowCancelled}
                   onShowCompletedChange={setShowCompleted}
                   onChanged={handleAppointmentUpdated}
+                  doctorId={doctorFilterId}
                 />
               </TabsContent>
 
@@ -262,6 +283,7 @@ export default function AppointmentsPage() {
                   onShowCancelledChange={setShowCancelled}
                   onShowCompletedChange={setShowCompleted}
                   onChanged={handleAppointmentUpdated}
+                  doctorId={doctorFilterId}
                 />
               </TabsContent>
             </Tabs>

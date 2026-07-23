@@ -28,15 +28,15 @@ const NO_CONDITION = "__none__"
 
 // Curated color palette - must match backend ColorHex value object
 const COLOR_PALETTE = [
-  { name: "Soft Blue", value: "#4F83CC" },
-  { name: "Teal", value: "#2A9D8F" },
-  { name: "Muted Green", value: "#6BAA75" },
-  { name: "Lavender", value: "#9B8EDC" },
-  { name: "Warm Amber", value: "#E9A23B" },
-  { name: "Coral", value: "#E76F51" },
-  { name: "Slate", value: "#6C757D" },
-  { name: "Sky Blue", value: "#60A5FA" },
-  { name: "Mint", value: "#5EEAD4" },
+  { name: "Bleu doux", value: "#4F83CC" },
+  { name: "Sarcelle", value: "#2A9D8F" },
+  { name: "Vert doux", value: "#6BAA75" },
+  { name: "Lavande", value: "#9B8EDC" },
+  { name: "Ambre chaud", value: "#E9A23B" },
+  { name: "Corail", value: "#E76F51" },
+  { name: "Ardoise", value: "#6C757D" },
+  { name: "Bleu ciel", value: "#60A5FA" },
+  { name: "Menthe", value: "#5EEAD4" },
   { name: "Rose", value: "#FB7185" },
 ]
 
@@ -86,19 +86,19 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
     try {
       // Validate required fields
       if (!name.trim()) {
-        setError("Procedure name is required")
+        setError("Le nom de l'acte est requis")
         setLoading(false)
         return
       }
 
       if (!duration || Number(duration) <= 0) {
-        setError("Duration must be greater than 0")
+        setError("La durée doit être supérieure à 0")
         setLoading(false)
         return
       }
 
       if (Number(duration) >= 480) {
-        setError("Duration must be less than 480 minutes (8 hours)")
+        setError("La durée doit être inférieure à 480 minutes (8 heures)")
         setLoading(false)
         return
       }
@@ -107,7 +107,7 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
 
       const defaultCostValue = defaultCost ? Number.parseFloat(defaultCost) : null
       if (defaultCostValue !== null && defaultCostValue < 0) {
-        setError("Default cost cannot be negative")
+        setError("Le coût par défaut ne peut pas être négatif")
         setLoading(false)
         return
       }
@@ -140,7 +140,7 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
       if (err instanceof ApiError) {
         setError(err.message)
       } else {
-        setError("Failed to save procedure type. Please try again.")
+        setError("Échec de l'enregistrement du type d'acte. Veuillez réessayer.")
       }
       console.error("Error saving procedure type:", err)
     } finally {
@@ -152,11 +152,11 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{editingProcedure ? "Edit Procedure Type" : "Add New Procedure Type"}</DialogTitle>
+          <DialogTitle>{editingProcedure ? "Modifier le type d'acte" : "Ajouter un type d'acte"}</DialogTitle>
           <DialogDescription>
             {editingProcedure
-              ? "Update the procedure type details and color"
-              : "Define a new procedure with its duration and calendar color"}
+              ? "Mettez à jour les détails et la couleur du type d'acte"
+              : "Définissez un nouvel acte avec sa durée et sa couleur d'agenda"}
           </DialogDescription>
         </DialogHeader>
 
@@ -170,11 +170,11 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label htmlFor="name" className="text-sm">
-                Procedure Name <span className="text-destructive">*</span>
+                Nom de l'acte <span className="text-destructive">*</span>
               </Label>
               <Input
                 id="name"
-                placeholder="e.g., Consultation"
+                placeholder="ex. : consultation"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 required
@@ -184,7 +184,7 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
 
             <div className="space-y-1.5">
               <Label htmlFor="duration" className="text-sm">
-                Duration (min) <span className="text-destructive">*</span>
+                Durée (min) <span className="text-destructive">*</span>
               </Label>
               <Input
                 id="duration"
@@ -203,7 +203,7 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
 
           <div className="space-y-1.5">
             <Label htmlFor="defaultCost" className="text-sm">
-              Default Cost (Optional)
+              Coût par défaut (optionnel)
             </Label>
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">DT</span>
@@ -220,17 +220,17 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
               />
             </div>
             <p className="text-xs text-muted-foreground">
-              Typical cost for this procedure. Will be used to prefill cost in dental records.
+              Coût habituel de cet acte. Utilisé pour préremplir le coût dans les dossiers dentaires.
             </p>
           </div>
 
           <div className="space-y-1.5">
             <Label htmlFor="description" className="text-sm">
-              Description (Optional)
+              Description (optionnel)
             </Label>
             <Textarea
               id="description"
-              placeholder="Brief description..."
+              placeholder="Brève description…"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={2}
@@ -267,7 +267,7 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
 
           <div className="space-y-2">
             <Label className="text-sm">
-              Calendar Color <span className="text-destructive">*</span>
+              Couleur de l'agenda <span className="text-destructive">*</span>
             </Label>
 
             <div className="grid grid-cols-5 gap-2">
@@ -302,10 +302,10 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
           </div>
 
           <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-3">
-            <Label className="text-xs font-medium">Preview</Label>
+            <Label className="text-xs font-medium">Aperçu</Label>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <p className="text-[10px] font-medium text-muted-foreground">Calendar</p>
+                <p className="text-[10px] font-medium text-muted-foreground">Agenda</p>
                 <div
                   className="rounded-md border-l-4 bg-card p-2 shadow-sm"
                   style={{
@@ -313,8 +313,8 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
                     backgroundColor: `${selectedColor}15`,
                   }}
                 >
-                  <p className="text-xs font-medium text-foreground">{name || "Procedure Name"}</p>
-                  <p className="text-[10px] text-muted-foreground">{duration ? `${duration} min` : "Duration"}</p>
+                  <p className="text-xs font-medium text-foreground">{name || "Nom de l'acte"}</p>
+                  <p className="text-[10px] text-muted-foreground">{duration ? `${duration} min` : "Durée"}</p>
                 </div>
               </div>
 
@@ -334,7 +334,7 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
                       backgroundColor: `${selectedColor}10`,
                     }}
                   >
-                    {name || "Procedure"}
+                    {name || "Acte"}
                   </Badge>
                 </div>
               </div>
@@ -343,10 +343,10 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
 
           <DialogFooter className="gap-2">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
-              Cancel
+              Annuler
             </Button>
             <Button type="submit" disabled={loading}>
-              {loading ? (editingProcedure ? "Updating..." : "Creating...") : (editingProcedure ? "Update" : "Add Procedure")}
+              {loading ? (editingProcedure ? "Mise à jour…" : "Création…") : (editingProcedure ? "Mettre à jour" : "Ajouter l'acte")}
             </Button>
           </DialogFooter>
         </form>

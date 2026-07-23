@@ -47,9 +47,11 @@ interface AppointmentCalendarProps {
   onShowCompletedChange?: (show: boolean) => void
   /** Called after a per-card "Push to Google" succeeds so the parent can refetch (clears the badge). */
   onChanged?: () => void
+  /** Optional per-practitioner filter (AC-3.2) — only appointments assigned to this doctor. */
+  doctorId?: string
 }
 
-export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSlotClick, onAppointmentClick, onSelectDay, showCancelled = false, showCompleted = false, onShowCancelledChange, onShowCompletedChange, onChanged }: AppointmentCalendarProps) {
+export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSlotClick, onAppointmentClick, onSelectDay, showCancelled = false, showCompleted = false, onShowCancelledChange, onShowCompletedChange, onChanged, doctorId }: AppointmentCalendarProps) {
   const { internetReachable } = useConnectivity()
   const [pushingId, setPushingId] = useState<string | null>(null)
 
@@ -124,7 +126,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
     return endOfDay(addDays(startOfWeek(selectedDate, { weekStartsOn: 1 }), 6)) // 7 days (0-6)
   }, [view, selectedDate])
 
-  const { appointments: allAppointments, loading } = useAppointments(startDate, endDate)
+  const { appointments: allAppointments, loading } = useAppointments(startDate, endDate, undefined, undefined, doctorId)
 
   // Filter appointments based on status filters
   const appointments = useMemo(() => {

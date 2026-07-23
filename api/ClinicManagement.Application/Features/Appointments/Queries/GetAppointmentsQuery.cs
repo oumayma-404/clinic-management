@@ -10,6 +10,8 @@ public class GetAppointmentsQuery : IRequest<Result<IEnumerable<AppointmentDto>>
 {
     public DateTime? StartDate { get; set; }
     public DateTime? EndDate { get; set; }
+    /// <summary>Optional per-practitioner filter — only appointments assigned to this doctor.</summary>
+    public Guid? DoctorId { get; set; }
 }
 
 public class GetAppointmentsQueryHandler : IRequestHandler<GetAppointmentsQuery, Result<IEnumerable<AppointmentDto>>>
@@ -52,6 +54,7 @@ public class GetAppointmentsQueryHandler : IRequestHandler<GetAppointmentsQuery,
                 clinicId,
                 request.StartDate,
                 request.EndDate,
+                request.DoctorId,
                 cancellationToken);
 
             var dtos = appointments.Select(a => new AppointmentDto

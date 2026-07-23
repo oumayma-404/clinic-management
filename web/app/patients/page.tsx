@@ -35,7 +35,7 @@ export default function PatientsPage() {
               {/* Page Header */}
               <div>
                 <h1 className="text-3xl font-semibold text-foreground">Patients</h1>
-                <p className="mt-1 text-sm text-muted-foreground">Manage and view all patient records</p>
+                <p className="mt-1 text-sm text-muted-foreground">Consultez et gérez tous les dossiers patients</p>
               </div>
 
               {/* Search and Filters */}
@@ -44,7 +44,7 @@ export default function PatientsPage() {
                   <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
                     type="text"
-                    placeholder="Search by name or phone..."
+                    placeholder="Rechercher par nom ou téléphone…"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="pl-9"
@@ -58,7 +58,7 @@ export default function PatientsPage() {
                     className="gap-2"
                   >
                     <Filter className="h-4 w-4" />
-                    {showFlaggedOnly ? "Showing Flagged" : "Show Flagged Only"}
+                    {showFlaggedOnly ? "Signalés affichés" : "Afficher les signalés"}
                   </Button>
                   
                   <Button
@@ -66,7 +66,7 @@ export default function PatientsPage() {
                     className="gap-2"
                   >
                     <Plus className="h-4 w-4" />
-                    Add New Patient
+                    Ajouter un patient
                   </Button>
                 </div>
               </div>

@@ -221,7 +221,7 @@ export default function ClinicSettings() {
         setClinicName(status.clinicName)
       }
     } catch (err: any) {
-      setNotification({ type: "error", message: "Failed to load clinic data: " + (err.message || "Unknown error") })
+      setNotification({ type: "error", message: "Échec du chargement des données de la clinique : " + (err.message || "Erreur inconnue") })
     } finally {
       setIsLoading(false)
     }
@@ -323,10 +323,10 @@ export default function ClinicSettings() {
       }
       setLogoFile(null) // Clear file after successful upload
 
-      setNotification({ type: "success", message: "Clinic information saved successfully!" })
+      setNotification({ type: "success", message: "Informations de la clinique enregistrées." })
       setIsEditingClinicInfo(false)
     } catch (error: any) {
-      setNotification({ type: "error", message: error.message || "Failed to save clinic information. Please try again." })
+      setNotification({ type: "error", message: error.message || "Échec de l'enregistrement des informations de la clinique. Veuillez réessayer." })
     } finally {
       setIsSaving(false)
     }
@@ -379,7 +379,7 @@ export default function ClinicSettings() {
         })
 
       if (validDoctors.length === 0) {
-        setNotification({ type: "error", message: "Please add at least one doctor with name and specialty" })
+        setNotification({ type: "error", message: "Veuillez ajouter au moins un médecin avec un nom et une spécialité" })
         setIsSaving(false)
         return
       }
@@ -399,10 +399,10 @@ export default function ClinicSettings() {
         })),
       )
 
-      setNotification({ type: "success", message: "Doctors information saved successfully!" })
+      setNotification({ type: "success", message: "Informations des médecins enregistrées." })
       setIsEditingDoctors(false)
     } catch (error: any) {
-      setNotification({ type: "error", message: error.message || "Failed to save doctors information. Please try again." })
+      setNotification({ type: "error", message: error.message || "Échec de l'enregistrement des informations des médecins. Veuillez réessayer." })
     } finally {
       setIsSaving(false)
     }
@@ -513,7 +513,7 @@ export default function ClinicSettings() {
             <Building2 className="w-4 h-4 text-white" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-gray-900 dark:text-white">Clinic Settings</h1>
+            <h1 className="text-xl font-bold text-gray-900 dark:text-white">Paramètres de la clinique</h1>
             <p className="text-xs text-muted-foreground">Manage your clinic information and team</p>
           </div>
         </div>
@@ -521,7 +521,7 @@ export default function ClinicSettings() {
         {/* Clinic Code under header */}
         {clinicCode && (
           <div className="bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
-            <Label className="text-xs text-blue-700 dark:text-blue-300 font-medium">Clinic Code</Label>
+            <Label className="text-xs text-blue-700 dark:text-blue-300 font-medium">Code de la clinique</Label>
             <div className="flex items-center gap-2 mt-1.5">
               <Badge
                 variant="outline"
@@ -565,7 +565,7 @@ export default function ClinicSettings() {
                 className="flex items-center gap-2 flex-1 text-left hover:opacity-70 transition-opacity"
               >
                 <div className="w-1 h-6 bg-blue-600 rounded-full" />
-                <CardTitle className="text-base">Clinic Information</CardTitle>
+                <CardTitle className="text-base">Informations de la clinique</CardTitle>
                 <ChevronDown
                   className={`w-4 h-4 text-muted-foreground transition-transform ${
                     isClinicInfoCollapsed ? "-rotate-90" : ""
@@ -590,7 +590,7 @@ export default function ClinicSettings() {
                   </Label>
                   <Input
                     id="clinic-name"
-                    placeholder="Enter clinic name"
+                    placeholder="Saisir le nom de la clinique"
                     value={clinicName}
                     onChange={(e) => setClinicName(e.target.value)}
                     disabled={!isEditingClinicInfo}
@@ -609,7 +609,7 @@ export default function ClinicSettings() {
                       id="governorate"
                       className={`h-8 text-sm ${!isEditingClinicInfo ? "bg-slate-50 dark:bg-slate-900/50" : ""}`}
                     >
-                      <SelectValue placeholder="Select governorate" />
+                      <SelectValue placeholder="Sélectionner un gouvernorat" />
                     </SelectTrigger>
                     <SelectContent>
                       {tunisianGovernorates.map((gov) => (
@@ -628,7 +628,7 @@ export default function ClinicSettings() {
                 </Label>
                 <Textarea
                   id="address"
-                  placeholder="Enter complete clinic address"
+                  placeholder="Saisir l'adresse complète de la clinique"
                   value={address}
                   onChange={(e) => setAddress(e.target.value)}
                   disabled={!isEditingClinicInfo}
@@ -657,13 +657,13 @@ export default function ClinicSettings() {
 
                 <div className="space-y-1">
                   <Label htmlFor="email" className="text-xs font-medium flex items-center gap-1">
-                    Professional Email
+                    Email professionnel
                     <span className="text-red-500">*</span>
                   </Label>
                   <Input
                     id="email"
                     type="email"
-                    placeholder="clinic@example.com"
+                    placeholder="ex. : contact@maclinique.tn"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     disabled={!isEditingClinicInfo}
@@ -676,7 +676,7 @@ export default function ClinicSettings() {
               <Separator className="my-3" />
 
               <div className="space-y-2">
-                <Label className="text-xs font-medium">Clinic Logo</Label>
+                <Label className="text-xs font-medium">Logo de la clinique</Label>
                 <div className="flex items-center gap-4">
                   {logoPreview ? (
                     // Show preview when user selects a new file (data URL)
@@ -714,10 +714,10 @@ export default function ClinicSettings() {
                     // Show indicator that logo exists when not in edit mode
                     <div className="w-20 h-20 flex flex-col items-center justify-center border-2 border-blue-200 dark:border-blue-800 rounded-lg bg-blue-50 dark:bg-blue-950/20">
                       <Building2 className="w-8 h-8 text-blue-600 dark:text-blue-400" />
-                      <span className="text-[8px] text-blue-600 dark:text-blue-400 mt-1">Logo set</span>
+                      <span className="text-[8px] text-blue-600 dark:text-blue-400 mt-1">Logo défini</span>
                     </div>
                   ) : (
-                    <div className="text-xs text-muted-foreground italic">No logo uploaded</div>
+                    <div className="text-xs text-muted-foreground italic">Aucun logo téléversé</div>
                   )}
                 </div>
               </div>
@@ -740,7 +740,7 @@ export default function ClinicSettings() {
                     disabled={isSaving}
                   >
                     <Save className="w-3 h-3 mr-1" />
-                    {isSaving ? "Saving..." : "Save Changes"}
+                    {isSaving ? "Enregistrement…" : "Enregistrer les modifications"}
                   </Button>
                 </div>
               )}
@@ -757,7 +757,7 @@ export default function ClinicSettings() {
                 className="flex items-center gap-2 flex-1 text-left hover:opacity-70 transition-opacity"
               >
                 <div className="w-1 h-6 bg-blue-600 rounded-full" />
-                <CardTitle className="text-base">Doctors</CardTitle>
+                <CardTitle className="text-base">Médecins</CardTitle>
                 <ChevronDown
                   className={`w-4 h-4 text-muted-foreground transition-transform ${
                     isDoctorsCollapsed ? "-rotate-90" : ""
@@ -786,7 +786,7 @@ export default function ClinicSettings() {
                       </div>
                       <div className="flex-1 grid grid-cols-2 gap-2">
                         <div className="space-y-1">
-                          <Label className="text-xs">Full Name</Label>
+                          <Label className="text-xs">Nom complet</Label>
                           <Input
                             value={doctor.name}
                             onChange={(e) => updateDoctor(doctor.id, "name", e.target.value)}
@@ -795,14 +795,14 @@ export default function ClinicSettings() {
                           />
                         </div>
                         <div className="space-y-1">
-                          <Label className="text-xs">Specialty</Label>
+                          <Label className="text-xs">Spécialité</Label>
                           <Select
                             value={doctor.specialty}
                             onValueChange={(value) => updateDoctor(doctor.id, "specialty", value)}
                             disabled={!isEditingDoctors}
                           >
                             <SelectTrigger className="h-7 text-sm">
-                              <SelectValue placeholder="Select specialty" />
+                              <SelectValue placeholder="Sélectionner une spécialité" />
                             </SelectTrigger>
                             <SelectContent>
                               {specialties.map((spec) => (
@@ -814,7 +814,7 @@ export default function ClinicSettings() {
                           </Select>
                         </div>
                         <div className="space-y-1">
-                          <Label className="text-xs">Phone</Label>
+                          <Label className="text-xs">Téléphone</Label>
                           <Input
                             value={doctor.phone || ""}
                             onChange={(e) => updateDoctor(doctor.id, "phone", e.target.value)}
@@ -885,7 +885,7 @@ export default function ClinicSettings() {
                       disabled={isSaving}
                     >
                       <Save className="w-3 h-3 mr-1" />
-                      {isSaving ? "Saving..." : "Save Changes"}
+                      {isSaving ? "Enregistrement…" : "Enregistrer les modifications"}
                     </Button>
                   </div>
                 </>
@@ -903,7 +903,7 @@ export default function ClinicSettings() {
                 className="flex items-center gap-2 flex-1 text-left hover:opacity-70 transition-opacity"
               >
                 <div className="w-1 h-6 bg-blue-600 rounded-full" />
-                <CardTitle className="text-base">Working Hours</CardTitle>
+                <CardTitle className="text-base">Horaires d'ouverture</CardTitle>
                 <ChevronDown
                   className={`w-4 h-4 text-muted-foreground transition-transform ${
                     isHoursCollapsed ? "-rotate-90" : ""
@@ -976,7 +976,7 @@ export default function ClinicSettings() {
                     disabled={isSaving}
                   >
                     <Save className="w-3 h-3 mr-1" />
-                    {isSaving ? "Saving..." : "Save Changes"}
+                    {isSaving ? "Enregistrement…" : "Enregistrer les modifications"}
                   </Button>
                 </div>
               )}

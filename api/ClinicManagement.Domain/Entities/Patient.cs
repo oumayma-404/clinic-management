@@ -1,6 +1,5 @@
 using ClinicManagement.Domain.Common;
 using ClinicManagement.Domain.ValueObjects;
-using ClinicManagement.Domain.Events;
 
 namespace ClinicManagement.Domain.Entities;
 
@@ -20,6 +19,14 @@ public class Patient : AggregateRoot<Guid>
     public string? Allergies { get; private set; }
     public string? EmergencyContactName { get; private set; }
     public PhoneNumber? EmergencyContactPhone { get; private set; }
+
+    // Patient recall / relance (clinical-workflow-depth). The next-due date is derived on read from the last
+    // completed visit + the clinic recall interval, so these fields hold only the optional per-patient overrides:
+    // a snooze (drop off the "à relancer" list until then), the reason label, and the last-contacted stamp.
+    public DateTime? RecallSnoozedUntil { get; private set; }
+    public string? RecallReason { get; private set; }
+    public DateTime? LastRecallContactedAt { get; private set; }
+
     public DateTime CreatedAt { get; private set; }
     public DateTime? UpdatedAt { get; private set; }
 
@@ -122,7 +129,6 @@ public class Patient : AggregateRoot<Guid>
         {
             _flags.Add(flag);
             UpdatedAt = DateTime.UtcNow;
-            AddDomainEvent(new PatientFlagAddedEvent(Id, flag.Id));
         }
     }
 
@@ -200,6 +206,42 @@ public class Patient : AggregateRoot<Guid>
             _familyHistoryEntries.Remove(entry);
             UpdatedAt = DateTime.UtcNow;
         }
+    }
+
+    /// <summary>
+    /// Push the recall out until <paramref name="until"/> — drops the patient off the "à relancer" list until
+    /// then. Optionally updates the recall reason label.
+    /// </summary>
+    public void SnoozeRecall(DateTime until, string? reason = null)
+    {
+        RecallSnoozedUntil = until;
+        if (!string.IsNullOrWhiteSpace(reason))
+        {
+            RecallReason = reason.Trim();
+        }
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Record that the patient was contacted about their recall and snooze it until <paramref name="snoozeUntil"/>
+    /// so it temporarily leaves the active list. Optionally updates the recall reason label.
+    /// </summary>
+    public void MarkRecallContacted(DateTime snoozeUntil, string? reason = null)
+    {
+        LastRecallContactedAt = DateTime.UtcNow;
+        RecallSnoozedUntil = snoozeUntil;
+        if (!string.IsNullOrWhiteSpace(reason))
+        {
+            RecallReason = reason.Trim();
+        }
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>Set (or clear, when blank) the patient's recall reason label.</summary>
+    public void SetRecallReason(string? reason)
+    {
+        RecallReason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
+        UpdatedAt = DateTime.UtcNow;
     }
 
     public string GetFullName() => $"{FirstName} {LastName}";

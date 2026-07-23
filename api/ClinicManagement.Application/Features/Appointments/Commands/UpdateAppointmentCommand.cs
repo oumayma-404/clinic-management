@@ -18,12 +18,15 @@ public class UpdateAppointmentCommand : IRequest<Result<AppointmentDto>>
     public string? Notes { get; set; }
     public string? Status { get; set; }
     public Guid? ProcedureTypeId { get; set; }
+    /// <summary>Reassign the appointment's practitioner (an FK to Doctor). Ignored when null.</summary>
+    public Guid? DoctorId { get; set; }
 }
 
 public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointmentCommand, Result<AppointmentDto>>
 {
     private readonly IAppointmentRepository _appointmentRepository;
     private readonly IProcedureTypeRepository _procedureTypeRepository;
+    private readonly IDoctorRepository _doctorRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IClinicContext _clinicContext;
     private readonly IUnitOfWork _unitOfWork;
@@ -35,6 +38,7 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
     public UpdateAppointmentCommandHandler(
         IAppointmentRepository appointmentRepository,
         IProcedureTypeRepository procedureTypeRepository,
+        IDoctorRepository doctorRepository,
         ICurrentClinicResolver clinicResolver,
         IClinicContext clinicContext,
         IUnitOfWork unitOfWork,
@@ -45,6 +49,7 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
     {
         _appointmentRepository = appointmentRepository;
         _procedureTypeRepository = procedureTypeRepository;
+        _doctorRepository = doctorRepository;
         _clinicResolver = clinicResolver;
         _clinicContext = clinicContext;
         _unitOfWork = unitOfWork;
@@ -133,6 +138,17 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
             if (request.DoctorName != null)
             {
                 appointment.UpdateDoctorName(request.DoctorName);
+            }
+
+            // Reassign the practitioner if provided (validated against the clinic — the DoctorId FK).
+            if (request.DoctorId.HasValue && request.DoctorId != appointment.DoctorId)
+            {
+                var doctor = await _doctorRepository.GetByIdAsync(request.DoctorId.Value, cancellationToken);
+                if (doctor == null || doctor.ClinicId != clinicResult.Value)
+                {
+                    return Result<AppointmentDto>.Failure("Doctor not found");
+                }
+                appointment.SetDoctorId(request.DoctorId);
             }
 
             // Update notes if provided

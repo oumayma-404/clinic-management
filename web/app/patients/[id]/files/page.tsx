@@ -51,7 +51,7 @@ export default function PatientFilesPage() {
             <DashboardHeader />
             <main className="flex-1 p-6">
               <div className="flex items-center justify-center h-full">
-                <p className="text-muted-foreground">Loading...</p>
+                <p className="text-muted-foreground">Chargement…</p>
               </div>
             </main>
           </div>

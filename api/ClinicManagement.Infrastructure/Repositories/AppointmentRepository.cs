@@ -32,9 +32,10 @@ public class AppointmentRepository : IAppointmentRepository
     }
 
     public async Task<IEnumerable<Appointment>> GetByClinicIdAsync(
-        Guid clinicId, 
-        DateTime? startDate = null, 
-        DateTime? endDate = null, 
+        Guid clinicId,
+        DateTime? startDate = null,
+        DateTime? endDate = null,
+        Guid? doctorId = null,
         CancellationToken cancellationToken = default)
     {
         var query = _context.Appointments
@@ -50,6 +51,11 @@ public class AppointmentRepository : IAppointmentRepository
         if (endDate.HasValue)
         {
             query = query.Where(a => a.AppointmentDateTime <= endDate.Value);
+        }
+
+        if (doctorId.HasValue)
+        {
+            query = query.Where(a => a.DoctorId == doctorId.Value);
         }
 
         return await query

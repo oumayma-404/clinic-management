@@ -26,15 +26,15 @@ export function ChangePasswordForm({ forced }: ChangePasswordFormProps) {
     setError(null)
 
     if (newPassword.length < MIN_PASSWORD_LENGTH) {
-      setError(`New password must be at least ${MIN_PASSWORD_LENGTH} characters.`)
+      setError(`Le nouveau mot de passe doit contenir au moins ${MIN_PASSWORD_LENGTH} caractères.`)
       return
     }
     if (newPassword !== confirmPassword) {
-      setError('New password and confirmation do not match.')
+      setError('Le nouveau mot de passe et sa confirmation ne correspondent pas.')
       return
     }
     if (newPassword === currentPassword) {
-      setError('New password must be different from the current one.')
+      setError('Le nouveau mot de passe doit être différent de l\'actuel.')
       return
     }
 
@@ -47,14 +47,14 @@ export function ChangePasswordForm({ forced }: ChangePasswordFormProps) {
       })
       const data = await res.json().catch(() => null)
       if (!res.ok) {
-        setError(data?.error || 'Failed to change password.')
+        setError(data?.error || 'Échec du changement de mot de passe.')
         setIsSubmitting(false)
         return
       }
       // Full navigation so the cleared forced-change cookie is picked up by the middleware.
       window.location.href = '/'
     } catch {
-      setError('Cannot reach the clinic server. Please try again.')
+      setError('Impossible de joindre le serveur de la clinique. Veuillez réessayer.')
       setIsSubmitting(false)
     }
   }
@@ -64,12 +64,12 @@ export function ChangePasswordForm({ forced }: ChangePasswordFormProps) {
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-1">
           <CardTitle className="text-2xl font-bold">
-            {forced ? 'Set a new password' : 'Change password'}
+            {forced ? 'Définir un nouveau mot de passe' : 'Changer le mot de passe'}
           </CardTitle>
           <CardDescription>
             {forced
-              ? 'Your password was reset by an administrator. Choose a new password to continue.'
-              : 'Enter your current password and choose a new one.'}
+              ? 'Votre mot de passe a été réinitialisé par un administrateur. Choisissez un nouveau mot de passe pour continuer.'
+              : 'Saisissez votre mot de passe actuel et choisissez-en un nouveau.'}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -81,7 +81,7 @@ export function ChangePasswordForm({ forced }: ChangePasswordFormProps) {
             )}
             <div className="space-y-2">
               <Label htmlFor="current-password">
-                {forced ? 'Temporary password' : 'Current password'}
+                {forced ? 'Mot de passe temporaire' : 'Mot de passe actuel'}
               </Label>
               <Input
                 id="current-password"
@@ -93,7 +93,7 @@ export function ChangePasswordForm({ forced }: ChangePasswordFormProps) {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="new-password">New password</Label>
+              <Label htmlFor="new-password">Nouveau mot de passe</Label>
               <Input
                 id="new-password"
                 type="password"
@@ -104,7 +104,7 @@ export function ChangePasswordForm({ forced }: ChangePasswordFormProps) {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="confirm-password">Confirm new password</Label>
+              <Label htmlFor="confirm-password">Confirmer le nouveau mot de passe</Label>
               <Input
                 id="confirm-password"
                 type="password"
@@ -115,7 +115,7 @@ export function ChangePasswordForm({ forced }: ChangePasswordFormProps) {
               />
             </div>
             <Button type="submit" className="w-full" size="lg" disabled={isSubmitting}>
-              {isSubmitting ? 'Saving...' : 'Save new password'}
+              {isSubmitting ? 'Enregistrement…' : 'Enregistrer le nouveau mot de passe'}
             </Button>
           </form>
         </CardContent>

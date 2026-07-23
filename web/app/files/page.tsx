@@ -69,8 +69,8 @@ export default function FilesPage() {
         setPatients(patientsData)
       } catch (error) {
         console.error("Failed to load patients:", error)
-        toast.error("Failed to load patients", {
-          description: "Please try again later",
+        toast.error("Échec du chargement des patients", {
+          description: "Veuillez réessayer plus tard",
         })
       } finally {
         setLoading(false)
@@ -97,8 +97,8 @@ export default function FilesPage() {
       setFiles(filesData)
     } catch (error) {
       console.error("Failed to load files:", error)
-      toast.error("Failed to load files", {
-        description: "Please try again later",
+      toast.error("Échec du chargement des fichiers", {
+        description: "Veuillez réessayer plus tard",
       })
     } finally {
       setLoadingFiles(false)
@@ -170,12 +170,10 @@ export default function FilesPage() {
     // Search by date of birth - format in multiple ways for flexibility
     const dob = new Date(patient.dateOfBirth)
     const dobFormats = [
-      dob.toLocaleDateString('en-US'), // MM/DD/YYYY
-      dob.toLocaleDateString('en-GB'), // DD/MM/YYYY
-      dob.toISOString().split('T')[0], // YYYY-MM-DD
-      dob.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }), // MM/DD/YYYY
-      dob.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }), // MMM DD, YYYY
-      dob.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }), // Month DD, YYYY
+      dob.toLocaleDateString('fr-FR'), // JJ/MM/AAAA
+      dob.toISOString().split('T')[0], // AAAA-MM-JJ
+      dob.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' }), // JJ/MM/AAAA
+      dob.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }), // 5 janvier 2020
     ]
     
     const dobMatch = dobFormats.some(format => 
@@ -231,8 +229,8 @@ export default function FilesPage() {
       }
     } catch (error) {
       console.error("Failed to preview file:", error)
-      toast.error("Failed to preview file", {
-        description: "Please try again or download the file",
+      toast.error("Échec de l'aperçu du fichier", {
+        description: "Veuillez réessayer ou télécharger le fichier",
       })
       setPreviewFile(null)
     } finally {
@@ -262,13 +260,13 @@ export default function FilesPage() {
       a.click()
       window.URL.revokeObjectURL(url)
       document.body.removeChild(a)
-      toast.success("Download started", {
-        description: `Downloading "${file.fileName}"`,
+      toast.success("Téléchargement démarré", {
+        description: `Téléchargement de « ${file.fileName} »`,
       })
     } catch (error) {
       console.error("Failed to download file:", error)
-      toast.error("Failed to download", {
-        description: `Unable to download "${file.fileName}". Please try again.`,
+      toast.error("Échec du téléchargement", {
+        description: `Impossible de télécharger « ${file.fileName} ». Veuillez réessayer.`,
       })
     }
   }
@@ -284,11 +282,11 @@ export default function FilesPage() {
       await Promise.all(uploadPromises)
       const fileCount = filesToUpload.length
       toast.success(
-        fileCount === 1 ? "File uploaded successfully" : `${fileCount} files uploaded successfully`,
+        fileCount === 1 ? "Fichier téléversé avec succès" : `${fileCount} fichiers téléversés avec succès`,
         {
           description: fileCount === 1
-            ? `The file has been added${currentFolder ? ` to folder "${currentFolder.name}"` : ""}`
-            : `The files have been added${currentFolder ? ` to folder "${currentFolder.name}"` : ""}`,
+            ? `Le fichier a été ajouté${currentFolder ? ` au dossier « ${currentFolder.name} »` : ""}`
+            : `Les fichiers ont été ajoutés${currentFolder ? ` au dossier « ${currentFolder.name} »` : ""}`,
           duration: 3000,
         }
       )
@@ -297,9 +295,9 @@ export default function FilesPage() {
       console.error("Failed to upload files:", error)
       const fileCount = filesToUpload.length
       toast.error(
-        fileCount === 1 ? "Failed to upload file" : "Failed to upload files",
+        fileCount === 1 ? "Échec du téléversement du fichier" : "Échec du téléversement des fichiers",
         {
-          description: "An error occurred. Please check your connection and try again.",
+          description: "Une erreur est survenue. Vérifiez votre connexion et réessayez.",
           duration: 5000,
         }
       )
@@ -328,8 +326,8 @@ export default function FilesPage() {
 
     try {
       await patientFilesApi.createFolder(selectedPatientId, newFolderName.trim(), currentFolderId || undefined)
-      toast.success("Folder created successfully", {
-        description: `The folder "${newFolderName.trim()}" has been created${currentFolder ? ` in "${currentFolder.name}"` : ""}`,
+      toast.success("Dossier créé avec succès", {
+        description: `Le dossier « ${newFolderName.trim()} » a été créé${currentFolder ? ` dans « ${currentFolder.name} »` : ""}`,
         duration: 3000,
       })
       setNewFolderName("")
@@ -337,8 +335,8 @@ export default function FilesPage() {
       await loadPatientFiles()
     } catch (error) {
       console.error("Failed to create folder:", error)
-      const errorMessage = error instanceof Error ? error.message : "An error occurred"
-      toast.error("Failed to create folder", {
+      const errorMessage = error instanceof Error ? error.message : "Une erreur est survenue"
+      toast.error("Échec de la création du dossier", {
         description: errorMessage,
         duration: 4000,
       })
@@ -356,15 +354,15 @@ export default function FilesPage() {
     try {
       const file = files.find(f => f.id === fileId)
       await patientFilesApi.deleteFile(selectedPatientId, fileId)
-      toast.success("File deleted successfully", {
-        description: file ? `"${file.fileName}" has been deleted` : "The file has been deleted",
+      toast.success("Fichier supprimé avec succès", {
+        description: file ? `« ${file.fileName} » a été supprimé` : "Le fichier a été supprimé",
         duration: 3000,
       })
       await loadPatientFiles()
     } catch (error) {
       console.error("Failed to delete file:", error)
-      toast.error("Failed to delete file", {
-        description: "An error occurred during deletion. Please try again.",
+      toast.error("Échec de la suppression du fichier", {
+        description: "Une erreur est survenue lors de la suppression. Veuillez réessayer.",
         duration: 4000,
       })
     } finally {
@@ -383,12 +381,12 @@ export default function FilesPage() {
     const hasFiles = folder && folder.fileCount > 0
 
     try {
-      const folderName = folder?.name || "the folder"
+      const folderName = folder?.name || "le dossier"
       await patientFilesApi.deleteFolder(selectedPatientId, folderId)
-      toast.success("Folder deleted successfully", {
+      toast.success("Dossier supprimé avec succès", {
         description: hasFiles
-          ? `"${folderName}" and ${folder.fileCount} file(s) have been deleted`
-          : `"${folderName}" has been deleted`,
+          ? `« ${folderName} » et ${folder.fileCount} fichier(s) ont été supprimés`
+          : `« ${folderName} » a été supprimé`,
         duration: 3000,
       })
       if (currentFolderId === folderId) {
@@ -397,8 +395,8 @@ export default function FilesPage() {
       await loadPatientFiles()
     } catch (error) {
       console.error("Failed to delete folder:", error)
-      const errorMessage = error instanceof Error ? error.message : "An error occurred"
-      toast.error("Failed to delete folder", {
+      const errorMessage = error instanceof Error ? error.message : "Une erreur est survenue"
+      toast.error("Échec de la suppression du dossier", {
         description: errorMessage,
         duration: 4000,
       })
@@ -435,9 +433,9 @@ export default function FilesPage() {
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
                     <div>
-                      <h1 className="text-3xl font-bold text-foreground">Patient Files</h1>
+                      <h1 className="text-3xl font-bold text-foreground">Fichiers patients</h1>
                       <p className="text-sm text-muted-foreground mt-1">
-                        Select a patient to view their files
+                        Sélectionnez un patient pour voir ses fichiers
                       </p>
                     </div>
                   </div>
@@ -446,7 +444,7 @@ export default function FilesPage() {
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
-                      placeholder="Search patients by name or date of birth..."
+                      placeholder="Rechercher un patient par nom ou date de naissance…"
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       className="pl-10"
@@ -473,12 +471,12 @@ export default function FilesPage() {
                       <div className="text-center text-muted-foreground">
                         <Folder className="h-16 w-16 mx-auto mb-4 opacity-50" />
                         <p className="text-lg font-medium">
-                          {searchQuery ? "No patients found" : "No patients yet"}
+                          {searchQuery ? "Aucun patient trouvé" : "Aucun patient pour le moment"}
                         </p>
                         <p className="text-sm mt-2">
                           {searchQuery
-                            ? "Try a different search term"
-                            : "Patients will appear here once they are added to the system"}
+                            ? "Essayez un autre terme de recherche"
+                            : "Les patients apparaîtront ici une fois ajoutés au système"}
                         </p>
                       </div>
                     </Card>
@@ -499,7 +497,7 @@ export default function FilesPage() {
                                 {patient.firstName} {patient.lastName}
                               </p>
                               <p className="text-xs text-muted-foreground mt-1">
-                                {new Date(patient.dateOfBirth).toLocaleDateString()}
+                                {new Date(patient.dateOfBirth).toLocaleDateString("fr-FR")}
                               </p>
                             </div>
                             <ChevronRight className="h-5 w-5 text-muted-foreground group-hover:text-primary transition-colors" />
@@ -587,9 +585,9 @@ export default function FilesPage() {
                               "text-sm font-semibold",
                               isDragging ? "text-primary" : "text-foreground"
                             )}>
-                              {isDragging ? "Drop files here" : "Drag and drop files here"}
+                              {isDragging ? "Déposez les fichiers ici" : "Glissez-déposez des fichiers ici"}
                             </p>
-                            <p className="text-xs text-muted-foreground mt-1">or</p>
+                            <p className="text-xs text-muted-foreground mt-1">ou</p>
                           </div>
                           <label>
                             <input
@@ -606,7 +604,7 @@ export default function FilesPage() {
                               disabled={uploading}
                               className="bg-primary hover:bg-primary/90 text-white disabled:opacity-50"
                             >
-                              <span>{uploading ? "Uploading..." : "Browse Files"}</span>
+                              <span>{uploading ? "Téléversement…" : "Parcourir les fichiers"}</span>
                             </Button>
                           </label>
                         </div>
@@ -615,7 +613,7 @@ export default function FilesPage() {
                       {/* Folders Grid (only show when in root) */}
                       {!currentFolderId && folders.length > 0 && (
                         <div>
-                          <h3 className="text-sm font-semibold mb-3 text-foreground">Folders</h3>
+                          <h3 className="text-sm font-semibold mb-3 text-foreground">Dossiers</h3>
                           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                             {folders.map((folder) => (
                               <Card
@@ -631,7 +629,7 @@ export default function FilesPage() {
                                     {folder.name}
                                   </p>
                                   <p className="text-xs text-muted-foreground">
-                                    {folder.fileCount} {folder.fileCount === 1 ? "file" : "files"}
+                                    {folder.fileCount} {folder.fileCount === 1 ? "fichier" : "fichiers"}
                                   </p>
                                 </div>
                                 <Button
@@ -643,7 +641,7 @@ export default function FilesPage() {
                                     e.preventDefault()
                                     handleDeleteFolder(folder.id)
                                   }}
-                                  title="Delete folder"
+                                  title="Supprimer le dossier"
                                 >
                                   <X className="h-4 w-4" />
                                 </Button>
@@ -657,7 +655,7 @@ export default function FilesPage() {
                       <div>
                         <div className="flex items-center justify-between mb-3">
                           <h3 className="text-sm font-semibold text-foreground">
-                            {currentFolderId ? "Files in this folder" : "Files"}
+                            {currentFolderId ? "Fichiers du dossier" : "Fichiers"}
                           </h3>
                           {currentFolderId && (
                             <Button
@@ -667,7 +665,7 @@ export default function FilesPage() {
                               className="gap-2"
                             >
                               <Home className="h-4 w-4" />
-                              Back to root
+                              Retour à la racine
                             </Button>
                           )}
                         </div>
@@ -677,9 +675,9 @@ export default function FilesPage() {
                               <div className="p-4 rounded-full bg-primary/10 inline-block mb-3">
                                 <File className="h-12 w-12 text-primary opacity-70" />
                               </div>
-                              <p className="text-sm font-medium">No files yet</p>
+                              <p className="text-sm font-medium">Aucun fichier</p>
                               <p className="text-xs mt-1">
-                                Files will appear here once they are uploaded
+                                Les fichiers apparaîtront ici une fois téléversés
                               </p>
                             </div>
                           </Card>
@@ -704,7 +702,7 @@ export default function FilesPage() {
                                       </p>
                                       <p className="text-xs text-muted-foreground">
                                         {formatFileSize(file.fileSize)} •{" "}
-                                        {new Date(file.uploadedAt).toLocaleDateString()}
+                                        {new Date(file.uploadedAt).toLocaleDateString("fr-FR")}
                                       </p>
                                     </div>
                                   </div>
@@ -719,7 +717,7 @@ export default function FilesPage() {
                                           ? handlePreviewFile(file)
                                           : handleDownloadFile(file)
                                       }}
-                                      title={isPreviewableFile(file) ? "Preview file" : "Download file"}
+                                      title={isPreviewableFile(file) ? "Aperçu du fichier" : "Télécharger le fichier"}
                                     >
                                       {isPreviewableFile(file) ? (
                                         <FileText className="h-4 w-4" />
@@ -736,7 +734,7 @@ export default function FilesPage() {
                                         handleDeleteFile(file.id)
                                       }}
                                       disabled={deletingFileId === file.id}
-                                      title="Delete file"
+                                      title="Supprimer le fichier"
                                     >
                                       {deletingFileId === file.id ? (
                                         <Loader2 className="h-4 w-4 animate-spin" />
@@ -775,7 +773,7 @@ export default function FilesPage() {
                 </DialogTitle>
                 <DialogDescription className="mt-1">
                   {formatFileSize(previewFile.fileSize)} •{" "}
-                  {new Date(previewFile.uploadedAt).toLocaleDateString()}
+                  {new Date(previewFile.uploadedAt).toLocaleDateString("fr-FR")}
                 </DialogDescription>
               </DialogHeader>
               <div
@@ -788,7 +786,7 @@ export default function FilesPage() {
                 {previewLoading ? (
                   <div className="flex flex-col items-center justify-center gap-3 h-full">
                     <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                    <p className="text-sm text-muted-foreground">Loading preview...</p>
+                    <p className="text-sm text-muted-foreground">Chargement de l&apos;aperçu…</p>
                   </div>
                 ) : previewUrl ? (
                   <>
@@ -826,11 +824,11 @@ export default function FilesPage() {
                       <div className="flex flex-col items-center gap-3 p-8">
                         <File className="h-16 w-16 text-muted-foreground" />
                         <p className="text-sm text-muted-foreground">
-                          Preview not available for this file type
+                          Aperçu non disponible pour ce type de fichier
                         </p>
                         <Button variant="outline" onClick={() => handleDownloadFile(previewFile)}>
                           <Download className="h-4 w-4 mr-2" />
-                          Download to view
+                          Télécharger pour consulter
                         </Button>
                       </div>
                     )}
@@ -839,11 +837,11 @@ export default function FilesPage() {
                   <div className="flex flex-col items-center gap-3 p-8">
                     <File className="h-16 w-16 text-muted-foreground" />
                     <p className="text-sm text-muted-foreground">
-                      Preview not available for this file type
+                      Aperçu non disponible pour ce type de fichier
                     </p>
                     <Button variant="outline" onClick={() => handleDownloadFile(previewFile)}>
                       <Download className="h-4 w-4 mr-2" />
-                      Download to view
+                      Télécharger pour consulter
                     </Button>
                   </div>
                 )}
@@ -851,7 +849,7 @@ export default function FilesPage() {
               <DialogFooter className="px-6 py-4 flex-shrink-0 border-t bg-gradient-to-r from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
                 <div className="flex items-center gap-3 w-full justify-between">
                   <Button variant="outline" onClick={handleClosePreview} className="min-w-[100px]">
-                    Close
+                    Fermer
                   </Button>
                   <div className="flex items-center gap-2">
                     <Button
@@ -860,7 +858,7 @@ export default function FilesPage() {
                       className="gap-2"
                     >
                       <Download className="h-4 w-4" />
-                      Download
+                      Télécharger
                     </Button>
                     <Button
                       variant="destructive"
@@ -871,7 +869,7 @@ export default function FilesPage() {
                       className="gap-2"
                     >
                       <X className="h-4 w-4" />
-                      Delete
+                      Supprimer
                     </Button>
                   </div>
                 </div>
@@ -885,11 +883,11 @@ export default function FilesPage() {
       <Dialog open={isNewFolderOpen} onOpenChange={setIsNewFolderOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Create New Folder</DialogTitle>
-            <DialogDescription>Enter a name for the new folder</DialogDescription>
+            <DialogTitle>Créer un dossier</DialogTitle>
+            <DialogDescription>Saisissez un nom pour le nouveau dossier</DialogDescription>
           </DialogHeader>
           <Input
-            placeholder="Folder name"
+            placeholder="Nom du dossier"
             value={newFolderName}
             onChange={(e) => setNewFolderName(e.target.value)}
             onKeyDown={(e) => {
@@ -898,13 +896,13 @@ export default function FilesPage() {
           />
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsNewFolderOpen(false)}>
-              Cancel
+              Annuler
             </Button>
             <Button
               onClick={handleCreateFolder}
               className="bg-primary hover:bg-primary/90 text-white"
             >
-              Create Folder
+              Créer le dossier
             </Button>
           </DialogFooter>
         </DialogContent>

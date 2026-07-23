@@ -1,6 +1,5 @@
 using ClinicManagement.Domain.Common;
 using ClinicManagement.Domain.Enums;
-using ClinicManagement.Domain.Events;
 
 namespace ClinicManagement.Domain.Entities;
 
@@ -8,7 +7,8 @@ public class Appointment : AggregateRoot<Guid>
 {
     public Guid ClinicId { get; private set; }
     public Guid? PatientId { get; private set; }
-    public string? DoctorId { get; private set; }
+    /// <summary>The practitioner this appointment is booked with — an FK to <see cref="Entities.Doctor"/> (null = unassigned).</summary>
+    public Guid? DoctorId { get; private set; }
     public DateTime AppointmentDateTime { get; private set; }
     public TimeSpan Duration { get; private set; }
     public string? DoctorName { get; private set; }
@@ -29,6 +29,7 @@ public class Appointment : AggregateRoot<Guid>
     // Navigation properties
     public Clinic Clinic { get; private set; } = null!;
     public Patient? Patient { get; private set; }
+    public Doctor? Doctor { get; private set; }
     public ProcedureType? ProcedureType { get; private set; }
 
     private Appointment() { } // For EF Core
@@ -37,7 +38,7 @@ public class Appointment : AggregateRoot<Guid>
         Guid id,
         Guid clinicId,
         Guid? patientId,
-        string? doctorId,
+        Guid? doctorId,
         DateTime appointmentDateTime,
         TimeSpan duration,
         string? doctorName = null,
@@ -63,11 +64,6 @@ public class Appointment : AggregateRoot<Guid>
         ProcedureColorHex = procedureColorHex;
         TreatmentPlanItemId = treatmentPlanItemId;
         CreatedAt = DateTime.UtcNow;
-
-        if (patientId.HasValue)
-        {
-            AddDomainEvent(new AppointmentCreatedEvent(id, patientId.Value, appointmentDateTime));
-        }
     }
 
     public void Confirm()
@@ -77,10 +73,6 @@ public class Appointment : AggregateRoot<Guid>
 
         Status = AppointmentStatus.Confirmed;
         UpdatedAt = DateTime.UtcNow;
-        if (PatientId.HasValue)
-        {
-            AddDomainEvent(new AppointmentConfirmedEvent(Id, PatientId.Value, AppointmentDateTime));
-        }
     }
 
     public void Start()
@@ -148,14 +140,9 @@ public class Appointment : AggregateRoot<Guid>
         if (Status == AppointmentStatus.Cancelled)
             throw new InvalidOperationException("Cannot reschedule a cancelled appointment");
 
-        var oldDateTime = AppointmentDateTime;
         AppointmentDateTime = newDateTime;
         Status = AppointmentStatus.Scheduled;
         UpdatedAt = DateTime.UtcNow;
-        if (PatientId.HasValue)
-        {
-            AddDomainEvent(new AppointmentRescheduledEvent(Id, PatientId.Value, oldDateTime, newDateTime));
-        }
     }
 
     /// <summary>
@@ -184,6 +171,13 @@ public class Appointment : AggregateRoot<Guid>
     public void UpdateDoctorName(string? doctorName)
     {
         DoctorName = doctorName;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>Assign (or clear) the practitioner this appointment is booked with.</summary>
+    public void SetDoctorId(Guid? doctorId)
+    {
+        DoctorId = doctorId;
         UpdatedAt = DateTime.UtcNow;
     }
 

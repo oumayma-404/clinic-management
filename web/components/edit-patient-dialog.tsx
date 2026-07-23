@@ -298,19 +298,19 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
     const newErrors: Record<string, string> = {}
 
     if (!firstName.trim()) {
-      newErrors.firstName = "First name is required"
+      newErrors.firstName = "Le prénom est requis"
     }
 
     if (!lastName.trim()) {
-      newErrors.lastName = "Last name is required"
+      newErrors.lastName = "Le nom est requis"
     }
 
     if (!gender) {
-      newErrors.gender = "Gender is required"
+      newErrors.gender = "Le sexe est requis"
     }
 
     if (!birthdate) {
-      newErrors.birthdate = "Date of birth is required"
+      newErrors.birthdate = "La date de naissance est requise"
     }
 
     if (!phone.trim()) {
@@ -321,7 +321,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
     }
 
     if (email && !validateEmail(email)) {
-      newErrors.email = "Invalid email format"
+      newErrors.email = "Format d'email invalide"
     }
 
     setErrors(newErrors)
@@ -491,7 +491,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
       onOpenChange(false)
     } catch (err) {
       console.error("Failed to save patient:", err)
-      const errorMessage = err instanceof ApiError ? err.message : (patient ? "Failed to update patient information" : "Failed to create patient")
+      const errorMessage = err instanceof ApiError ? err.message : (patient ? "Échec de la mise à jour des informations du patient" : "Échec de la création du patient")
       toast.error(patient ? "Erreur lors de la mise à jour" : "Erreur lors de la création", {
         description: errorMessage,
         duration: 4000,
@@ -511,18 +511,18 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
           <div className="flex items-start justify-between">
             <div>
               <DialogTitle className="text-2xl">
-                {patient ? "Edit Patient Information" : "Add New Patient"}
+                {patient ? "Modifier les informations du patient" : "Ajouter un patient"}
               </DialogTitle>
               <DialogDescription className="mt-1">
-                {patient 
-                  ? "Update all patient details including medical history and insurance information"
-                  : "Enter patient information to create a new patient record"}
+                {patient
+                  ? "Mettez à jour toutes les informations du patient, y compris les antécédents médicaux et l'assurance"
+                  : "Saisissez les informations du patient pour créer un nouveau dossier"}
               </DialogDescription>
             </div>
             {hasActiveFlags && (
               <Badge variant="destructive" className="gap-1">
                 <Flag className="h-3 w-3" />
-                Flagged
+                Signalé
               </Badge>
             )}
           </div>
@@ -536,14 +536,14 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
             <div className="space-y-4">
               <div className="flex items-center gap-2 pb-2">
                 <User className="h-5 w-5 text-primary" />
-                <h3 className="text-lg font-semibold">Personal Information</h3>
+                <h3 className="text-lg font-semibold">Informations personnelles</h3>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 rounded-lg border bg-muted/30">
                 {/* First Name */}
                 <div className="space-y-2">
                   <Label htmlFor="firstName">
-                    First Name <span className="text-destructive">*</span>
+                    Prénom <span className="text-destructive">*</span>
                   </Label>
                   <Input
                     id="firstName"
@@ -559,7 +559,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                 {/* Last Name */}
                 <div className="space-y-2">
                   <Label htmlFor="lastName">
-                    Last Name <span className="text-destructive">*</span>
+                    Nom <span className="text-destructive">*</span>
                   </Label>
                   <Input
                     id="lastName"
@@ -575,16 +575,16 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                 {/* Gender */}
                 <div className="space-y-2">
                   <Label htmlFor="gender">
-                    Gender <span className="text-destructive">*</span>
+                    Sexe <span className="text-destructive">*</span>
                   </Label>
                   <Select value={gender} onValueChange={setGender}>
                     <SelectTrigger id="gender" className={cn("w-full", errors.gender && "border-destructive")}>
-                      <SelectValue placeholder="Select gender" />
+                      <SelectValue placeholder="Sélectionner le sexe" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="Male">Male</SelectItem>
-                      <SelectItem value="Female">Female</SelectItem>
-                      <SelectItem value="Other">Other</SelectItem>
+                      <SelectItem value="Male">Homme</SelectItem>
+                      <SelectItem value="Female">Femme</SelectItem>
+                      <SelectItem value="Other">Autre</SelectItem>
                     </SelectContent>
                   </Select>
                   {errors.gender && <p className="text-sm text-destructive">{errors.gender}</p>}
@@ -593,7 +593,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                 {/* Date of Birth */}
                 <div className="space-y-2">
                   <Label htmlFor="birthdate">
-                    Date of Birth <span className="text-destructive">*</span>
+                    Date de naissance <span className="text-destructive">*</span>
                   </Label>
                   <Input
                     id="birthdate"
@@ -612,14 +612,14 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
             <div className="space-y-4">
               <div className="flex items-center gap-2 pb-2">
                 <Phone className="h-5 w-5 text-primary" />
-                <h3 className="text-lg font-semibold">Contact Information</h3>
+                <h3 className="text-lg font-semibold">Coordonnées</h3>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 rounded-lg border bg-muted/30">
                 {/* Phone */}
                 <div className="space-y-2">
                   <Label htmlFor="phone">
-                    Phone Number <span className="text-destructive">*</span>
+                    Numéro de téléphone <span className="text-destructive">*</span>
                   </Label>
                   <Input
                     id="phone"
@@ -636,7 +636,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                 {/* Email */}
                 <div className="space-y-2">
                   <Label htmlFor="email">
-                    Email <span className="text-muted-foreground text-xs">(Optional)</span>
+                    Email <span className="text-muted-foreground text-xs">(optionnel)</span>
                   </Label>
                   <Input
                     id="email"
@@ -652,7 +652,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
 
                 {/* Address - Street */}
                 <div className="space-y-2 md:col-span-2">
-                  <Label htmlFor="addressStreet">Address</Label>
+                  <Label htmlFor="addressStreet">Adresse</Label>
                   <Input
                     id="addressStreet"
                     value={addressStreet}
@@ -663,7 +663,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
 
                 {/* Governorate */}
                 <div className="space-y-2">
-                  <Label htmlFor="addressGovernorate">Governorate</Label>
+                  <Label htmlFor="addressGovernorate">Gouvernorat</Label>
                   <Input
                     id="addressGovernorate"
                     value={addressGovernorate}
@@ -674,7 +674,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
 
                 {/* City */}
                 <div className="space-y-2">
-                  <Label htmlFor="addressCity">City</Label>
+                  <Label htmlFor="addressCity">Ville</Label>
                   <Input
                     id="addressCity"
                     value={addressCity}
@@ -686,7 +686,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                 {/* Postal Code */}
                 <div className="space-y-2">
                   <Label htmlFor="addressPostalCode">
-                    Postal Code <span className="text-muted-foreground text-xs">(Optional)</span>
+                    Code postal <span className="text-muted-foreground text-xs">(optionnel)</span>
                   </Label>
                   <Input
                     id="addressPostalCode"
@@ -702,13 +702,13 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
             <div className="space-y-4">
               <div className="flex items-center gap-2 pb-2">
                 <Heart className="h-5 w-5 text-primary" />
-                <h3 className="text-lg font-semibold">Medical Information</h3>
+                <h3 className="text-lg font-semibold">Informations médicales</h3>
               </div>
 
               <div className="grid grid-cols-1 gap-4 p-4 rounded-lg border bg-muted/30">
                 {/* Chronic Diseases */}
                 <div className="space-y-2">
-                  <Label htmlFor="chronicDiseases">Chronic Diseases / Conditions</Label>
+                  <Label htmlFor="chronicDiseases">Maladies chroniques / affections</Label>
                   <Textarea
                     id="chronicDiseases"
                     value={chronicDiseases}
@@ -733,7 +733,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                 {/* Medical History (replaces Past Surgeries) */}
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <Label>Medical History</Label>
+                    <Label>Antécédents médicaux</Label>
                     <Button
                       type="button"
                       variant="outline"
@@ -742,12 +742,12 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                       className="gap-1"
                     >
                       <Plus className="h-3 w-3" />
-                      Add Entry
+                      Ajouter une entrée
                     </Button>
                   </div>
                   
                   {medicalHistoryEntries.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No medical history entries. Click "Add Entry" to add one.</p>
+                    <p className="text-sm text-muted-foreground">Aucun antécédent médical. Cliquez sur « Ajouter une entrée » pour en ajouter un.</p>
                   ) : (
                     <div className="space-y-3">
                       {medicalHistoryEntries.map((entry, index) => (
@@ -755,7 +755,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                           <div className="flex items-start justify-between gap-2">
                             <div className="flex-1 space-y-2">
                               <Input
-                                placeholder="Description (e.g., Appendectomy, Knee Surgery)"
+                                placeholder="Description (ex. : appendicectomie, chirurgie du genou)"
                                 value={entry.description}
                                 onChange={(e) => updateMedicalHistoryEntry(index, 'description', e.target.value)}
                                 className="w-full"
@@ -763,12 +763,12 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                               <div className="grid grid-cols-2 gap-2">
                                 <Input
                                   type="date"
-                                  placeholder="Date (optional)"
+                                  placeholder="Date (optionnel)"
                                   value={entry.date || ""}
                                   onChange={(e) => updateMedicalHistoryEntry(index, 'date', e.target.value)}
                                 />
                                 <Input
-                                  placeholder="Notes (optional)"
+                                  placeholder="Notes (optionnel)"
                                   value={entry.notes || ""}
                                   onChange={(e) => updateMedicalHistoryEntry(index, 'notes', e.target.value)}
                                 />
@@ -793,7 +793,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                 {/* Family Medical History */}
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <Label>Family Medical History</Label>
+                    <Label>Antécédents familiaux</Label>
                     <Button
                       type="button"
                       variant="outline"
@@ -802,12 +802,12 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                       className="gap-1"
                     >
                       <Plus className="h-3 w-3" />
-                      Add Entry
+                      Ajouter une entrée
                     </Button>
                   </div>
                   
                   {familyHistoryEntries.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No family history entries. Click "Add Entry" to add one.</p>
+                    <p className="text-sm text-muted-foreground">Aucun antécédent familial. Cliquez sur « Ajouter une entrée » pour en ajouter un.</p>
                   ) : (
                     <div className="space-y-3">
                       {familyHistoryEntries.map((entry, index) => (
@@ -816,18 +816,18 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                             <div className="flex-1 space-y-2">
                               <div className="grid grid-cols-2 gap-2">
                                 <Input
-                                  placeholder="Relationship (e.g., Father, Mother)"
+                                  placeholder="Lien de parenté (ex. : père, mère)"
                                   value={entry.relationship}
                                   onChange={(e) => updateFamilyHistoryEntry(index, 'relationship', e.target.value)}
                                 />
                                 <Input
-                                  placeholder="Condition (e.g., Heart Disease, Diabetes)"
+                                  placeholder="Affection (ex. : maladie cardiaque, diabète)"
                                   value={entry.condition}
                                   onChange={(e) => updateFamilyHistoryEntry(index, 'condition', e.target.value)}
                                 />
                               </div>
                               <Input
-                                placeholder="Notes (optional)"
+                                placeholder="Notes (optionnel)"
                                 value={entry.notes || ""}
                                 onChange={(e) => updateFamilyHistoryEntry(index, 'notes', e.target.value)}
                               />
@@ -911,13 +911,13 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
             <div className="space-y-4">
               <div className="flex items-center gap-2 pb-2">
                 <CreditCard className="h-5 w-5 text-primary" />
-                <h3 className="text-lg font-semibold">Insurance Information</h3>
+                <h3 className="text-lg font-semibold">Informations d'assurance</h3>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 rounded-lg border bg-muted/30">
                 {/* Insurance Provider */}
                 <div className="space-y-2">
-                  <Label htmlFor="insuranceProvider">Insurance Provider</Label>
+                  <Label htmlFor="insuranceProvider">Assureur</Label>
                   <Input
                     id="insuranceProvider"
                     value={insuranceProvider}
@@ -928,7 +928,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
 
                 {/* Insurance Number */}
                 <div className="space-y-2">
-                  <Label htmlFor="insuranceNumber">Insurance / ID Number</Label>
+                  <Label htmlFor="insuranceNumber">Numéro d'assurance / d'identification</Label>
                   <Input
                     id="insuranceNumber"
                     value={insuranceNumber}
@@ -939,7 +939,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
 
                 {/* Policy Holder */}
                 <div className="space-y-2 md:col-span-2">
-                  <Label htmlFor="policyHolder">Group Number</Label>
+                  <Label htmlFor="policyHolder">Numéro de groupe</Label>
                   <Input
                     id="policyHolder"
                     value={policyHolder}
@@ -954,17 +954,17 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
             <div className="space-y-4">
               <div className="flex items-center gap-2 pb-2">
                 <Flag className="h-5 w-5 text-primary" />
-                <h3 className="text-lg font-semibold">Patient Flags</h3>
+                <h3 className="text-lg font-semibold">Signalements du patient</h3>
               </div>
 
               <div className="space-y-4 p-4 rounded-lg border bg-muted/30">
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
                     <Label htmlFor="flagged" className="cursor-pointer">
-                      Flag this patient for special attention
+                      Signaler ce patient pour une attention particulière
                     </Label>
                     <p className="text-sm text-muted-foreground">
-                      Mark patients who require special medical attention or have critical conditions
+                      Marquez les patients qui nécessitent une attention médicale particulière ou présentent un état critique
                     </p>
                   </div>
                   <Switch id="flagged" checked={flagged} onCheckedChange={setFlagged} disabled />
@@ -972,16 +972,16 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
 
                 {flagged && (
                   <div className="space-y-2 pt-2">
-                    <Label htmlFor="flagNotes">Flag Notes</Label>
+                    <Label htmlFor="flagNotes">Notes de signalement</Label>
                     <Textarea
                       id="flagNotes"
                       value={flagNotes}
                       onChange={(e) => setFlagNotes(e.target.value)}
-                      placeholder="Reason for flagging (e.g., High risk patient, Severe allergies, etc.)"
+                      placeholder="Motif du signalement (ex. : patient à haut risque, allergies sévères, etc.)"
                       className="min-h-[60px] resize-none"
                       disabled
                     />
-                    <p className="text-xs text-muted-foreground">Flag management is not yet supported by the API</p>
+                    <p className="text-xs text-muted-foreground">La gestion des signalements n'est pas encore prise en charge par l'API</p>
                   </div>
                 )}
               </div>
@@ -994,13 +994,13 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
         <DialogFooter className="p-6 pt-4">
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
             <X className="h-4 w-4 mr-2" />
-            Cancel
+            Annuler
           </Button>
           <Button type="submit" onClick={handleSave} disabled={loading}>
             <Save className="h-4 w-4 mr-2" />
-            {loading 
-              ? (patient ? "Saving..." : "Creating...") 
-              : (patient ? "Save Changes" : "Create Patient")}
+            {loading
+              ? (patient ? "Enregistrement…" : "Création…")
+              : (patient ? "Enregistrer les modifications" : "Créer le patient")}
           </Button>
         </DialogFooter>
       </DialogContent>

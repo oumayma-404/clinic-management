@@ -23,3 +23,37 @@ export function formatDateFr(iso?: string | null): string {
     return "—";
   }
 }
+
+/**
+ * Format an ISO date string as a numeric Tunisian/French date (dd/MM/yyyy, e.g. "17/07/2026").
+ * Returns `fallback` ("Non renseigné") when the value is missing or unparseable.
+ */
+export function formatDate(iso?: string | null, fallback = "Non renseigné"): string {
+  if (!iso) return fallback;
+  try {
+    return format(parseISO(iso), "dd/MM/yyyy", { locale: fr });
+  } catch {
+    try {
+      return format(new Date(iso), "dd/MM/yyyy", { locale: fr });
+    } catch {
+      return fallback;
+    }
+  }
+}
+
+/**
+ * Format an ISO date-time string as "dd/MM/yyyy HH:mm" (24-hour, French).
+ * Returns `fallback` ("Non renseigné") when the value is missing or unparseable.
+ */
+export function formatDateTime(iso?: string | null, fallback = "Non renseigné"): string {
+  if (!iso) return fallback;
+  try {
+    return format(parseISO(iso), "dd/MM/yyyy HH:mm", { locale: fr });
+  } catch {
+    try {
+      return format(new Date(iso), "dd/MM/yyyy HH:mm", { locale: fr });
+    } catch {
+      return fallback;
+    }
+  }
+}

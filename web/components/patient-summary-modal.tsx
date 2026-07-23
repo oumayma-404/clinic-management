@@ -9,8 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import type { PatientDto, DentalRecordDto } from "@/lib/api/types"
-import { formatDT } from "@/lib/format"
-import { format, parseISO } from "date-fns"
+import { formatDT, formatDate } from "@/lib/format"
 import { User, Phone, Mail, Calendar, MapPin, CreditCard, FileText, ChevronDown, ChevronUp } from "lucide-react"
 
 interface PatientSummaryModalProps {
@@ -22,36 +21,6 @@ interface PatientSummaryModalProps {
 
 // Fixed highlight fill for a tooth that has been worked on (read-only summary chart).
 const WORKED_TOOTH_COLOR = "#60a5fa"
-
-const formatDate = (dateString: string | undefined) => {
-  if (!dateString) return "N/A"
-  try {
-    const date = parseISO(dateString)
-    return format(date, "MMM d, yyyy")
-  } catch {
-    try {
-      const date = new Date(dateString)
-      return format(date, "MMM d, yyyy")
-    } catch {
-      return "N/A"
-    }
-  }
-}
-
-const formatDateTime = (dateString: string | undefined) => {
-  if (!dateString) return "N/A"
-  try {
-    const date = parseISO(dateString)
-    return format(date, "MMM d, yyyy h:mm a")
-  } catch {
-    try {
-      const date = new Date(dateString)
-      return format(date, "MMM d, yyyy h:mm a")
-    } catch {
-      return "N/A"
-    }
-  }
-}
 
 export function PatientSummaryModal({ open, onOpenChange, patient, dentalRecords }: PatientSummaryModalProps) {
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set())
@@ -158,7 +127,7 @@ export function PatientSummaryModal({ open, onOpenChange, patient, dentalRecords
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-[95vw] w-full max-h-[90vh] overflow-y-auto overflow-x-hidden p-0 gap-0">
         <DialogHeader className="p-6 pb-4 border-b">
-          <DialogTitle className="text-2xl">Patient Summary</DialogTitle>
+          <DialogTitle className="text-2xl">Résumé du patient</DialogTitle>
         </DialogHeader>
 
         <div className="p-6 space-y-6 overflow-x-hidden">
@@ -167,30 +136,30 @@ export function PatientSummaryModal({ open, onOpenChange, patient, dentalRecords
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <User className="h-5 w-5" />
-                Patient Information
+                Informations du patient
               </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <p className="text-sm font-medium text-muted-foreground mb-1">Full Name</p>
+                  <p className="text-sm font-medium text-muted-foreground mb-1">Nom complet</p>
                   <p className="text-base font-semibold">{patientName}</p>
                 </div>
                 
                 {age !== null && (
                   <div>
-                    <p className="text-sm font-medium text-muted-foreground mb-1">Age</p>
-                    <p className="text-base">{age} years old</p>
+                    <p className="text-sm font-medium text-muted-foreground mb-1">Âge</p>
+                    <p className="text-base">{age} ans</p>
                   </div>
                 )}
 
                 <div>
-                  <p className="text-sm font-medium text-muted-foreground mb-1">Gender</p>
-                  <p className="text-base">{patient.gender || "Not specified"}</p>
+                  <p className="text-sm font-medium text-muted-foreground mb-1">Sexe</p>
+                  <p className="text-base">{patient.gender || "Non renseigné"}</p>
                 </div>
 
                 <div>
-                  <p className="text-sm font-medium text-muted-foreground mb-1">Date of Birth</p>
+                  <p className="text-sm font-medium text-muted-foreground mb-1">Date de naissance</p>
                   <p className="text-base">{formatDate(patient.dateOfBirth)}</p>
                 </div>
               </div>
@@ -201,9 +170,9 @@ export function PatientSummaryModal({ open, onOpenChange, patient, dentalRecords
                 <div>
                   <p className="text-sm font-medium text-muted-foreground mb-1 flex items-center gap-2">
                     <Phone className="h-4 w-4" />
-                    Phone Number
+                    Numéro de téléphone
                   </p>
-                  <p className="text-base">{patient.phoneNumber || "Not provided"}</p>
+                  <p className="text-base">{patient.phoneNumber || "Non renseigné"}</p>
                 </div>
 
                 <div>
@@ -211,14 +180,14 @@ export function PatientSummaryModal({ open, onOpenChange, patient, dentalRecords
                     <Mail className="h-4 w-4" />
                     Email
                   </p>
-                  <p className="text-base">{patient.email || "Not provided"}</p>
+                  <p className="text-base">{patient.email || "Non renseigné"}</p>
                 </div>
 
                 {patient.address && (
                   <div className="md:col-span-2">
                     <p className="text-sm font-medium text-muted-foreground mb-1 flex items-center gap-2">
                       <MapPin className="h-4 w-4" />
-                      Address
+                      Adresse
                     </p>
                     <p className="text-base">
                       {[
@@ -226,14 +195,14 @@ export function PatientSummaryModal({ open, onOpenChange, patient, dentalRecords
                         patient.address.city,
                         patient.address.state,
                         patient.address.zipCode
-                      ].filter(Boolean).join(", ") || "Not provided"}
+                      ].filter(Boolean).join(", ") || "Non renseigné"}
                     </p>
                   </div>
                 )}
 
                 {patient.emergencyContactName && (
                   <div>
-                    <p className="text-sm font-medium text-muted-foreground mb-1">Emergency Contact</p>
+                    <p className="text-sm font-medium text-muted-foreground mb-1">Contact d'urgence</p>
                     <p className="text-base">
                       {patient.emergencyContactName}
                       {patient.emergencyContactPhone && ` - ${patient.emergencyContactPhone}`}
@@ -245,7 +214,7 @@ export function PatientSummaryModal({ open, onOpenChange, patient, dentalRecords
                   <div>
                     <p className="text-sm font-medium text-muted-foreground mb-1 flex items-center gap-2">
                       <CreditCard className="h-4 w-4" />
-                      Insurance
+                      Assurance
                     </p>
                     <p className="text-base">
                       {patient.insuranceInfo.provider}
@@ -262,14 +231,14 @@ export function PatientSummaryModal({ open, onOpenChange, patient, dentalRecords
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <FileText className="h-5 w-5" />
-                Dental Chart - All Worked Teeth
+                Schéma dentaire — dents traitées
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
               {/* Adult Teeth Chart */}
               {adultWorkedTeeth.length > 0 && (
                 <div>
-                  <h3 className="text-sm font-medium mb-3">Adult Teeth</h3>
+                  <h3 className="text-sm font-medium mb-3">Dents adultes</h3>
                   <RecordToothChart isAdult={true} paint={adultToothPaint} onToggleTooth={() => {}} disabled />
                 </div>
               )}
@@ -277,13 +246,13 @@ export function PatientSummaryModal({ open, onOpenChange, patient, dentalRecords
               {/* Child Teeth Chart */}
               {childWorkedTeeth.length > 0 && (
                 <div>
-                  <h3 className="text-sm font-medium mb-3">Child Teeth</h3>
+                  <h3 className="text-sm font-medium mb-3">Dents de lait</h3>
                   <RecordToothChart isAdult={false} paint={childToothPaint} onToggleTooth={() => {}} disabled />
                 </div>
               )}
 
               {adultWorkedTeeth.length === 0 && childWorkedTeeth.length === 0 && (
-                <p className="text-center text-muted-foreground py-8">No teeth have been worked on yet</p>
+                <p className="text-center text-muted-foreground py-8">Aucune dent traitée pour le moment</p>
               )}
             </CardContent>
           </Card>
@@ -293,23 +262,23 @@ export function PatientSummaryModal({ open, onOpenChange, patient, dentalRecords
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <FileText className="h-5 w-5" />
-                Dental Records
+                Dossiers dentaires
               </CardTitle>
             </CardHeader>
             <CardContent>
               {dentalRecords.length === 0 ? (
-                <p className="text-center text-muted-foreground py-8">No dental records found</p>
+                <p className="text-center text-muted-foreground py-8">Aucun dossier dentaire</p>
               ) : (
                 <div className="w-full">
                   <Table>
                     <TableHeader>
                       <TableRow>
                         <TableHead className="min-w-[100px]">Date</TableHead>
-                        <TableHead className="min-w-[120px]">Procedure Type</TableHead>
-                        <TableHead className="min-w-[90px]">Teeth Type</TableHead>
-                        <TableHead className="min-w-[120px]">Teeth</TableHead>
-                        <TableHead className="min-w-[80px]">Cost</TableHead>
-                        <TableHead className="min-w-[100px]">Amount Paid</TableHead>
+                        <TableHead className="min-w-[120px]">Type d'acte</TableHead>
+                        <TableHead className="min-w-[90px]">Type de dents</TableHead>
+                        <TableHead className="min-w-[120px]">Dents</TableHead>
+                        <TableHead className="min-w-[80px]">Coût</TableHead>
+                        <TableHead className="min-w-[100px]">Montant payé</TableHead>
                         <TableHead className="min-w-[90px]">Reste</TableHead>
                         <TableHead className="min-w-[150px] max-w-[200px]">Notes</TableHead>
                       </TableRow>
@@ -323,7 +292,7 @@ export function PatientSummaryModal({ open, onOpenChange, patient, dentalRecords
                           <TableCell className="whitespace-nowrap">{record.procedureType}</TableCell>
                           <TableCell>
                             <Badge variant="outline" className="whitespace-nowrap">
-                              {record.isAdultTeeth ? "Adult" : "Child"}
+                              {record.isAdultTeeth ? "Adulte" : "Enfant"}
                             </Badge>
                           </TableCell>
                           <TableCell>
@@ -366,7 +335,7 @@ export function PatientSummaryModal({ open, onOpenChange, patient, dentalRecords
                                       {record.importantNotes && record.importantNotes.length > 0 && (
                                         <div className="space-y-1">
                                           <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 mb-1">
-                                            Important Notes:
+                                            Notes importantes :
                                           </p>
                                           <ul className="list-disc list-inside space-y-1 ml-2">
                                             {record.importantNotes.map((note, idx) => (
@@ -381,7 +350,7 @@ export function PatientSummaryModal({ open, onOpenChange, patient, dentalRecords
                                         <div className="space-y-1">
                                           {record.importantNotes && record.importantNotes.length > 0 && (
                                             <p className="text-xs font-semibold text-muted-foreground mb-1">
-                                              Notes:
+                                              Notes :
                                             </p>
                                           )}
                                           <ul className="list-disc list-inside space-y-1 ml-2">
@@ -407,7 +376,7 @@ export function PatientSummaryModal({ open, onOpenChange, patient, dentalRecords
                                         }}
                                       >
                                         <ChevronUp className="h-3 w-3 mr-1" />
-                                        Collapse
+                                        Réduire
                                       </Button>
                                     </div>
                                   ) : (
@@ -418,7 +387,7 @@ export function PatientSummaryModal({ open, onOpenChange, patient, dentalRecords
                                         </span>
                                         {record.importantNotes && record.importantNotes.length > 0 && (
                                           <Badge variant="outline" className="text-xs bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800">
-                                            {record.importantNotes.length} important
+                                            {record.importantNotes.length} importantes
                                           </Badge>
                                         )}
                                       </div>
@@ -432,7 +401,7 @@ export function PatientSummaryModal({ open, onOpenChange, patient, dentalRecords
                                         }}
                                       >
                                         <ChevronDown className="h-3 w-3 mr-1" />
-                                        View notes
+                                        Voir les notes
                                       </Button>
                                     </div>
                                   )}

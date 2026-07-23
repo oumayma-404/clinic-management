@@ -31,4 +31,13 @@ public interface IReminderScheduler
     /// Voids all unsent (<c>Pending</c>) reminders for an appointment so they never send (cancel / no-show).
     /// </summary>
     Task VoidForAppointmentAsync(Guid appointmentId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Enqueues one recall (« relance ») message per configured channel for a patient, due immediately (the
+    /// next dispatcher tick sends it, connectivity-gated). Distinct from booking reminders (its own subject),
+    /// carries no appointment id. No-op when no channels are configured. Best-effort — never throws back.
+    /// </summary>
+    Task ScheduleRecallAsync(
+        Guid clinicId, Guid patientId, string patientName, string? reason,
+        CancellationToken cancellationToken = default);
 }

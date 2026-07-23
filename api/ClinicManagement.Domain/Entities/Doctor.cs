@@ -22,6 +22,11 @@ public class Doctor : AggregateRoot<Guid>
     public string? CachetStorageKey { get; private set; }
     public string? CachetContentType { get; private set; }
 
+    // Per-dentist working hours as a JSON array of per-day {day, enabled, from, to} (same shape as the
+    // clinic-wide Clinic.WorkingHoursJson). Null = no per-dentist override; the UI then falls back to the
+    // clinic-wide hours. Opaque JSON here — the shape is owned by WorkingHoursSerializer in the Application layer.
+    public string? WorkingHoursJson { get; private set; }
+
     // Navigation properties
     public Clinic Clinic { get; private set; } = null!;
 
@@ -94,6 +99,16 @@ public class Doctor : AggregateRoot<Guid>
     {
         CachetStorageKey = null;
         CachetContentType = null;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Sets this dentist's working-hours JSON (already validated/canonicalized by the caller). A blank value
+    /// clears it (= no per-dentist override; the clinic-wide hours remain the fallback). Mirrors Clinic.SetWorkingHours.
+    /// </summary>
+    public void SetWorkingHours(string? workingHoursJson)
+    {
+        WorkingHoursJson = string.IsNullOrWhiteSpace(workingHoursJson) ? null : workingHoursJson;
         UpdatedAt = DateTime.UtcNow;
     }
 }

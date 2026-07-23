@@ -366,8 +366,8 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-foreground">{patientName}'s Files</h2>
-          <p className="text-sm text-muted-foreground">Manage patient documents and records</p>
+          <h2 className="text-2xl font-bold text-foreground">Fichiers de {patientName}</h2>
+          <p className="text-sm text-muted-foreground">Gérez les documents et dossiers du patient</p>
         </div>
         {!currentFolderId && (
           <Button 
@@ -377,7 +377,7 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
             className="bg-blue-600 hover:bg-blue-700 text-white"
           >
             <Plus className="h-4 w-4 mr-2" />
-            New Folder
+            Nouveau dossier
           </Button>
         )}
       </div>
@@ -391,7 +391,7 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
           className="h-8 px-2 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/20 dark:hover:text-blue-400"
         >
           <Home className="h-4 w-4 mr-1" />
-          Files
+          Fichiers
         </Button>
         {currentFolder && (
           <>
@@ -431,9 +431,9 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
               "text-sm font-semibold",
               isDragging ? "text-blue-700 dark:text-blue-300" : "text-foreground"
             )}>
-              {isDragging ? "Drop files here" : "Drag and drop files here"}
+              {isDragging ? "Déposez les fichiers ici" : "Glissez-déposez des fichiers ici"}
             </p>
-            <p className="text-xs text-muted-foreground mt-1">or</p>
+            <p className="text-xs text-muted-foreground mt-1">ou</p>
           </div>
           <label>
             <input
@@ -450,7 +450,7 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
               disabled={uploading}
               className="bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50"
             >
-              <span>{uploading ? "Uploading..." : "Browse Files"}</span>
+              <span>{uploading ? "Téléversement…" : "Parcourir les fichiers"}</span>
             </Button>
           </label>
         </div>
@@ -459,14 +459,14 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
       {/* Folders Grid (only show when in root) */}
       {!currentFolderId && (
         <div>
-          <h3 className="text-sm font-semibold mb-3 text-foreground">Folders</h3>
+          <h3 className="text-sm font-semibold mb-3 text-foreground">Dossiers</h3>
           {folders.length === 0 ? (
             <Card className="p-8 border-dashed border-blue-200 dark:border-blue-800">
               <div className="text-center text-muted-foreground">
                 <div className="p-4 rounded-full bg-blue-50 dark:bg-blue-950/20 inline-block mb-3">
                   <Folder className="h-12 w-12 text-blue-500 dark:text-blue-400 opacity-70" />
                 </div>
-                <p className="text-sm">No folders yet. Create a folder to organize files.</p>
+                <p className="text-sm">Aucun dossier. Créez un dossier pour organiser les fichiers.</p>
               </div>
             </Card>
           ) : (
@@ -495,7 +495,7 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
                       e.preventDefault()
                       handleDeleteFolder(folder.id)
                     }}
-                    title="Delete folder"
+                    title="Supprimer le dossier"
                   >
                     <X className="h-4 w-4" />
                   </Button>
@@ -509,7 +509,7 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
       {/* Files List */}
       <div>
         <h3 className="text-sm font-semibold mb-3 text-foreground">
-          {currentFolderId ? "Files in this folder" : "Recent Files"}
+          {currentFolderId ? "Fichiers du dossier" : "Fichiers récents"}
         </h3>
         {currentFiles.length === 0 ? (
           <Card className="p-8 border-dashed border-blue-200 dark:border-blue-800">
@@ -517,7 +517,7 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
               <div className="p-4 rounded-full bg-blue-50 dark:bg-blue-950/20 inline-block mb-3">
                 <File className="h-12 w-12 text-blue-500 dark:text-blue-400 opacity-70" />
               </div>
-              <p className="text-sm font-medium">No files yet. Upload files to get started.</p>
+              <p className="text-sm font-medium">Aucun fichier. Téléversez des fichiers pour commencer.</p>
             </div>
           </Card>
         ) : (
@@ -551,7 +551,7 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
                         e.stopPropagation()
                         isPreviewableFile(file) ? handlePreviewFile(file) : handleDownloadFile(file)
                       }}
-                      title={isPreviewableFile(file) ? "Preview file" : "Download file"}
+                      title={isPreviewableFile(file) ? "Aperçu du fichier" : "Télécharger le fichier"}
                     >
                       {isPreviewableFile(file) ? (
                         <FileText className="h-4 w-4" />
@@ -584,11 +584,11 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
       <Dialog open={isNewFolderOpen} onOpenChange={setIsNewFolderOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Create New Folder</DialogTitle>
-            <DialogDescription>Enter a name for the new folder</DialogDescription>
+            <DialogTitle>Créer un dossier</DialogTitle>
+            <DialogDescription>Saisissez un nom pour le nouveau dossier</DialogDescription>
           </DialogHeader>
           <Input
-            placeholder="Folder name"
+            placeholder="Nom du dossier"
             value={newFolderName}
             onChange={(e) => setNewFolderName(e.target.value)}
             onKeyDown={(e) => {
@@ -597,13 +597,13 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
           />
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsNewFolderOpen(false)}>
-              Cancel
+              Annuler
             </Button>
             <Button 
               onClick={handleCreateFolder}
               className="bg-blue-600 hover:bg-blue-700 text-white"
             >
-              Create Folder
+              Créer le dossier
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -617,14 +617,14 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
               <DialogHeader className="px-6 pt-6 pb-4 flex-shrink-0 border-b bg-gradient-to-r from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
                 <DialogTitle className="truncate text-lg font-semibold">{previewFile.fileName}</DialogTitle>
                 <DialogDescription className="mt-1">
-                  {formatFileSize(previewFile.fileSize)} • {new Date(previewFile.uploadedAt).toLocaleDateString()}
+                  {formatFileSize(previewFile.fileSize)} • {new Date(previewFile.uploadedAt).toLocaleDateString("fr-FR")}
                 </DialogDescription>
               </DialogHeader>
               <div className={`relative flex items-start justify-center flex-1 min-h-0 ${previewFile && isPdfFile(previewFile) ? 'bg-slate-100 dark:bg-slate-900 p-6 overflow-auto' : 'bg-black/5 p-6 overflow-auto'}`}>
                 {previewLoading ? (
                   <div className="flex flex-col items-center justify-center gap-3 h-full">
                     <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-                    <p className="text-sm text-muted-foreground">Loading preview...</p>
+                    <p className="text-sm text-muted-foreground">Chargement de l&apos;aperçu…</p>
                   </div>
                 ) : previewUrl ? (
                   <>
@@ -658,10 +658,10 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
                     ) : (
                       <div className="flex flex-col items-center gap-3 p-8">
                         <File className="h-16 w-16 text-muted-foreground" />
-                        <p className="text-sm text-muted-foreground">Preview not available for this file type</p>
+                        <p className="text-sm text-muted-foreground">Aperçu non disponible pour ce type de fichier</p>
                         <Button variant="outline" onClick={() => handleDownloadFile(previewFile)}>
                           <Download className="h-4 w-4 mr-2" />
-                          Download to view
+                          Télécharger pour consulter
                         </Button>
                       </div>
                     )}
@@ -669,10 +669,10 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
                 ) : (
                   <div className="flex flex-col items-center gap-3 p-8">
                     <File className="h-16 w-16 text-muted-foreground" />
-                    <p className="text-sm text-muted-foreground">Preview not available for this file type</p>
+                    <p className="text-sm text-muted-foreground">Aperçu non disponible pour ce type de fichier</p>
                     <Button variant="outline" onClick={() => handleDownloadFile(previewFile)}>
                       <Download className="h-4 w-4 mr-2" />
-                      Download to view
+                      Télécharger pour consulter
                     </Button>
                   </div>
                 )}
@@ -680,12 +680,12 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
               <DialogFooter className="px-6 py-4 flex-shrink-0 border-t bg-gradient-to-r from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
                 <div className="flex items-center gap-3 w-full justify-between">
                   <Button variant="outline" onClick={handleClosePreview} className="min-w-[100px]">
-                    Close
+                    Fermer
                   </Button>
                   <div className="flex items-center gap-2">
                     <Button variant="outline" onClick={() => handleDownloadFile(previewFile!)} className="gap-2">
                       <Download className="h-4 w-4" />
-                      Download
+                      Télécharger
                     </Button>
                     <Button
                       variant="destructive"
@@ -696,7 +696,7 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
                       className="gap-2"
                     >
                       <X className="h-4 w-4" />
-                      Delete
+                      Supprimer
                     </Button>
                   </div>
                 </div>

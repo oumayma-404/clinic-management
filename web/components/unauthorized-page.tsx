@@ -17,16 +17,16 @@ export default function UnauthorizedPage() {
               <Lock className="w-8 h-8 text-red-600 dark:text-red-400" />
             </div>
             <div>
-              <CardTitle className="text-2xl text-red-900 dark:text-red-100">Access Restricted</CardTitle>
+              <CardTitle className="text-2xl text-red-900 dark:text-red-100">Accès restreint</CardTitle>
               <CardDescription className="mt-2">
-                You need to be part of a clinic organization to access this application.
+                Vous devez faire partie d'une clinique pour accéder à cette application.
               </CardDescription>
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="p-4 bg-blue-50 dark:bg-blue-950/20 rounded-lg border border-blue-200 dark:border-blue-800">
               <p className="text-sm text-blue-900 dark:text-blue-100">
-                To get started, you can either create a new clinic or join an existing one using a clinic code.
+                Pour commencer, vous pouvez créer une nouvelle clinique ou en rejoindre une existante à l'aide d'un code de clinique.
               </p>
             </div>
 
@@ -37,7 +37,7 @@ export default function UnauthorizedPage() {
                 size="lg"
               >
                 <Plus className="w-4 h-4 mr-2" />
-                Create New Clinic
+                Créer une clinique
               </Button>
 
               <Button
@@ -47,7 +47,7 @@ export default function UnauthorizedPage() {
                 size="lg"
               >
                 <Building2 className="w-4 h-4 mr-2" />
-                Join Existing Clinic
+                Rejoindre une clinique
                 <ArrowRight className="w-4 h-4 ml-2" />
               </Button>
             </div>
@@ -60,10 +60,10 @@ export default function UnauthorizedPage() {
                 size="sm"
               >
                 <LogOut className="w-4 h-4 mr-2" />
-                Logout
+                Se déconnecter
               </Button>
               <p className="text-xs text-muted-foreground text-center">
-                If you believe this is an error, please contact your clinic administrator.
+                Si vous pensez qu'il s'agit d'une erreur, veuillez contacter l'administrateur de votre clinique.
               </p>
             </div>
           </CardContent>

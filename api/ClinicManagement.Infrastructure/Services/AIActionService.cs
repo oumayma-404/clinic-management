@@ -328,12 +328,12 @@ If the user is just asking a question or chatting, set should_execute_action to 
 
             // Get current user's doctor (the logged-in doctor)
             var currentDoctor = await _doctorRepository.GetByUserIdAsync(userId, cancellationToken);
-            string? doctorId = null;
+            Guid? doctorId = null;
             string? doctorName = null;
 
             if (currentDoctor != null)
             {
-                doctorId = currentDoctor.Id.ToString();
+                doctorId = currentDoctor.Id;
                 doctorName = currentDoctor.FullName;
             }
 
@@ -819,7 +819,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
                 }
             }
 
-            var appointments = await _appointmentRepository.GetByClinicIdAsync(clinicId, startDate, endDate, cancellationToken);
+            var appointments = await _appointmentRepository.GetByClinicIdAsync(clinicId, startDate, endDate, cancellationToken: cancellationToken);
 
             if (patientId.HasValue)
             {

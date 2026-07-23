@@ -1,5 +1,13 @@
-import { apiGet, apiPutFormData } from './client';
+import { apiGet, apiPut, apiPutFormData } from './client';
 import type { DoctorProfileDto } from './types';
+
+/** One day of a practitioner's working hours (same shape as the clinic-wide hours). */
+export interface WorkingDay {
+  day: string;
+  enabled: boolean;
+  from: string;
+  to: string;
+}
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
 
@@ -25,6 +33,13 @@ export interface UpdateMyDoctorProfileInput {
 export const doctorsApi = {
   // FR-2.5 / FR-3.1: the logged-in practitioner's own document identity.
   getMyProfile: async (): Promise<DoctorProfileDto> => apiGet<DoctorProfileDto>('/doctors/me'),
+
+  // Per-dentist working hours (AC-3.3). Empty list = no override (clinic-wide hours apply).
+  getWorkingHours: async (doctorId: string): Promise<WorkingDay[]> =>
+    apiGet<WorkingDay[]>(`/doctors/${doctorId}/working-hours`),
+
+  setWorkingHours: async (doctorId: string, workingHours: WorkingDay[]): Promise<WorkingDay[]> =>
+    apiPut<WorkingDay[]>(`/doctors/${doctorId}/working-hours`, { workingHours }),
 
   updateMyProfile: async (input: UpdateMyDoctorProfileInput): Promise<DoctorProfileDto> => {
     const form = new FormData();

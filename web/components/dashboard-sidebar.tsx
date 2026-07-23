@@ -3,11 +3,12 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
-import { Calendar, Users, FileText, Settings, LayoutDashboard, Stethoscope, Package, FileCheck, ChevronLeft, ChevronRight, FolderOpen, UserCog, Receipt, UserCircle, ClipboardList, Pill, ClipboardCheck, ScrollText, HandCoins } from "lucide-react"
+import { Calendar, Users, FileText, Settings, LayoutDashboard, Stethoscope, Package, FileCheck, ChevronLeft, ChevronRight, FolderOpen, UserCog, Receipt, UserCircle, ClipboardList, Pill, ClipboardCheck, ScrollText, HandCoins, PhoneCall, Clock, FlaskConical, Wallet } from "lucide-react"
 import { useSidebar } from "@/contexts/sidebar-context"
 import { useSession } from "@/lib/auth/session"
 import { useClinicAccess } from "@/lib/hooks/use-clinic-access"
 import { DEFAULT_WORKING_HOURS, summarizeWorkingHours } from "@/lib/working-hours"
+import { PRODUCT_NAME } from "@/lib/brand"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
@@ -23,6 +24,10 @@ const navigation = [
   { name: "Plans / Devis", href: "/treatment-plans", icon: ClipboardCheck },
   { name: "Fichiers", href: "/files", icon: FolderOpen },
   { name: "Stock", href: "/stock", icon: Package },
+  { name: "Relances", href: "/recalls", icon: PhoneCall },
+  { name: "Salle d'attente", href: "/waiting-list", icon: Clock },
+  { name: "Laboratoire", href: "/lab-orders", icon: FlaskConical },
+  { name: "Caisse", href: "/caisse", icon: Wallet },
   { name: "Mon profil", href: "/mon-profil", icon: UserCircle },
   { name: "Paramètres", href: "/settings", icon: Settings },
 ]
@@ -47,6 +52,9 @@ export function DashboardSidebar() {
     ? status.clinic.workingHours
     : DEFAULT_WORKING_HOURS
   const hoursSummary = summarizeWorkingHours(workingHours)
+  // Chrome brand: show the clinic's own saved name; fall back to the product name so the header is
+  // never blank/"undefined" on first-run/setup before a clinic name exists (spec Edge Cases).
+  const brandName = status?.clinic?.name?.trim() || PRODUCT_NAME
 
   const isAdmin = user?.role === "admin"
   const navItems = [
@@ -69,7 +77,7 @@ export function DashboardSidebar() {
             <Stethoscope className="h-5 w-5 text-primary-foreground" />
           </div>
           {!isCollapsed && (
-            <span className="text-lg font-semibold text-foreground truncate">MediCare Clinic</span>
+            <span className="text-lg font-semibold text-foreground truncate">{brandName}</span>
           )}
         </div>
       </div>
@@ -134,7 +142,7 @@ export function DashboardSidebar() {
           size="sm"
           onClick={toggleSidebar}
           className="w-full justify-center"
-          aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          aria-label={isCollapsed ? "Développer la barre latérale" : "Réduire la barre latérale"}
         >
           {isCollapsed ? (
             <ChevronRight className="h-4 w-4" />

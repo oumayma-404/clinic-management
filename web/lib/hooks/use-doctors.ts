@@ -70,7 +70,7 @@ export function useDoctors(): UseDoctorsResult {
       }
     } catch (err: any) {
       console.error('Error loading doctors:', err)
-      setError(err.message || 'Failed to load doctors')
+      setError(err.message || 'Échec du chargement des médecins')
       setDoctors([])
       setCurrentUserDoctor(null)
     } finally {
