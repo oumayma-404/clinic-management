@@ -216,7 +216,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
   // Synchronous validation; sets an error message and returns false on the first failure.
   const validateForm = (): boolean => {
     if (!appointment) {
-      setError("No appointment selected")
+      setError("Aucun rendez-vous sélectionné")
       return false
     }
 
@@ -224,18 +224,18 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
       const startTotalMinutes = Number.parseInt(startHour) * 60 + Number.parseInt(startMinute)
       const endTotalMinutes = Number.parseInt(endHour) * 60 + Number.parseInt(endMinute)
       if (endTotalMinutes <= startTotalMinutes) {
-        setError("End time must be after start time")
+        setError("L'heure de fin doit être postérieure à l'heure de début")
         return false
       }
     }
 
     if (calculatedDuration <= 0) {
-      setError("Duration must be greater than 0")
+      setError("La durée doit être supérieure à 0")
       return false
     }
 
     if (!date) {
-      setError("Please select a date")
+      setError("Veuillez sélectionner une date")
       return false
     }
 
@@ -252,7 +252,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
     try {
       const appointmentDateTime = buildAppointmentDateTime()
       if (!appointmentDateTime) {
-        setError("Please select a date")
+        setError("Veuillez sélectionner une date")
         setLoading(false)
         return
       }
@@ -281,7 +281,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
       if (err instanceof ApiError) {
         setError(err.message)
       } else {
-        setError("Failed to update appointment")
+        setError("Échec de la mise à jour du rendez-vous")
       }
     } finally {
       setLoading(false)
@@ -333,7 +333,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
       if (err instanceof ApiError) {
         setError(err.message)
       } else {
-        setError("Failed to cancel appointment")
+        setError("Échec de l'annulation du rendez-vous")
       }
     } finally {
       setLoading(false)
@@ -360,8 +360,8 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
           <DialogHeader>
             <div className="flex items-start justify-between">
               <div>
-                <DialogTitle className="text-2xl">Edit Appointment</DialogTitle>
-                <DialogDescription>Update appointment details or change status</DialogDescription>
+                <DialogTitle className="text-2xl">Modifier le rendez-vous</DialogTitle>
+                <DialogDescription>Mettez à jour les détails du rendez-vous ou changez son statut</DialogDescription>
               </div>
               <Badge className={cn("border", statusColors[status] || statusColors.scheduled)}>
                 {statusDisplay}
@@ -380,12 +380,12 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
             <div className="space-y-4 p-4 rounded-lg border bg-muted/30">
               <div className="flex items-center gap-2">
                 <User className="h-5 w-5 text-muted-foreground" />
-                <h3 className="font-semibold">Patient Information</h3>
+                <h3 className="font-semibold">Informations du patient</h3>
               </div>
 
               <div className="space-y-2">
                 <Label htmlFor="patientName" className="text-sm">
-                  Patient Name
+                  Nom du patient
                 </Label>
                 <Input
                   id="patientName"
@@ -394,7 +394,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                   className="h-10"
                   disabled
                 />
-                <p className="text-xs text-muted-foreground">Patient name cannot be changed</p>
+                <p className="text-xs text-muted-foreground">Le nom du patient ne peut pas être modifié</p>
               </div>
             </div>
 
@@ -431,7 +431,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
 
                 {/* Start Time */}
                 <div className="space-y-2">
-                  <Label className="text-sm">Start Time *</Label>
+                  <Label className="text-sm">Heure de début *</Label>
                   <div className="flex gap-2">
                     <Select value={startHour} onValueChange={setStartHour} disabled={loading}>
                       <SelectTrigger className="h-10">
@@ -472,7 +472,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
               <div className="flex items-center justify-between pt-2 border-t">
                 <div className="flex items-center gap-2">
                   <Clock className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm font-medium">Duration</span>
+                  <span className="text-sm font-medium">Durée</span>
                   {calculatedDuration > 0 && (
                     <Badge variant="secondary" className="ml-2">
                       {durationDisplay}
@@ -480,7 +480,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                   )}
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-sm text-muted-foreground">Set end time</span>
+                  <span className="text-sm text-muted-foreground">Définir l'heure de fin</span>
                   <Switch
                     checked={useEndTime}
                     onCheckedChange={(checked) => {
@@ -503,7 +503,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
               <div className="space-y-2">
                 {useEndTime ? (
                   <div className="space-y-2">
-                    <Label className="text-sm">End Time *</Label>
+                    <Label className="text-sm">Heure de fin *</Label>
                     <div className="flex gap-2">
                       <Select value={endHour} onValueChange={setEndHour} disabled={loading}>
                         <SelectTrigger className="h-10">
@@ -567,13 +567,13 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
             <div className="space-y-4 p-4 rounded-lg border bg-muted/30">
               <div className="flex items-center gap-2">
                 <Stethoscope className="h-5 w-5 text-muted-foreground" />
-                <h3 className="font-semibold">Details</h3>
+                <h3 className="font-semibold">Détails</h3>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="doctor" className="text-sm">
-                    Doctor
+                    Médecin
                   </Label>
                   <Select
                     value={selectedDoctorId}
@@ -581,11 +581,11 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                     disabled={loadingDoctors || loading}
                   >
                     <SelectTrigger className="h-10 w-full" id="doctor">
-                      <SelectValue placeholder={loadingDoctors ? "Loading doctors..." : doctors.length === 0 ? "No doctors found" : "Choose a doctor..."} />
+                      <SelectValue placeholder={loadingDoctors ? "Chargement des médecins…" : doctors.length === 0 ? "Aucun médecin trouvé" : "Choisir un médecin…"} />
                     </SelectTrigger>
                     <SelectContent className="max-h-[200px]">
                       {doctors.length === 0 && !loadingDoctors ? (
-                        <div className="px-2 py-1.5 text-sm text-muted-foreground">No doctors available</div>
+                        <div className="px-2 py-1.5 text-sm text-muted-foreground">Aucun médecin disponible</div>
                       ) : (
                         doctors.map((doctor) => (
                           <SelectItem key={doctor.id || doctor.name} value={doctor.id || ""}>
@@ -599,7 +599,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
 
                 <div className="space-y-2">
                   <Label htmlFor="procedureType" className="text-sm">
-                    Procedure Type
+                    Type d'acte
                   </Label>
                   <Select 
                     value={selectedProcedureTypeId} 
@@ -607,11 +607,11 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                     disabled={loadingProcedureTypes || loading}
                   >
                     <SelectTrigger id="procedureType" className="h-10 w-full">
-                      <SelectValue placeholder={loadingProcedureTypes ? "Loading..." : "Select procedure type"} />
+                      <SelectValue placeholder={loadingProcedureTypes ? "Chargement…" : "Sélectionner un type d'acte"} />
                     </SelectTrigger>
                     <SelectContent className="max-h-[200px]">
                       {procedureTypes.length === 0 && !loadingProcedureTypes ? (
-                        <div className="px-2 py-1.5 text-sm text-muted-foreground">No procedure types available</div>
+                        <div className="px-2 py-1.5 text-sm text-muted-foreground">Aucun type d'acte disponible</div>
                       ) : (
                         procedureTypes.map((procedureType) => (
                           <SelectItem key={procedureType.id} value={procedureType.id}>
@@ -630,7 +630,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                   {selectedProcedureTypeId && (
                     <div className="flex items-center gap-2 mt-1">
                       <p className="text-xs text-muted-foreground">
-                        Duration set to {procedureTypes.find(p => p.id === selectedProcedureTypeId)?.defaultDurationMinutes} minutes (you can change it)
+                        Durée fixée à {procedureTypes.find(p => p.id === selectedProcedureTypeId)?.defaultDurationMinutes} minutes (vous pouvez la modifier)
                       </p>
                       <Button
                         type="button"
@@ -640,7 +640,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                         onClick={() => setSelectedProcedureTypeId(undefined)}
                         disabled={loading}
                       >
-                        Clear
+                        Effacer
                       </Button>
                     </div>
                   )}
@@ -648,7 +648,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
 
                 <div className="space-y-2 md:col-span-2">
                   <Label htmlFor="status" className="text-sm">
-                    Status
+                    Statut
                   </Label>
                   <Select
                     value={status}
@@ -659,12 +659,12 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="scheduled">Scheduled</SelectItem>
-                      <SelectItem value="confirmed">Confirmed</SelectItem>
-                      <SelectItem value="inprogress">In Progress</SelectItem>
-                      <SelectItem value="completed">Completed</SelectItem>
-                      <SelectItem value="cancelled">Cancelled</SelectItem>
-                      <SelectItem value="noshow">No Show</SelectItem>
+                      <SelectItem value="scheduled">Planifié</SelectItem>
+                      <SelectItem value="confirmed">Confirmé</SelectItem>
+                      <SelectItem value="inprogress">En cours</SelectItem>
+                      <SelectItem value="completed">Terminé</SelectItem>
+                      <SelectItem value="cancelled">Annulé</SelectItem>
+                      <SelectItem value="noshow">Absence</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -678,7 +678,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                 <h3 className="font-semibold">Notes</h3>
               </div>
               <Textarea
-                placeholder="Add any additional notes or special instructions..."
+                placeholder="Ajouter des notes ou des instructions particulières…"
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 className="min-h-[80px] resize-none"
@@ -702,7 +702,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
               </Button>
               <Button type="submit" disabled={loading}>
                 <Save className="h-4 w-4 mr-2" />
-                {loading ? "Saving..." : "Save Changes"}
+                {loading ? "Enregistrement…" : "Enregistrer les modifications"}
               </Button>
             </DialogFooter>
           </form>
@@ -713,20 +713,20 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
       <AlertDialog open={showCancelDialog} onOpenChange={setShowCancelDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Cancel Appointment?</AlertDialogTitle>
+            <AlertDialogTitle>Annuler le rendez-vous ?</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to cancel this appointment with {patientName}? This action can be undone by changing
-              the status back to scheduled.
+              Voulez-vous vraiment annuler ce rendez-vous avec {patientName} ? Cette action peut être annulée en
+              remettant le statut sur « Planifié ».
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={loading}>No, keep it</AlertDialogCancel>
+            <AlertDialogCancel disabled={loading}>Non, conserver</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleCancelAppointment}
               disabled={loading}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {loading ? "Cancelling..." : "Yes, cancel appointment"}
+              {loading ? "Annulation…" : "Oui, annuler le rendez-vous"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

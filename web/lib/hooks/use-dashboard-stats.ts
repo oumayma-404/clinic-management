@@ -29,7 +29,7 @@ export function useDashboardStats() {
       });
       setStats(data);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to load dashboard stats');
+      setError(err instanceof ApiError ? err.message : 'Échec du chargement des statistiques du tableau de bord');
     } finally {
       setLoading(false);
     }

@@ -71,13 +71,13 @@ export default function StockPage() {
               {/* Page Header */}
               <div className="flex items-center justify-between">
                 <div>
-                  <h1 className="text-3xl font-semibold text-foreground">Stock Management</h1>
-                  <p className="mt-1 text-sm text-muted-foreground">Manage medical supplies and inventory</p>
+                  <h1 className="text-3xl font-semibold text-foreground">Gestion du stock</h1>
+                  <p className="mt-1 text-sm text-muted-foreground">Gérez les fournitures médicales et l&apos;inventaire</p>
                 </div>
 
                 <Button onClick={handleAddNew} className="gap-2">
                   <Plus className="h-4 w-4" />
-                  Add New Item
+                  Ajouter un article
                 </Button>
               </div>
 

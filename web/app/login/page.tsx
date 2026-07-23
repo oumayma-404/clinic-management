@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { PRODUCT_NAME } from '@/lib/brand'
 
 export default function LoginPage() {
   const { user, isLoading, mode } = useSession()
@@ -22,7 +23,7 @@ export default function LoginPage() {
   if (isLoading) {
     return (
       <div className="flex h-screen items-center justify-center">
-        <p className="text-muted-foreground">Loading...</p>
+        <p className="text-muted-foreground">Chargement…</p>
       </div>
     )
   }
@@ -39,14 +40,14 @@ export default function LoginPage() {
     <div className="flex h-screen items-center justify-center bg-background">
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl font-bold">Welcome to MediCare Clinic</CardTitle>
+          <CardTitle className="text-2xl font-bold">Bienvenue sur {PRODUCT_NAME}</CardTitle>
           <CardDescription>
-            Please sign in to access the clinic management system
+            Connectez-vous pour accéder au système de gestion de la clinique
           </CardDescription>
         </CardHeader>
         <CardContent>
           <Button asChild className="w-full" size="lg">
-            <a href="/auth/login">Sign In</a>
+            <a href="/auth/login">Se connecter</a>
           </Button>
         </CardContent>
       </Card>
@@ -72,7 +73,7 @@ function LocalLoginForm() {
       })
       const data = await res.json().catch(() => null)
       if (!res.ok) {
-        setError(data?.error || 'Invalid email or password.')
+        setError(data?.error || 'Email ou mot de passe invalide.')
         setIsSubmitting(false)
         return
       }
@@ -84,7 +85,7 @@ function LocalLoginForm() {
         !!returnTo && returnTo.startsWith('/') && !returnTo.startsWith('//') && !returnTo.startsWith('/\\')
       window.location.href = isSafeReturnTo ? returnTo! : '/'
     } catch {
-      setError('Cannot reach the clinic server. Please try again.')
+      setError('Impossible de joindre le serveur de la clinique. Veuillez réessayer.')
       setIsSubmitting(false)
     }
   }
@@ -93,8 +94,8 @@ function LocalLoginForm() {
     <div className="flex h-screen items-center justify-center bg-background">
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl font-bold">Sign in</CardTitle>
-          <CardDescription>Enter your clinic account credentials</CardDescription>
+          <CardTitle className="text-2xl font-bold">Connexion</CardTitle>
+          <CardDescription>Saisissez les identifiants de votre compte clinique</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -115,7 +116,7 @@ function LocalLoginForm() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
+              <Label htmlFor="password">Mot de passe</Label>
               <Input
                 id="password"
                 type="password"
@@ -126,18 +127,18 @@ function LocalLoginForm() {
               />
             </div>
             <Button type="submit" className="w-full" size="lg" disabled={isSubmitting}>
-              {isSubmitting ? 'Signing in...' : 'Sign In'}
+              {isSubmitting ? 'Connexion…' : 'Se connecter'}
             </Button>
             <p className="text-center text-sm text-muted-foreground">
-              Have a clinic code?{' '}
+              Vous avez un code de clinique ?{' '}
               <a href="/join" className="text-primary hover:underline">
-                Create an account
+                Rejoindre la clinique
               </a>
             </p>
             <p className="text-center text-sm text-muted-foreground">
-              First time setting up this clinic?{' '}
+              Première configuration de cette clinique ?{' '}
               <a href="/setup" className="text-primary hover:underline">
-                Set up the clinic
+                Configurer la clinique
               </a>
             </p>
           </form>

@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Separator } from "@/components/ui/separator"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { formatDT, formatDateFr } from "@/lib/format"
+import { formatDT, formatDateFr, formatDate, formatDateTime } from "@/lib/format"
 import {
   ArrowLeft,
   Flag,
@@ -53,7 +53,6 @@ import { dentalRecordsApi } from "@/lib/api/dental-records"
 import { patientFilesApi } from "@/lib/api/patient-files"
 import type { PatientDto, AppointmentDto, PatientMedicalHistoryDto, PatientFamilyHistoryDto, DentalRecordDto, PatientFileDto, PatientFolderDto, TreatmentPlanDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
-import { format, parseISO } from "date-fns"
 import { EditPatientDialog } from "@/components/edit-patient-dialog"
 import { PatientRecordModal } from "@/components/patient-record-modal"
 import { Edit } from "lucide-react"
@@ -89,44 +88,14 @@ const calculateAge = (dob: string | undefined) => {
   }
 }
 
-const formatDate = (dateString: string | undefined) => {
-  if (!dateString) return "N/A"
-  try {
-    const date = parseISO(dateString)
-    return format(date, "MMM d, yyyy")
-  } catch {
-    try {
-      const date = new Date(dateString)
-      return format(date, "MMM d, yyyy")
-    } catch {
-      return "N/A"
-    }
-  }
-}
-
-const formatDateTime = (dateString: string | undefined) => {
-  if (!dateString) return "N/A"
-  try {
-    const date = parseISO(dateString)
-    return format(date, "MMM d, yyyy h:mm a")
-  } catch {
-    try {
-      const date = new Date(dateString)
-      return format(date, "MMM d, yyyy h:mm a")
-    } catch {
-      return "N/A"
-    }
-  }
-}
-
 const getPatientName = (patient: PatientDto) => {
   return `${patient.firstName} ${patient.lastName}`.trim()
 }
 
 const formatAddress = (address: PatientDto["address"]) => {
-  if (!address) return "Not provided"
+  if (!address) return "Non renseigné"
   const parts = [address.street, address.city, address.state, address.zipCode].filter(Boolean)
-  return parts.join(", ") || "Not provided"
+  return parts.join(", ") || "Non renseigné"
 }
 
 const hasActiveFlags = (patient: PatientDto) => {
@@ -250,7 +219,7 @@ export default function PatientDetailsPage() {
         setInvoicedDentalRecordIds(invoicedIds)
       } catch (err) {
         console.error("Failed to load patient data:", err)
-        setError(err instanceof ApiError ? err.message : "Failed to load patient data")
+        setError(err instanceof ApiError ? err.message : "Échec du chargement des données du patient")
       } finally {
         setLoading(false)
       }
@@ -325,7 +294,7 @@ export default function PatientDetailsPage() {
           <DashboardHeader />
           <main className="flex flex-1 items-center justify-center">
             <div className="text-center">
-              <p className="text-muted-foreground">Loading patient data...</p>
+              <p className="text-muted-foreground">Chargement des données du patient…</p>
             </div>
           </main>
         </div>
@@ -341,12 +310,12 @@ export default function PatientDetailsPage() {
           <DashboardHeader />
           <main className="flex flex-1 items-center justify-center">
             <div className="text-center">
-              <h2 className="text-2xl font-semibold text-foreground">Patient Not Found</h2>
+              <h2 className="text-2xl font-semibold text-foreground">Patient introuvable</h2>
               <p className="mt-2 text-muted-foreground">
-                {error || "The patient you are looking for does not exist."}
+                {error || "Le patient recherché n'existe pas."}
               </p>
               <Button onClick={() => router.push("/patients")} className="mt-4">
-                Back to Patients
+                Retour aux patients
               </Button>
             </div>
           </main>
@@ -451,7 +420,7 @@ export default function PatientDetailsPage() {
     : []
   
   // Parse medical history (if it contains structured data, otherwise show as text)
-  const medicalHistoryText = patient.medicalHistory || "None reported"
+  const medicalHistoryText = patient.medicalHistory || "Aucun renseignement"
   
 
   return (
@@ -487,14 +456,14 @@ export default function PatientDetailsPage() {
               <div className="flex gap-2">
                 <Button variant="outline" onClick={() => setEditDialogOpen(true)} className="gap-2">
                   <Edit className="h-4 w-4" />
-                  Edit Patient
+                  Modifier le patient
                 </Button>
                 <Button variant="outline" onClick={() => setRecordModalOpen(true)} className="gap-2">
                   <FileText className="h-4 w-4" />
-                  Add Medical Record
+                  Ajouter un dossier médical
                 </Button>
                 <Button onClick={() => router.push(`/appointments?patientId=${patient.id}`)}>
-                  Schedule Appointment
+                  Planifier un rendez-vous
                 </Button>
               </div>
             </div>
@@ -503,9 +472,9 @@ export default function PatientDetailsPage() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-blue-700 dark:text-blue-400">
                   <Sparkles className="h-5 w-5" />
-                  AI-Generated Patient Summary
+                  Résumé du patient généré par l&apos;IA
                 </CardTitle>
-                <CardDescription>Automatically generated overview based on patient records</CardDescription>
+                <CardDescription>Aperçu généré automatiquement à partir des dossiers du patient</CardDescription>
               </CardHeader>
               <CardContent>
                 {aiLoading ? (
@@ -579,7 +548,7 @@ export default function PatientDetailsPage() {
               <TabsList className="grid w-full grid-cols-7">
                 <TabsTrigger value="medical-records" className="gap-2">
                   <FileCheck className="h-4 w-4" />
-                  Medical Records
+                  Dossiers médicaux
                 </TabsTrigger>
                 <TabsTrigger value="odontogram" className="gap-2">
                   <Smile className="h-4 w-4" />
@@ -587,7 +556,7 @@ export default function PatientDetailsPage() {
                 </TabsTrigger>
                 <TabsTrigger value="appointments" className="gap-2">
                   <Calendar className="h-4 w-4" />
-                  Appointments
+                  Rendez-vous
                 </TabsTrigger>
                 <TabsTrigger value="notes" className="gap-2">
                   <FileText className="h-4 w-4" />
@@ -595,7 +564,7 @@ export default function PatientDetailsPage() {
                 </TabsTrigger>
                 <TabsTrigger value="files" className="gap-2">
                   <FileText className="h-4 w-4" />
-                  Files
+                  Fichiers
                 </TabsTrigger>
                 <TabsTrigger value="factures" className="gap-2">
                   <Receipt className="h-4 w-4" />
@@ -616,31 +585,31 @@ export default function PatientDetailsPage() {
                       <div>
                         <CardTitle className="flex items-center gap-2">
                           <FileCheck className="h-5 w-5" />
-                          Dental Records
+                          Dossiers dentaires
                         </CardTitle>
-                        <CardDescription>Complete history of dental procedures and interventions</CardDescription>
+                        <CardDescription>Historique complet des actes et interventions dentaires</CardDescription>
                       </div>
                       <Button onClick={() => {
                         setEditingRecord(null)
                         setRecordModalOpen(true)
                       }} size="sm">
-                        Add Dental Record
+                        Ajouter un dossier dentaire
                       </Button>
                     </div>
                   </CardHeader>
                   <CardContent>
                     {dentalRecords.length === 0 ? (
-                      <p className="text-center text-muted-foreground py-8">No dental records found</p>
+                      <p className="text-center text-muted-foreground py-8">Aucun dossier dentaire</p>
                     ) : (
                       <div className="overflow-x-auto">
                         <Table>
                           <TableHeader>
                             <TableRow>
                               <TableHead>Date</TableHead>
-                              <TableHead>Procedure Type</TableHead>
-                              <TableHead>Teeth Type</TableHead>
-                              <TableHead>Teeth</TableHead>
-                              <TableHead>Amount Paid</TableHead>
+                              <TableHead>Type d'acte</TableHead>
+                              <TableHead>Type de dents</TableHead>
+                              <TableHead>Dents</TableHead>
+                              <TableHead>Montant payé</TableHead>
                               <TableHead>Reste</TableHead>
                               <TableHead>Notes</TableHead>
                               <TableHead className="text-right">Actions</TableHead>
@@ -655,7 +624,7 @@ export default function PatientDetailsPage() {
                                 <TableCell>{record.procedureType}</TableCell>
                                 <TableCell>
                                   <Badge variant="outline">
-                                    {record.isAdultTeeth ? "Adult" : "Child"}
+                                    {record.isAdultTeeth ? "Adulte" : "Enfant"}
                                   </Badge>
                                 </TableCell>
                                 <TableCell>
@@ -707,7 +676,7 @@ export default function PatientDetailsPage() {
                                             {record.importantNotes && record.importantNotes.length > 0 && (
                                               <div className="space-y-1">
                                                 <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 mb-1">
-                                                  Important Notes:
+                                                  Notes importantes :
                                                 </p>
                                                 <ul className="list-disc list-inside space-y-1 ml-2">
                                                   {record.importantNotes.map((note, idx) => (
@@ -722,7 +691,7 @@ export default function PatientDetailsPage() {
                                               <div className="space-y-1">
                                                 {record.importantNotes && record.importantNotes.length > 0 && (
                                                   <p className="text-xs font-semibold text-muted-foreground mb-1">
-                                                    Notes:
+                                                    Notes :
                                                   </p>
                                                 )}
                                                 <ul className="list-disc list-inside space-y-1 ml-2">
@@ -748,7 +717,7 @@ export default function PatientDetailsPage() {
                                               }}
                                             >
                                               <ChevronUp className="h-3 w-3 mr-1" />
-                                              Collapse
+                                              Réduire
                                             </Button>
                                           </div>
                                         ) : (
@@ -759,7 +728,7 @@ export default function PatientDetailsPage() {
                                               </span>
                                               {record.importantNotes && record.importantNotes.length > 0 && (
                                                 <Badge variant="outline" className="text-xs bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800">
-                                                  {record.importantNotes.length} important
+                                                  {record.importantNotes.length} importantes
                                                 </Badge>
                                               )}
                                             </div>
@@ -773,7 +742,7 @@ export default function PatientDetailsPage() {
                                               }}
                                             >
                                               <ChevronDown className="h-3 w-3 mr-1" />
-                                              View notes
+                                              Voir les notes
                                             </Button>
                                           </div>
                                         )}
@@ -807,7 +776,7 @@ export default function PatientDetailsPage() {
                                         setEditingRecord(record)
                                         setRecordModalOpen(true)
                                       }}
-                                      title="Edit record"
+                                      title="Modifier le dossier"
                                     >
                                       <Pencil className="h-4 w-4" />
                                     </Button>
@@ -851,12 +820,12 @@ export default function PatientDetailsPage() {
               <TabsContent value="notes">
                 <Card>
                   <CardHeader>
-                    <CardTitle>Medical Records Notes</CardTitle>
-                    <CardDescription>Notes and important notes from dental records</CardDescription>
+                    <CardTitle>Notes des dossiers médicaux</CardTitle>
+                    <CardDescription>Notes et notes importantes des dossiers dentaires</CardDescription>
                   </CardHeader>
                   <CardContent>
                     {dentalRecords.length === 0 ? (
-                      <p className="text-center text-muted-foreground py-8">No medical records found</p>
+                      <p className="text-center text-muted-foreground py-8">Aucun dossier médical</p>
                     ) : (
                       <div className="space-y-4">
                         {dentalRecords
@@ -881,7 +850,7 @@ export default function PatientDetailsPage() {
                             {record.importantNotes && record.importantNotes.length > 0 && (
                               <div className="space-y-2">
                                 <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wide">
-                                  Important Notes
+                                  Notes importantes
                                 </p>
                                 <div className="space-y-2">
                                   {record.importantNotes.map((note, idx) => (
@@ -922,7 +891,7 @@ export default function PatientDetailsPage() {
                           (record.notes && record.notes.length > 0) || 
                           (record.importantNotes && record.importantNotes.length > 0)
                         ).length === 0 && (
-                          <p className="text-center text-muted-foreground py-8">No notes found in medical records</p>
+                          <p className="text-center text-muted-foreground py-8">Aucune note dans les dossiers médicaux</p>
                         )}
                       </div>
                     )}
@@ -934,22 +903,22 @@ export default function PatientDetailsPage() {
               <TabsContent value="appointments">
                 <Card>
                   <CardHeader>
-                    <CardTitle>Appointment History</CardTitle>
-                    <CardDescription>Complete history of all appointments and procedures</CardDescription>
+                    <CardTitle>Historique des rendez-vous</CardTitle>
+                    <CardDescription>Historique complet des rendez-vous et des actes</CardDescription>
                   </CardHeader>
                   <CardContent>
                     {appointments.length === 0 ? (
-                      <p className="text-center text-muted-foreground py-8">No appointments found</p>
+                      <p className="text-center text-muted-foreground py-8">Aucun rendez-vous</p>
                     ) : (
                       <div className="overflow-x-auto">
                         <Table>
                           <TableHeader>
                             <TableRow>
-                              <TableHead>Date & Time</TableHead>
-                              <TableHead>Procedure/Type</TableHead>
-                              <TableHead>Doctor</TableHead>
-                              <TableHead>Duration</TableHead>
-                              <TableHead>Status</TableHead>
+                              <TableHead>Date et heure</TableHead>
+                              <TableHead>Acte / Type</TableHead>
+                              <TableHead>Médecin</TableHead>
+                              <TableHead>Durée</TableHead>
+                              <TableHead>Statut</TableHead>
                               <TableHead>Notes</TableHead>
                             </TableRow>
                           </TableHeader>
@@ -998,7 +967,7 @@ export default function PatientDetailsPage() {
                                           <span>{appointment.procedureTypeName}</span>
                                         </div>
                                       ) : (
-                                        <span className="text-muted-foreground">General Appointment</span>
+                                        <span className="text-muted-foreground">Rendez-vous général</span>
                                       )}
                                     </TableCell>
                                     <TableCell>
@@ -1055,11 +1024,11 @@ export default function PatientDetailsPage() {
                   <CardHeader>
                     <div className="flex items-center justify-between">
                       <div>
-                        <CardTitle>Patient Files</CardTitle>
+                        <CardTitle>Fichiers du patient</CardTitle>
                         <CardDescription>
                           {currentFolderId 
-                            ? `Files in folder` 
-                            : `All uploaded files and documents (${files.length} file${files.length !== 1 ? 's' : ''})`}
+                            ? `Fichiers du dossier`
+                            : `Tous les fichiers et documents téléversés (${files.length} fichier${files.length !== 1 ? 's' : ''})`}
                         </CardDescription>
                       </div>
                       <div className="flex items-center gap-2">
@@ -1071,11 +1040,11 @@ export default function PatientDetailsPage() {
                             className="gap-2"
                           >
                             <ArrowLeft className="h-4 w-4" />
-                            Back
+                            Retour
                           </Button>
                         )}
                         <Button onClick={() => router.push(`/patients/${patientId}/files`)} variant="default">
-                          Manage Files
+                          Gérer les fichiers
                         </Button>
                       </div>
                     </div>
@@ -1085,10 +1054,10 @@ export default function PatientDetailsPage() {
                       <div className="text-center py-8">
                         <FileText className="h-12 w-12 mx-auto mb-3 opacity-50 text-muted-foreground" />
                         <p className="text-sm text-muted-foreground mb-4">
-                          No files uploaded yet
+                          Aucun fichier téléversé
                         </p>
                         <Button onClick={() => router.push(`/patients/${patientId}/files`)}>
-                          Upload Files
+                          Téléverser des fichiers
                         </Button>
                       </div>
                     ) : (
@@ -1096,7 +1065,7 @@ export default function PatientDetailsPage() {
                         {/* Folders List (only show at root level) */}
                         {!currentFolderId && folders.length > 0 && (
                           <div>
-                            <h3 className="text-sm font-semibold mb-3 text-foreground">Folders</h3>
+                            <h3 className="text-sm font-semibold mb-3 text-foreground">Dossiers</h3>
                             <div className="space-y-2">
                               {folders.map((folder) => (
                                 <Card
@@ -1112,7 +1081,7 @@ export default function PatientDetailsPage() {
                                       <div className="flex-1 min-w-0">
                                         <p className="text-sm font-semibold truncate text-foreground">{folder.name}</p>
                                         <p className="text-xs text-muted-foreground">
-                                          {folder.fileCount} {folder.fileCount === 1 ? "file" : "files"}
+                                          {folder.fileCount} {folder.fileCount === 1 ? "fichier" : "fichiers"}
                                         </p>
                                       </div>
                                     </div>
@@ -1128,13 +1097,13 @@ export default function PatientDetailsPage() {
                         {currentFiles.length === 0 ? (
                           <div>
                             <h3 className="text-sm font-semibold mb-3 text-foreground">
-                              {currentFolderId ? "Files in this folder" : "Files"}
+                              {currentFolderId ? "Fichiers du dossier" : "Fichiers"}
                             </h3>
                             <Card className="p-8 border-dashed">
                               <div className="text-center text-muted-foreground">
                                 <FileText className="h-12 w-12 mx-auto mb-3 opacity-50" />
                                 <p className="text-sm">
-                                  {currentFolderId ? "No files in this folder" : "No files in root"}
+                                  {currentFolderId ? "Aucun fichier dans ce dossier" : "Aucun fichier à la racine"}
                                 </p>
                               </div>
                             </Card>
@@ -1142,16 +1111,16 @@ export default function PatientDetailsPage() {
                         ) : (
                           <div>
                             <h3 className="text-sm font-semibold mb-3 text-foreground">
-                              {currentFolderId ? "Files in this folder" : "Files"}
+                              {currentFolderId ? "Fichiers du dossier" : "Fichiers"}
                             </h3>
                             <div className="overflow-x-auto">
                               <Table>
                                 <TableHeader>
                                   <TableRow>
-                                    <TableHead>File Name</TableHead>
+                                    <TableHead>Nom du fichier</TableHead>
                                     <TableHead>Type</TableHead>
-                                    <TableHead>Size</TableHead>
-                                    <TableHead>Uploaded</TableHead>
+                                    <TableHead>Taille</TableHead>
+                                    <TableHead>Téléversé le</TableHead>
                                     <TableHead className="text-right">Actions</TableHead>
                                   </TableRow>
                                 </TableHeader>
@@ -1189,7 +1158,7 @@ export default function PatientDetailsPage() {
                                           </TableCell>
                                           <TableCell>
                                             <Badge variant="outline" className="text-xs">
-                                              {file.fileType || file.contentType.split('/')[1] || 'Unknown'}
+                                              {file.fileType || file.contentType.split('/')[1] || 'Inconnu'}
                                             </Badge>
                                           </TableCell>
                                           <TableCell className="text-muted-foreground">
@@ -1206,7 +1175,7 @@ export default function PatientDetailsPage() {
                                                   size="sm"
                                                   className="h-8 w-8 p-0"
                                                   onClick={() => handlePreviewFile(file)}
-                                                  title="Preview file"
+                                                  title="Aperçu du fichier"
                                                 >
                                                   <Eye className="h-4 w-4" />
                                                 </Button>
@@ -1216,7 +1185,7 @@ export default function PatientDetailsPage() {
                                                 size="sm"
                                                 className="h-8 w-8 p-0"
                                                 onClick={() => handleDownloadFile(file)}
-                                                title="Download file"
+                                                title="Télécharger le fichier"
                                               >
                                                 <Download className="h-4 w-4" />
                                               </Button>
@@ -1276,46 +1245,46 @@ export default function PatientDetailsPage() {
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2 text-base">
                     <User className="h-5 w-5 text-muted-foreground" />
-                    Personal Information
+                    Informations personnelles
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div>
-                    <p className="text-xs font-medium text-muted-foreground">Full Name</p>
+                    <p className="text-xs font-medium text-muted-foreground">Nom complet</p>
                     <p className="text-sm text-foreground">{patientName}</p>
                   </div>
                   <Separator />
                   <div>
-                    <p className="text-xs font-medium text-muted-foreground">Date of Birth</p>
+                    <p className="text-xs font-medium text-muted-foreground">Date de naissance</p>
                     <p className="text-sm text-foreground">
-                      {formatDate(patient.dateOfBirth)} {age !== null && `(${age} years old)`}
+                      {formatDate(patient.dateOfBirth)} {age !== null && `(${age} ans)`}
                     </p>
                   </div>
                   <Separator />
                   <div>
-                    <p className="text-xs font-medium text-muted-foreground">Gender</p>
-                    <p className="text-sm text-foreground">{patient.gender || "Not provided"}</p>
+                    <p className="text-xs font-medium text-muted-foreground">Sexe</p>
+                    <p className="text-sm text-foreground">{patient.gender || "Non renseigné"}</p>
                   </div>
                   <Separator />
                   <div>
-                    <p className="text-xs font-medium text-muted-foreground">Mobile</p>
-                    <p className="text-sm text-foreground">{patient.phoneNumber || "Not provided"}</p>
+                    <p className="text-xs font-medium text-muted-foreground">Téléphone</p>
+                    <p className="text-sm text-foreground">{patient.phoneNumber || "Non renseigné"}</p>
                   </div>
                   <Separator />
                   <div>
                     <p className="text-xs font-medium text-muted-foreground">Email</p>
-                    <p className="text-sm text-foreground">{patient.email || "Not provided"}</p>
+                    <p className="text-sm text-foreground">{patient.email || "Non renseigné"}</p>
                   </div>
                   <Separator />
                   <div>
-                    <p className="text-xs font-medium text-muted-foreground">Address</p>
+                    <p className="text-xs font-medium text-muted-foreground">Adresse</p>
                     <p className="text-sm text-foreground">{formatAddress(patient.address)}</p>
                   </div>
                   {patient.emergencyContactName && (
                     <>
                       <Separator />
                       <div>
-                        <p className="text-xs font-medium text-muted-foreground">Emergency Contact</p>
+                        <p className="text-xs font-medium text-muted-foreground">Contact d'urgence</p>
                         <p className="text-sm text-foreground">
                           {patient.emergencyContactName}
                           {patient.emergencyContactPhone && ` - ${patient.emergencyContactPhone}`}
@@ -1331,19 +1300,19 @@ export default function PatientDetailsPage() {
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2 text-base">
                     <Activity className="h-5 w-5 text-muted-foreground" />
-                    Medical Information
+                    Informations médicales
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div>
-                    <p className="text-xs font-medium text-muted-foreground">Chronic Diseases / Conditions</p>
+                    <p className="text-xs font-medium text-muted-foreground">Maladies chroniques / affections</p>
                     <p className="text-sm text-foreground whitespace-pre-wrap">
                       {medicalHistoryText}
                     </p>
                   </div>
                   <Separator />
                   <div>
-                    <p className="text-xs font-medium text-muted-foreground mb-2">Medical History</p>
+                    <p className="text-xs font-medium text-muted-foreground mb-2">Antécédents médicaux</p>
                     {medicalHistoryEntries.length > 0 ? (
                       <div className="space-y-2">
                         {medicalHistoryEntries.map((entry) => (
@@ -1351,7 +1320,7 @@ export default function PatientDetailsPage() {
                             <p className="text-sm font-medium text-foreground">{entry.description}</p>
                             {entry.date && (
                               <p className="text-xs text-muted-foreground mt-1">
-                                Date: {formatDate(entry.date)}
+                                Date : {formatDate(entry.date)}
                               </p>
                             )}
                             {entry.notes && (
@@ -1361,12 +1330,12 @@ export default function PatientDetailsPage() {
                         ))}
                       </div>
                     ) : (
-                      <p className="text-sm text-muted-foreground">No medical history entries</p>
+                      <p className="text-sm text-muted-foreground">Aucun antécédent médical</p>
                     )}
                   </div>
                   <Separator />
                   <div>
-                    <p className="text-xs font-medium text-muted-foreground mb-2">Family Medical History</p>
+                    <p className="text-xs font-medium text-muted-foreground mb-2">Antécédents familiaux</p>
                     {familyHistoryEntries.length > 0 ? (
                       <div className="space-y-2">
                         {familyHistoryEntries.map((entry) => (
@@ -1381,7 +1350,7 @@ export default function PatientDetailsPage() {
                         ))}
                       </div>
                     ) : (
-                      <p className="text-sm text-muted-foreground">No family history entries</p>
+                      <p className="text-sm text-muted-foreground">Aucun antécédent familial</p>
                     )}
                   </div>
                   <Separator />
@@ -1396,7 +1365,7 @@ export default function PatientDetailsPage() {
                         ))}
                       </div>
                     ) : (
-                      <p className="text-sm text-muted-foreground">None reported</p>
+                      <p className="text-sm text-muted-foreground">Aucune signalée</p>
                     )}
                   </div>
                 </CardContent>
@@ -1407,24 +1376,24 @@ export default function PatientDetailsPage() {
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2 text-base">
                     <CreditCard className="h-5 w-5 text-muted-foreground" />
-                    Administrative Information
+                    Informations administratives
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div>
-                    <p className="text-xs font-medium text-muted-foreground">Insurance Provider</p>
-                    <p className="text-sm text-foreground">{patient.insuranceInfo?.provider || "Not provided"}</p>
+                    <p className="text-xs font-medium text-muted-foreground">Assureur</p>
+                    <p className="text-sm text-foreground">{patient.insuranceInfo?.provider || "Non renseigné"}</p>
                   </div>
                   <Separator />
                   <div>
-                    <p className="text-xs font-medium text-muted-foreground">Policy Number</p>
-                    <p className="font-mono text-sm text-foreground">{patient.insuranceInfo?.policyNumber || "Not provided"}</p>
+                    <p className="text-xs font-medium text-muted-foreground">Numéro de police</p>
+                    <p className="font-mono text-sm text-foreground">{patient.insuranceInfo?.policyNumber || "Non renseigné"}</p>
                   </div>
                   {patient.insuranceInfo?.groupNumber && (
                     <>
                       <Separator />
                       <div>
-                        <p className="text-xs font-medium text-muted-foreground">Group Number</p>
+                        <p className="text-xs font-medium text-muted-foreground">Numéro de groupe</p>
                         <p className="text-sm text-foreground">{patient.insuranceInfo.groupNumber}</p>
                       </div>
                     </>
@@ -1433,7 +1402,7 @@ export default function PatientDetailsPage() {
                     <>
                       <Separator />
                       <div>
-                        <p className="text-xs font-medium text-muted-foreground">Expiry Date</p>
+                        <p className="text-xs font-medium text-muted-foreground">Date d'expiration</p>
                         <p className="text-sm text-foreground">{formatDate(patient.insuranceInfo.expiryDate)}</p>
                       </div>
                     </>
@@ -1519,7 +1488,7 @@ export default function PatientDetailsPage() {
                 {previewLoading ? (
                   <div className="flex flex-col items-center justify-center gap-3 h-full">
                     <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-                    <p className="text-sm text-muted-foreground">Loading preview...</p>
+                    <p className="text-sm text-muted-foreground">Chargement de l&apos;aperçu…</p>
                   </div>
                 ) : previewUrl ? (
                   <>
@@ -1553,10 +1522,10 @@ export default function PatientDetailsPage() {
                     ) : (
                       <div className="flex flex-col items-center gap-3 p-8">
                         <FileText className="h-16 w-16 text-muted-foreground" />
-                        <p className="text-sm text-muted-foreground">Preview not available for this file type</p>
+                        <p className="text-sm text-muted-foreground">Aperçu non disponible pour ce type de fichier</p>
                         <Button variant="outline" onClick={() => handleDownloadFile(previewFile)}>
                           <Download className="h-4 w-4 mr-2" />
-                          Download to view
+                          Télécharger pour consulter
                         </Button>
                       </div>
                     )}
@@ -1564,10 +1533,10 @@ export default function PatientDetailsPage() {
                 ) : (
                   <div className="flex flex-col items-center gap-3 p-8">
                     <FileText className="h-16 w-16 text-muted-foreground" />
-                    <p className="text-sm text-muted-foreground">Preview not available for this file type</p>
+                    <p className="text-sm text-muted-foreground">Aperçu non disponible pour ce type de fichier</p>
                     <Button variant="outline" onClick={() => handleDownloadFile(previewFile)}>
                       <Download className="h-4 w-4 mr-2" />
-                      Download to view
+                      Télécharger pour consulter
                     </Button>
                   </div>
                 )}
@@ -1575,11 +1544,11 @@ export default function PatientDetailsPage() {
               <DialogFooter className="px-6 py-4 flex-shrink-0 border-t bg-gradient-to-r from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
                 <div className="flex items-center gap-3 w-full justify-between">
                   <Button variant="outline" onClick={handleClosePreview} className="min-w-[100px]">
-                    Close
+                    Fermer
                   </Button>
                   <Button variant="outline" onClick={() => handleDownloadFile(previewFile!)} className="gap-2">
                     <Download className="h-4 w-4" />
-                    Download
+                    Télécharger
                   </Button>
                 </div>
               </DialogFooter>

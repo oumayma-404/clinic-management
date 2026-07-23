@@ -52,7 +52,7 @@ export function StockTable({ refreshKey, onEdit, highlightItemId }: StockTablePr
       const data = await stockApi.list()
       setItems(data)
     } catch (err) {
-      const message = err instanceof ApiError ? err.message : "Failed to load stock items"
+      const message = err instanceof ApiError ? err.message : "Échec du chargement des articles"
       setError(message)
       toast.error(message)
     } finally {
@@ -101,12 +101,12 @@ export function StockTable({ refreshKey, onEdit, highlightItemId }: StockTablePr
     try {
       setDeleting(true)
       await stockApi.delete(itemToDelete.id)
-      toast.success(`Deleted ${itemToDelete.name}`)
+      toast.success(`« ${itemToDelete.name} » supprimé`)
       setDeleteDialogOpen(false)
       setItemToDelete(null)
       await loadItems()
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Failed to delete item")
+      toast.error(err instanceof ApiError ? err.message : "Échec de la suppression de l'article")
     } finally {
       setDeleting(false)
     }
@@ -119,9 +119,9 @@ export function StockTable({ refreshKey, onEdit, highlightItemId }: StockTablePr
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <CardTitle className="flex items-center gap-2">
               <Package className="h-5 w-5" />
-              Inventory Items
+              Articles en stock
               <Badge variant="secondary" className="ml-2">
-                {filteredItems.length} items
+                {filteredItems.length} articles
               </Badge>
               {lowStockCount > 0 && (
                 <Button
@@ -131,7 +131,7 @@ export function StockTable({ refreshKey, onEdit, highlightItemId }: StockTablePr
                   className="ml-2 h-7 gap-1"
                 >
                   <AlertTriangle className="h-3 w-3" />
-                  Low stock ({lowStockCount})
+                  Stock faible ({lowStockCount})
                 </Button>
               )}
             </CardTitle>
@@ -141,7 +141,7 @@ export function StockTable({ refreshKey, onEdit, highlightItemId }: StockTablePr
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   type="text"
-                  placeholder="Search by name..."
+                  placeholder="Rechercher par nom…"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="pl-9"
@@ -150,10 +150,10 @@ export function StockTable({ refreshKey, onEdit, highlightItemId }: StockTablePr
 
               <Select value={categoryFilter} onValueChange={setCategoryFilter}>
                 <SelectTrigger className="w-full sm:w-48">
-                  <SelectValue placeholder="All Categories" />
+                  <SelectValue placeholder="Toutes les catégories" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Categories</SelectItem>
+                  <SelectItem value="all">Toutes les catégories</SelectItem>
                   {categories.map((category) => (
                     <SelectItem key={category} value={category}>
                       {category}
@@ -176,12 +176,12 @@ export function StockTable({ refreshKey, onEdit, highlightItemId }: StockTablePr
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Item Name</TableHead>
-                    <TableHead>Quantity</TableHead>
-                    <TableHead>Unit</TableHead>
-                    <TableHead>Min. Level</TableHead>
-                    <TableHead>Category</TableHead>
-                    <TableHead>Supplier</TableHead>
+                    <TableHead>Nom de l'article</TableHead>
+                    <TableHead>Quantité</TableHead>
+                    <TableHead>Unité</TableHead>
+                    <TableHead>Stock min.</TableHead>
+                    <TableHead>Catégorie</TableHead>
+                    <TableHead>Fournisseur</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -190,7 +190,7 @@ export function StockTable({ refreshKey, onEdit, highlightItemId }: StockTablePr
                     <TableRow>
                       <TableCell colSpan={7} className="h-24 text-center">
                         <p className="text-muted-foreground">
-                          {items.length === 0 ? "No stock items yet" : "No items match your filters"}
+                          {items.length === 0 ? "Aucun article en stock" : "Aucun article ne correspond à vos filtres"}
                         </p>
                       </TableCell>
                     </TableRow>
@@ -220,7 +220,7 @@ export function StockTable({ refreshKey, onEdit, highlightItemId }: StockTablePr
                           <div className="flex justify-end gap-2">
                             <Button variant="ghost" size="sm" onClick={() => onEdit(item)} className="h-8 gap-1">
                               <Pencil className="h-3 w-3" />
-                              Edit
+                              Modifier
                             </Button>
                             <Button
                               variant="ghost"
@@ -229,7 +229,7 @@ export function StockTable({ refreshKey, onEdit, highlightItemId }: StockTablePr
                               className="h-8 gap-1 text-destructive hover:text-destructive"
                             >
                               <Trash2 className="h-3 w-3" />
-                              Delete
+                              Supprimer
                             </Button>
                           </div>
                         </TableCell>
@@ -247,14 +247,14 @@ export function StockTable({ refreshKey, onEdit, highlightItemId }: StockTablePr
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogTitle>Êtes-vous sûr ?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently delete <span className="font-semibold">{itemToDelete?.name}</span> from the
-              inventory. This action cannot be undone.
+              Cela supprimera définitivement <span className="font-semibold">{itemToDelete?.name}</span> de
+              l'inventaire. Cette action est irréversible.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={deleting}>Annuler</AlertDialogCancel>
             <AlertDialogAction
               onClick={(e) => {
                 e.preventDefault()
@@ -263,7 +263,7 @@ export function StockTable({ refreshKey, onEdit, highlightItemId }: StockTablePr
               disabled={deleting}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {deleting ? "Deleting..." : "Delete"}
+              {deleting ? "Suppression…" : "Supprimer"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

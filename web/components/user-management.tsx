@@ -74,7 +74,7 @@ export function UserManagement() {
       setClinicCode(status.clinic?.code || "")
     } catch (err) {
       if (!mountedRef.current) return
-      const message = err instanceof ApiError ? err.message : "Failed to load users."
+      const message = err instanceof ApiError ? err.message : "Échec du chargement des utilisateurs."
       setError(message)
     } finally {
       if (mountedRef.current) setLoading(false)
@@ -96,21 +96,21 @@ export function UserManagement() {
       if (pending.type === "reset") {
         const result = await usersApi.resetPassword(pending.user.id)
         setTempPassword({ email: pending.user.email, password: result.temporaryPassword })
-        toast.success("Password reset. Share the temporary password with the user.")
+        toast.success("Mot de passe réinitialisé. Communiquez le mot de passe temporaire à l'utilisateur.")
         await loadData()
       } else if (pending.type === "status") {
         const nextActive = !pending.user.isActive
         await usersApi.setStatus(pending.user.id, nextActive)
-        toast.success(nextActive ? "User reactivated." : "User deactivated.")
+        toast.success(nextActive ? "Utilisateur réactivé." : "Utilisateur désactivé.")
         await loadData()
       } else if (pending.type === "regenerate") {
         const clinic = await clinicsApi.regenerateCode()
         setClinicCode(clinic.code || "")
-        toast.success("Clinic code regenerated. The old code no longer works.")
+        toast.success("Code de la clinique régénéré. L'ancien code ne fonctionne plus.")
       }
       setPending(null)
     } catch (err) {
-      const message = err instanceof ApiError ? err.message : "Action failed. Please try again."
+      const message = err instanceof ApiError ? err.message : "L'action a échoué. Veuillez réessayer."
       toast.error(message)
     } finally {
       setWorking(false)
@@ -128,9 +128,12 @@ export function UserManagement() {
     }
   }
 
-  const roleLabel = (role: string) => role.charAt(0).toUpperCase() + role.slice(1)
+  const roleLabel = (role: string) => {
+    const map: Record<string, string> = { admin: "Administrateur", doctor: "Médecin", secretary: "Secrétaire" }
+    return map[role?.toLowerCase()] ?? (role.charAt(0).toUpperCase() + role.slice(1))
+  }
   const formatDate = (value?: string) =>
-    value ? new Date(value).toLocaleString() : "Never"
+    value ? new Date(value).toLocaleString("fr-FR") : "Jamais"
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-slate-950">
@@ -140,20 +143,20 @@ export function UserManagement() {
             <Users className="h-4 w-4 text-white" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-gray-900 dark:text-white">User Management</h1>
-            <p className="text-xs text-muted-foreground">Manage clinic accounts and the self-registration code</p>
+            <h1 className="text-xl font-bold text-gray-900 dark:text-white">Gestion des utilisateurs</h1>
+            <p className="text-xs text-muted-foreground">Gérez les comptes de la clinique et le code d'auto-inscription</p>
           </div>
         </div>
 
         {/* Clinic code + regenerate (AC-4.5) */}
         <Card className="border border-gray-200 dark:border-slate-800">
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">Clinic Code</CardTitle>
+            <CardTitle className="text-base">Code de la clinique</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <Label className="text-xs text-muted-foreground">Share with staff to let them create an account</Label>
+                <Label className="text-xs text-muted-foreground">À communiquer au personnel pour créer un compte</Label>
                 <div className="mt-1.5">
                   {clinicCode ? (
                     <Badge
@@ -163,7 +166,7 @@ export function UserManagement() {
                       {clinicCode}
                     </Badge>
                   ) : (
-                    <span className="text-sm text-muted-foreground">No code set</span>
+                    <span className="text-sm text-muted-foreground">Aucun code défini</span>
                   )}
                 </div>
               </div>
@@ -175,7 +178,7 @@ export function UserManagement() {
                 disabled={working}
               >
                 <RefreshCw className="h-4 w-4" />
-                Regenerate
+                Régénérer
               </Button>
             </div>
           </CardContent>
@@ -185,7 +188,7 @@ export function UserManagement() {
         <Card className="border border-gray-200 dark:border-slate-800">
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base">
-              Users
+              Utilisateurs
               <Badge variant="secondary">{users.length}</Badge>
             </CardTitle>
           </CardHeader>
@@ -196,17 +199,17 @@ export function UserManagement() {
               </div>
             )}
             {loading ? (
-              <p className="py-8 text-center text-muted-foreground">Loading users...</p>
+              <p className="py-8 text-center text-muted-foreground">Chargement des utilisateurs…</p>
             ) : (
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Name</TableHead>
+                      <TableHead>Nom</TableHead>
                       <TableHead>Email</TableHead>
-                      <TableHead>Role</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Last login</TableHead>
+                      <TableHead>Rôle</TableHead>
+                      <TableHead>Statut</TableHead>
+                      <TableHead>Dernière connexion</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -214,7 +217,7 @@ export function UserManagement() {
                     {users.length === 0 ? (
                       <TableRow>
                         <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
-                          No users found
+                          Aucun utilisateur
                         </TableCell>
                       </TableRow>
                     ) : (
@@ -232,12 +235,12 @@ export function UserManagement() {
                           <TableCell>
                             <div className="flex flex-wrap items-center gap-1.5">
                               {user.isActive ? (
-                                <Badge className="bg-green-600 hover:bg-green-600">Active</Badge>
+                                <Badge className="bg-green-600 hover:bg-green-600">Actif</Badge>
                               ) : (
-                                <Badge variant="destructive">Inactive</Badge>
+                                <Badge variant="destructive">Inactif</Badge>
                               )}
                               {user.mustChangePassword && (
-                                <Badge variant="secondary" className="text-[10px]">Must change password</Badge>
+                                <Badge variant="secondary" className="text-[10px]">Doit changer le mot de passe</Badge>
                               )}
                             </div>
                           </TableCell>
@@ -251,7 +254,7 @@ export function UserManagement() {
                                 onClick={() => setPending({ type: "reset", user })}
                               >
                                 <KeyRound className="h-3 w-3" />
-                                Reset password
+                                Réinitialiser le mot de passe
                               </Button>
                               {user.isActive ? (
                                 <Button
@@ -260,10 +263,10 @@ export function UserManagement() {
                                   className="h-8 gap-1 text-destructive hover:text-destructive"
                                   onClick={() => setPending({ type: "status", user })}
                                   disabled={isSelf}
-                                  title={isSelf ? "You can't deactivate your own account" : undefined}
+                                  title={isSelf ? "Vous ne pouvez pas désactiver votre propre compte" : undefined}
                                 >
                                   <UserX className="h-3 w-3" />
-                                  Deactivate
+                                  Désactiver
                                 </Button>
                               ) : (
                                 <Button
@@ -273,7 +276,7 @@ export function UserManagement() {
                                   onClick={() => setPending({ type: "status", user })}
                                 >
                                   <UserCheck className="h-3 w-3" />
-                                  Reactivate
+                                  Réactiver
                                 </Button>
                               )}
                             </div>
@@ -295,38 +298,38 @@ export function UserManagement() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {pending?.type === "reset" && "Reset this user's password?"}
+              {pending?.type === "reset" && "Réinitialiser le mot de passe de cet utilisateur ?"}
               {pending?.type === "status" &&
-                (pending.user.isActive ? "Deactivate this user?" : "Reactivate this user?")}
-              {pending?.type === "regenerate" && "Regenerate the clinic code?"}
+                (pending.user.isActive ? "Désactiver cet utilisateur ?" : "Réactiver cet utilisateur ?")}
+              {pending?.type === "regenerate" && "Régénérer le code de la clinique ?"}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {pending?.type === "reset" && (
                 <>
-                  A temporary password will be generated for{" "}
-                  <span className="font-semibold">{pending.user.email}</span>. They will be required to
-                  change it at next login.
+                  Un mot de passe temporaire sera généré pour{" "}
+                  <span className="font-semibold">{pending.user.email}</span>. L'utilisateur devra le
+                  changer à la prochaine connexion.
                 </>
               )}
               {pending?.type === "status" && pending.user.isActive && (
                 <>
-                  <span className="font-semibold">{pending.user.email}</span> will no longer be able to log
-                  in. Their historical records are retained.
+                  <span className="font-semibold">{pending.user.email}</span> ne pourra plus se connecter.
+                  Ses données historiques sont conservées.
                 </>
               )}
               {pending?.type === "status" && !pending.user.isActive && (
                 <>
-                  <span className="font-semibold">{pending.user.email}</span> will be able to log in again.
+                  <span className="font-semibold">{pending.user.email}</span> pourra de nouveau se connecter.
                 </>
               )}
               {pending?.type === "regenerate" &&
-                "The current code will stop working for new registrations. Existing accounts are unaffected."}
+                "Le code actuel cessera de fonctionner pour les nouvelles inscriptions. Les comptes existants ne sont pas affectés."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={working}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={working}>Annuler</AlertDialogCancel>
             <AlertDialogAction onClick={confirmAction} disabled={working}>
-              {working ? "Working..." : "Confirm"}
+              {working ? "En cours…" : "Confirmer"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -336,21 +339,21 @@ export function UserManagement() {
       <Dialog open={tempPassword !== null} onOpenChange={(open) => !open && setTempPassword(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Temporary password</DialogTitle>
+            <DialogTitle>Mot de passe temporaire</DialogTitle>
             <DialogDescription>
-              Share this with {tempPassword?.email || "the user"}. It is shown only once and they will be
-              asked to change it at next login.
+              Communiquez-le à {tempPassword?.email || "l'utilisateur"}. Il n'est affiché qu'une seule fois et
+              l'utilisateur devra le changer à la prochaine connexion.
             </DialogDescription>
           </DialogHeader>
           <div className="flex items-center gap-2 rounded-lg border bg-muted p-3">
             <code className="flex-1 font-mono text-lg font-bold tracking-wider">{tempPassword?.password}</code>
             <Button variant="outline" size="sm" className="gap-1" onClick={copyTempPassword}>
               {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-              {copied ? "Copied" : "Copy"}
+              {copied ? "Copié" : "Copier"}
             </Button>
           </div>
           <DialogFooter>
-            <Button onClick={() => setTempPassword(null)}>Done</Button>
+            <Button onClick={() => setTempPassword(null)}>Terminé</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

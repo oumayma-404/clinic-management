@@ -1,15 +1,14 @@
 # ClinicManagement.Domain
 
-> The innermost Clean Architecture layer: pure C# domain model (entities, aggregates, value objects, domain events, enums) plus repository/service **interfaces**. No EF Core, no ASP.NET, no infrastructure dependencies. Only outside dependency is **MediatR** (used by `IDomainEvent : INotification`).
+> The innermost Clean Architecture layer: pure C# domain model (entities, aggregates, value objects, enums) plus repository/service **interfaces**. No EF Core, no ASP.NET, no infrastructure dependencies — and, since the dead domain-events pipeline was removed (`french-localization-and-cleanup`), **no external package dependency at all** (the `MediatR.Contracts` reference existed only for the deleted `IDomainEvent`).
 
 ## Folder map
 
 | Folder | Contents |
 |--------|----------|
-| `Common/` | Base classes: `Entity<TId>`, `AggregateRoot<TId>`, `ValueObject`, `IDomainEvent` |
+| `Common/` | Base classes: `Entity<TId>`, `AggregateRoot<TId>`, `ValueObject` |
 | `Entities/` | All domain entities & aggregates |
 | `ValueObjects/` | Immutable value objects |
-| `Events/` | Domain events (implement `IDomainEvent`) |
 | `Enums/` | Domain enums |
 | `Repositories/` | Repository interfaces (implemented in Infrastructure) |
 | `Services/` | Domain service interfaces |
@@ -17,9 +16,8 @@
 ## Base classes & patterns (`Common/`)
 
 - **`Entity<TId>`** (`Common/Entity.cs`) — identity-based equality (`==`, `!=`, `Equals`, `GetHashCode` by `Id`). `Id` has a `protected set`. Generic over the id type (most use `Guid`, `User` uses `string`).
-- **`AggregateRoot<TId> : Entity<TId>`** (`Common/AggregateRoot.cs`) — adds a private `_domainEvents` list, exposes `DomainEvents` (read-only), `AddDomainEvent(...)` (protected), `ClearDomainEvents()`. Aggregate roots are the transactional consistency boundary and the only entities that raise events.
+- **`AggregateRoot<TId> : Entity<TId>`** (`Common/AggregateRoot.cs`) — a marker base class for aggregate roots (the transactional consistency boundary). *(It previously carried a domain-events list; that dead pipeline — never drained by `SaveChangesAsync`, zero handlers — was removed in `french-localization-and-cleanup`. Notifications/reminders are produced inline via `INotificationGenerator`/`IReminderScheduler`, not domain events.)*
 - **`ValueObject`** (`Common/ValueObject.cs`) — structural equality via abstract `GetEqualityComponents()`. Subclasses `yield return` their components.
-- **`IDomainEvent : MediatR.INotification`** (`Common/IDomainEvent.cs`) — marker with `DateTime OccurredOn`. Because it extends `INotification`, events are dispatched through MediatR (handlers live in the Application layer).
 
 ### Conventions every domain type follows
 - Private parameterless ctor `private X() { }` **for EF Core**; a public ctor that sets `Id` and timestamps (`CreatedAt = DateTime.UtcNow`).
@@ -32,8 +30,13 @@
 
 | Aggregate | File | Key responsibilities / relationships |
 |-----------|------|--------------------------------------|
-| `Patient` | `Entities/Patient.cs` | Central aggregate. Holds `Email`, `PhoneNumber`, optional `Address`, `InsuranceInfo` (value objects). Owns child collections: `Flags` (`PatientFlag`), `Files` (`PatientFile`), `Appointments`, `MedicalHistoryEntries`, `FamilyHistoryEntries`. **Raises `PatientFlagAddedEvent`** in `AddFlag`. Belongs to a `Clinic` (`ClinicId`). |
-| `Appointment` | `Entities/Appointment.cs` | State machine over `AppointmentStatus` via `Confirm/Start/Complete/Cancel/MarkAsNoShow/Reschedule`. Optional `PatientId`, free-text `DoctorId`/`DoctorName`, optional `ProcedureTypeId` (+ snapshot duration/color). Holds `GoogleCalendarEventId` for sync. **Raises `AppointmentCreatedEvent`** (ctor, if patient set), **`AppointmentConfirmedEvent`** (`Confirm`), **`AppointmentRescheduledEvent`** (`Reschedule`). |
+| `Patient` | `Entities/Patient.cs` | Central aggregate. Holds `Email`, `PhoneNumber`, optional `Address`, `InsuranceInfo` (value objects) + CNAM identity fields. Owns child collections: `Flags` (`PatientFlag`), `Files` (`PatientFile`), `Appointments`, `MedicalHistoryEntries`, `FamilyHistoryEntries`. Belongs to a `Clinic` (`ClinicId`). |
+| `Appointment` | `Entities/Appointment.cs` | State machine over `AppointmentStatus` via `Confirm/Start/Complete/Cancel/MarkAsNoShow/Reschedule`. Optional `PatientId`, free-text `DoctorId`/`DoctorName`, optional `ProcedureTypeId` (+ snapshot duration/color). Holds `GoogleCalendarEventId` for sync. |
+| `Invoice` | `Entities/Invoice.cs` | Billing "note d'honoraires": header + `InvoiceLine`s + `Payment`s, status lifecycle (draft → issued → paid), VAT/stamp totals, optional TTN e-invoice state. |
+| `TreatmentPlan` | `Entities/TreatmentPlan.cs` | Devis / planned-care aggregate: `TreatmentPlanItem`s (acts, per-tooth) + payment `Installment` schedule; drives the odontogram-seeded plan flow. |
+| `CnamNomenclatureEntry` | `Entities/CnamNomenclatureEntry.cs` | Clinic-scoped CNAM dental nomenclature act (code, letter-key, reimbursement basis); paired with `CnamLetterValue` (letter-key monetary values) + `DentalActCode` catalog. Backs BS1 reimbursement estimates. |
+| `Medication` | `Entities/Medication.cs` | Medication catalog (+ `MedicationActiveIngredient`), backs the ordonnance picker. |
+| `ToothState` | `Entities/ToothState.cs` | Per-tooth odontogram condition state for a patient (read-only history surfaced on the patient odontogram). |
 | `Clinic` | `Entities/Clinic.cs` | Tenant root. `Name`, contact info, unique join `Code`, `LogoUrl` (MinIO key). Owns `Users`, `Patients`, `Appointments`. |
 | `Doctor` | `Entities/Doctor.cs` | Doctor profile in a clinic; `LinkToUser(userId)` ties it to an Auth0 `User`. `FullName` computed. |
 | `User` | `Entities/User.cs` | **`AggregateRoot<string>`** — Id is the **Auth0 `sub`** (Cloud) or `local\|{guid}` (Local mode). `Role` string ("doctor"/"secretary"/"admin") with `IsDoctor/IsSecretary/IsAdmin` helpers. Belongs to a `Clinic`. **Local-auth fields (Phase 1):** nullable `PasswordHash`, `MustChangePassword`, `IsActive`, plus lockout state (`FailedLoginAttempts`, `LockoutEnd`). Factory `CreateLocalUser(...)` (trims + lowercases the email); `SetPassword(hash, mustChangePassword)` also clears lockout/failed-attempt state; `Activate()`/`Deactivate()`; failed-login + lockout methods. Cloud users leave `PasswordHash` null. |
@@ -67,16 +70,9 @@
 | `InsuranceInfo` | `ValueObjects/InsuranceInfo.cs` | Provider + policy number required. |
 | `ColorHex` | `ValueObjects/ColorHex.cs` | `#RRGGBB`, **must be in a curated palette** that mirrors the frontend. `IsValid`, `FromString`, `GetAvailableColors`. Used by `ProcedureType`. |
 
-## Domain Events (`Events/`)
+## Domain Events — removed
 
-All implement `IDomainEvent` (carry `OccurredOn = DateTime.UtcNow`). Handlers are in `ClinicManagement.Application/Features/.../EventHandlers`.
-
-| Event | File | Raised by |
-|-------|------|-----------|
-| `AppointmentCreatedEvent` | `Events/AppointmentCreatedEvent.cs` | `Appointment` ctor (when a patient is attached) |
-| `AppointmentConfirmedEvent` | `Events/AppointmentConfirmedEvent.cs` | `Appointment.Confirm()` |
-| `AppointmentRescheduledEvent` | `Events/AppointmentRescheduledEvent.cs` | `Appointment.Reschedule()` |
-| `PatientFlagAddedEvent` | `Events/PatientFlagAddedEvent.cs` | `Patient.AddFlag()` |
+The `Events/` folder, `IDomainEvent`, and `AggregateRoot`'s event list were **removed** (`french-localization-and-cleanup`): they were a dead "parallel-universe" pipeline — `ApplicationDbContext.SaveChangesAsync` never drained the events and there were zero `INotificationHandler`s. Side effects (in-app notifications, SMS/WhatsApp reminders) are produced **inline, post-commit** from the command handlers via `INotificationGenerator`/`IReminderScheduler`.
 
 ## Enums (`Enums/`)
 

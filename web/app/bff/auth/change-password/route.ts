@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
 
     if (!res.ok || !data?.isSuccess) {
       return NextResponse.json(
-        { error: data?.error || 'Failed to change password.' },
+        { error: data?.error || 'Échec du changement de mot de passe.' },
         { status: res.status === 401 ? 401 : 400 }
       );
     }
@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
     return response;
   } catch {
     return NextResponse.json(
-      { error: 'Cannot reach the clinic server. Please try again.' },
+      { error: 'Impossible de joindre le serveur de la clinique. Veuillez réessayer.' },
       { status: 502 }
     );
   }

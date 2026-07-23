@@ -25,7 +25,7 @@ export default function UsersPage() {
 
           <main className="flex-1 overflow-y-auto">
             {isLoading ? (
-              <p className="p-8 text-center text-muted-foreground">Loading...</p>
+              <p className="p-8 text-center text-muted-foreground">Chargement…</p>
             ) : isAdmin ? (
               <UserManagement />
             ) : (
@@ -36,13 +36,13 @@ export default function UsersPage() {
                     <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-red-100 dark:bg-red-900/20">
                       <Lock className="h-7 w-7 text-red-600 dark:text-red-400" />
                     </div>
-                    <CardTitle>Admins only</CardTitle>
-                    <CardDescription>User management is restricted to clinic administrators.</CardDescription>
+                    <CardTitle>Administrateurs uniquement</CardTitle>
+                    <CardDescription>La gestion des utilisateurs est réservée aux administrateurs de la clinique.</CardDescription>
                   </CardHeader>
                   <CardContent>
                     <Button variant="outline" className="w-full gap-2" onClick={() => router.push("/")}>
                       <ArrowLeft className="h-4 w-4" />
-                      Back to dashboard
+                      Retour au tableau de bord
                     </Button>
                   </CardContent>
                 </Card>

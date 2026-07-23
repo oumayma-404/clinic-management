@@ -75,7 +75,7 @@ export function useClinicAccess(redirectToSetup: boolean = true) {
         hasAccess: false,
         isLoading: false,
         status: null,
-        error: err.message || "Failed to check clinic access",
+        error: err.message || "Échec de la vérification de l'accès à la clinique",
       })
     }
   }, [accessToken, authLoading, redirectToSetup, router])

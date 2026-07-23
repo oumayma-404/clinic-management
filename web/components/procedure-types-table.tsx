@@ -44,9 +44,9 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
     } catch (err) {
       console.error("Failed to load procedure types:", err)
       if (err instanceof ApiError) {
-        setError(`Failed to load procedure types: ${err.message}`)
+        setError(`Échec du chargement des types d'actes : ${err.message}`)
       } else {
-        setError("Failed to load procedure types. Please try again.")
+        setError("Échec du chargement des types d'actes. Veuillez réessayer.")
       }
     } finally {
       setLoading(false)
@@ -141,10 +141,10 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Color</TableHead>
-                  <TableHead>Procedure Name</TableHead>
-                  <TableHead>Duration</TableHead>
-                  <TableHead>Default Cost</TableHead>
+                  <TableHead>Couleur</TableHead>
+                  <TableHead>Nom de l'acte</TableHead>
+                  <TableHead>Durée</TableHead>
+                  <TableHead>Coût par défaut</TableHead>
                   <TableHead>Description</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
@@ -153,10 +153,10 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
                 {procedures.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={6} className="h-24 text-center">
-                      <p className="text-muted-foreground">No procedure types defined</p>
+                      <p className="text-muted-foreground">Aucun type d'acte défini</p>
                       <Button onClick={onAdd} variant="outline" size="sm" className="mt-2 gap-2">
                         <Plus className="h-4 w-4" />
-                        Add Your First Procedure Type
+                        Ajouter votre premier type d'acte
                       </Button>
                     </TableCell>
                   </TableRow>
@@ -181,7 +181,7 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
                               backgroundColor: `${procedure.colorHex}10`,
                             }}
                           >
-                            Preview
+                            Aperçu
                           </Badge>
                         </div>
                       </TableCell>
@@ -207,7 +207,7 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
                         <div className="flex justify-end gap-2">
                           <Button variant="ghost" size="sm" onClick={() => onEdit(procedure)} className="h-8 gap-1">
                             <Pencil className="h-3 w-3" />
-                            Edit
+                            Modifier
                           </Button>
                           <Button
                             variant="ghost"
@@ -216,7 +216,7 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
                             className="h-8 gap-1 text-destructive hover:text-destructive"
                           >
                             <Trash2 className="h-3 w-3" />
-                            Delete
+                            Supprimer
                           </Button>
                         </div>
                       </TableCell>
@@ -233,21 +233,21 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogTitle>Êtes-vous sûr ?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will {procedureToDelete?.isActive ? "deactivate" : "permanently delete"} the procedure type{" "}
+              Cela va {procedureToDelete?.isActive ? "désactiver" : "supprimer définitivement"} le type d'acte{" "}
               <span className="font-semibold">{procedureToDelete?.name}</span>.
-              {procedureToDelete?.isActive && " If it's used by future appointments, it will be soft-deleted instead."}
+              {procedureToDelete?.isActive && " S'il est utilisé par de futurs rendez-vous, il sera archivé au lieu d'être supprimé."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={deleting}>Annuler</AlertDialogCancel>
             <AlertDialogAction
               onClick={confirmDelete}
               disabled={deleting}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {deleting ? "Deleting..." : "Delete"}
+              {deleting ? "Suppression…" : "Supprimer"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

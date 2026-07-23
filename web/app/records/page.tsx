@@ -13,6 +13,7 @@ import { dentalRecordsApi } from "@/lib/api/dental-records"
 import { PatientSummaryModal } from "@/components/patient-summary-modal"
 import type { PatientDto, DentalRecordDto } from "@/lib/api/types"
 import { cn } from "@/lib/utils"
+import { formatDate } from "@/lib/format"
 import { toast } from "sonner"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
@@ -36,8 +37,8 @@ export default function MedicalRecordsPage() {
         setPatients(patientsData)
       } catch (error) {
         console.error("Failed to load patients:", error)
-        toast.error("Failed to load patients", {
-          description: "Please try again later",
+        toast.error("Échec du chargement des patients", {
+          description: "Veuillez réessayer plus tard",
         })
       } finally {
         setLoading(false)
@@ -65,8 +66,8 @@ export default function MedicalRecordsPage() {
       setSummaryModalOpen(true)
     } catch (error) {
       console.error("Failed to load patient data:", error)
-      toast.error("Failed to load patient data", {
-        description: "Please try again later",
+      toast.error("Échec du chargement des données du patient", {
+        description: "Veuillez réessayer plus tard",
       })
     } finally {
       setLoadingPatientData(false)
@@ -89,15 +90,13 @@ export default function MedicalRecordsPage() {
       patient.lastName.toLowerCase().includes(query) ||
       `${patient.firstName} ${patient.lastName}`.toLowerCase().includes(query)
     
-    // Search by date of birth - format in multiple ways for flexibility
+    // Search by date of birth - format in multiple French ways for flexibility (dd/mm/yyyy market)
     const dob = new Date(patient.dateOfBirth)
     const dobFormats = [
-      dob.toLocaleDateString('en-US'), // MM/DD/YYYY
-      dob.toLocaleDateString('en-GB'), // DD/MM/YYYY
-      dob.toISOString().split('T')[0], // YYYY-MM-DD
-      dob.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }), // MM/DD/YYYY
-      dob.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }), // MMM DD, YYYY
-      dob.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }), // Month DD, YYYY
+      dob.toLocaleDateString('fr-FR'), // JJ/MM/AAAA
+      dob.toISOString().split('T')[0], // AAAA-MM-JJ
+      dob.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' }), // JJ/MM/AAAA
+      dob.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }), // 5 janvier 2020
     ]
     
     const dobMatch = dobFormats.some(format => 
@@ -120,9 +119,9 @@ export default function MedicalRecordsPage() {
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h1 className="text-3xl font-bold text-foreground">Medical Records</h1>
+                    <h1 className="text-3xl font-bold text-foreground">Dossiers médicaux</h1>
                     <p className="text-sm text-muted-foreground mt-1">
-                      Click on a patient card to view their medical summary
+                      Cliquez sur la fiche d&apos;un patient pour voir son résumé médical
                     </p>
                   </div>
                 </div>
@@ -131,7 +130,7 @@ export default function MedicalRecordsPage() {
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
-                    placeholder="Search patients by name or date of birth..."
+                    placeholder="Rechercher un patient par nom ou date de naissance…"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="pl-10"
@@ -158,12 +157,12 @@ export default function MedicalRecordsPage() {
                     <div className="text-center text-muted-foreground">
                       <FileText className="h-16 w-16 mx-auto mb-4 opacity-50" />
                       <p className="text-lg font-medium">
-                        {searchQuery ? "No patients found" : "No patients yet"}
+                        {searchQuery ? "Aucun patient trouvé" : "Aucun patient pour le moment"}
                       </p>
                       <p className="text-sm mt-2">
                         {searchQuery
-                          ? "Try a different search term"
-                          : "Patients will appear here once they are added to the system"}
+                          ? "Essayez un autre terme de recherche"
+                          : "Les patients apparaîtront ici une fois ajoutés au système"}
                       </p>
                     </div>
                   </Card>
@@ -187,7 +186,7 @@ export default function MedicalRecordsPage() {
                               {patient.firstName} {patient.lastName}
                             </p>
                             <p className="text-xs text-muted-foreground mt-1">
-                              {new Date(patient.dateOfBirth).toLocaleDateString()}
+                              {formatDate(patient.dateOfBirth)}
                             </p>
                           </div>
                           {loadingPatientData && selectedPatient?.id === patient.id ? (

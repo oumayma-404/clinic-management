@@ -68,12 +68,12 @@ export function StockItemFormModal({ open, onOpenChange, editingItem, onSaved }:
 
   const validate = (): boolean => {
     const next: Record<string, string> = {}
-    if (!name.trim()) next.name = "Name is required"
-    if (!category) next.category = "Category is required"
-    if (!unit) next.unit = "Unit is required"
-    if (quantity === "" || Number(quantity) < 0) next.quantity = "Enter a quantity of 0 or more"
-    if (minimumStockLevel === "" || Number(minimumStockLevel) < 0) next.minimumStockLevel = "Enter a minimum of 0 or more"
-    if (unitPrice !== "" && Number(unitPrice) < 0) next.unitPrice = "Price cannot be negative"
+    if (!name.trim()) next.name = "Le nom est requis"
+    if (!category) next.category = "La catégorie est requise"
+    if (!unit) next.unit = "L'unité est requise"
+    if (quantity === "" || Number(quantity) < 0) next.quantity = "Saisissez une quantité de 0 ou plus"
+    if (minimumStockLevel === "" || Number(minimumStockLevel) < 0) next.minimumStockLevel = "Saisissez un minimum de 0 ou plus"
+    if (unitPrice !== "" && Number(unitPrice) < 0) next.unitPrice = "Le prix ne peut pas être négatif"
     setErrors(next)
     return Object.keys(next).length === 0
   }
@@ -100,15 +100,15 @@ export function StockItemFormModal({ open, onOpenChange, editingItem, onSaved }:
       setSaving(true)
       if (editingItem) {
         await stockApi.update(editingItem.id, payload)
-        toast.success("Stock item updated")
+        toast.success("Article mis à jour")
       } else {
         await stockApi.create(payload)
-        toast.success("Stock item added")
+        toast.success("Article ajouté")
       }
       onOpenChange(false)
       onSaved()
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Failed to save stock item")
+      toast.error(err instanceof ApiError ? err.message : "Échec de l'enregistrement de l'article")
     } finally {
       setSaving(false)
     }
@@ -118,25 +118,25 @@ export function StockItemFormModal({ open, onOpenChange, editingItem, onSaved }:
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>{editingItem ? "Edit Stock Item" : "Add New Stock Item"}</DialogTitle>
+          <DialogTitle>{editingItem ? "Modifier l'article" : "Ajouter un article"}</DialogTitle>
           <DialogDescription>
-            {editingItem ? "Update the details of the stock item" : "Enter the details of the new stock item"}
+            {editingItem ? "Mettez à jour les détails de l'article" : "Saisissez les détails du nouvel article"}
           </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="name">
-              Item Name <span className="text-destructive">*</span>
+              Nom de l'article <span className="text-destructive">*</span>
             </Label>
-            <Input id="name" placeholder="e.g., Surgical Gloves" value={name} onChange={(e) => setName(e.target.value)} />
+            <Input id="name" placeholder="ex. : gants chirurgicaux" value={name} onChange={(e) => setName(e.target.value)} />
             {errors.name && <p className="text-xs text-destructive">{errors.name}</p>}
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="quantity">
-                Quantity <span className="text-destructive">*</span>
+                Quantité <span className="text-destructive">*</span>
               </Label>
               <Input
                 id="quantity"
@@ -151,11 +151,11 @@ export function StockItemFormModal({ open, onOpenChange, editingItem, onSaved }:
 
             <div className="space-y-2">
               <Label htmlFor="unit">
-                Unit <span className="text-destructive">*</span>
+                Unité <span className="text-destructive">*</span>
               </Label>
               <Select value={unit} onValueChange={setUnit}>
                 <SelectTrigger id="unit">
-                  <SelectValue placeholder="Select unit" />
+                  <SelectValue placeholder="Sélectionner une unité" />
                 </SelectTrigger>
                 <SelectContent>
                   {UNITS.map((u) => (
@@ -172,7 +172,7 @@ export function StockItemFormModal({ open, onOpenChange, editingItem, onSaved }:
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="minimumStockLevel">
-                Min. Stock Level <span className="text-destructive">*</span>
+                Stock minimum <span className="text-destructive">*</span>
               </Label>
               <Input
                 id="minimumStockLevel"
@@ -187,11 +187,11 @@ export function StockItemFormModal({ open, onOpenChange, editingItem, onSaved }:
 
             <div className="space-y-2">
               <Label htmlFor="category">
-                Category <span className="text-destructive">*</span>
+                Catégorie <span className="text-destructive">*</span>
               </Label>
               <Select value={category} onValueChange={setCategory}>
                 <SelectTrigger id="category">
-                  <SelectValue placeholder="Select category" />
+                  <SelectValue placeholder="Sélectionner une catégorie" />
                 </SelectTrigger>
                 <SelectContent>
                   {CATEGORIES.map((c) => (
@@ -207,13 +207,13 @@ export function StockItemFormModal({ open, onOpenChange, editingItem, onSaved }:
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="unitPrice">Unit Price</Label>
+              <Label htmlFor="unitPrice">Prix unitaire</Label>
               <Input
                 id="unitPrice"
                 type="number"
                 min="0"
                 step="0.01"
-                placeholder="Optional"
+                placeholder="Optionnel"
                 value={unitPrice}
                 onChange={(e) => setUnitPrice(e.target.value)}
               />
@@ -221,10 +221,10 @@ export function StockItemFormModal({ open, onOpenChange, editingItem, onSaved }:
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="supplier">Supplier</Label>
+              <Label htmlFor="supplier">Fournisseur</Label>
               <Input
                 id="supplier"
-                placeholder="Optional"
+                placeholder="Optionnel"
                 value={supplier}
                 onChange={(e) => setSupplier(e.target.value)}
               />
@@ -235,7 +235,7 @@ export function StockItemFormModal({ open, onOpenChange, editingItem, onSaved }:
             <Label htmlFor="description">Description</Label>
             <Textarea
               id="description"
-              placeholder="Optional"
+              placeholder="Optionnel"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={2}
@@ -244,10 +244,10 @@ export function StockItemFormModal({ open, onOpenChange, editingItem, onSaved }:
 
           <DialogFooter className="gap-2">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
-              Cancel
+              Annuler
             </Button>
             <Button type="submit" disabled={saving}>
-              {saving ? "Saving..." : editingItem ? "Update Item" : "Add Item"}
+              {saving ? "Enregistrement…" : editingItem ? "Mettre à jour" : "Ajouter"}
             </Button>
           </DialogFooter>
         </form>
