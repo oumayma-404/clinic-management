@@ -15,13 +15,21 @@ public class CnamLetterValueConfiguration : IEntityTypeConfiguration<CnamLetterV
         builder.Property(v => v.Id)
             .ValueGeneratedNever();
 
+        builder.Property(v => v.ClinicId)
+            .IsRequired();
+
         builder.Property(v => v.LettreCle)
             .IsRequired()
             .HasMaxLength(10);
 
-        // Global VLC set — one value per lettre clé.
-        builder.HasIndex(v => v.LettreCle)
+        // Per-clinic VLC set (#5): one value per lettre clé WITHIN a clinic.
+        builder.HasIndex(v => new { v.ClinicId, v.LettreCle })
             .IsUnique();
+
+        builder.HasOne<Clinic>()
+            .WithMany()
+            .HasForeignKey(v => v.ClinicId)
+            .OnDelete(DeleteBehavior.Restrict);
 
         builder.Property(v => v.Value)
             .HasColumnType("decimal(18,3)");

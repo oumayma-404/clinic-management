@@ -12,7 +12,9 @@ namespace ClinicManagement.Domain.Entities;
 /// </summary>
 public class DentalActCode : AggregateRoot<Guid>
 {
-    /// <summary>The DCH code, e.g. <c>DCH020030</c>. Unique across the catalog (enforced by the handler).</summary>
+    /// <summary>Owning clinic — per-clinic catalog (#5).</summary>
+    public Guid ClinicId { get; private set; }
+    /// <summary>The DCH code, e.g. <c>DCH020030</c>. Unique per clinic (enforced by the handler + a composite index).</summary>
     public string CodeActe { get; private set; } = string.Empty;
     public string DesignationFr { get; private set; } = string.Empty;
     /// <summary>Lettre clé — "D" for every dental act (the CNAM dental key).</summary>
@@ -33,6 +35,7 @@ public class DentalActCode : AggregateRoot<Guid>
 
     public DentalActCode(
         Guid id,
+        Guid clinicId,
         string codeActe,
         string designationFr,
         string category,
@@ -43,6 +46,7 @@ public class DentalActCode : AggregateRoot<Guid>
         bool isProvisional = true)
     {
         Id = id;
+        ClinicId = clinicId;
         SetCore(codeActe, designationFr, lettreCle, coefficient, category, defaultFee, requiresAccordPrealable);
         IsActive = true;
         IsProvisional = isProvisional;

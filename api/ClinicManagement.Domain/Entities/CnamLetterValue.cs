@@ -11,6 +11,8 @@ namespace ClinicManagement.Domain.Entities;
 /// </summary>
 public class CnamLetterValue : AggregateRoot<Guid>
 {
+    /// <summary>Owning clinic — per-clinic catalog (#5).</summary>
+    public Guid ClinicId { get; private set; }
     public string LettreCle { get; private set; } = string.Empty;
     public decimal Value { get; private set; }
     public bool IsProvisional { get; private set; }
@@ -19,7 +21,7 @@ public class CnamLetterValue : AggregateRoot<Guid>
 
     private CnamLetterValue() { } // For EF Core
 
-    public CnamLetterValue(Guid id, string lettreCle, decimal value, bool isProvisional = true)
+    public CnamLetterValue(Guid id, Guid clinicId, string lettreCle, decimal value, bool isProvisional = true)
     {
         if (string.IsNullOrWhiteSpace(lettreCle))
             throw new ArgumentException("La lettre clé est obligatoire.", nameof(lettreCle));
@@ -27,6 +29,7 @@ public class CnamLetterValue : AggregateRoot<Guid>
             throw new ArgumentException("La valeur de la lettre clé ne peut pas être négative.", nameof(value));
 
         Id = id;
+        ClinicId = clinicId;
         LettreCle = lettreCle.Trim().ToUpperInvariant();
         Value = value;
         IsProvisional = isProvisional;

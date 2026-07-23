@@ -11,6 +11,9 @@ namespace ClinicManagement.Domain.Entities;
 /// </summary>
 public class CnamNomenclatureEntry : AggregateRoot<Guid>
 {
+    /// <summary>Owning clinic. The catalog is per-clinic (feature cloud-security-and-tenant-isolation, #5):
+    /// every clinic is seeded with the same default set, then its admin edits stay private to it.</summary>
+    public Guid ClinicId { get; private set; }
     public string CodeActe { get; private set; } = string.Empty;
     public string DesignationFr { get; private set; } = string.Empty;
     public string LettreCle { get; private set; } = string.Empty;
@@ -25,6 +28,7 @@ public class CnamNomenclatureEntry : AggregateRoot<Guid>
 
     public CnamNomenclatureEntry(
         Guid id,
+        Guid clinicId,
         string codeActe,
         string designationFr,
         string lettreCle,
@@ -33,6 +37,7 @@ public class CnamNomenclatureEntry : AggregateRoot<Guid>
         bool isProvisional = true)
     {
         Id = id;
+        ClinicId = clinicId;
         SetCore(codeActe, designationFr, lettreCle, coefficient, category);
         IsActive = true;
         IsProvisional = isProvisional;

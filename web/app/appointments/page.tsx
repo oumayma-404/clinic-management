@@ -136,8 +136,17 @@ export default function AppointmentsPage() {
     return () => window.removeEventListener("clinic:deeplink", handler)
   }, [openAppointmentById])
 
-  const handleAuthorizeGoogleCalendar = useCallback(() => {
-    googleCalendarApi.authorize()
+  const handleAuthorizeGoogleCalendar = useCallback(async () => {
+    try {
+      // connect() navigates the browser to Google's consent page on success (per-clinic OAuth).
+      await googleCalendarApi.connect()
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 0) {
+        toast.error("Connexion perdue. Veuillez réessayer.")
+      } else {
+        toast.error("Impossible de démarrer la connexion Google Calendar.")
+      }
+    }
   }, [])
 
   const handleSyncFromGoogle = useCallback(async () => {

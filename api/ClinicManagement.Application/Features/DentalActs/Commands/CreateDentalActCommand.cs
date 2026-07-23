@@ -23,15 +23,18 @@ public class CreateDentalActCommand : IRequest<Result<DentalActDto>>
 public class CreateDentalActCommandHandler : IRequestHandler<CreateDentalActCommand, Result<DentalActDto>>
 {
     private readonly IDentalActCodeRepository _repository;
+    private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<CreateDentalActCommandHandler> _logger;
 
     public CreateDentalActCommandHandler(
         IDentalActCodeRepository repository,
+        ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
         ILogger<CreateDentalActCommandHandler> logger)
     {
         _repository = repository;
+        _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
         _logger = logger;
     }
@@ -45,6 +48,13 @@ public class CreateDentalActCommandHandler : IRequestHandler<CreateDentalActComm
                 return Result<DentalActDto>.Failure("Le code acte est obligatoire.");
             }
 
+            var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
+            if (clinicResult.IsFailure)
+            {
+                return Result<DentalActDto>.Failure(clinicResult.Error ?? "Impossible de résoudre la clinique.");
+            }
+
+            // Existence check auto-scopes to the caller's clinic via the query filter → uniqueness is per-clinic (#5).
             if (await _repository.CodeActeExistsAsync(request.CodeActe, null, cancellationToken))
             {
                 return Result<DentalActDto>.Failure($"Un acte avec le code « {request.CodeActe.Trim()} » existe déjà.");
@@ -55,6 +65,7 @@ public class CreateDentalActCommandHandler : IRequestHandler<CreateDentalActComm
             {
                 act = new DentalActCode(
                     Guid.NewGuid(),
+                    clinicResult.Value,
                     request.CodeActe,
                     request.DesignationFr,
                     request.Category,

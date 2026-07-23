@@ -1,5 +1,6 @@
 using ClinicManagement.Application.Features.Medications.Commands;
 using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -9,17 +10,26 @@ using Xunit;
 namespace ClinicManagement.UnitTests.Features.Medications;
 
 /// <summary>
-/// DB-backed, GLOBAL, AdminOnly medication catalog CRUD. Mirrors the CNAM catalog CRUD pattern but keyed on
-/// brand + form + strength (rejects a duplicate presentation) and requires at least one DCI molecule. Mocks
-/// <see cref="IMedicationCatalogRepository"/> + <see cref="IUnitOfWork"/>.
+/// DB-backed, per-clinic, AdminOnly medication catalog CRUD (#5). Mirrors the CNAM catalog CRUD pattern but
+/// keyed on brand + form + strength (rejects a duplicate presentation) and requires at least one DCI
+/// molecule. Mocks <see cref="IMedicationCatalogRepository"/> + <see cref="ICurrentClinicResolver"/> +
+/// <see cref="IUnitOfWork"/>.
 /// </summary>
 public class MedicationCrudTests
 {
+    private static readonly Guid ClinicId = Guid.NewGuid();
     private readonly Mock<IMedicationCatalogRepository> _repo = new();
+    private readonly Mock<ICurrentClinicResolver> _clinicResolver = new();
     private readonly Mock<IUnitOfWork> _uow = new();
 
+    public MedicationCrudTests()
+    {
+        _clinicResolver.Setup(r => r.GetClinicIdAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result<Guid>.Success(ClinicId));
+    }
+
     private static Medication Med(string brand = "Doliprane") =>
-        new(Guid.NewGuid(), brand, "Comprimé", "1000 mg", new[] { "Paracétamol" });
+        new(Guid.NewGuid(), ClinicId, brand, "Comprimé", "1000 mg", new[] { "Paracétamol" });
 
     [Fact]
     public async Task Create_Succeeds_And_Persists_All_Fields() // [AC-1]
@@ -30,7 +40,7 @@ public class MedicationCrudTests
             .Callback<Medication, CancellationToken>((m, _) => captured = m)
             .ReturnsAsync((Medication m, CancellationToken _) => m);
 
-        var handler = new CreateMedicationCommandHandler(_repo.Object, _uow.Object, NullLogger<CreateMedicationCommandHandler>.Instance);
+        var handler = new CreateMedicationCommandHandler(_repo.Object, _clinicResolver.Object, _uow.Object, NullLogger<CreateMedicationCommandHandler>.Instance);
         var result = await handler.Handle(new CreateMedicationCommand
         {
             BrandName = "Augmentin", Form = "Comprimé", Strength = "1 g",
@@ -56,7 +66,7 @@ public class MedicationCrudTests
     {
         _repo.Setup(r => r.BrandExistsAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>())).ReturnsAsync(true);
 
-        var handler = new CreateMedicationCommandHandler(_repo.Object, _uow.Object, NullLogger<CreateMedicationCommandHandler>.Instance);
+        var handler = new CreateMedicationCommandHandler(_repo.Object, _clinicResolver.Object, _uow.Object, NullLogger<CreateMedicationCommandHandler>.Instance);
         var result = await handler.Handle(new CreateMedicationCommand
         {
             BrandName = "Doliprane", Form = "Comprimé", Strength = "1000 mg", Dcis = new List<string> { "Paracétamol" },
@@ -71,7 +81,7 @@ public class MedicationCrudTests
     [Fact]
     public async Task Create_Without_Any_Dci_Is_Rejected() // [AC-1] a medication must carry >= 1 molecule
     {
-        var handler = new CreateMedicationCommandHandler(_repo.Object, _uow.Object, NullLogger<CreateMedicationCommandHandler>.Instance);
+        var handler = new CreateMedicationCommandHandler(_repo.Object, _clinicResolver.Object, _uow.Object, NullLogger<CreateMedicationCommandHandler>.Instance);
         var result = await handler.Handle(new CreateMedicationCommand
         {
             BrandName = "Doliprane", Form = "Comprimé", Strength = "1000 mg", Dcis = new List<string>(),
@@ -85,7 +95,7 @@ public class MedicationCrudTests
     [Fact]
     public async Task Create_With_Only_Blank_Dcis_Is_Rejected() // [AC-1] whitespace molecules are dropped
     {
-        var handler = new CreateMedicationCommandHandler(_repo.Object, _uow.Object, NullLogger<CreateMedicationCommandHandler>.Instance);
+        var handler = new CreateMedicationCommandHandler(_repo.Object, _clinicResolver.Object, _uow.Object, NullLogger<CreateMedicationCommandHandler>.Instance);
         var result = await handler.Handle(new CreateMedicationCommand
         {
             BrandName = "Doliprane", Form = "Comprimé", Strength = "1000 mg", Dcis = new List<string> { "  ", "" },
@@ -98,7 +108,7 @@ public class MedicationCrudTests
     [Fact]
     public async Task Create_Without_BrandName_Is_Rejected()
     {
-        var handler = new CreateMedicationCommandHandler(_repo.Object, _uow.Object, NullLogger<CreateMedicationCommandHandler>.Instance);
+        var handler = new CreateMedicationCommandHandler(_repo.Object, _clinicResolver.Object, _uow.Object, NullLogger<CreateMedicationCommandHandler>.Instance);
         var result = await handler.Handle(new CreateMedicationCommand
         {
             BrandName = "   ", Form = "Comprimé", Strength = "1000 mg", Dcis = new List<string> { "Paracétamol" },
@@ -212,12 +222,12 @@ public class MedicationCrudTests
     }
 
     [Fact]
-    public void Catalog_Is_Global_Not_Clinic_Scoped() // [AC-1]
+    public void Catalog_Is_Per_Clinic_Scoped() // [#5]
     {
-        // Structural guarantee: the entity carries NO ClinicId (contrast ProcedureType which does), and the
-        // create command has no clinic parameter — so every clinic reads the same global catalog.
-        Assert.Null(typeof(Medication).GetProperty("ClinicId"));
-        Assert.NotNull(typeof(ProcedureType).GetProperty("ClinicId")); // sanity: the contrast holds
+        // Per-clinic (#5): the entity carries a ClinicId (like ProcedureType). The create command has NO
+        // clinic parameter — the caller's clinic is resolved server-side and stamped by the handler.
+        Assert.NotNull(typeof(Medication).GetProperty("ClinicId"));
+        Assert.NotNull(typeof(ProcedureType).GetProperty("ClinicId"));
         Assert.Null(typeof(CreateMedicationCommand).GetProperty("ClinicId"));
     }
 }

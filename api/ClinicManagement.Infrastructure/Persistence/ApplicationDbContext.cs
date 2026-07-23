@@ -58,16 +58,16 @@ public class ApplicationDbContext : DbContext
     // Treatment plans / devis (clinic-scoped aggregate root; children TreatmentPlanItem/Installment reached via it).
     public DbSet<TreatmentPlan> TreatmentPlans { get; set; }
     public DbSet<ClinicReminderSettings> ClinicReminderSettings { get; set; }
-    // Global CNAM reference data — deliberately NOT clinic-scoped (no HasQueryFilter below), so every
-    // clinic reads the same catalog + VLC values (FR-5.1 / plan R-5).
+    // Per-clinic CNAM reference data (feature cloud-security-and-tenant-isolation, #5): clinic-scoped via
+    // HasQueryFilter below. Every clinic is seeded with the SAME default catalog + VLC values on creation,
+    // then each clinic's admin edits stay private to it.
     public DbSet<CnamNomenclatureEntry> CnamNomenclatureEntries { get; set; }
     public DbSet<CnamLetterValue> CnamLetterValues { get; set; }
-    // Global medication catalog — deliberately NOT clinic-scoped (no HasQueryFilter below), so every clinic
-    // reads the same catalog. Backs the ordonnance medication picker.
+    // Per-clinic medication catalog (#5): clinic-scoped. Backs the ordonnance medication picker.
     public DbSet<Medication> Medications { get; set; }
+    // Child of Medication (reached via its parent) — no ClinicId, no query filter of its own.
     public DbSet<MedicationActiveIngredient> MedicationActiveIngredients { get; set; }
-    // Global dental act catalog (chapitre DCH) — deliberately NOT clinic-scoped (no HasQueryFilter below),
-    // so every clinic reads the same catalog. Backs the treatment-plan act picker.
+    // Per-clinic dental act catalog (chapitre DCH, #5): clinic-scoped. Backs the treatment-plan act picker.
     public DbSet<DentalActCode> DentalActCodes { get; set; }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
@@ -106,6 +106,13 @@ public class ApplicationDbContext : DbContext
         // ClinicReminderSettings is keyed by the clinic id (shared PK) → filter on Id. The reminder dispatcher
         // runs with no clinic in scope (filter inactive) so it can still resolve any clinic's settings by id.
         modelBuilder.Entity<ClinicReminderSettings>().HasQueryFilter(s => !IsClinicScoped || s.Id == ScopedClinicId);
+        // Per-clinic reference catalogs (#5): scoped like the other aggregate roots. The per-clinic seeder runs
+        // with no clinic in scope (filter inactive) so it can read/write any clinic's rows by explicit ClinicId.
+        // MedicationActiveIngredient is reached only through Medication, so it needs no filter of its own.
+        modelBuilder.Entity<CnamNomenclatureEntry>().HasQueryFilter(e => !IsClinicScoped || e.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<CnamLetterValue>().HasQueryFilter(v => !IsClinicScoped || v.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<Medication>().HasQueryFilter(m => !IsClinicScoped || m.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<DentalActCode>().HasQueryFilter(e => !IsClinicScoped || e.ClinicId == ScopedClinicId);
         // Clinical-workflow-depth aggregate roots — directly clinic-owned → filtered like the others. Their
         // Patient children are reached only through the aggregate, so they need no filter of their own.
         modelBuilder.Entity<Expense>().HasQueryFilter(e => !IsClinicScoped || e.ClinicId == ScopedClinicId);

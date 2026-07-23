@@ -181,11 +181,13 @@ public static class Extensions
         // with a clear "pg_dump introuvable" error rather than doing anything.
         services.AddScoped<IBackupService, PgDumpBackupService>();
 
-        // Google OAuth refresh-token store (US-3 / FR-E3): persists the token to a gitignored per-install
-        // file instead of rewriting appsettings.json. Singleton so the in-memory cache provides the
-        // immediate live-refresh-without-restart behavior the old in-place config set had. Safe to
-        // register unconditionally — only exercised when Google Calendar is used.
-        services.AddSingleton<IGoogleTokenStore, FileGoogleTokenStore>();
+        // Per-clinic reference-catalog seeder (feature cloud-security-and-tenant-isolation, #5): clones the
+        // shared default CNAM/medication/dental-act catalogs into each clinic on creation + a startup backfill.
+        services.AddScoped<IClinicCatalogSeeder, ClinicCatalogSeeder>();
+
+        // Google Calendar refresh tokens are now stored PER CLINIC on the Clinic entity (feature
+        // cloud-security-and-tenant-isolation, #4) — the former global file/singleton token store
+        // (IGoogleTokenStore/FileGoogleTokenStore) was retired, so there is no shared account across clinics.
 
         // Google Calendar Service
         services.AddScoped<IGoogleCalendarService, GoogleCalendarService>();

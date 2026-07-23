@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -53,6 +54,11 @@ public sealed class DeferredStartupService : IHostedService
             var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
             await context.Database.MigrateAsync(cancellationToken);
             _logger.LogInformation("Database migrations applied; API fully ready.");
+
+            // Backfill per-clinic reference catalogs for any existing clinic missing one (#5). Idempotent —
+            // a clinic that already has its catalog is skipped; new clinics are seeded on creation instead.
+            var catalogSeeder = scope.ServiceProvider.GetRequiredService<IClinicCatalogSeeder>();
+            await catalogSeeder.SeedAllClinicsAsync(cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

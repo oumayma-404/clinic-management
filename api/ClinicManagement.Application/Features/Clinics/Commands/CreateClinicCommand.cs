@@ -39,6 +39,7 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
     private readonly IAuth0ManagementService _auth0ManagementService;
     private readonly IFileStorage _fileStorage;
     private readonly ILocalAuthService _localAuthService;
+    private readonly IClinicCatalogSeeder _clinicCatalogSeeder;
     private readonly IUnitOfWork _unitOfWork;
 
     public CreateClinicCommandHandler(
@@ -50,6 +51,7 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
         IAuth0ManagementService auth0ManagementService,
         IFileStorage fileStorage,
         ILocalAuthService localAuthService,
+        IClinicCatalogSeeder clinicCatalogSeeder,
         IUnitOfWork unitOfWork)
     {
         _clinicRepository = clinicRepository;
@@ -60,6 +62,7 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
         _auth0ManagementService = auth0ManagementService;
         _fileStorage = fileStorage;
         _localAuthService = localAuthService;
+        _clinicCatalogSeeder = clinicCatalogSeeder;
         _unitOfWork = unitOfWork;
     }
 
@@ -224,6 +227,9 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
+            // Seed the clinic's reference catalogs (CNAM / medications / dental acts) with the shared default (#5).
+            await SeedClinicCatalogsAsync(clinic.Id, cancellationToken);
+
             // Update Auth0 app_metadata
             try
             {
@@ -336,6 +342,9 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
+        // Seed the clinic's reference catalogs (CNAM / medications / dental acts) with the shared default (#5).
+        await SeedClinicCatalogsAsync(clinic.Id, cancellationToken);
+
         return Result<ClinicDto>.Success(new ClinicDto
         {
             Id = clinic.Id,
@@ -354,6 +363,21 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
         foreach (var procedureType in ProcedureTypeCatalogSeed.CreateFor(clinicId))
         {
             await _procedureTypeRepository.AddAsync(procedureType, cancellationToken);
+        }
+    }
+
+    // Best-effort (#5): seed the clinic's reference catalogs after it is committed. A failure here must not
+    // undo the already-created clinic — the startup backfill (IClinicCatalogSeeder.SeedAllClinicsAsync)
+    // re-seeds any clinic that is missing a catalog on the next boot.
+    private async Task SeedClinicCatalogsAsync(Guid clinicId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _clinicCatalogSeeder.SeedForClinicAsync(clinicId, cancellationToken);
+        }
+        catch
+        {
+            // Swallowed: the startup backfill is the safety net (see SeedAllClinicsAsync).
         }
     }
 }

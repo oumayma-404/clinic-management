@@ -33,6 +33,15 @@ public class Clinic : AggregateRoot<Guid>
     // by WorkingHoursSerializer in the Application layer.
     public string? WorkingHoursJson { get; private set; }
 
+    // Per-clinic Google Calendar connection (feature cloud-security-and-tenant-isolation, #4). Replaces the
+    // former single token + "primary" calendar shared by ALL clinics (cross-tenant leak). Both nullable: a
+    // clinic that has not connected Google has neither. The refresh token is a secret — see progress.md
+    // (encrypt-at-rest is a tracked follow-up); it lives here (not the .local/ file store) so a multi-instance
+    // Cloud deployment can resolve each clinic's own token.
+    public string? GoogleRefreshToken { get; private set; }
+    /// <summary>Target Google calendar id for this clinic's sync; null falls back to the account's "primary".</summary>
+    public string? GoogleCalendarId { get; private set; }
+
     // Patient-recall interval in months (clinical-workflow-depth): how long after a patient's last visit they
     // are considered "à relancer". Defaults to 6 months.
     public int RecallIntervalMonths { get; private set; }
@@ -141,6 +150,28 @@ public class Clinic : AggregateRoot<Guid>
     public void SetWorkingHours(string? workingHoursJson)
     {
         WorkingHoursJson = string.IsNullOrWhiteSpace(workingHoursJson) ? null : workingHoursJson;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Connect (or re-connect) this clinic's Google Calendar: store its OAuth refresh token and the target
+    /// calendar id (null = the account's primary calendar). Per-clinic so no clinic can see another's events.
+    /// </summary>
+    public void SetGoogleCalendarConnection(string refreshToken, string? calendarId)
+    {
+        if (string.IsNullOrWhiteSpace(refreshToken))
+            throw new ArgumentException("Le jeton de rafraîchissement Google est obligatoire.", nameof(refreshToken));
+
+        GoogleRefreshToken = refreshToken.Trim();
+        GoogleCalendarId = string.IsNullOrWhiteSpace(calendarId) ? null : calendarId.Trim();
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>Disconnect this clinic's Google Calendar (clears the stored refresh token + calendar id).</summary>
+    public void ClearGoogleCalendarConnection()
+    {
+        GoogleRefreshToken = null;
+        GoogleCalendarId = null;
         UpdatedAt = DateTime.UtcNow;
     }
 

@@ -15,13 +15,21 @@ public class DentalActCodeConfiguration : IEntityTypeConfiguration<DentalActCode
         builder.Property(e => e.Id)
             .ValueGeneratedNever();
 
+        builder.Property(e => e.ClinicId)
+            .IsRequired();
+
         builder.Property(e => e.CodeActe)
             .IsRequired()
             .HasMaxLength(50);
 
-        // Global catalog (no ClinicId) — the code acte is unique across the whole catalog.
-        builder.HasIndex(e => e.CodeActe)
+        // Per-clinic catalog (#5): the code acte is unique WITHIN a clinic — each clinic owns its own copy.
+        builder.HasIndex(e => new { e.ClinicId, e.CodeActe })
             .IsUnique();
+
+        builder.HasOne<Clinic>()
+            .WithMany()
+            .HasForeignKey(e => e.ClinicId)
+            .OnDelete(DeleteBehavior.Restrict);
 
         builder.Property(e => e.DesignationFr)
             .IsRequired()

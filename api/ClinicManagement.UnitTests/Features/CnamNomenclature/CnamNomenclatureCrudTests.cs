@@ -1,5 +1,6 @@
 using ClinicManagement.Application.Features.CnamNomenclature.Commands;
 using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -9,17 +10,25 @@ using Xunit;
 namespace ClinicManagement.UnitTests.Features.CnamNomenclature;
 
 /// <summary>
-/// DB-backed, GLOBAL, AdminOnly CNAM catalog CRUD (FR-5.1). Mirrors the ProcedureType CRUD pattern but is
-/// global (no clinic stamping — CNAM-6) and rejects duplicate code acte. Mocks
-/// <see cref="ICnamCatalogRepository"/> + <see cref="IUnitOfWork"/>.
+/// DB-backed, per-clinic, AdminOnly CNAM catalog CRUD (FR-5.1 + per-clinic #5). The create handler stamps
+/// the caller's clinic and uniqueness is per-clinic. Mocks <see cref="ICnamCatalogRepository"/> +
+/// <see cref="ICurrentClinicResolver"/> + <see cref="IUnitOfWork"/>.
 /// </summary>
 public class CnamNomenclatureCrudTests
 {
+    private static readonly Guid ClinicId = Guid.NewGuid();
     private readonly Mock<ICnamCatalogRepository> _repo = new();
+    private readonly Mock<ICurrentClinicResolver> _clinicResolver = new();
     private readonly Mock<IUnitOfWork> _uow = new();
 
+    public CnamNomenclatureCrudTests()
+    {
+        _clinicResolver.Setup(r => r.GetClinicIdAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result<Guid>.Success(ClinicId));
+    }
+
     private static CnamNomenclatureEntry Entry(string code = "CONS") =>
-        new(Guid.NewGuid(), code, "Consultation dentaire", "CD", 1, "Consultation");
+        new(Guid.NewGuid(), ClinicId, code, "Consultation dentaire", "CD", 1, "Consultation");
 
     // CNAM-1
     [Fact]
@@ -31,7 +40,7 @@ public class CnamNomenclatureCrudTests
             .Callback<CnamNomenclatureEntry, CancellationToken>((e, _) => captured = e)
             .ReturnsAsync((CnamNomenclatureEntry e, CancellationToken _) => e);
 
-        var handler = new CreateCnamEntryCommandHandler(_repo.Object, _uow.Object, NullLogger<CreateCnamEntryCommandHandler>.Instance);
+        var handler = new CreateCnamEntryCommandHandler(_repo.Object, _clinicResolver.Object, _uow.Object, NullLogger<CreateCnamEntryCommandHandler>.Instance);
         var result = await handler.Handle(new CreateCnamEntryCommand
         {
             CodeActe = "DETART", DesignationFr = "Détartrage", LettreCle = "d", Coefficient = 10, Category = "Soins conservateurs",
@@ -55,7 +64,7 @@ public class CnamNomenclatureCrudTests
     {
         _repo.Setup(r => r.CodeActeExistsAsync("DETART", null, It.IsAny<CancellationToken>())).ReturnsAsync(true);
 
-        var handler = new CreateCnamEntryCommandHandler(_repo.Object, _uow.Object, NullLogger<CreateCnamEntryCommandHandler>.Instance);
+        var handler = new CreateCnamEntryCommandHandler(_repo.Object, _clinicResolver.Object, _uow.Object, NullLogger<CreateCnamEntryCommandHandler>.Instance);
         var result = await handler.Handle(new CreateCnamEntryCommand
         {
             CodeActe = "DETART", DesignationFr = "Détartrage", LettreCle = "D", Coefficient = 10, Category = "Soins conservateurs",
@@ -129,14 +138,14 @@ public class CnamNomenclatureCrudTests
         _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
-    // CNAM-6
+    // CNAM-6 (#5: catalog is now per-clinic)
     [Fact]
-    public void Catalog_Is_Global_Not_Clinic_Scoped() // [FR-5.1]
+    public void Catalog_Is_Per_Clinic_Scoped() // [#5]
     {
-        // Structural guarantee: the entity carries NO ClinicId (contrast ProcedureType which does), and the
-        // create command has no clinic parameter — so every clinic reads the same global rows.
-        Assert.Null(typeof(CnamNomenclatureEntry).GetProperty("ClinicId"));
-        Assert.NotNull(typeof(ProcedureType).GetProperty("ClinicId")); // sanity: the contrast holds
+        // Per-clinic (#5): the entity carries a ClinicId (like ProcedureType). The create command has NO
+        // clinic parameter — the caller's clinic is resolved server-side and stamped by the handler.
+        Assert.NotNull(typeof(CnamNomenclatureEntry).GetProperty("ClinicId"));
+        Assert.NotNull(typeof(ProcedureType).GetProperty("ClinicId"));
         Assert.Null(typeof(CreateCnamEntryCommand).GetProperty("ClinicId"));
     }
 
@@ -161,7 +170,7 @@ public class CnamNomenclatureCrudTests
     public async Task Confirm_Clears_Provisional_Flag_On_Entries_And_Vlc() // [FR-5.1]
     {
         var entry = Entry();          // provisional by default
-        var vlc = new CnamLetterValue(Guid.NewGuid(), "D", 1.2m); // provisional by default
+        var vlc = new CnamLetterValue(Guid.NewGuid(), ClinicId, "D", 1.2m); // provisional by default
         Assert.True(entry.IsProvisional);
         Assert.True(vlc.IsProvisional);
         _repo.Setup(r => r.GetAllAsync(true, It.IsAny<CancellationToken>())).ReturnsAsync(new[] { entry });

@@ -21,15 +21,18 @@ public class CreateMedicationCommand : IRequest<Result<MedicationDto>>
 public class CreateMedicationCommandHandler : IRequestHandler<CreateMedicationCommand, Result<MedicationDto>>
 {
     private readonly IMedicationCatalogRepository _repository;
+    private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<CreateMedicationCommandHandler> _logger;
 
     public CreateMedicationCommandHandler(
         IMedicationCatalogRepository repository,
+        ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
         ILogger<CreateMedicationCommandHandler> logger)
     {
         _repository = repository;
+        _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
         _logger = logger;
     }
@@ -51,6 +54,13 @@ public class CreateMedicationCommandHandler : IRequestHandler<CreateMedicationCo
                 return Result<MedicationDto>.Failure("Au moins une DCI (molécule) est requise.");
             }
 
+            var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
+            if (clinicResult.IsFailure)
+            {
+                return Result<MedicationDto>.Failure(clinicResult.Error ?? "Impossible de résoudre la clinique.");
+            }
+
+            // Existence check auto-scopes to the caller's clinic via the query filter → uniqueness is per-clinic (#5).
             if (await _repository.BrandExistsAsync(request.BrandName, request.Form, request.Strength, null, cancellationToken))
             {
                 return Result<MedicationDto>.Failure(
@@ -62,6 +72,7 @@ public class CreateMedicationCommandHandler : IRequestHandler<CreateMedicationCo
             {
                 medication = new Medication(
                     Guid.NewGuid(),
+                    clinicResult.Value,
                     request.BrandName,
                     request.Form,
                     request.Strength,

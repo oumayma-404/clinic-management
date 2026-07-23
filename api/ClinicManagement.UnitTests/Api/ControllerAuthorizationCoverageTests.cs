@@ -22,7 +22,6 @@ public class ControllerAuthorizationCoverageTests
         "Auth.Setup",                // bootstrap: first-run clinic+admin (also localhost-gated, AC-1.2a)
         "Auth.Register",             // bootstrap: clinic-code self-registration
         "Connectivity.Get",          // non-sensitive online/offline poll (Local-only; 404s in Cloud)
-        "GoogleCalendar.Authorize",  // OAuth browser redirect — cannot carry a bearer token
         "GoogleCalendar.Callback",   // OAuth browser redirect back from Google — cannot carry a bearer
     };
 

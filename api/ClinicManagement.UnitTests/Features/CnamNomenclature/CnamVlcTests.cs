@@ -23,9 +23,9 @@ public class CnamVlcTests
     {
         var values = new[]
         {
-            new CnamLetterValue(Guid.NewGuid(), "CD", 7m),
-            new CnamLetterValue(Guid.NewGuid(), "D", 1.2m),
-            new CnamLetterValue(Guid.NewGuid(), "RD", 2m),
+            new CnamLetterValue(Guid.NewGuid(), Guid.NewGuid(), "CD", 7m),
+            new CnamLetterValue(Guid.NewGuid(), Guid.NewGuid(), "D", 1.2m),
+            new CnamLetterValue(Guid.NewGuid(), Guid.NewGuid(), "RD", 2m),
         };
         _repo.Setup(r => r.GetAllLetterValuesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(values);
 
@@ -42,7 +42,7 @@ public class CnamVlcTests
     [Fact]
     public async Task Update_By_Admin_Persists_New_Value() // [FR-5.2]
     {
-        var vlc = new CnamLetterValue(Guid.NewGuid(), "D", 1.2m);
+        var vlc = new CnamLetterValue(Guid.NewGuid(), Guid.NewGuid(), "D", 1.2m);
         _repo.Setup(r => r.GetLetterValueByIdAsync(vlc.Id, It.IsAny<CancellationToken>())).ReturnsAsync(vlc);
 
         var handler = new UpdateCnamLetterValueCommandHandler(_repo.Object, _uow.Object, NullLogger<UpdateCnamLetterValueCommandHandler>.Instance);
@@ -72,7 +72,7 @@ public class CnamVlcTests
     public void Seeded_Vlc_Values_Are_Provisional() // [FR-5.2]
     {
         // The seed inserts every VLC with the provisional flag; the domain default encodes that contract.
-        var vlc = new CnamLetterValue(Guid.NewGuid(), "CD", 7m);
+        var vlc = new CnamLetterValue(Guid.NewGuid(), Guid.NewGuid(), "CD", 7m);
         Assert.True(vlc.IsProvisional);
     }
 }

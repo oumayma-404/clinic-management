@@ -98,8 +98,18 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
                     "Le nom du confrère destinataire est obligatoire pour une lettre de liaison.");
             }
 
+            // Authoritative tenant guard: resolve the caller's clinic from the DB and verify the patient
+            // belongs to it before creating any document/file/folder (the primary gate; the side-effect
+            // helpers below re-resolve independently). Defense-in-depth, independent of the fail-open global
+            // filter (cloud-security-and-tenant-isolation #6).
+            var patientClinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
+            if (patientClinicResult.IsFailure)
+            {
+                return Result<MedicalDocumentDto>.Failure(patientClinicResult.Error ?? "Unable to resolve current clinic");
+            }
+
             var patient = await _patientRepository.GetByIdAsync(request.PatientId, cancellationToken);
-            if (patient == null)
+            if (patient == null || patient.ClinicId != patientClinicResult.Value)
             {
                 return Result<MedicalDocumentDto>.Failure("Patient not found");
             }
