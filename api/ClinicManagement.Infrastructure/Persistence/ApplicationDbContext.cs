@@ -38,6 +38,11 @@ public class ApplicationDbContext : DbContext
     public DbSet<RecurringAppointment> RecurringAppointments { get; set; }
     public DbSet<StockItem> StockItems { get; set; }
     public DbSet<ProcedureType> ProcedureTypes { get; set; }
+    // Clinical-workflow-depth: caisse expenses, salle-d'attente entries, and dental-lab work orders
+    // (all clinic-scoped aggregate roots — added to the global clinic query filter below).
+    public DbSet<Expense> Expenses { get; set; }
+    public DbSet<WaitingListEntry> WaitingListEntries { get; set; }
+    public DbSet<LabWorkOrder> LabWorkOrders { get; set; }
     public DbSet<PatientMedicalHistory> PatientMedicalHistories { get; set; }
     public DbSet<PatientFamilyHistory> PatientFamilyHistories { get; set; }
     public DbSet<DentalRecord> DentalRecords { get; set; }
@@ -101,6 +106,13 @@ public class ApplicationDbContext : DbContext
         // ClinicReminderSettings is keyed by the clinic id (shared PK) → filter on Id. The reminder dispatcher
         // runs with no clinic in scope (filter inactive) so it can still resolve any clinic's settings by id.
         modelBuilder.Entity<ClinicReminderSettings>().HasQueryFilter(s => !IsClinicScoped || s.Id == ScopedClinicId);
+        // Clinical-workflow-depth aggregate roots — directly clinic-owned → filtered like the others. Their
+        // Patient children are reached only through the aggregate, so they need no filter of their own.
+        modelBuilder.Entity<Expense>().HasQueryFilter(e => !IsClinicScoped || e.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<WaitingListEntry>().HasQueryFilter(w => !IsClinicScoped || w.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<LabWorkOrder>().HasQueryFilter(l => !IsClinicScoped || l.ClinicId == ScopedClinicId);
+        // RecurringAppointment gained a ClinicId (clinical-workflow-depth) → clinic-scoped like the others.
+        modelBuilder.Entity<RecurringAppointment>().HasQueryFilter(r => !IsClinicScoped || r.ClinicId == ScopedClinicId);
 
         // Apply a value converter for all DateTime and DateTime? properties to ensure UTC
         // This is required for PostgreSQL which only accepts UTC DateTime values

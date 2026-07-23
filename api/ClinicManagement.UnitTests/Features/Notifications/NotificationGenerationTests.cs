@@ -254,7 +254,7 @@ public class NotificationGenerationTests
         var gen = new Mock<INotificationGenerator>();
 
         var handler = new UpdateAppointmentCommandHandler(
-            repo.Object, new Mock<IProcedureTypeRepository>().Object, clinicResolver.Object,
+            repo.Object, new Mock<IProcedureTypeRepository>().Object, new Mock<IDoctorRepository>().Object, clinicResolver.Object,
             context.Object, uow.Object, new Mock<IAppointmentGoogleSyncDispatcher>().Object, gen.Object,
             new Mock<IReminderScheduler>().Object,
             NullLogger<UpdateAppointmentCommandHandler>.Instance);
@@ -275,7 +275,7 @@ public class NotificationGenerationTests
         gen.Verify(g => g.AppointmentRescheduledAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Never);
         // [AC-4] Cancelling removes the pending post-visit review (and never keeps it in sync).
         gen.Verify(g => g.CancelPostVisitReviewAsync(appointment.ClinicId, appointment.Id, It.IsAny<CancellationToken>()), Times.Once);
-        gen.Verify(g => g.EnsurePostVisitReviewAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Never);
+        gen.Verify(g => g.EnsurePostVisitReviewAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid?>(), It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     // [US-3] Changing the date fires a rescheduled notification.
@@ -292,7 +292,7 @@ public class NotificationGenerationTests
         gen.Verify(g => g.AppointmentRescheduledAsync(appointment.ClinicId, appointment.Id, "local|actor", It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Once);
         // [AC-4] Rescheduling keeps the post-visit review in sync — moved to the new end (start + 30-min duration).
         gen.Verify(g => g.EnsurePostVisitReviewAsync(
-            appointment.ClinicId, appointment.Id, It.IsAny<string>(), It.IsAny<string>(),
+            appointment.ClinicId, appointment.Id, It.IsAny<Guid?>(), It.IsAny<string>(),
             It.Is<DateTime>(d => d == newDate + TimeSpan.FromMinutes(30)), It.IsAny<CancellationToken>()), Times.Once);
     }
 
@@ -348,7 +348,7 @@ public class NotificationGenerationTests
         h.Doctors.Setup(d => d.GetByIdAsync(doctorId, It.IsAny<CancellationToken>())).ReturnsAsync(doctor);
 
         await h.Generator().EnsurePostVisitReviewAsync(
-            ClinicId, Guid.NewGuid(), doctorId.ToString(), "Jean Dupont", DateTime.UtcNow.AddHours(1));
+            ClinicId, Guid.NewGuid(), doctorId, "Jean Dupont", DateTime.UtcNow.AddHours(1));
 
         Assert.Equal("local|doc-user", Assert.Single(h.Added).TargetUserId);
     }
@@ -363,21 +363,20 @@ public class NotificationGenerationTests
         h.Doctors.Setup(d => d.GetByIdAsync(doctorId, It.IsAny<CancellationToken>())).ReturnsAsync(doctor);
 
         await h.Generator().EnsurePostVisitReviewAsync(
-            ClinicId, Guid.NewGuid(), doctorId.ToString(), "Jean Dupont", DateTime.UtcNow.AddHours(1));
+            ClinicId, Guid.NewGuid(), doctorId, "Jean Dupont", DateTime.UtcNow.AddHours(1));
 
         Assert.Null(Assert.Single(h.Added).TargetUserId);
     }
 
-    // [AC-2] Null or unparsable DoctorId → visible to all staff (null target); no doctor lookup is attempted.
-    [Theory]
-    [InlineData(null)]
-    [InlineData("not-a-guid")]
-    public async Task EnsurePostVisitReview_Targets_All_Staff_When_DoctorId_Missing_Or_Invalid(string? doctorId)
+    // [AC-2] A missing (null) DoctorId → visible to all staff (null target); no doctor lookup is attempted.
+    // (DoctorId is now a Guid? FK, so the former "unparsable string" case is impossible by construction.)
+    [Fact]
+    public async Task EnsurePostVisitReview_Targets_All_Staff_When_DoctorId_Missing()
     {
         var h = new GeneratorHarness();
 
         await h.Generator().EnsurePostVisitReviewAsync(
-            ClinicId, Guid.NewGuid(), doctorId, "Jean Dupont", DateTime.UtcNow.AddHours(1));
+            ClinicId, Guid.NewGuid(), doctorId: null, "Jean Dupont", DateTime.UtcNow.AddHours(1));
 
         Assert.Null(Assert.Single(h.Added).TargetUserId);
         h.Doctors.Verify(d => d.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
@@ -460,7 +459,7 @@ public class NotificationGenerationTests
         var gen = new Mock<INotificationGenerator>();
 
         var handler = new CreateAppointmentCommandHandler(
-            appointments.Object, patients.Object, procedures.Object,
+            appointments.Object, patients.Object, new Mock<IDoctorRepository>().Object, procedures.Object,
             new Mock<ITreatmentPlanRepository>().Object, users.Object,
             context.Object, uow.Object, gen.Object,
             new Mock<IReminderScheduler>().Object, new Mock<IAppointmentGoogleSyncDispatcher>().Object);
@@ -481,7 +480,7 @@ public class NotificationGenerationTests
 
         Assert.True(result.IsSuccess);
         gen.Verify(g => g.EnsurePostVisitReviewAsync(
-            ClinicId, It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>(),
+            ClinicId, It.IsAny<Guid>(), It.IsAny<Guid?>(), It.IsAny<string>(),
             start + TimeSpan.FromMinutes(30), It.IsAny<CancellationToken>()), Times.Once);
     }
 
@@ -498,7 +497,7 @@ public class NotificationGenerationTests
 
         Assert.True(result.IsSuccess);
         gen.Verify(g => g.EnsurePostVisitReviewAsync(
-            It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid?>(), It.IsAny<string>(),
             It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 

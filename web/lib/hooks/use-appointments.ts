@@ -8,7 +8,8 @@ export function useAppointments(
   startDate?: Date,
   endDate?: Date,
   patientId?: string,
-  doctorName?: string
+  doctorName?: string,
+  doctorId?: string
 ) {
   const [appointments, setAppointments] = useState<AppointmentDto[]>([]);
   const [loading, setLoading] = useState(true);
@@ -46,6 +47,9 @@ export function useAppointments(
       if (doctorName) {
         params.doctorName = doctorName;
       }
+      if (doctorId) {
+        params.doctorId = doctorId;
+      }
 
       const data = await appointmentsApi.list(params);
       setAppointments(data);
@@ -58,7 +62,7 @@ export function useAppointments(
     } finally {
       setLoading(false);
     }
-  }, [formattedStartDate, formattedEndDate, patientId, doctorName]);
+  }, [formattedStartDate, formattedEndDate, patientId, doctorName, doctorId]);
 
   useEffect(() => {
     fetchAppointments();

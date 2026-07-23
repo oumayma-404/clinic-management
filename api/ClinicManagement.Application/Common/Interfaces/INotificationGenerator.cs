@@ -47,7 +47,7 @@ public interface INotificationGenerator
     /// Idempotent — safe to call on create, reschedule, duration/doctor change and reactivation.
     /// </summary>
     Task EnsurePostVisitReviewAsync(
-        Guid clinicId, Guid appointmentId, string? doctorId, string patientName, DateTime appointmentEndUtc,
+        Guid clinicId, Guid appointmentId, Guid? doctorId, string patientName, DateTime appointmentEndUtc,
         CancellationToken cancellationToken = default);
 
     /// <summary>Removes the post-visit review notification for an appointment, if one exists (cancel / fulfilled).</summary>

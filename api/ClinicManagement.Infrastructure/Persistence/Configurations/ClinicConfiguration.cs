@@ -68,6 +68,11 @@ public class ClinicConfiguration : IEntityTypeConfiguration<Clinic>
         builder.Property(c => c.WorkingHoursJson)
             .HasColumnType("text");
 
+        // Patient-recall interval in months (clinical-workflow-depth), default 6.
+        builder.Property(c => c.RecallIntervalMonths)
+            .IsRequired()
+            .HasDefaultValue(6);
+
         builder.HasIndex(c => c.Code)
             .IsUnique()
             .HasFilter("\"Code\" IS NOT NULL");

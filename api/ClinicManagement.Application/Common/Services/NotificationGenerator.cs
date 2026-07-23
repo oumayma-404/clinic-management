@@ -180,7 +180,7 @@ public class NotificationGenerator : INotificationGenerator
     }
 
     public async Task EnsurePostVisitReviewAsync(
-        Guid clinicId, Guid appointmentId, string? doctorId, string patientName, DateTime appointmentEndUtc,
+        Guid clinicId, Guid appointmentId, Guid? doctorId, string patientName, DateTime appointmentEndUtc,
         CancellationToken cancellationToken = default)
     {
         await SafelyAsync(clinicId, async () =>
@@ -238,14 +238,14 @@ public class NotificationGenerator : INotificationGenerator
     // The doctor must belong to the appointment's own clinic: the feed/pending queries filter on this clinic
     // AND the target user, so a foreign-clinic doctor's user would make the review invisible to everyone —
     // degrade a cross-clinic (or missing) resolution to the all-staff fallback instead.
-    private async Task<string?> ResolveTargetUserIdAsync(Guid clinicId, string? doctorId, CancellationToken cancellationToken)
+    private async Task<string?> ResolveTargetUserIdAsync(Guid clinicId, Guid? doctorId, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(doctorId) || !Guid.TryParse(doctorId, out var doctorGuid))
+        if (doctorId is null)
         {
             return null;
         }
 
-        var doctor = await _doctors.GetByIdAsync(doctorGuid, cancellationToken);
+        var doctor = await _doctors.GetByIdAsync(doctorId.Value, cancellationToken);
         if (doctor == null || doctor.ClinicId != clinicId)
         {
             return null;

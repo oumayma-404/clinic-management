@@ -75,6 +75,16 @@ public class AppointmentConfiguration : IEntityTypeConfiguration<Appointment>
             .WithMany(pt => pt.Appointments)
             .HasForeignKey(a => a.ProcedureTypeId)
             .OnDelete(DeleteBehavior.SetNull);
+
+        // Per-practitioner scheduling: DoctorId is a proper FK to Doctor (null = unassigned). SetNull so
+        // deleting a doctor leaves their appointments intact but unassigned. Indexed for the doctor filter.
+        builder.HasOne(a => a.Doctor)
+            .WithMany()
+            .HasForeignKey(a => a.DoctorId)
+            .IsRequired(false)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        builder.HasIndex(a => a.DoctorId);
     }
 }
 

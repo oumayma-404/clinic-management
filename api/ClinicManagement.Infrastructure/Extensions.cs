@@ -47,6 +47,11 @@ public static class Extensions
         services.AddScoped<IDentalActCodeRepository, DentalActCodeRepository>();
         services.AddScoped<IToothStateRepository, ToothStateRepository>();
         services.AddScoped<ITreatmentPlanRepository, TreatmentPlanRepository>();
+        // Clinical-workflow-depth repositories (caisse expenses, waiting list, dental-lab work orders).
+        services.AddScoped<IExpenseRepository, ExpenseRepository>();
+        services.AddScoped<IWaitingListRepository, WaitingListRepository>();
+        services.AddScoped<ILabWorkOrderRepository, LabWorkOrderRepository>();
+        services.AddScoped<IRecurringAppointmentRepository, RecurringAppointmentRepository>();
 
         // HttpClient for Auth0 Management API
         services.AddHttpClient();

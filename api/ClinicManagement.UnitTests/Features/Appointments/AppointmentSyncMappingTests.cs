@@ -83,7 +83,7 @@ public class AppointmentSyncMappingTests
         var users = new Mock<IUserRepository>();
         users.Setup(r => r.GetByAuth0SubAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
         var repo = new Mock<IAppointmentRepository>();
-        repo.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
+        repo.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new[] { synced, unsynced });
 
         var handler = new GetAppointmentsQueryHandler(repo.Object, users.Object, context.Object);
@@ -108,6 +108,7 @@ public class AppointmentSyncMappingTests
         var handler = new CreateAppointmentCommandHandler(
             new Mock<IAppointmentRepository>().Object,
             new Mock<IPatientRepository>().Object,
+            new Mock<IDoctorRepository>().Object,
             new Mock<IProcedureTypeRepository>().Object,
             new Mock<ITreatmentPlanRepository>().Object,
             users.Object,
@@ -144,6 +145,7 @@ public class AppointmentSyncMappingTests
         var handler = new UpdateAppointmentCommandHandler(
             repo.Object,
             new Mock<IProcedureTypeRepository>().Object,
+            new Mock<IDoctorRepository>().Object,
             clinicResolver.Object,
             new Mock<IClinicContext>().Object,
             new Mock<IUnitOfWork>().Object,

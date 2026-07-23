@@ -1,15 +1,49 @@
 import { apiGet, apiPost, apiPut } from './client';
-import type { AppointmentDto } from './types';
+import type { AppointmentDto, RecurringAppointmentDto, RecurringSeriesResultDto } from './types';
+
+export interface CreateRecurringSeriesPayload {
+  patientId: string;
+  startDateTime: string;
+  durationMinutes: number;
+  frequency: string; // Daily | Weekly | Monthly
+  interval: number;
+  endDate?: string | null;
+  occurrenceCount?: number | null;
+  doctorId?: string | null;
+  doctorName?: string | null;
+  procedureTypeId?: string | null;
+  notes?: string | null;
+}
 
 export const appointmentsApi = {
   list: async (params?: {
     startDate?: string;
     endDate?: string;
     patientId?: string;
+    doctorId?: string;
     doctorName?: string;
   }): Promise<AppointmentDto[]> => {
     return apiGet<AppointmentDto[]>('/appointments', params);
   },
+
+  // ---- Recurring series (clinical-workflow-depth) --------------------------------------------------
+  listRecurring: async (activeOnly: boolean = true): Promise<RecurringAppointmentDto[]> =>
+    apiGet<RecurringAppointmentDto[]>('/appointments/recurring', { activeOnly }),
+
+  createRecurring: async (data: CreateRecurringSeriesPayload): Promise<RecurringSeriesResultDto> =>
+    apiPost<RecurringSeriesResultDto>('/appointments/recurring', data),
+
+  cancelRecurring: async (
+    id: string,
+    scope: string, // Occurrence | Following | WholeSeries
+    fromAppointmentId?: string | null,
+    reason?: string | null,
+  ): Promise<{ cancelled: number }> =>
+    apiPost<{ cancelled: number }>(`/appointments/recurring/${id}/cancel`, {
+      scope,
+      fromAppointmentId: fromAppointmentId ?? null,
+      reason: reason ?? null,
+    }),
 
   get: async (id: string): Promise<AppointmentDto> => {
     return apiGet<AppointmentDto>(`/appointments/${id}`);

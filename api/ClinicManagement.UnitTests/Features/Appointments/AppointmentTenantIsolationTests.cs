@@ -85,6 +85,7 @@ public class AppointmentTenantIsolationTests
         var handler = new UpdateAppointmentCommandHandler(
             repo.Object,
             new Mock<IProcedureTypeRepository>().Object,
+            new Mock<IDoctorRepository>().Object,
             clinicResolver.Object,
             new Mock<IClinicContext>().Object,
             uow.Object,
@@ -116,6 +117,7 @@ public class AppointmentTenantIsolationTests
         var handler = new CreateAppointmentCommandHandler(
             appts.Object,
             patients.Object,
+            new Mock<IDoctorRepository>().Object,
             procedures.Object,
             new Mock<ITreatmentPlanRepository>().Object,
             users.Object,

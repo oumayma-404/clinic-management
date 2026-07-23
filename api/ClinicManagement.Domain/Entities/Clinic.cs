@@ -33,6 +33,10 @@ public class Clinic : AggregateRoot<Guid>
     // by WorkingHoursSerializer in the Application layer.
     public string? WorkingHoursJson { get; private set; }
 
+    // Patient-recall interval in months (clinical-workflow-depth): how long after a patient's last visit they
+    // are considered "à relancer". Defaults to 6 months.
+    public int RecallIntervalMonths { get; private set; }
+
     public const string TtnEnvironmentSandbox = "Sandbox";
     public const string TtnEnvironmentProduction = "Production";
 
@@ -74,6 +78,7 @@ public class Clinic : AggregateRoot<Guid>
         StampDutyAmount = 1.000m;
         TtnEInvoicingEnabled = false;
         TtnEnvironment = TtnEnvironmentSandbox;
+        RecallIntervalMonths = 6;
         CreatedAt = DateTime.UtcNow;
     }
 
@@ -136,6 +141,20 @@ public class Clinic : AggregateRoot<Guid>
     public void SetWorkingHours(string? workingHoursJson)
     {
         WorkingHoursJson = string.IsNullOrWhiteSpace(workingHoursJson) ? null : workingHoursJson;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Sets the patient-recall interval in months (1–60). Drives which patients appear "à relancer".
+    /// </summary>
+    public void SetRecallIntervalMonths(int months)
+    {
+        if (months < 1 || months > 60)
+        {
+            throw new ArgumentException("L'intervalle de relance doit être compris entre 1 et 60 mois.", nameof(months));
+        }
+
+        RecallIntervalMonths = months;
         UpdatedAt = DateTime.UtcNow;
     }
 }

@@ -18,6 +18,7 @@ namespace ClinicManagement.Infrastructure.Services;
 public class ReminderScheduler : IReminderScheduler
 {
     private const string ReminderSubject = "Rappel de rendez-vous";
+    private const string RecallSubject = "Relance patient";
     private const string FallbackClinicName = "votre clinique";
 
     // The app is Tunisia-targeted; appointment date/times are stored UTC but read best in local time.
@@ -70,6 +71,35 @@ public class ReminderScheduler : IReminderScheduler
         SafelyAsync(appointmentId, "void", async () =>
         {
             await VoidUnsentAsync(appointmentId, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+        });
+
+    public Task ScheduleRecallAsync(
+        Guid clinicId, Guid patientId, string patientName, string? reason,
+        CancellationToken cancellationToken = default) =>
+        SafelyRecallAsync(patientId, async () =>
+        {
+            // Which channels + custom wording is per-clinic (its toggles/settings, else the install default).
+            var settings = await _settingsProvider.ResolveAsync(clinicId, cancellationToken);
+            if (settings.EnabledChannels.Count == 0)
+            {
+                return;
+            }
+
+            var clinic = await _clinics.GetByIdAsync(clinicId, cancellationToken);
+            var message = BuildRecallMessage(patientName, reason, clinic?.Name ?? FallbackClinicName);
+            var sendTime = DateTime.UtcNow; // due now → dispatched on the next connectivity-gated tick
+
+            foreach (var channel in settings.EnabledChannels)
+            {
+                // A recall carries no appointment id and its own subject, so it is distinguishable from a
+                // booking reminder in the outbox / reminder-status view.
+                var recall = new Notification(
+                    Guid.NewGuid(), channel, RecallSubject, message, sendTime,
+                    appointmentId: null, patientId: patientId, clinicId: clinicId);
+                await _notifications.AddAsync(recall, cancellationToken);
+            }
+
             await _unitOfWork.SaveChangesAsync(cancellationToken);
         });
 
@@ -130,6 +160,25 @@ public class ReminderScheduler : IReminderScheduler
         {
             _logger.LogError(ex, "Failed to {Operation} reminders for appointment {AppointmentId}.", operation, appointmentId);
         }
+    }
+
+    private async Task SafelyRecallAsync(Guid patientId, Func<Task> work)
+    {
+        try
+        {
+            await work();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to schedule a recall for patient {PatientId}.", patientId);
+        }
+    }
+
+    // Recall wording: a short French "time for your next visit" nudge, distinct from the booking reminder.
+    private static string BuildRecallMessage(string patientName, string? reason, string clinicName)
+    {
+        var motif = string.IsNullOrWhiteSpace(reason) ? "un contrôle" : reason.Trim();
+        return $"Bonjour {patientName}, il est temps de programmer {motif} chez {clinicName}. Contactez-nous pour un rendez-vous.";
     }
 
     // Uses the clinic's custom wording when set (with {patient}/{date}/{clinic} placeholders), else the

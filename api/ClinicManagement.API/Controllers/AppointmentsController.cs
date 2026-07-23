@@ -26,12 +26,14 @@ public class AppointmentsController : ApiControllerBase
     [HttpGet]
     public async Task<ActionResult<IEnumerable<AppointmentDto>>> GetAppointments(
         [FromQuery] DateTime? startDate,
-        [FromQuery] DateTime? endDate)
+        [FromQuery] DateTime? endDate,
+        [FromQuery] Guid? doctorId)
     {
         var query = new GetAppointmentsQuery
         {
             StartDate = startDate,
-            EndDate = endDate
+            EndDate = endDate,
+            DoctorId = doctorId
         };
         var result = await _mediator.Send(query);
 
@@ -74,6 +76,31 @@ public class AppointmentsController : ApiControllerBase
         }
 
         return CreatedAtAction(nameof(GetAppointments), new { id = result.Value.Id }, result.Value);
+    }
+
+    /// <summary>List the clinic's recurring appointment series (active by default).</summary>
+    [HttpGet("recurring")]
+    public async Task<ActionResult<IEnumerable<RecurringAppointmentDto>>> GetRecurringSeries([FromQuery] bool activeOnly = true)
+    {
+        var result = await _mediator.Send(new GetRecurringSeriesQuery { ActiveOnly = activeOnly });
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>Create a recurring series; expands into linked appointments (returns created/skipped/conflict counts).</summary>
+    [HttpPost("recurring")]
+    public async Task<ActionResult<RecurringSeriesResultDto>> CreateRecurringSeries([FromBody] CreateRecurringSeriesCommand command)
+    {
+        var result = await _mediator.Send(command);
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>Cancel part or all of a recurring series (scope: Occurrence / Following / WholeSeries).</summary>
+    [HttpPost("recurring/{id:guid}/cancel")]
+    public async Task<IActionResult> CancelRecurringSeries(Guid id, [FromBody] CancelRecurringSeriesCommand command)
+    {
+        command.RecurringAppointmentId = id;
+        var result = await _mediator.Send(command);
+        return result.IsFailure ? HandleFailure(result) : Ok(new { cancelled = result.Value });
     }
 
     /// <summary>
