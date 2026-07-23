@@ -20,13 +20,11 @@ namespace ClinicManagement.Infrastructure.Migrations
                 oldClrType: typeof(string),
                 oldType: "text");
 
-            migrationBuilder.AlterColumn<long>(
-                name: "Duration",
-                table: "RecurringAppointments",
-                type: "bigint",
-                nullable: false,
-                oldClrType: typeof(TimeSpan),
-                oldType: "interval");
+            // interval -> bigint (ticks): EF's naive AlterColumn cannot cast interval to bigint (fails on ANY
+            // DB, even empty). Convert explicitly — TimeSpan.Ticks == seconds * 10,000,000 (1 tick = 100 ns).
+            migrationBuilder.Sql(
+                "ALTER TABLE \"RecurringAppointments\" ALTER COLUMN \"Duration\" TYPE bigint " +
+                "USING (EXTRACT(EPOCH FROM \"Duration\") * 10000000)::bigint;");
 
             migrationBuilder.AlterColumn<string>(
                 name: "DoctorName",
@@ -95,14 +93,11 @@ namespace ClinicManagement.Infrastructure.Migrations
                 nullable: false,
                 defaultValue: 6);
 
-            migrationBuilder.AlterColumn<Guid>(
-                name: "DoctorId",
-                table: "Appointments",
-                type: "uuid",
-                nullable: true,
-                oldClrType: typeof(string),
-                oldType: "text",
-                oldNullable: true);
+            // text -> uuid: DoctorId becomes a Doctor FK. Preserve values that are already GUID strings; null
+            // anything else (legacy free-text DoctorId can't map to a Doctor.Id).
+            migrationBuilder.Sql(
+                "ALTER TABLE \"Appointments\" ALTER COLUMN \"DoctorId\" TYPE uuid " +
+                "USING (CASE WHEN \"DoctorId\" ~ '^[0-9a-fA-F-]{36}$' THEN \"DoctorId\"::uuid ELSE NULL END);");
 
             migrationBuilder.CreateTable(
                 name: "Expenses",
@@ -323,13 +318,9 @@ namespace ClinicManagement.Infrastructure.Migrations
                 oldType: "character varying(20)",
                 oldMaxLength: 20);
 
-            migrationBuilder.AlterColumn<TimeSpan>(
-                name: "Duration",
-                table: "RecurringAppointments",
-                type: "interval",
-                nullable: false,
-                oldClrType: typeof(long),
-                oldType: "bigint");
+            migrationBuilder.Sql(
+                "ALTER TABLE \"RecurringAppointments\" ALTER COLUMN \"Duration\" TYPE interval " +
+                "USING (\"Duration\"::double precision / 10000000.0 * interval '1 second');");
 
             migrationBuilder.AlterColumn<string>(
                 name: "DoctorName",
@@ -341,14 +332,8 @@ namespace ClinicManagement.Infrastructure.Migrations
                 oldMaxLength: 200,
                 oldNullable: true);
 
-            migrationBuilder.AlterColumn<string>(
-                name: "DoctorId",
-                table: "Appointments",
-                type: "text",
-                nullable: true,
-                oldClrType: typeof(Guid),
-                oldType: "uuid",
-                oldNullable: true);
+            migrationBuilder.Sql(
+                "ALTER TABLE \"Appointments\" ALTER COLUMN \"DoctorId\" TYPE text USING \"DoctorId\"::text;");
         }
     }
 }
