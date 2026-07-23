@@ -25,12 +25,13 @@ export const googleCalendarApi = {
   },
 
   /**
-   * Initiate Google Calendar OAuth authorization
-   * This will redirect the user to Google's authorization page
+   * Initiate Google Calendar OAuth for the current clinic (admin only). Calls the authenticated connect
+   * endpoint to obtain a clinic-bound authorization URL, then navigates the browser to Google. Per-clinic
+   * so each clinic connects its OWN Google account/calendar (no shared account across clinics).
    */
-  authorize: (): void => {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
-    window.location.href = `${apiUrl}/googlecalendar/authorize`;
+  connect: async (): Promise<void> => {
+    const { authUrl } = await apiPost<{ authUrl: string }>('/googlecalendar/connect', {});
+    window.location.href = authUrl;
   },
 
   /**

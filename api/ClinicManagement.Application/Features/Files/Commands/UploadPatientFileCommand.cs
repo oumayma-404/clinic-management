@@ -28,6 +28,7 @@ public class UploadPatientFileCommandHandler : IRequestHandler<UploadPatientFile
     private readonly IPatientFileRepository _fileRepository;
     private readonly IFileStorage _fileStorage;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly ICurrentClinicResolver _clinicResolver;
     private readonly ILogger<UploadPatientFileCommandHandler> _logger;
 
     public UploadPatientFileCommandHandler(
@@ -36,6 +37,7 @@ public class UploadPatientFileCommandHandler : IRequestHandler<UploadPatientFile
         IPatientFileRepository fileRepository,
         IFileStorage fileStorage,
         IUnitOfWork unitOfWork,
+        ICurrentClinicResolver clinicResolver,
         ILogger<UploadPatientFileCommandHandler> logger)
     {
         _patientRepository = patientRepository;
@@ -43,6 +45,7 @@ public class UploadPatientFileCommandHandler : IRequestHandler<UploadPatientFile
         _fileRepository = fileRepository;
         _fileStorage = fileStorage;
         _unitOfWork = unitOfWork;
+        _clinicResolver = clinicResolver;
         _logger = logger;
     }
 
@@ -60,8 +63,17 @@ public class UploadPatientFileCommandHandler : IRequestHandler<UploadPatientFile
                 return Result<PatientFileDto>.Failure("File stream is required");
             }
 
+            // Authoritative tenant guard: resolve the caller's clinic from the DB and verify the patient
+            // belongs to it before storing any file (defense-in-depth, independent of the fail-open global
+            // filter — cloud-security-and-tenant-isolation #6).
+            var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
+            if (clinicResult.IsFailure)
+            {
+                return Result<PatientFileDto>.Failure(clinicResult.Error ?? "Unable to resolve current clinic");
+            }
+
             var patient = await _patientRepository.GetByIdAsync(request.PatientId, cancellationToken);
-            if (patient == null)
+            if (patient == null || patient.ClinicId != clinicResult.Value)
             {
                 return Result<PatientFileDto>.Failure("Patient not found");
             }

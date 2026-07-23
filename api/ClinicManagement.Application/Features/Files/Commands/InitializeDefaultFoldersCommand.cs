@@ -17,6 +17,7 @@ public class InitializeDefaultFoldersCommandHandler : IRequestHandler<Initialize
     private readonly IPatientRepository _patientRepository;
     private readonly IPatientFolderRepository _folderRepository;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly ICurrentClinicResolver _clinicResolver;
 
     private static readonly string[] DefaultFolderNames = new[]
     {
@@ -29,19 +30,30 @@ public class InitializeDefaultFoldersCommandHandler : IRequestHandler<Initialize
     public InitializeDefaultFoldersCommandHandler(
         IPatientRepository patientRepository,
         IPatientFolderRepository folderRepository,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        ICurrentClinicResolver clinicResolver)
     {
         _patientRepository = patientRepository;
         _folderRepository = folderRepository;
         _unitOfWork = unitOfWork;
+        _clinicResolver = clinicResolver;
     }
 
     public async Task<Result<IEnumerable<PatientFolderDto>>> Handle(InitializeDefaultFoldersCommand request, CancellationToken cancellationToken)
     {
         try
         {
+            // Authoritative tenant guard: resolve the caller's clinic from the DB and verify the patient
+            // belongs to it before creating folders (defense-in-depth, independent of the fail-open global
+            // filter — cloud-security-and-tenant-isolation #6).
+            var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
+            if (clinicResult.IsFailure)
+            {
+                return Result<IEnumerable<PatientFolderDto>>.Failure(clinicResult.Error ?? "Unable to resolve current clinic");
+            }
+
             var patient = await _patientRepository.GetByIdAsync(request.PatientId, cancellationToken);
-            if (patient == null)
+            if (patient == null || patient.ClinicId != clinicResult.Value)
             {
                 return Result<IEnumerable<PatientFolderDto>>.Failure("Patient not found");
             }

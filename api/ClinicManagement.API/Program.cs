@@ -227,6 +227,19 @@ try
 
     // Add Hangfire for background jobs
     var hangfireConnectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+
+    // Secrets are no longer committed to appsettings.json (feature cloud-security-and-tenant-isolation,
+    // AC-3): the DB connection string must be supplied out-of-band — Cloud via the environment
+    // (ConnectionStrings__DefaultConnection), the Local installer via appsettings.Production.json, or dev
+    // via appsettings.Development.json. Fail loud rather than starting with no database.
+    if (string.IsNullOrWhiteSpace(hangfireConnectionString))
+    {
+        Log.Fatal("No database connection string configured. Set ConnectionStrings__DefaultConnection " +
+                  "(environment) or provide it in the environment's appsettings file. The API cannot start " +
+                  "without a database.");
+        return 1;
+    }
+
     builder.Services.AddHangfire(config =>
         config.UsePostgreSqlStorage(hangfireConnectionString));
     builder.Services.AddHangfireServer();
@@ -420,7 +433,7 @@ try
     // per-request (the filter is a singleton attached to the dashboard middleware).
     app.UseHangfireDashboard("/hangfire", new DashboardOptions
     {
-        Authorization = new[] { new HangfireAuthorizationFilter(isLocalAuthMode) }
+        Authorization = new[] { new HangfireAuthorizationFilter() }
     });
 
     // Same-origin front door (Local): forward every non-/api route to the localhost Next server. The
@@ -445,6 +458,11 @@ try
         using var scope = app.Services.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
         context.Database.Migrate();
+
+        // Backfill per-clinic reference catalogs for any existing clinic missing one (#5). Idempotent —
+        // new clinics are seeded on creation; this covers clinics that predate the per-clinic conversion.
+        var catalogSeeder = scope.ServiceProvider.GetRequiredService<IClinicCatalogSeeder>();
+        await catalogSeeder.SeedAllClinicsAsync();
     }
 
 
@@ -509,27 +527,17 @@ finally
 return 0;
 
 // Authorization filter for the Hangfire dashboard.
-// Local mode (FR-E3): allow only requests originating from the server PC itself (loopback) — the
-// dashboard exposes job internals and must not be reachable from a LAN client. Cloud mode keeps the
-// prior permissive behavior (the dashboard is not exposed publicly there; tightening it is R-6/R-7).
-// Reverse-proxy caveat (R-9): behind a proxy the client IP is the proxy's, not loopback — acceptable
-// for the v1 single-PC topology where the API is not proxied.
+// The dashboard exposes background-job internals and payloads — and in a multi-tenant Cloud deployment
+// those payloads are cross-tenant — so it must never be reachable from a LAN client or the public
+// internet. In BOTH modes we allow only requests that originate from the server machine itself
+// (loopback); operators reach it via RDP / an SSH tunnel on the host. Cloud previously returned `true`
+// unconditionally, leaving /hangfire open to anyone who could reach the host (feature
+// cloud-security-and-tenant-isolation, AC-2).
+// Reverse-proxy caveat: behind a proxy the client IP is the proxy's, not loopback — so /hangfire denies
+// even the operator through the proxy (fail-safe); reach it from the host loopback instead. Acceptable
+// for the current topology (Cloud host reached directly; Local front door is co-located on the same PC).
 public class HangfireAuthorizationFilter : IDashboardAuthorizationFilter
 {
-    private readonly bool _isLocalMode;
-
-    public HangfireAuthorizationFilter(bool isLocalMode)
-    {
-        _isLocalMode = isLocalMode;
-    }
-
     public bool Authorize(DashboardContext context)
-    {
-        if (_isLocalMode)
-        {
-            return ClinicManagement.Infrastructure.LocalRequest.IsLoopback(context.GetHttpContext());
-        }
-
-        return true;
-    }
+        => ClinicManagement.Infrastructure.LocalRequest.IsLoopback(context.GetHttpContext());
 }

@@ -3,6 +3,7 @@
 import type React from "react"
 import { Auth0Provider, useUser } from "@auth0/nextjs-auth0/client"
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
+import { clinicsApi } from "@/lib/api/clinics"
 
 export type AuthMode = "cloud" | "local"
 
@@ -45,14 +46,39 @@ export function useSession(): SessionState {
 function CloudBridge({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useUser()
 
+  // Auth0's profile does not carry the clinic role, so resolve it server-side once the user is known:
+  // GET /api/clinics/user-status returns the DB-resolved role. Without this, role-gated admin UI —
+  // reminder settings, CNAM nomenclature, medication & dental-act catalogs — was unreachable in Cloud
+  // because `role` stayed unset here (feature cloud-security-and-tenant-isolation, AC-1).
+  const [role, setRole] = useState<string | undefined>(undefined)
+
+  useEffect(() => {
+    if (!user) {
+      setRole(undefined)
+      return
+    }
+    let active = true
+    clinicsApi
+      .getUserStatus()
+      .then((status) => {
+        if (active) setRole(status.role ?? status.user?.role ?? undefined)
+      })
+      .catch(() => {
+        // A membership/token hiccup must not break the session; role stays unset (non-admin UI).
+        if (active) setRole(undefined)
+      })
+    return () => {
+      active = false
+    }
+  }, [user?.email])
+
   // Memoize so the context value (and the mapped user object) keep a stable identity across
   // re-renders; otherwise every CloudBridge render hands consumers a new `user`, needlessly
-  // retriggering effects like useAuthToken's token fetch. Note: `role` is intentionally left
-  // unset in Cloud mode — Auth0 roles aren't surfaced here, so role-gated UI is Local-only.
+  // retriggering effects like useAuthToken's token fetch.
   const value = useMemo<SessionState>(
     () => ({
       user: user
-        ? { name: user.name ?? undefined, email: user.email ?? undefined, picture: user.picture ?? undefined }
+        ? { name: user.name ?? undefined, email: user.email ?? undefined, picture: user.picture ?? undefined, role }
         : null,
       isLoading: Boolean(isLoading),
       mode: "cloud",
@@ -60,7 +86,7 @@ function CloudBridge({ children }: { children: React.ReactNode }) {
         window.location.href = "/auth/logout"
       },
     }),
-    [user?.name, user?.email, user?.picture, isLoading],
+    [user?.name, user?.email, user?.picture, isLoading, role],
   )
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>

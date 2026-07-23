@@ -22,15 +22,18 @@ public class CreateCnamEntryCommand : IRequest<Result<CnamNomenclatureEntryDto>>
 public class CreateCnamEntryCommandHandler : IRequestHandler<CreateCnamEntryCommand, Result<CnamNomenclatureEntryDto>>
 {
     private readonly ICnamCatalogRepository _repository;
+    private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<CreateCnamEntryCommandHandler> _logger;
 
     public CreateCnamEntryCommandHandler(
         ICnamCatalogRepository repository,
+        ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
         ILogger<CreateCnamEntryCommandHandler> logger)
     {
         _repository = repository;
+        _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
         _logger = logger;
     }
@@ -44,6 +47,13 @@ public class CreateCnamEntryCommandHandler : IRequestHandler<CreateCnamEntryComm
                 return Result<CnamNomenclatureEntryDto>.Failure("Le code acte est obligatoire.");
             }
 
+            var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
+            if (clinicResult.IsFailure)
+            {
+                return Result<CnamNomenclatureEntryDto>.Failure(clinicResult.Error ?? "Impossible de résoudre la clinique.");
+            }
+
+            // Existence check auto-scopes to the caller's clinic via the query filter → uniqueness is per-clinic (#5).
             if (await _repository.CodeActeExistsAsync(request.CodeActe, null, cancellationToken))
             {
                 return Result<CnamNomenclatureEntryDto>.Failure(
@@ -55,6 +65,7 @@ public class CreateCnamEntryCommandHandler : IRequestHandler<CreateCnamEntryComm
             {
                 entry = new CnamNomenclatureEntry(
                     Guid.NewGuid(),
+                    clinicResult.Value,
                     request.CodeActe,
                     request.DesignationFr,
                     request.LettreCle,

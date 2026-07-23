@@ -22,6 +22,7 @@ public class CreateClinicLocalSetupTests
     private readonly Mock<IAuth0ManagementService> _auth0 = new();
     private readonly Mock<IFileStorage> _fileStorage = new();
     private readonly Mock<ILocalAuthService> _localAuth = new();
+    private readonly Mock<IClinicCatalogSeeder> _catalogSeeder = new();
     private readonly Mock<IUnitOfWork> _uow = new();
 
     private User? _capturedUser;
@@ -29,7 +30,7 @@ public class CreateClinicLocalSetupTests
 
     private CreateClinicCommandHandler Handler() => new(
         _clinics.Object, _procedureTypes.Object, _users.Object, _doctors.Object, _clinicContext.Object,
-        _auth0.Object, _fileStorage.Object, _localAuth.Object, _uow.Object);
+        _auth0.Object, _fileStorage.Object, _localAuth.Object, _catalogSeeder.Object, _uow.Object);
 
     private void FreshInstall()
     {

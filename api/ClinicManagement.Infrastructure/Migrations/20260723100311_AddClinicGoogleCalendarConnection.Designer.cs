@@ -3,6 +3,7 @@ using System;
 using ClinicManagement.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace ClinicManagement.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260723100311_AddClinicGoogleCalendarConnection")]
+    partial class AddClinicGoogleCalendarConnection
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -270,9 +273,6 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
-                    b.Property<Guid>("ClinicId")
-                        .HasColumnType("uuid");
-
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -292,7 +292,7 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ClinicId", "LettreCle")
+                    b.HasIndex("LettreCle")
                         .IsUnique();
 
                     b.ToTable("CnamLetterValues", (string)null);
@@ -307,9 +307,6 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
-
-                    b.Property<Guid>("ClinicId")
-                        .HasColumnType("uuid");
 
                     b.Property<string>("CodeActe")
                         .IsRequired()
@@ -343,7 +340,7 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ClinicId", "CodeActe")
+                    b.HasIndex("CodeActe")
                         .IsUnique();
 
                     b.ToTable("CnamNomenclatureEntries", (string)null);
@@ -358,9 +355,6 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
-
-                    b.Property<Guid>("ClinicId")
-                        .HasColumnType("uuid");
 
                     b.Property<string>("CodeActe")
                         .IsRequired()
@@ -400,7 +394,7 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ClinicId", "CodeActe")
+                    b.HasIndex("CodeActe")
                         .IsUnique();
 
                     b.ToTable("DentalActCodes", (string)null);
@@ -866,9 +860,6 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
-                    b.Property<Guid>("ClinicId")
-                        .HasColumnType("uuid");
-
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -893,7 +884,7 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ClinicId", "BrandName");
+                    b.HasIndex("BrandName");
 
                     b.ToTable("Medications", (string)null);
                 });
@@ -1710,33 +1701,6 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("ClinicManagement.Domain.Entities.CnamLetterValue", b =>
-                {
-                    b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
-                        .WithMany()
-                        .HasForeignKey("ClinicId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("ClinicManagement.Domain.Entities.CnamNomenclatureEntry", b =>
-                {
-                    b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
-                        .WithMany()
-                        .HasForeignKey("ClinicId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("ClinicManagement.Domain.Entities.DentalActCode", b =>
-                {
-                    b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
-                        .WithMany()
-                        .HasForeignKey("ClinicId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-                });
-
             modelBuilder.Entity("ClinicManagement.Domain.Entities.DentalRecord", b =>
                 {
                     b.HasOne("ClinicManagement.Domain.Entities.Patient", "Patient")
@@ -1806,15 +1770,6 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("Patient");
-                });
-
-            modelBuilder.Entity("ClinicManagement.Domain.Entities.Medication", b =>
-                {
-                    b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
-                        .WithMany()
-                        .HasForeignKey("ClinicId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
                 });
 
             modelBuilder.Entity("ClinicManagement.Domain.Entities.MedicationActiveIngredient", b =>

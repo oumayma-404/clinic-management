@@ -12,6 +12,8 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
     private readonly IGoogleCalendarService _googleCalendarService;
     private readonly IAppointmentRepository _appointmentRepository;
     private readonly IPatientRepository _patientRepository;
+    private readonly IClinicRepository _clinicRepository;
+    private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<GoogleCalendarSyncService> _logger;
 
@@ -19,14 +21,30 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
         IGoogleCalendarService googleCalendarService,
         IAppointmentRepository appointmentRepository,
         IPatientRepository patientRepository,
+        IClinicRepository clinicRepository,
+        ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
         ILogger<GoogleCalendarSyncService> logger)
     {
         _googleCalendarService = googleCalendarService;
         _appointmentRepository = appointmentRepository;
         _patientRepository = patientRepository;
+        _clinicRepository = clinicRepository;
+        _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
         _logger = logger;
+    }
+
+    // Loads a clinic's own Google connection (refresh token + calendar id). Returns null when the clinic
+    // has not connected Google — callers then skip silently (no cross-clinic shared account any more, #4).
+    private async Task<GoogleCalendarConnection?> ResolveConnectionAsync(Guid clinicId, CancellationToken cancellationToken)
+    {
+        var clinic = await _clinicRepository.GetByIdAsync(clinicId, cancellationToken);
+        if (clinic == null || string.IsNullOrEmpty(clinic.GoogleRefreshToken))
+        {
+            return null;
+        }
+        return new GoogleCalendarConnection(clinic.GoogleRefreshToken, clinic.GoogleCalendarId);
     }
 
     public async Task SyncAppointmentToGoogleCalendarAsync(
@@ -47,6 +65,16 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
             _logger.LogDebug("Appointment found: Patient={PatientName}, DateTime={DateTime}, Status={Status}, GoogleEventId={GoogleEventId}",
                 appointment.Patient?.GetFullName() ?? "Occupé", appointment.AppointmentDateTime, appointment.Status, appointment.GoogleCalendarEventId);
 
+            // Resolve THIS appointment's clinic connection (#4). No global/shared account any more — if the
+            // owning clinic has not connected Google, skip silently (nothing to sync, no cross-clinic leak).
+            var connection = await ResolveConnectionAsync(appointment.ClinicId, cancellationToken);
+            if (connection == null)
+            {
+                _logger.LogInformation("Clinic {ClinicId} has not connected Google Calendar; skipping sync for appointment {AppointmentId}",
+                    appointment.ClinicId, appointmentId);
+                return;
+            }
+
             // Handle cancelled and completed appointments - delete from Google Calendar
             if (appointment.Status == AppointmentStatus.Cancelled || appointment.Status == AppointmentStatus.Completed)
             {
@@ -61,7 +89,7 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                         _logger.LogInformation("Deleting Google Calendar event {EventId} for {Status} appointment {AppointmentId}", 
                             appointment.GoogleCalendarEventId, appointment.Status, appointmentId);
                         
-                        await _googleCalendarService.DeleteEventAsync(appointment.GoogleCalendarEventId, cancellationToken);
+                        await _googleCalendarService.DeleteEventAsync(connection, appointment.GoogleCalendarEventId, cancellationToken);
                         
                         _logger.LogInformation("Successfully deleted Google Calendar event {EventId} for appointment {AppointmentId}", 
                             appointment.GoogleCalendarEventId, appointmentId);
@@ -152,6 +180,7 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                 // Create new event
                 _logger.LogInformation("Creating new Google Calendar event for appointment {AppointmentId}", appointmentId);
                 var eventId = await _googleCalendarService.CreateEventAsync(
+                    connection,
                     summary,
                     description,
                     startDateTime,
@@ -176,6 +205,7 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                 // Update existing event
                 _logger.LogInformation("Updating existing Google Calendar event {EventId} for appointment {AppointmentId}", appointment.GoogleCalendarEventId, appointmentId);
                 await _googleCalendarService.UpdateEventAsync(
+                    connection,
                     appointment.GoogleCalendarEventId,
                     summary,
                     description,
@@ -203,12 +233,31 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
         try
         {
             _logger.LogInformation("Starting sync from Google Calendar to appointments");
-            
+
+            // Google → App is a manual, authenticated action: resolve the CALLER's clinic and use ITS own
+            // connection, and scope every read/write below to that clinic (no cross-clinic writes, #4). The
+            // disabled recurring job runs with no clinic in scope → resolve fails → skip.
+            var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
+            if (clinicResult.IsFailure)
+            {
+                _logger.LogWarning("No clinic in scope for the Google→App sync; skipping.");
+                return;
+            }
+            var clinicId = clinicResult.Value;
+
+            var connection = await ResolveConnectionAsync(clinicId, cancellationToken);
+            if (connection == null)
+            {
+                _logger.LogInformation("Clinic {ClinicId} has not connected Google Calendar; skipping Google→App sync.", clinicId);
+                return;
+            }
+
             var startDate = DateTime.UtcNow.AddDays(-7);
             var endDate = DateTime.UtcNow.AddDays(90);
             _logger.LogInformation("Fetching events from {StartDate} to {EndDate}", startDate, endDate);
-            
+
             var googleEvents = await _googleCalendarService.GetEventsAsync(
+                connection,
                 startDate: startDate,
                 endDate: endDate,
                 cancellationToken);
@@ -222,8 +271,10 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                     string.Join(", ", eventList.Take(3).Select(e => $"'{e.Summary}' ({e.StartDateTime:yyyy-MM-dd HH:mm})")));
             }
 
-            var allAppointments = await _appointmentRepository.GetAllAsync(cancellationToken);
-            _logger.LogInformation("Retrieved {Count} appointments from database", allAppointments.Count());
+            var allAppointments = (await _appointmentRepository.GetAllAsync(cancellationToken))
+                .Where(a => a.ClinicId == clinicId)
+                .ToList();
+            _logger.LogInformation("Retrieved {Count} appointments for clinic {ClinicId}", allAppointments.Count, clinicId);
             
             var appointmentsByGoogleId = allAppointments
                 .Where(a => !string.IsNullOrEmpty(a.GoogleCalendarEventId))
@@ -289,7 +340,7 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                 if (IsClinicAppointment(googleEvent))
                 {
                     _logger.LogDebug("Event looks like a clinic appointment, creating new appointment");
-                    var created = await CreateAppointmentFromGoogleEventAsync(googleEvent, cancellationToken);
+                    var created = await CreateAppointmentFromGoogleEventAsync(googleEvent, clinicId, cancellationToken);
                     if (created)
                     {
                         createdCount++;
@@ -505,6 +556,7 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
 
     private async Task<bool> CreateAppointmentFromGoogleEventAsync(
         GoogleCalendarEvent googleEvent,
+        Guid clinicId,
         CancellationToken cancellationToken)
     {
         try
@@ -523,7 +575,7 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                 if (patientIdMatch.Success && Guid.TryParse(patientIdMatch.Groups[1].Value, out var patientId))
                 {
                     var patientById = await _patientRepository.GetByIdAsync(patientId, cancellationToken);
-                    if (patientById != null)
+                    if (patientById != null && patientById.ClinicId == clinicId)
                     {
                         patientName = patientById.GetFullName();
                         _logger.LogInformation("Found patient by ID from Google Calendar event description: {PatientName}", patientName);
@@ -541,8 +593,8 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
             // Normalize patient name (trim, normalize spaces)
             patientName = System.Text.RegularExpressions.Regex.Replace(patientName.Trim(), @"\s+", " ");
 
-            // Try to find existing patient by name (more flexible matching)
-            var patients = await _patientRepository.GetAllAsync(cancellationToken);
+            // Try to find existing patient by name (more flexible matching) — scoped to THIS clinic only (#4).
+            var patients = await _patientRepository.GetByClinicIdAsync(clinicId, cancellationToken);
             
             // Try exact match first (case-insensitive)
             var patient = patients.FirstOrDefault(p => 
@@ -606,16 +658,6 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                 {
                     dateOfBirth = DateTime.SpecifyKind(dateOfBirth, DateTimeKind.Utc);
                 }
-                
-                // Get clinic ID from first existing patient, or skip if no patients exist
-                var existingPatients = await _patientRepository.GetAllAsync(cancellationToken);
-                var firstPatient = existingPatients.FirstOrDefault();
-                if (firstPatient == null)
-                {
-                    _logger.LogWarning("Cannot create patient from Google Calendar sync: No existing patients found to determine clinic ID");
-                    return false;
-                }
-                var clinicId = firstPatient.ClinicId;
                 
                 var newPatient = new Patient(
                     Guid.NewGuid(),

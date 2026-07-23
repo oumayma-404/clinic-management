@@ -1,4 +1,5 @@
 using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Features.Files.Commands;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
@@ -17,20 +18,22 @@ public class UploadPatientFileAtomicityTests
 {
     private const string StoredKey = "stored-key-123";
     private static readonly Guid PatientId = Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc");
+    private static readonly Guid ClinicId = Guid.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd");
 
     private readonly Mock<IPatientRepository> _patients = new();
     private readonly Mock<IPatientFolderRepository> _folders = new();
     private readonly Mock<IPatientFileRepository> _files = new();
     private readonly Mock<IFileStorage> _fileStorage = new();
     private readonly Mock<IUnitOfWork> _uow = new();
+    private readonly Mock<ICurrentClinicResolver> _clinicResolver = new();
 
     private UploadPatientFileCommandHandler Handler() =>
         new(_patients.Object, _folders.Object, _files.Object, _fileStorage.Object, _uow.Object,
-            NullLogger<UploadPatientFileCommandHandler>.Instance);
+            _clinicResolver.Object, NullLogger<UploadPatientFileCommandHandler>.Instance);
 
     private static Patient APatient() => new(
         PatientId,
-        Guid.NewGuid(),
+        ClinicId,
         "John",
         "Doe",
         DateTime.UtcNow.AddYears(-30),
@@ -47,8 +50,14 @@ public class UploadPatientFileAtomicityTests
         FileStream = new MemoryStream(new byte[] { 1, 2, 3, 4 }),
     };
 
-    private void PatientFound() =>
+    private void PatientFound()
+    {
         _patients.Setup(r => r.GetByIdAsync(PatientId, It.IsAny<CancellationToken>())).ReturnsAsync(APatient());
+        // The handler now resolves the caller's clinic and verifies the patient belongs to it (#6); return
+        // the patient's own clinic so the atomicity path under test is reached.
+        _clinicResolver.Setup(r => r.GetClinicIdAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result<Guid>.Success(ClinicId));
+    }
 
     // [AC-3] DB save fails after a successful upload → failure returned AND the blob is removed.
     [Fact]

@@ -18,10 +18,10 @@ public class GetMedicationsQueryHandlerTests
 
     private static List<Medication> Sample() => new()
     {
-        new Medication(Guid.NewGuid(), "Doliprane", "Comprimé", "1000 mg", new[] { "Paracétamol" }),
-        new Medication(Guid.NewGuid(), "Augmentin", "Comprimé", "1 g", new[] { "Amoxicilline", "Acide clavulanique" }),
-        new Medication(Guid.NewGuid(), "Ventoline", "Solution", "100 µg", new[] { "Salbutamol" }),
-        new Medication(Guid.NewGuid(), "Amlor", "Gélule", "5 mg", new[] { "Amlodipine" }),
+        new Medication(Guid.NewGuid(), Guid.NewGuid(), "Doliprane", "Comprimé", "1000 mg", new[] { "Paracétamol" }),
+        new Medication(Guid.NewGuid(), Guid.NewGuid(), "Augmentin", "Comprimé", "1 g", new[] { "Amoxicilline", "Acide clavulanique" }),
+        new Medication(Guid.NewGuid(), Guid.NewGuid(), "Ventoline", "Solution", "100 µg", new[] { "Salbutamol" }),
+        new Medication(Guid.NewGuid(), Guid.NewGuid(), "Amlor", "Gélule", "5 mg", new[] { "Amlodipine" }),
     };
 
     private GetMedicationsQueryHandler Handler()

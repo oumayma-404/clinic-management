@@ -13,6 +13,8 @@ namespace ClinicManagement.Domain.Entities;
 /// </summary>
 public class Medication : AggregateRoot<Guid>
 {
+    /// <summary>Owning clinic — per-clinic catalog (#5).</summary>
+    public Guid ClinicId { get; private set; }
     public string BrandName { get; private set; } = string.Empty;
     public string Form { get; private set; } = string.Empty;
     public string Strength { get; private set; } = string.Empty;
@@ -28,6 +30,7 @@ public class Medication : AggregateRoot<Guid>
 
     public Medication(
         Guid id,
+        Guid clinicId,
         string brandName,
         string form,
         string strength,
@@ -35,6 +38,7 @@ public class Medication : AggregateRoot<Guid>
         bool isProvisional = true)
     {
         Id = id;
+        ClinicId = clinicId;
         SetCore(brandName, form, strength);
         foreach (var dci in dcis ?? Enumerable.Empty<string>())
         {

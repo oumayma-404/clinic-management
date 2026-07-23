@@ -15,6 +15,9 @@ public class MedicationConfiguration : IEntityTypeConfiguration<Medication>
         builder.Property(m => m.Id)
             .ValueGeneratedNever();
 
+        builder.Property(m => m.ClinicId)
+            .IsRequired();
+
         builder.Property(m => m.BrandName)
             .IsRequired()
             .HasMaxLength(200);
@@ -38,9 +41,14 @@ public class MedicationConfiguration : IEntityTypeConfiguration<Medication>
 
         builder.Property(m => m.UpdatedAt);
 
-        // Non-unique — brand + strength + form uniqueness is enforced by the handler (BrandExistsAsync),
-        // this index just speeds the picker's brand-ordered reads.
-        builder.HasIndex(m => m.BrandName);
+        // Non-unique — brand + strength + form uniqueness is enforced per clinic by the handler
+        // (BrandExistsAsync, auto-scoped by the query filter); this index just speeds the picker's reads.
+        builder.HasIndex(m => new { m.ClinicId, m.BrandName });
+
+        builder.HasOne<Clinic>()
+            .WithMany()
+            .HasForeignKey(m => m.ClinicId)
+            .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasMany(m => m.ActiveIngredients)
             .WithOne(i => i.Medication)

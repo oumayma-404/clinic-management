@@ -1,22 +1,26 @@
 using System.Security.Cryptography;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
+using ClinicManagement.Application.Common.Authorization;
 using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Domain.Repositories;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Configuration;
 
 namespace ClinicManagement.API.Controllers;
 
-// Class-level [Authorize]: closes the Cloud-mode gap where sync-from-google / status / sync-appointment
-// were reachable unauthenticated (Cloud has a null fallback policy). The two browser-redirect OAuth
-// endpoints below carry an explicit [AllowAnonymous] (they cannot present a bearer token).
+// Class-level [Authorize]: the AJAX endpoints (connect/status/sync) require an authenticated user; the
+// single OAuth browser-redirect endpoint (callback) carries an explicit [AllowAnonymous] (it is reached
+// by a top-level navigation from Google and cannot present a bearer token). Per-clinic connection binding
+// (feature cloud-security-and-tenant-isolation, #4) replaces the former single global token/calendar.
 [ApiController]
 [Authorize]
 [Route("api/[controller]")]
 public class GoogleCalendarController : ApiControllerBase
 {
-    // Short-lived server-side store of issued OAuth `state` values for CSRF protection on the callback.
+    // Short-lived server-side store mapping an issued OAuth `state` to the CLINIC that started the flow,
+    // so the anonymous callback can bind the resulting token to the right tenant (CSRF + clinic binding).
     private const string OAuthStateCachePrefix = "google_oauth_state:";
     // Companion HttpOnly cookie holding the same state, so the callback can prove the flow was started by
     // THIS browser (double-submit) — not merely that the server issued some state recently (login-CSRF).
@@ -26,55 +30,61 @@ public class GoogleCalendarController : ApiControllerBase
 
     private readonly IGoogleCalendarSyncService _syncService;
     private readonly IConfiguration _configuration;
-    private readonly IGoogleTokenStore _tokenStore;
+    private readonly IClinicRepository _clinicRepository;
+    private readonly ICurrentClinicResolver _clinicResolver;
+    private readonly IUnitOfWork _unitOfWork;
     private readonly IMemoryCache _cache;
     private readonly ILogger<GoogleCalendarController> _logger;
 
     public GoogleCalendarController(
         IGoogleCalendarSyncService syncService,
         IConfiguration configuration,
-        IGoogleTokenStore tokenStore,
+        IClinicRepository clinicRepository,
+        ICurrentClinicResolver clinicResolver,
+        IUnitOfWork unitOfWork,
         IMemoryCache cache,
         ILogger<GoogleCalendarController> logger)
     {
         _syncService = syncService;
         _configuration = configuration;
-        _tokenStore = tokenStore;
+        _clinicRepository = clinicRepository;
+        _clinicResolver = clinicResolver;
+        _unitOfWork = unitOfWork;
         _cache = cache;
         _logger = logger;
     }
 
     /// <summary>
-    /// Manually trigger sync from Google Calendar to Clinic appointments
+    /// Manually trigger sync from Google Calendar to Clinic appointments (admin only). The sync service
+    /// resolves the caller's clinic internally and scopes everything to it.
     /// </summary>
     [HttpPost("sync-from-google")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
     public async Task<IActionResult> SyncFromGoogleCalendar()
     {
         try
         {
             _logger.LogInformation("Manual sync from Google Calendar triggered");
             await _syncService.SyncGoogleCalendarToAppointmentsAsync();
-            return Ok(new { 
+            return Ok(new
+            {
                 message = "Sync from Google Calendar completed successfully",
                 timestamp = DateTime.UtcNow
             });
         }
         catch (InvalidOperationException ex) when (ex.Message.Contains("not configured"))
         {
-            return BadRequest(new { error = "Google Calendar is not configured. Please check your appsettings.json" });
+            return BadRequest(new { error = "Google Calendar n'est pas connecté pour cette clinique. Connectez-le depuis les paramètres." });
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error during manual sync from Google Calendar");
-            return StatusCode(500, new { 
-                error = $"Error syncing from Google Calendar: {ex.Message}",
-                details = ex.ToString()
-            });
+            return StatusCode(500, new { error = "Erreur lors de la synchronisation depuis Google Calendar." });
         }
     }
 
     /// <summary>
-    /// Get the redirect URI that should be configured in Google Cloud Console
+    /// Get the redirect URI that should be configured in Google Cloud Console.
     /// </summary>
     [HttpGet("redirect-uri")]
     public IActionResult GetRedirectUri()
@@ -83,57 +93,56 @@ public class GoogleCalendarController : ApiControllerBase
         var redirectUri = !string.IsNullOrEmpty(configuredRedirectUri)
             ? configuredRedirectUri
             : $"{Request.Scheme}://{Request.Host}/api/googlecalendar/callback";
-        
+
         return Ok(new
         {
-            redirectUri = redirectUri,
+            redirectUri,
             configuredUri = configuredRedirectUri,
             requestScheme = Request.Scheme,
-            requestHost = Request.Host.ToString(),
-            instructions = new
-            {
-                step1 = "Go to https://console.cloud.google.com/apis/credentials",
-                step2 = "Select your OAuth 2.0 Client ID",
-                step3 = "Under 'Authorized redirect URIs', click 'ADD URI'",
-                step4 = $"Add this exact URI: {redirectUri}",
-                step5 = "Click 'SAVE'",
-                note = "The URI must match EXACTLY (including http/https, port number, and path)"
-            }
+            requestHost = Request.Host.ToString()
         });
     }
 
     /// <summary>
-    /// Get sync status and diagnostic information
+    /// Get sync status for the caller's clinic (is Google Calendar connected + is its token valid).
     /// </summary>
     [HttpGet("status")]
-    public async Task<IActionResult> GetSyncStatus()
+    public async Task<IActionResult> GetSyncStatus(CancellationToken cancellationToken)
     {
-        var config = HttpContext.RequestServices.GetRequiredService<IConfiguration>();
-        var clientId = config["GoogleCalendar:ClientId"];
-        var clientSecret = config["GoogleCalendar:ClientSecret"];
-        var refreshToken = _tokenStore.GetRefreshToken();
-        var calendarId = config["GoogleCalendar:CalendarId"] ?? "primary";
-
+        var clientId = _configuration["GoogleCalendar:ClientId"];
+        var clientSecret = _configuration["GoogleCalendar:ClientSecret"];
         var hasClientId = !string.IsNullOrEmpty(clientId);
         var hasClientSecret = !string.IsNullOrEmpty(clientSecret);
+
+        var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
+        if (clinicResult.IsFailure)
+        {
+            return BadRequest(new { error = clinicResult.Error ?? "Impossible de résoudre la clinique." });
+        }
+
+        var clinic = await _clinicRepository.GetByIdAsync(clinicResult.Value, cancellationToken);
+        var refreshToken = clinic?.GoogleRefreshToken;
+        var calendarId = clinic?.GoogleCalendarId ?? "primary";
         var hasRefreshToken = !string.IsNullOrEmpty(refreshToken);
-        
+
         var isConfigured = hasClientId && hasClientSecret && hasRefreshToken;
-        
-        // Try to validate the refresh token by attempting to get an access token
+
+        // Validate the refresh token by attempting a small read against THIS clinic's calendar.
         var tokenValid = false;
         if (isConfigured)
         {
             try
             {
-                var googleCalendarService = HttpContext.RequestServices.GetRequiredService<IGoogleCalendarService>();
-                // Try to get events to validate the token
-                await googleCalendarService.GetEventsAsync(DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(1));
+                var calendarService = HttpContext.RequestServices.GetRequiredService<IGoogleCalendarService>();
+                await calendarService.GetEventsAsync(
+                    new GoogleCalendarConnection(refreshToken!, clinic!.GoogleCalendarId),
+                    DateTime.UtcNow.AddDays(-1),
+                    DateTime.UtcNow.AddDays(1),
+                    cancellationToken);
                 tokenValid = true;
             }
             catch (InvalidOperationException ex) when (ex.Message.Contains("refresh token") || ex.Message.Contains("not configured"))
             {
-                // Token is invalid or expired
                 tokenValid = false;
             }
             catch
@@ -146,25 +155,26 @@ public class GoogleCalendarController : ApiControllerBase
         return Ok(new
         {
             isConfigured = isConfigured && tokenValid,
-            hasClientId = hasClientId,
-            hasClientSecret = hasClientSecret,
-            hasRefreshToken = hasRefreshToken,
-            tokenValid = tokenValid,
-            calendarId = calendarId,
+            hasClientId,
+            hasClientSecret,
+            hasRefreshToken,
+            tokenValid,
+            calendarId,
             message = !hasClientId || !hasClientSecret
-                ? "Google Calendar ClientId and ClientSecret must be configured in appsettings.json"
+                ? "Le ClientId et le ClientSecret Google doivent être configurés côté serveur."
                 : !hasRefreshToken
-                    ? "Google Calendar refresh token is not configured. Please click 'Sync to Google Calendar' to authorize."
+                    ? "Google Calendar n'est pas connecté pour cette clinique. Cliquez sur « Connecter » pour autoriser l'accès."
                     : !tokenValid
-                        ? "Google Calendar refresh token is invalid or expired. Please re-authorize by clicking 'Sync to Google Calendar'."
-                        : "Google Calendar is configured and ready"
+                        ? "Le jeton Google Calendar est invalide ou expiré. Reconnectez-vous."
+                        : "Google Calendar est connecté et prêt."
         });
     }
 
     /// <summary>
-    /// Manually trigger sync of a specific appointment to Google Calendar
+    /// Manually trigger sync of a specific appointment to Google Calendar (admin only).
     /// </summary>
     [HttpPost("sync-appointment/{appointmentId}")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
     public async Task<IActionResult> SyncAppointmentToGoogle(Guid appointmentId)
     {
         try
@@ -175,48 +185,50 @@ public class GoogleCalendarController : ApiControllerBase
         }
         catch (InvalidOperationException ex) when (ex.Message.Contains("not configured"))
         {
-            return BadRequest(new { error = "Google Calendar is not configured. Please check your appsettings.json" });
+            return BadRequest(new { error = "Google Calendar n'est pas connecté pour cette clinique. Connectez-le depuis les paramètres." });
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error syncing appointment {AppointmentId} to Google Calendar", appointmentId);
-            return StatusCode(500, new { error = $"Error syncing appointment: {ex.Message}" });
+            return StatusCode(500, new { error = "Erreur lors de la synchronisation du rendez-vous." });
         }
     }
 
     /// <summary>
-    /// Initiate Google Calendar OAuth authorization flow
+    /// Begin the Google Calendar OAuth flow for the caller's clinic (admin only). Returns the Google
+    /// authorization URL; the frontend navigates the browser to it. A high-entropy `state` is minted and
+    /// bound to THIS clinic (server-side cache + HttpOnly companion cookie) so the anonymous callback can
+    /// prove the flow (CSRF) and save the token to the correct tenant.
     /// </summary>
-    // Browser-redirect endpoint: reached by a top-level navigation that cannot carry a bearer token,
-    // so it is exempted from the Local-mode fail-closed fallback policy (FR-E3). The AJAX endpoints
-    // above deliberately carry NO carve-out — the fallback now requires auth on them in Local mode.
-    [AllowAnonymous]
-    [HttpGet("authorize")]
-    public IActionResult Authorize()
+    [HttpPost("connect")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<IActionResult> Connect(CancellationToken cancellationToken = default)
     {
         var clientId = _configuration["GoogleCalendar:ClientId"];
         var clientSecret = _configuration["GoogleCalendar:ClientSecret"];
-
         if (string.IsNullOrEmpty(clientId) || string.IsNullOrEmpty(clientSecret))
         {
-            return BadRequest(new { error = "Google Calendar ClientId and ClientSecret must be configured in appsettings.json" });
+            return BadRequest(new { error = "Le ClientId et le ClientSecret Google doivent être configurés côté serveur." });
         }
 
-        // Build the authorization URL
-        // Allow override from configuration, otherwise use request-based URI
+        var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
+        if (clinicResult.IsFailure)
+        {
+            return BadRequest(new { error = clinicResult.Error ?? "Impossible de résoudre la clinique." });
+        }
+
         var configuredRedirectUri = _configuration["GoogleCalendar:RedirectUri"];
         var redirectUri = !string.IsNullOrEmpty(configuredRedirectUri)
             ? configuredRedirectUri
             : $"{Request.Scheme}://{Request.Host}/api/googlecalendar/callback";
-        
-        var scopes = "https://www.googleapis.com/auth/calendar";
 
-        // CSRF protection: mint a high-entropy state (CSPRNG, not Guid), persist it server-side
-        // (short-lived), AND drop it into an HttpOnly companion cookie. The callback requires the query
-        // state to match BOTH the cache entry and the cookie — binding the flow to this browser so an
-        // attacker cannot lure an admin to a callback carrying a state the attacker minted (login-CSRF).
+        const string scopes = "https://www.googleapis.com/auth/calendar";
+
+        // CSRF + clinic binding: mint a high-entropy state, cache state → clinicId (short-lived), and drop
+        // the state into an HttpOnly companion cookie. The callback requires the query state to match BOTH
+        // the cache entry and the cookie before it will save a token — and it saves to the cached clinicId.
         var state = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
-        _cache.Set(OAuthStateCachePrefix + state, true, OAuthStateLifetime);
+        _cache.Set(OAuthStateCachePrefix + state, clinicResult.Value, OAuthStateLifetime);
         Response.Cookies.Append(OAuthStateCookieName, state, new CookieOptions
         {
             HttpOnly = true,
@@ -234,29 +246,18 @@ public class GoogleCalendarController : ApiControllerBase
             $"access_type=offline&" +
             $"prompt=consent&" +
             $"state={Uri.EscapeDataString(state)}";
-        
-        _logger.LogWarning("=== GOOGLE OAUTH REDIRECT URI DEBUG ===");
-        _logger.LogWarning("Configured RedirectUri from appsettings.json: {ConfiguredUri}", configuredRedirectUri ?? "(not set)");
-        _logger.LogWarning("Request Scheme: {Scheme}", Request.Scheme);
-        _logger.LogWarning("Request Host: {Host}", Request.Host);
-        _logger.LogWarning("Final Redirect URI being used: {RedirectUri}", redirectUri);
-        _logger.LogWarning("=== IMPORTANT: Add this EXACT URI to Google Cloud Console ===");
-        _logger.LogWarning("Go to: https://console.cloud.google.com/apis/credentials");
-        _logger.LogWarning("Select your OAuth 2.0 Client ID");
-        _logger.LogWarning("Under 'Authorized redirect URIs', add: {RedirectUri}", redirectUri);
-        _logger.LogWarning("=========================================");
 
-        return Redirect(authUrl);
+        return Ok(new { authUrl });
     }
 
     /// <summary>
-    /// Handle OAuth callback and exchange authorization code for refresh token
+    /// Handle the OAuth callback: validate the state, exchange the code, and save the refresh token to the
+    /// clinic that started the flow. Anonymous — Google redirects the user's browser here with ?code=...
+    /// and it cannot carry a bearer token; the clinic is resolved from the state-bound cache entry.
     /// </summary>
-    // Browser-redirect endpoint (Google redirects the user's browser here with ?code=...); it cannot
-    // carry a bearer token, so it is exempted from the Local-mode fail-closed fallback policy (FR-E3).
     [AllowAnonymous]
     [HttpGet("callback")]
-    public async Task<IActionResult> Callback([FromQuery] string? code, [FromQuery] string? error, [FromQuery] string? state)
+    public async Task<IActionResult> Callback([FromQuery] string? code, [FromQuery] string? error, [FromQuery] string? state, CancellationToken cancellationToken = default)
     {
         if (!string.IsNullOrEmpty(error))
         {
@@ -270,15 +271,15 @@ public class GoogleCalendarController : ApiControllerBase
             return BadRequest(new { error = "Authorization code not provided" });
         }
 
-        // CSRF protection: reject a callback whose state we didn't issue, that is missing, or that does not
-        // match the companion cookie set on `authorize` (proves this browser started the flow). Consume the
-        // cache entry and clear the cookie so a state cannot be replayed.
+        // CSRF + clinic binding: reject a callback whose state we didn't issue, that is missing, or that does
+        // not match the companion cookie set on `connect`. Consume the cache entry (and the resolved clinic
+        // id) and clear the cookie so a state cannot be replayed.
         var cookieState = Request.Cookies[OAuthStateCookieName];
         Response.Cookies.Delete(OAuthStateCookieName, new CookieOptions { Path = OAuthCookiePath });
         if (string.IsNullOrEmpty(state)
             || string.IsNullOrEmpty(cookieState)
             || !string.Equals(state, cookieState, StringComparison.Ordinal)
-            || !_cache.TryGetValue(OAuthStateCachePrefix + state, out _))
+            || !_cache.TryGetValue(OAuthStateCachePrefix + state, out Guid clinicId))
         {
             _logger.LogWarning("Google OAuth callback rejected: missing, unrecognized, or unbound state parameter");
             return BadRequest(new { error = "Invalid or expired authorization state. Please restart the Google authorization." });
@@ -289,15 +290,11 @@ public class GoogleCalendarController : ApiControllerBase
         {
             var clientId = _configuration["GoogleCalendar:ClientId"];
             var clientSecret = _configuration["GoogleCalendar:ClientSecret"];
-            
-            // Use the same redirect URI as in the authorization request
+
             var configuredRedirectUri = _configuration["GoogleCalendar:RedirectUri"];
             var redirectUri = !string.IsNullOrEmpty(configuredRedirectUri)
                 ? configuredRedirectUri
                 : $"{Request.Scheme}://{Request.Host}/api/googlecalendar/callback";
-            
-            _logger.LogWarning("Using redirect URI for token exchange: {RedirectUri}", redirectUri);
-            _logger.LogWarning("If you get redirect_uri_mismatch error, ensure this URI is in Google Cloud Console");
 
             if (string.IsNullOrEmpty(clientId) || string.IsNullOrEmpty(clientSecret))
             {
@@ -317,82 +314,80 @@ public class GoogleCalendarController : ApiControllerBase
 
             var response = await httpClient.PostAsync(
                 "https://oauth2.googleapis.com/token",
-                new FormUrlEncodedContent(tokenRequest));
+                new FormUrlEncodedContent(tokenRequest),
+                cancellationToken);
 
             if (!response.IsSuccessStatusCode)
             {
-                var errorContent = await response.Content.ReadAsStringAsync();
-                _logger.LogError("Failed to exchange authorization code. Status: {Status}, Response: {Response}", 
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError("Failed to exchange authorization code. Status: {Status}, Response: {Response}",
                     response.StatusCode, errorContent);
-                return StatusCode(500, new { error = "Failed to exchange authorization code", details = errorContent });
+                // Do not leak the raw Google error body to the client (canonical { error } only).
+                return StatusCode(500, new { error = "Échec de l'échange du code d'autorisation Google." });
             }
 
-            var tokenResponse = await response.Content.ReadAsStringAsync();
-            _logger.LogDebug("Token response from Google: {Response}", tokenResponse);
-            
+            var tokenResponse = await response.Content.ReadAsStringAsync(cancellationToken);
             var tokenData = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, System.Text.Json.JsonElement>>(tokenResponse);
 
             if (tokenData == null)
             {
-                _logger.LogError("Failed to parse token response: {Response}", tokenResponse);
-                return StatusCode(500, new { error = "Failed to parse token response from Google" });
+                _logger.LogError("Failed to parse token response from Google");
+                return StatusCode(500, new { error = "Échec de l'analyse de la réponse de Google." });
             }
 
-            // Check for errors first
             if (tokenData.ContainsKey("error"))
             {
                 var oauthError = tokenData["error"].GetString();
-                var errorDescription = tokenData.ContainsKey("error_description") 
-                    ? tokenData["error_description"].GetString() 
-                    : null;
-                _logger.LogError("Google OAuth error: {Error}, Description: {Description}", oauthError, errorDescription);
-                return StatusCode(500, new { error = $"Google OAuth error: {oauthError}", details = errorDescription });
+                _logger.LogError("Google OAuth error: {Error}", oauthError);
+                return StatusCode(500, new { error = "Erreur OAuth Google." });
             }
 
-            // Get refresh token - it might be in the response or we might need to use the existing one
+            var clinic = await _clinicRepository.GetByIdAsync(clinicId, cancellationToken);
+            if (clinic == null)
+            {
+                _logger.LogWarning("Clinic {ClinicId} bound to the OAuth state no longer exists", clinicId);
+                return BadRequest(new { error = "Clinique introuvable pour cette autorisation." });
+            }
+
             string? refreshToken = null;
             if (tokenData.ContainsKey("refresh_token"))
             {
                 refreshToken = tokenData["refresh_token"].GetString();
-                _logger.LogInformation("New refresh token received from Google");
             }
             else
             {
-                // If no refresh token in response, it means the user already authorized before
-                // We should use the existing refresh token from the token store (file, config fallback)
-                refreshToken = _tokenStore.GetRefreshToken();
+                // No refresh token in the response (user already granted). Reuse the clinic's existing one.
+                refreshToken = clinic.GoogleRefreshToken;
                 if (string.IsNullOrEmpty(refreshToken))
                 {
-                    _logger.LogWarning("No refresh token in response and no existing refresh token stored. " +
-                        "This might happen if the user already authorized. You may need to revoke access and re-authorize.");
-                    return StatusCode(500, new {
-                        error = "Refresh token not received. If you've already authorized this app, you may need to revoke access in Google Account settings and try again."
+                    _logger.LogWarning("No refresh token returned and none stored for clinic {ClinicId}", clinicId);
+                    return StatusCode(500, new
+                    {
+                        error = "Aucun jeton de rafraîchissement reçu. Révoquez l'accès dans votre compte Google puis reconnectez."
                     });
                 }
-                _logger.LogInformation("Using existing refresh token from the token store");
             }
 
             if (string.IsNullOrEmpty(refreshToken))
             {
-                return StatusCode(500, new { error = "Refresh token is empty" });
+                return StatusCode(500, new { error = "Le jeton de rafraîchissement est vide." });
             }
 
-            // Persist the refresh token to the gitignored per-install token store instead of rewriting the
-            // committed appsettings.json (US-3 / FR-E3). The store is a Singleton with an in-memory cache,
-            // so the new token is picked up immediately by GoogleCalendarService without a restart.
-            await _tokenStore.SaveRefreshTokenAsync(refreshToken);
+            // Persist the refresh token onto THIS clinic (per-clinic isolation, #4) — preserving any target
+            // calendar id already chosen (null → the account's primary calendar).
+            clinic.SetGoogleCalendarConnection(refreshToken, clinic.GoogleCalendarId);
+            await _clinicRepository.UpdateAsync(clinic, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            _logger.LogInformation("Google Calendar authorization successful. Refresh token saved.");
+            _logger.LogInformation("Google Calendar connected for clinic {ClinicId}.", clinicId);
 
-            // Redirect to frontend with success message
             var frontendUrl = _configuration["FrontendUrl"] ?? "http://localhost:3000";
             return Redirect($"{frontendUrl}/appointments?googleCalendarAuthorized=true");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error processing OAuth callback");
-            return StatusCode(500, new { error = $"Error processing authorization: {ex.Message}" });
+            return StatusCode(500, new { error = "Erreur lors du traitement de l'autorisation." });
         }
     }
 }
-

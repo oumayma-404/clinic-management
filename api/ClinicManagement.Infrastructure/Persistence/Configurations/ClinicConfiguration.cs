@@ -68,6 +68,13 @@ public class ClinicConfiguration : IEntityTypeConfiguration<Clinic>
         builder.Property(c => c.WorkingHoursJson)
             .HasColumnType("text");
 
+        // Per-clinic Google Calendar connection (feature cloud-security-and-tenant-isolation, #4).
+        builder.Property(c => c.GoogleRefreshToken)
+            .HasColumnType("text");
+
+        builder.Property(c => c.GoogleCalendarId)
+            .HasMaxLength(256);
+
         builder.HasIndex(c => c.Code)
             .IsUnique()
             .HasFilter("\"Code\" IS NOT NULL");

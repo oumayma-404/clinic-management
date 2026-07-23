@@ -19,10 +19,10 @@ public class GetCnamNomenclatureQueryHandlerTests
 
     private static List<CnamNomenclatureEntry> Sample() => new()
     {
-        new CnamNomenclatureEntry(Guid.NewGuid(), "CONS", "Consultation dentaire", "CD", 1, "Consultation"),
-        new CnamNomenclatureEntry(Guid.NewGuid(), "DETART", "Détartrage", "D", 10, "Soins conservateurs"),
-        new CnamNomenclatureEntry(Guid.NewGuid(), "EXT-SIMPLE", "Extraction d'une dent permanente", "D", 10, "Chirurgie/Extraction"),
-        new CnamNomenclatureEntry(Guid.NewGuid(), "PANO", "Radiographie panoramique", "RD", 5, "Radiologie"),
+        new CnamNomenclatureEntry(Guid.NewGuid(), Guid.NewGuid(), "CONS", "Consultation dentaire", "CD", 1, "Consultation"),
+        new CnamNomenclatureEntry(Guid.NewGuid(), Guid.NewGuid(), "DETART", "Détartrage", "D", 10, "Soins conservateurs"),
+        new CnamNomenclatureEntry(Guid.NewGuid(), Guid.NewGuid(), "EXT-SIMPLE", "Extraction d'une dent permanente", "D", 10, "Chirurgie/Extraction"),
+        new CnamNomenclatureEntry(Guid.NewGuid(), Guid.NewGuid(), "PANO", "Radiographie panoramique", "RD", 5, "Radiologie"),
     };
 
     private GetCnamNomenclatureQueryHandler Handler()
