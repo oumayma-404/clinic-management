@@ -32,7 +32,8 @@ interface EditPatientDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   patient: PatientDto | null
-  onSuccess?: () => void
+  /** Called on success; receives the saved patient (used to open a newly-created patient). */
+  onSuccess?: (patient?: PatientDto) => void
 }
 
 export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: EditPatientDialogProps) {
@@ -358,7 +359,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
 
       if (patient) {
         // Edit mode: Update existing patient
-        const updateData: Partial<PatientDto> = {
+        const updateData: Partial<PatientDto> & { isFlagged?: boolean; flagNotes?: string } = {
           firstName: firstName.trim(),
           lastName: lastName.trim(),
           gender,
@@ -383,6 +384,9 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
             maladeLien: cnam.maladeLien.trim() || null,
             maladeLienRang: cnam.maladeLienRang.trim() || null,
           },
+          // "Signaler ce patient" toggle: true ensures an active flag, false clears it.
+          isFlagged: flagged,
+          flagNotes: flagNotes.trim() || undefined,
         }
 
         await patientsApi.update(patient.id, updateData)
@@ -479,6 +483,8 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
           },
           medicalHistoryEntries: medicalHistoryEntriesToSend.length > 0 ? medicalHistoryEntriesToSend : undefined,
           familyHistoryEntries: familyHistoryEntriesToSend.length > 0 ? familyHistoryEntriesToSend : undefined,
+          isFlagged: flagged,
+          flagNotes: flagNotes.trim() || undefined,
         })
 
         toast.success("Patient créé avec succès", {
@@ -487,7 +493,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
         })
       }
 
-      onSuccess?.()
+      onSuccess?.(savedPatient)
       onOpenChange(false)
     } catch (err) {
       console.error("Failed to save patient:", err)
@@ -967,7 +973,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                       Marquez les patients qui nécessitent une attention médicale particulière ou présentent un état critique
                     </p>
                   </div>
-                  <Switch id="flagged" checked={flagged} onCheckedChange={setFlagged} disabled />
+                  <Switch id="flagged" checked={flagged} onCheckedChange={setFlagged} />
                 </div>
 
                 {flagged && (
@@ -979,9 +985,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                       onChange={(e) => setFlagNotes(e.target.value)}
                       placeholder="Motif du signalement (ex. : patient à haut risque, allergies sévères, etc.)"
                       className="min-h-[60px] resize-none"
-                      disabled
                     />
-                    <p className="text-xs text-muted-foreground">La gestion des signalements n'est pas encore prise en charge par l'API</p>
                   </div>
                 )}
               </div>

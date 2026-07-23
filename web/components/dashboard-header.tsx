@@ -22,7 +22,7 @@ import { useNotifications } from "@/lib/hooks/use-notifications"
 import { appointmentsApi } from "@/lib/api/appointments"
 import { patientsApi } from "@/lib/api/patients"
 import type { NotificationDto, PatientDto } from "@/lib/api/types"
-import { Bell, Search, LogOut, KeyRound, Loader2 } from "lucide-react"
+import { Bell, Search, LogOut, KeyRound, Loader2, UserCircle } from "lucide-react"
 
 export function DashboardHeader() {
   const { user, isLoading, mode, logout } = useSession()
@@ -232,6 +232,10 @@ export function DashboardHeader() {
             <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuLabel>Mon compte</DropdownMenuLabel>
               <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => router.push("/mon-profil")} className="flex items-center cursor-pointer">
+                <UserCircle className="mr-2 h-4 w-4" />
+                Mon profil
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => router.push("/settings")} className="cursor-pointer">
                 Paramètres
               </DropdownMenuItem>

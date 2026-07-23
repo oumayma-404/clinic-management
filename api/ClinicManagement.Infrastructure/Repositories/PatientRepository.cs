@@ -17,6 +17,7 @@ public class PatientRepository : IPatientRepository
     public async Task<Patient?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
         return await _context.Patients
+            .Include(p => p.Flags)
             .Include(p => p.MedicalHistoryEntries)
             .Include(p => p.FamilyHistoryEntries)
             .FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
@@ -42,6 +43,7 @@ public class PatientRepository : IPatientRepository
     public async Task<IEnumerable<Patient>> GetByClinicIdAsync(Guid clinicId, CancellationToken cancellationToken = default)
     {
         return await _context.Patients
+            .Include(p => p.Flags.Where(f => f.IsActive))
             .Where(p => p.ClinicId == clinicId)
             .ToListAsync(cancellationToken);
     }

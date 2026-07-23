@@ -53,6 +53,8 @@ const emptyLine = (): LineRow => ({
 export interface TreatmentPlanSeedLine {
   toothNumbers: number[]
   designationFr: string
+  /** Prefilled planned cost from the matching procedure-type default (omitted when no catalog match). */
+  plannedCost?: number
 }
 
 interface TreatmentPlanFormModalProps {
@@ -145,7 +147,8 @@ export function TreatmentPlanFormModal({
               dentalActCodeId: null,
               codeActe: null,
               designationFr: s.designationFr,
-              plannedCost: "",
+              // Prefill the fee from the matching procedure-type default (odontogram match); blank otherwise.
+              plannedCost: s.plannedCost != null && s.plannedCost > 0 ? String(s.plannedCost) : "",
               toothNumbers: s.toothNumbers,
             }))
           : [emptyLine()],

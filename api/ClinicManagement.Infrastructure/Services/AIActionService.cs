@@ -5,6 +5,7 @@ using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Domain.Enums;
 using MediatR;
 using Microsoft.Extensions.Logging;
+using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -12,6 +13,9 @@ namespace ClinicManagement.Infrastructure.Services;
 
 public class AIActionService : IAIActionService
 {
+    // French clinic locale for user-facing dates in AI action responses.
+    private static readonly CultureInfo FrCulture = new("fr-FR");
+
     private readonly IHuggingFaceAIService _huggingFaceAIService;
     private readonly IMediator _mediator;
     private readonly IPatientRepository _patientRepository;
@@ -50,7 +54,7 @@ public class AIActionService : IAIActionService
         {
             // Use AI to detect intent and extract parameters
             var intentResult = await DetectIntentAsync(request, cancellationToken);
-            
+
             if (!intentResult.ShouldExecuteAction)
             {
                 return intentResult;
@@ -67,7 +71,7 @@ public class AIActionService : IAIActionService
                 _ => new AIActionResult
                 {
                     ShouldExecuteAction = false,
-                    ResponseMessage = "I understand you want to perform an action, but I'm not sure how to handle that. Could you please rephrase?"
+                    ResponseMessage = "Je comprends que vous souhaitez effectuer une action, mais je ne sais pas comment la traiter. Pourriez-vous reformuler ?"
                 }
             };
         }
@@ -77,7 +81,7 @@ public class AIActionService : IAIActionService
             return new AIActionResult
             {
                 ShouldExecuteAction = false,
-                ResponseMessage = $"I encountered an error: {ex.Message}. Please try again."
+                ResponseMessage = $"J'ai rencontré une erreur : {ex.Message}. Veuillez réessayer."
             };
         }
     }
@@ -87,7 +91,7 @@ public class AIActionService : IAIActionService
         // Get current doctor information for context
         string? doctorName = null;
         string? doctorInfo = null;
-        
+
         if (request.Context?.DoctorId.HasValue == true)
         {
             var doctor = await _doctorRepository.GetByIdAsync(request.Context.DoctorId.Value, cancellationToken);
@@ -113,7 +117,7 @@ public class AIActionService : IAIActionService
         }
 
         // Build a prompt for the AI to detect intent and extract parameters
-        var doctorContext = !string.IsNullOrEmpty(doctorInfo) 
+        var doctorContext = !string.IsNullOrEmpty(doctorInfo)
             ? $"\n\nIMPORTANT: The current logged-in doctor is {doctorInfo}. When creating appointments, always use this doctor unless the user explicitly specifies a different doctor."
             : "";
 
@@ -155,13 +159,15 @@ Respond ONLY with a JSON object in this exact format:
   ""response_message"": ""A natural language response to confirm what you understood""
 }
 
+IMPORTANT: Always write the ""response_message"" value in French — French is the clinic's language.
+
 If the user is just asking a question or chatting, set should_execute_action to false and provide a helpful response.";
 
         // Convert conversation history to Hugging Face format
         var messages = new List<HuggingFaceAIMessage>
         {
             new HuggingFaceAIMessage { Role = "user", Content = systemPrompt },
-            new HuggingFaceAIMessage { Role = "assistant", Content = "I understand. I will detect intents and extract parameters in JSON format." }
+            new HuggingFaceAIMessage { Role = "assistant", Content = "I understand. I will detect intents and extract parameters in JSON format, with the response_message in French." }
         };
 
         // Add conversation history
@@ -215,7 +221,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
                     ShouldExecuteAction = shouldExecute && !string.IsNullOrEmpty(actionType),
                     ActionType = actionType,
                     ActionParameters = parameters.Count > 0 ? parameters : null,
-                    ResponseMessage = responseMessage ?? "I'll help you with that."
+                    ResponseMessage = responseMessage ?? "Je vais vous aider."
                 };
             }
 
@@ -232,9 +238,9 @@ If the user is just asking a question or chatting, set should_execute_action to 
     private AIActionResult ParseSimpleAppointmentRequest(string message)
     {
         var lowerMessage = message.ToLower();
-        
+
         // Check for appointment creation keywords
-        if (!lowerMessage.Contains("create") && !lowerMessage.Contains("schedule") && 
+        if (!lowerMessage.Contains("create") && !lowerMessage.Contains("schedule") &&
             !lowerMessage.Contains("book") && !lowerMessage.Contains("make") &&
             !lowerMessage.Contains("appointment"))
         {
@@ -284,7 +290,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
             return new AIActionResult
             {
                 ShouldExecuteAction = false,
-                ResponseMessage = "I understand you want to create an appointment, but I need more information. Please provide: patient name, date, and time."
+                ResponseMessage = "Je comprends que vous souhaitez créer un rendez-vous, mais il me manque des informations. Veuillez indiquer : le nom du patient, la date et l'heure."
             };
         }
 
@@ -293,7 +299,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
             ShouldExecuteAction = true,
             ActionType = "create_appointment",
             ActionParameters = parameters,
-            ResponseMessage = "I'll create that appointment for you."
+            ResponseMessage = "Je crée ce rendez-vous pour vous."
         };
     }
 
@@ -310,7 +316,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
                 return new AIActionResult
                 {
                     ShouldExecuteAction = false,
-                    ResponseMessage = "User authentication required to create appointments."
+                    ResponseMessage = "Authentification requise pour créer des rendez-vous."
                 };
             }
 
@@ -320,7 +326,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
                 return new AIActionResult
                 {
                     ShouldExecuteAction = false,
-                    ResponseMessage = "User not found."
+                    ResponseMessage = "Utilisateur introuvable."
                 };
             }
 
@@ -343,7 +349,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
             {
                 var requestedPatientName = patientNameObj.ToString() ?? "";
                 var patients = await _patientRepository.GetByClinicIdAsync(clinicId, cancellationToken);
-                var patient = patients.FirstOrDefault(p => 
+                var patient = patients.FirstOrDefault(p =>
                     $"{p.FirstName} {p.LastName}".Equals(requestedPatientName, StringComparison.OrdinalIgnoreCase) ||
                     p.FirstName.Equals(requestedPatientName, StringComparison.OrdinalIgnoreCase) ||
                     p.LastName.Equals(requestedPatientName, StringComparison.OrdinalIgnoreCase));
@@ -353,7 +359,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
                     return new AIActionResult
                     {
                         ShouldExecuteAction = false,
-                        ResponseMessage = $"I couldn't find a patient named \"{requestedPatientName}\" in your clinic. Please check the name and try again."
+                        ResponseMessage = $"Je n'ai trouvé aucun patient nommé « {requestedPatientName} » dans votre cabinet. Vérifiez le nom et réessayez."
                     };
                 }
                 patientId = patient.Id;
@@ -369,7 +375,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
                     return new AIActionResult
                     {
                         ShouldExecuteAction = false,
-                        ResponseMessage = $"I couldn't understand the date \"{dateStr}\". Please use a format like \"2024-12-25\" or \"tomorrow\"."
+                        ResponseMessage = $"Je n'ai pas compris la date « {dateStr} ». Utilisez un format comme « 2024-12-25 » ou « demain »."
                     };
                 }
             }
@@ -388,7 +394,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
                     return new AIActionResult
                     {
                         ShouldExecuteAction = false,
-                        ResponseMessage = $"I couldn't understand the time \"{timeStr}\". Please use a format like \"2:30\" or \"2pm\"."
+                        ResponseMessage = $"Je n'ai pas compris l'heure « {timeStr} ». Utilisez un format comme « 14:30 » ou « 14h »."
                     };
                 }
             }
@@ -411,7 +417,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
             {
                 var procedureName = procedureObj.ToString() ?? "";
                 var procedureTypes = await _procedureTypeRepository.GetActiveAsync(cancellationToken);
-                var procedureType = procedureTypes.FirstOrDefault(pt => 
+                var procedureType = procedureTypes.FirstOrDefault(pt =>
                     pt.Name.Equals(procedureName, StringComparison.OrdinalIgnoreCase) ||
                     pt.Name.Contains(procedureName, StringComparison.OrdinalIgnoreCase));
 
@@ -440,15 +446,15 @@ If the user is just asking a question or chatting, set should_execute_action to 
                 return new AIActionResult
                 {
                     ShouldExecuteAction = false,
-                    ResponseMessage = $"I couldn't create the appointment: {result.Error}"
+                    ResponseMessage = $"Je n'ai pas pu créer le rendez-vous : {result.Error}"
                 };
             }
 
-            var appointment = result.Value;
-            var appointmentPatientName = appointment.PatientName ?? "Unknown";
-            var dateTime = appointment.AppointmentDateTime.ToString("MMMM dd, yyyy 'at' h:mm tt");
-            var procedureInfo = !string.IsNullOrEmpty(appointment.ProcedureTypeName) 
-                ? $"\nProcedure: {appointment.ProcedureTypeName}" 
+            var appointment = result.Value!; // non-null: guarded by the IsFailure check above
+            var appointmentPatientName = appointment.PatientName ?? "Inconnu";
+            var dateTime = appointment.AppointmentDateTime.ToString("dd MMMM yyyy 'à' HH:mm", FrCulture);
+            var procedureInfo = !string.IsNullOrEmpty(appointment.ProcedureTypeName)
+                ? $"\nActe : {appointment.ProcedureTypeName}"
                 : "";
 
             return new AIActionResult
@@ -456,10 +462,10 @@ If the user is just asking a question or chatting, set should_execute_action to 
                 ShouldExecuteAction = true,
                 ActionType = "create_appointment",
                 ActionResult = appointment,
-                ResponseMessage = $"✅ Appointment created successfully!\n\n" +
-                                $"Patient: {appointmentPatientName}\n" +
-                                $"Date & Time: {dateTime}\n" +
-                                $"Duration: {appointment.Duration.TotalMinutes} minutes{procedureInfo}"
+                ResponseMessage = $"✅ Rendez-vous créé avec succès !\n\n" +
+                                $"Patient : {appointmentPatientName}\n" +
+                                $"Date et heure : {dateTime}\n" +
+                                $"Durée : {appointment.Duration.TotalMinutes} minutes{procedureInfo}"
             };
         }
         catch (Exception ex)
@@ -468,7 +474,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
             return new AIActionResult
             {
                 ShouldExecuteAction = false,
-                ResponseMessage = $"I encountered an error while creating the appointment: {ex.Message}"
+                ResponseMessage = $"J'ai rencontré une erreur lors de la création du rendez-vous : {ex.Message}"
             };
         }
     }
@@ -600,7 +606,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
                 return new AIActionResult
                 {
                     ShouldExecuteAction = false,
-                    ResponseMessage = "I need a patient name to search. Please provide the patient's name."
+                    ResponseMessage = "J'ai besoin d'un nom de patient pour effectuer la recherche. Veuillez indiquer le nom du patient."
                 };
             }
 
@@ -611,7 +617,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
                 return new AIActionResult
                 {
                     ShouldExecuteAction = false,
-                    ResponseMessage = "User authentication required."
+                    ResponseMessage = "Authentification requise."
                 };
             }
 
@@ -621,7 +627,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
                 return new AIActionResult
                 {
                     ShouldExecuteAction = false,
-                    ResponseMessage = "User not found."
+                    ResponseMessage = "Utilisateur introuvable."
                 };
             }
 
@@ -637,7 +643,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
                 return new AIActionResult
                 {
                     ShouldExecuteAction = false,
-                    ResponseMessage = $"I couldn't find any patients matching \"{patientName}\" in your clinic."
+                    ResponseMessage = $"Je n'ai trouvé aucun patient correspondant à « {patientName} » dans votre cabinet."
                 };
             }
 
@@ -648,10 +654,10 @@ If the user is just asking a question or chatting, set should_execute_action to 
                 {
                     ShouldExecuteAction = true,
                     ActionType = "search_patient",
-                    ResponseMessage = $"Found patient: {patient.FirstName} {patient.LastName}\n" +
-                                    $"Date of Birth: {patient.DateOfBirth:yyyy-MM-dd}\n" +
-                                    $"Email: {patient.Email.Value}\n" +
-                                    $"Phone: {patient.PhoneNumber.Value}"
+                    ResponseMessage = $"Patient trouvé : {patient.FirstName} {patient.LastName}\n" +
+                                    $"Date de naissance : {patient.DateOfBirth:yyyy-MM-dd}\n" +
+                                    $"E-mail : {patient.Email.Value}\n" +
+                                    $"Téléphone : {patient.PhoneNumber.Value}"
                 };
             }
 
@@ -660,7 +666,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
             {
                 ShouldExecuteAction = true,
                 ActionType = "search_patient",
-                ResponseMessage = $"Found {matchingPatients.Count} patients matching \"{patientName}\":\n{patientList}"
+                ResponseMessage = $"{matchingPatients.Count} patients correspondant à « {patientName} » :\n{patientList}"
             };
         }
         catch (Exception ex)
@@ -669,7 +675,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
             return new AIActionResult
             {
                 ShouldExecuteAction = false,
-                ResponseMessage = $"I encountered an error while searching: {ex.Message}"
+                ResponseMessage = $"J'ai rencontré une erreur lors de la recherche : {ex.Message}"
             };
         }
     }
@@ -685,7 +691,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
                 return new AIActionResult
                 {
                     ShouldExecuteAction = false,
-                    ResponseMessage = "I need a patient name to view details. Please provide the patient's name."
+                    ResponseMessage = "J'ai besoin d'un nom de patient pour afficher les détails. Veuillez indiquer le nom du patient."
                 };
             }
 
@@ -696,7 +702,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
                 return new AIActionResult
                 {
                     ShouldExecuteAction = false,
-                    ResponseMessage = "User authentication required."
+                    ResponseMessage = "Authentification requise."
                 };
             }
 
@@ -706,7 +712,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
                 return new AIActionResult
                 {
                     ShouldExecuteAction = false,
-                    ResponseMessage = "User not found."
+                    ResponseMessage = "Utilisateur introuvable."
                 };
             }
 
@@ -722,25 +728,25 @@ If the user is just asking a question or chatting, set should_execute_action to 
                 return new AIActionResult
                 {
                     ShouldExecuteAction = false,
-                    ResponseMessage = $"I couldn't find a patient named \"{patientName}\" in your clinic."
+                    ResponseMessage = $"Je n'ai trouvé aucun patient nommé « {patientName} » dans votre cabinet."
                 };
             }
 
-            var details = $"Patient Details:\n" +
-                         $"Name: {patient.FirstName} {patient.LastName}\n" +
-                         $"Date of Birth: {patient.DateOfBirth:yyyy-MM-dd}\n" +
-                         $"Gender: {patient.Gender ?? "Not specified"}\n" +
-                         $"Email: {patient.Email.Value}\n" +
-                         $"Phone: {patient.PhoneNumber.Value}";
+            var details = $"Détails du patient :\n" +
+                         $"Nom : {patient.FirstName} {patient.LastName}\n" +
+                         $"Date de naissance : {patient.DateOfBirth:yyyy-MM-dd}\n" +
+                         $"Sexe : {patient.Gender ?? "Non précisé"}\n" +
+                         $"E-mail : {patient.Email.Value}\n" +
+                         $"Téléphone : {patient.PhoneNumber.Value}";
 
             if (!string.IsNullOrEmpty(patient.MedicalHistory))
             {
-                details += $"\nMedical History: {patient.MedicalHistory}";
+                details += $"\nAntécédents médicaux : {patient.MedicalHistory}";
             }
 
             if (!string.IsNullOrEmpty(patient.Allergies))
             {
-                details += $"\nAllergies: {patient.Allergies}";
+                details += $"\nAllergies : {patient.Allergies}";
             }
 
             return new AIActionResult
@@ -756,7 +762,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
             return new AIActionResult
             {
                 ShouldExecuteAction = false,
-                ResponseMessage = $"I encountered an error: {ex.Message}"
+                ResponseMessage = $"J'ai rencontré une erreur : {ex.Message}"
             };
         }
     }
@@ -773,7 +779,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
                 return new AIActionResult
                 {
                     ShouldExecuteAction = false,
-                    ResponseMessage = "User authentication required."
+                    ResponseMessage = "Authentification requise."
                 };
             }
 
@@ -783,7 +789,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
                 return new AIActionResult
                 {
                     ShouldExecuteAction = false,
-                    ResponseMessage = "User not found."
+                    ResponseMessage = "Utilisateur introuvable."
                 };
             }
 
@@ -830,17 +836,17 @@ If the user is just asking a question or chatting, set should_execute_action to 
 
             if (appointmentList.Count == 0)
             {
-                var dateInfo = startDate.HasValue ? $" for {startDate.Value:yyyy-MM-dd}" : "";
-                var patientInfo = patientId.HasValue ? $" for the specified patient" : "";
+                var dateInfo = startDate.HasValue ? $" pour le {startDate.Value:yyyy-MM-dd}" : "";
+                var patientInfo = patientId.HasValue ? " pour le patient indiqué" : "";
                 return new AIActionResult
                 {
                     ShouldExecuteAction = true,
                     ActionType = "list_appointments",
-                    ResponseMessage = $"No appointments found{dateInfo}{patientInfo}."
+                    ResponseMessage = $"Aucun rendez-vous trouvé{dateInfo}{patientInfo}."
                 };
             }
 
-            var response = $"Found {appointmentList.Count} appointment(s):\n\n";
+            var response = $"{appointmentList.Count} rendez-vous trouvé(s) :\n\n";
             foreach (var appointment in appointmentList)
             {
                 var patientName = appointment.Patient?.GetFullName() ?? "Occupé";
@@ -862,7 +868,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
             return new AIActionResult
             {
                 ShouldExecuteAction = false,
-                ResponseMessage = $"I encountered an error: {ex.Message}"
+                ResponseMessage = $"J'ai rencontré une erreur : {ex.Message}"
             };
         }
     }
@@ -878,7 +884,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
                 return new AIActionResult
                 {
                     ShouldExecuteAction = false,
-                    ResponseMessage = "I need a patient name to cancel an appointment. Please provide the patient's name."
+                    ResponseMessage = "J'ai besoin d'un nom de patient pour annuler un rendez-vous. Veuillez indiquer le nom du patient."
                 };
             }
 
@@ -889,7 +895,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
                 return new AIActionResult
                 {
                     ShouldExecuteAction = false,
-                    ResponseMessage = "User authentication required."
+                    ResponseMessage = "Authentification requise."
                 };
             }
 
@@ -899,7 +905,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
                 return new AIActionResult
                 {
                     ShouldExecuteAction = false,
-                    ResponseMessage = "User not found."
+                    ResponseMessage = "Utilisateur introuvable."
                 };
             }
 
@@ -917,7 +923,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
                 return new AIActionResult
                 {
                     ShouldExecuteAction = false,
-                    ResponseMessage = $"I couldn't find a patient named \"{patientName}\" in your clinic."
+                    ResponseMessage = $"Je n'ai trouvé aucun patient nommé « {patientName} » dans votre cabinet."
                 };
             }
 
@@ -957,18 +963,18 @@ If the user is just asking a question or chatting, set should_execute_action to 
                 return new AIActionResult
                 {
                     ShouldExecuteAction = false,
-                    ResponseMessage = $"I couldn't find any appointments to cancel for {patientName}."
+                    ResponseMessage = $"Je n'ai trouvé aucun rendez-vous à annuler pour {patientName}."
                 };
             }
 
             if (matchingAppointments.Count > 1)
             {
-                var appointmentList = string.Join("\n", matchingAppointments.Select(a => 
+                var appointmentList = string.Join("\n", matchingAppointments.Select(a =>
                     $"- {a.AppointmentDateTime:yyyy-MM-dd HH:mm}"));
                 return new AIActionResult
                 {
                     ShouldExecuteAction = false,
-                    ResponseMessage = $"Found multiple appointments for {patientName}:\n{appointmentList}\n\nPlease specify the date and time more precisely."
+                    ResponseMessage = $"Plusieurs rendez-vous trouvés pour {patientName} :\n{appointmentList}\n\nVeuillez préciser la date et l'heure."
                 };
             }
 
@@ -986,7 +992,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
                 return new AIActionResult
                 {
                     ShouldExecuteAction = false,
-                    ResponseMessage = $"I couldn't cancel the appointment: {result.Error}"
+                    ResponseMessage = $"Je n'ai pas pu annuler le rendez-vous : {result.Error}"
                 };
             }
 
@@ -994,9 +1000,9 @@ If the user is just asking a question or chatting, set should_execute_action to 
             {
                 ShouldExecuteAction = true,
                 ActionType = "cancel_appointment",
-                ResponseMessage = $"✅ Appointment cancelled successfully!\n\n" +
-                                $"Patient: {patientName}\n" +
-                                $"Date & Time: {appointment.AppointmentDateTime:yyyy-MM-dd HH:mm}"
+                ResponseMessage = $"✅ Rendez-vous annulé avec succès !\n\n" +
+                                $"Patient : {patientName}\n" +
+                                $"Date et heure : {appointment.AppointmentDateTime:yyyy-MM-dd HH:mm}"
             };
         }
         catch (Exception ex)
@@ -1005,9 +1011,8 @@ If the user is just asking a question or chatting, set should_execute_action to 
             return new AIActionResult
             {
                 ShouldExecuteAction = false,
-                ResponseMessage = $"I encountered an error: {ex.Message}"
+                ResponseMessage = $"J'ai rencontré une erreur : {ex.Message}"
             };
         }
     }
 }
-

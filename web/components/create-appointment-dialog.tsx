@@ -54,6 +54,8 @@ interface CreateAppointmentDialogProps {
   defaultDate?: Date
   defaultTime?: string
   onSuccess?: () => void
+  /** Preselect an existing patient when booking from a patient's page ("Planifier un rendez-vous"). */
+  defaultPatientId?: string
   /** When scheduling a treatment-plan step ("Planifier"): fixes the patient and links the appointment. */
   presetPatientId?: string
   presetPatientName?: string
@@ -68,6 +70,7 @@ export function CreateAppointmentDialog({
   defaultDate,
   defaultTime,
   onSuccess,
+  defaultPatientId,
   presetPatientId,
   presetPatientName,
   presetPlanId,
@@ -165,6 +168,16 @@ export function CreateAppointmentDialog({
       if (presetProcedureName) setAppointmentType(presetProcedureName)
     }
   }, [open, isPlanScheduling, presetPatientId, presetProcedureName])
+
+  // Booking from a patient's page ("Planifier un rendez-vous"): preselect that patient (existing patient,
+  // not a busy slot / not the inline-new-patient form). Plan scheduling takes precedence when both apply.
+  useEffect(() => {
+    if (open && !isPlanScheduling && defaultPatientId) {
+      setIsBusySlot(false)
+      setIsNewPatient(false)
+      setSelectedPatientId(defaultPatientId)
+    }
+  }, [open, isPlanScheduling, defaultPatientId])
 
   // Update date and time when defaultDate or defaultTime changes (when dialog is open)
   useEffect(() => {

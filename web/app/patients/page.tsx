@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { DashboardSidebar } from "@/components/dashboard-sidebar"
 import { ClinicGuard } from "@/components/clinic-guard"
@@ -9,11 +10,11 @@ import { EditPatientDialog } from "@/components/edit-patient-dialog"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Search, Filter, Plus } from "lucide-react"
-import type { PatientDto } from "@/lib/api/types"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 
 export default function PatientsPage() {
+  const router = useRouter()
   const [searchQuery, setSearchQuery] = useState("")
   const [showFlaggedOnly, setShowFlaggedOnly] = useState(false)
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
@@ -21,6 +22,14 @@ export default function PatientsPage() {
 
   // Real-time: refetch the table when any client of this clinic adds/edits a patient (remounts via key).
   useClinicRealtime(RealtimeResource.Patients, () => setRefreshKey((prev) => prev + 1))
+
+  // Dashboard "Urgents" drill-through: arriving with ?flagged=1 pre-applies the flagged filter. Read from
+  // window.location (client-only, in an effect) to avoid a useSearchParams Suspense boundary.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("flagged") === "1") {
+      setShowFlaggedOnly(true)
+    }
+  }, [])
 
   return (
     <ClinicGuard>
@@ -79,9 +88,15 @@ export default function PatientsPage() {
                 open={createDialogOpen}
                 onOpenChange={setCreateDialogOpen}
                 patient={null}
-                onSuccess={() => {
+                onSuccess={(created) => {
                   setCreateDialogOpen(false)
-                  setRefreshKey(prev => prev + 1)
+                  // Open the new patient's detail page so clinical work can start immediately;
+                  // fall back to refreshing the list if the id is somehow missing.
+                  if (created?.id) {
+                    router.push(`/patients/${created.id}`)
+                  } else {
+                    setRefreshKey(prev => prev + 1)
+                  }
                 }}
               />
             </div>

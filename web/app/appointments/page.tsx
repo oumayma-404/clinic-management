@@ -29,6 +29,8 @@ export default function AppointmentsPage() {
   const [selectedAppointment, setSelectedAppointment] = useState<AppointmentDto | null>(null)
   const [selectedDate, setSelectedDate] = useState(new Date())
   const [refreshKey, setRefreshKey] = useState(0)
+  // Patient preselected when arriving from a patient's "Planifier un rendez-vous" (?patientId=…).
+  const [bookingPatientId, setBookingPatientId] = useState<string | undefined>(undefined)
   const [isGoogleCalendarAuthorized, setIsGoogleCalendarAuthorized] = useState(false)
   const [isSyncing, setIsSyncing] = useState(false)
   const [showCancelled, setShowCancelled] = useState(false)
@@ -125,6 +127,18 @@ export default function AppointmentsPage() {
     const appointmentId = new URLSearchParams(window.location.search).get("appointmentId")
     if (appointmentId) openAppointmentById(appointmentId)
   }, [openAppointmentById])
+
+  // Deep-link from a patient's "Planifier un rendez-vous" (?patientId=…): open the create dialog with
+  // that patient preselected. Same window.location + replaceState pattern (no useSearchParams) so a
+  // refresh doesn't reopen it.
+  useEffect(() => {
+    const patientId = new URLSearchParams(window.location.search).get("patientId")
+    if (patientId) {
+      window.history.replaceState({}, "", "/appointments")
+      setBookingPatientId(patientId)
+      setDialogOpen(true)
+    }
+  }, [])
 
   // Already on this page: a same-route push doesn't remount, so react to the header's deep-link event.
   useEffect(() => {
@@ -291,11 +305,12 @@ export default function AppointmentsPage() {
         </main>
       </div>
 
-      <CreateAppointmentDialog 
-        open={dialogOpen} 
-        onOpenChange={setDialogOpen} 
+      <CreateAppointmentDialog
+        open={dialogOpen}
+        onOpenChange={(o) => { setDialogOpen(o); if (!o) setBookingPatientId(undefined) }}
         defaultDate={selectedDate}
         defaultTime={selectedDate ? `${String(selectedDate.getHours()).padStart(2, '0')}:${String(selectedDate.getMinutes()).padStart(2, '0')}` : undefined}
+        defaultPatientId={bookingPatientId}
         onSuccess={handleAppointmentCreated}
       />
 

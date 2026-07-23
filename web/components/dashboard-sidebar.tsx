@@ -3,7 +3,8 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
-import { Calendar, Users, FileText, Settings, LayoutDashboard, Stethoscope, Package, FileCheck, ChevronLeft, ChevronRight, FolderOpen, UserCog, Receipt, UserCircle, ClipboardList, Pill, ClipboardCheck, ScrollText, HandCoins, PhoneCall, Clock, FlaskConical, Wallet } from "lucide-react"
+import { Calendar, CalendarClock, Users, Settings, LayoutDashboard, Stethoscope, Package, FileCheck, ChevronLeft, ChevronRight, UserCog, Receipt, ClipboardList, Pill, ClipboardCheck, ScrollText, HandCoins, PhoneCall, Clock, FlaskConical, Wallet } from "lucide-react"
+import type { LucideIcon } from "lucide-react"
 import { useSidebar } from "@/contexts/sidebar-context"
 import { useSession } from "@/lib/auth/session"
 import { useClinicAccess } from "@/lib/hooks/use-clinic-access"
@@ -12,34 +13,47 @@ import { PRODUCT_NAME } from "@/lib/brand"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
-const navigation = [
-  { name: "Tableau de bord", href: "/", icon: LayoutDashboard },
-  { name: "Rendez-vous", href: "/appointments", icon: Calendar },
-  { name: "Patients", href: "/patients", icon: Users },
-  { name: "Types de procédures", href: "/procedure-types", icon: Stethoscope },
-  { name: "Dossiers médicaux", href: "/records", icon: FileText },
-  { name: "Documents", href: "/documents", icon: FileCheck },
-  { name: "Factures", href: "/factures", icon: Receipt },
-  { name: "Créances", href: "/creances", icon: HandCoins },
-  { name: "Plans / Devis", href: "/treatment-plans", icon: ClipboardCheck },
-  { name: "Fichiers", href: "/files", icon: FolderOpen },
-  { name: "Stock", href: "/stock", icon: Package },
-  { name: "Relances", href: "/recalls", icon: PhoneCall },
-  { name: "Salle d'attente", href: "/waiting-list", icon: Clock },
-  { name: "Laboratoire", href: "/lab-orders", icon: FlaskConical },
-  { name: "Caisse", href: "/caisse", icon: Wallet },
-  { name: "Mon profil", href: "/mon-profil", icon: UserCircle },
-  { name: "Paramètres", href: "/settings", icon: Settings },
-]
+type NavItem = { name: string; href: string; icon: LucideIcon }
+type NavSection = { title: string; items: NavItem[] }
 
-// Admin-only entry, shown only for local-mode admins (offline user management — AC-5.4).
-const adminNavItem = { name: "Utilisateurs", href: "/users", icon: UserCog }
-// CNAM nomenclature admin screen — shown to any admin (global catalog management, FR-5.4).
-const cnamNavItem = { name: "Nomenclature CNAM", href: "/cnam-nomenclature", icon: ClipboardList }
-// Medication catalog admin screen — shown to any admin (global catalog management, backs the ordonnance picker).
-const medicationsNavItem = { name: "Médicaments", href: "/medications", icon: Pill }
-// Dental act catalog admin screen — shown to any admin (backs the treatment-plan act picker).
-const dentalActsNavItem = { name: "Actes dentaires", href: "/dental-acts", icon: ScrollText }
+// Daily-use sections. Config/catalog screens live in a separate "Configuration" group (built below with
+// role gating) so the everyday rail stays short. Mon profil moved to the header user menu; the read-only
+// /records and global /files shortcuts were removed (the patient page owns that data).
+const baseSections: NavSection[] = [
+  {
+    title: "Quotidien",
+    items: [
+      { name: "Tableau de bord", href: "/", icon: LayoutDashboard },
+      { name: "Rendez-vous", href: "/appointments", icon: Calendar },
+      { name: "RDV récurrents", href: "/recurring-series", icon: CalendarClock },
+      { name: "Salle d'attente", href: "/waiting-list", icon: Clock },
+      { name: "Patients", href: "/patients", icon: Users },
+    ],
+  },
+  {
+    title: "Clinique",
+    items: [
+      { name: "Documents", href: "/documents", icon: FileCheck },
+      { name: "Plans / Devis", href: "/treatment-plans", icon: ClipboardCheck },
+      { name: "Laboratoire", href: "/lab-orders", icon: FlaskConical },
+    ],
+  },
+  {
+    title: "Finances",
+    items: [
+      { name: "Factures", href: "/factures", icon: Receipt },
+      { name: "Caisse", href: "/caisse", icon: Wallet },
+      { name: "Créances", href: "/creances", icon: HandCoins },
+    ],
+  },
+  {
+    title: "Gestion",
+    items: [
+      { name: "Stock", href: "/stock", icon: Package },
+      { name: "Relances", href: "/recalls", icon: PhoneCall },
+    ],
+  },
+]
 
 export function DashboardSidebar() {
   const pathname = usePathname()
@@ -57,11 +71,55 @@ export function DashboardSidebar() {
   const brandName = status?.clinic?.name?.trim() || PRODUCT_NAME
 
   const isAdmin = user?.role === "admin"
-  const navItems = [
-    ...navigation,
-    ...(isAdmin ? [cnamNavItem, medicationsNavItem, dentalActsNavItem] : []),
-    ...(mode === "local" && isAdmin ? [adminNavItem] : []),
+
+  // Configuration group: procedure catalog + admin-only reference catalogs + clinic settings. CNAM /
+  // médicaments / actes dentaires are any-admin; Utilisateurs is local-mode admin only.
+  const configItems: NavItem[] = [
+    { name: "Types de procédures", href: "/procedure-types", icon: Stethoscope },
+    ...(isAdmin
+      ? [
+          { name: "Nomenclature CNAM", href: "/cnam-nomenclature", icon: ClipboardList },
+          { name: "Médicaments", href: "/medications", icon: Pill },
+          { name: "Actes dentaires", href: "/dental-acts", icon: ScrollText },
+        ]
+      : []),
+    ...(mode === "local" && isAdmin ? [{ name: "Utilisateurs", href: "/users", icon: UserCog }] : []),
+    { name: "Paramètres", href: "/settings", icon: Settings },
   ]
+
+  const sections: NavSection[] = [...baseSections, { title: "Configuration", items: configItems }]
+
+  const renderItem = (item: NavItem) => {
+    const isActive = pathname === item.href
+    const linkContent = (
+      <Link
+        href={item.href}
+        className={cn(
+          "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+          isActive
+            ? "bg-accent text-accent-foreground"
+            : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+          isCollapsed && "justify-center"
+        )}
+      >
+        <item.icon className="h-5 w-5 shrink-0" />
+        {!isCollapsed && <span className="truncate">{item.name}</span>}
+      </Link>
+    )
+
+    if (isCollapsed) {
+      return (
+        <Tooltip key={item.href} delayDuration={0}>
+          <TooltipTrigger asChild>{linkContent}</TooltipTrigger>
+          <TooltipContent side="right">
+            <p>{item.name}</p>
+          </TooltipContent>
+        </Tooltip>
+      )
+    }
+
+    return <div key={item.href}>{linkContent}</div>
+  }
 
   return (
     <aside
@@ -82,42 +140,19 @@ export function DashboardSidebar() {
         </div>
       </div>
 
-      {/* Navigation */}
-      <nav className="flex-1 space-y-1 p-4">
+      {/* Navigation — grouped sections. Section titles hide when collapsed (icon-only rail). */}
+      <nav className="flex-1 overflow-y-auto p-4">
         <TooltipProvider>
-          {navItems.map((item) => {
-            const isActive = pathname === item.href
-            const linkContent = (
-              <Link
-                href={item.href}
-                className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
-                  isActive
-                    ? "bg-accent text-accent-foreground"
-                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                  isCollapsed && "justify-center"
-                )}
-              >
-                <item.icon className="h-5 w-5 shrink-0" />
-                {!isCollapsed && <span className="truncate">{item.name}</span>}
-              </Link>
-            )
-
-            if (isCollapsed) {
-              return (
-                <Tooltip key={item.href} delayDuration={0}>
-                  <TooltipTrigger asChild>
-                    {linkContent}
-                  </TooltipTrigger>
-                  <TooltipContent side="right">
-                    <p>{item.name}</p>
-                  </TooltipContent>
-                </Tooltip>
-              )
-            }
-
-            return <div key={item.href}>{linkContent}</div>
-          })}
+          {sections.map((section) => (
+            <div key={section.title} className="space-y-1 pb-2">
+              {!isCollapsed && (
+                <p className="px-3 pt-2 pb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">
+                  {section.title}
+                </p>
+              )}
+              {section.items.map((item) => renderItem(item))}
+            </div>
+          ))}
         </TooltipProvider>
       </nav>
 

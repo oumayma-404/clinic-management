@@ -9,7 +9,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import { odontogramApi } from "@/lib/api/odontogram"
-import type { ToothStateDto } from "@/lib/api/types"
+import { procedureTypesApi } from "@/lib/api/procedure-types"
+import type { ToothStateDto, ProcedureTypeDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import { formatDateFr } from "@/lib/format"
 import { CONDITION_ORDER, conditionStyle } from "@/components/odontogram-conditions"
@@ -43,6 +44,8 @@ const isDiagnosis = (entry: ToothStateDto) => entry.source === "Diagnosis"
 export interface OdontogramPlanSeed {
   toothNumbers: number[]
   designationFr: string
+  /** Prefilled planned cost from the matching procedure-type default (omitted when no catalog match). */
+  plannedCost?: number
 }
 
 interface OdontogramProps {
@@ -54,6 +57,7 @@ interface OdontogramProps {
 export function Odontogram({ patientId, onCreatePlan }: OdontogramProps) {
   const [isAdult, setIsAdult] = useState(true)
   const [byTooth, setByTooth] = useState<Map<number, ToothStateDto[]>>(new Map())
+  const [procedureTypes, setProcedureTypes] = useState<ProcedureTypeDto[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -84,10 +88,28 @@ export function Odontogram({ patientId, onCreatePlan }: OdontogramProps) {
     load()
   }, [load])
 
+  // Procedure catalog — used only to prefill a seeded plan line's cost (by resulting condition).
+  useEffect(() => {
+    procedureTypesApi.list(false).then(setProcedureTypes).catch(() => setProcedureTypes([]))
+  }, [])
+
   // The odontogram also changes through the dental-record flow (broadcasts "patients"), so refresh live.
   useClinicRealtime(RealtimeResource.Patients, load)
 
   const teeth = isAdult ? ADULT_TEETH : CHILD_TEETH
+
+  // A charted diagnosis names the desired end-state (e.g. "Couronne"); a procedure whose ResultingCondition
+  // is that state is its treatment, so its default cost is the planned cost. Pathology diagnoses (Carie…)
+  // have no such procedure and fall back to no prefill (0) — as allowed by the spec.
+  const costByCondition = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const pt of procedureTypes) {
+      if (pt.resultingCondition && pt.defaultCost != null && !map.has(pt.resultingCondition)) {
+        map.set(pt.resultingCondition, pt.defaultCost)
+      }
+    }
+    return map
+  }, [procedureTypes])
 
   // Open diagnoses (not yet treated), one seed per tooth, for "create a plan from the odontogram".
   const planSeeds = useMemo<OdontogramPlanSeed[]>(() => {
@@ -95,11 +117,17 @@ export function Odontogram({ patientId, onCreatePlan }: OdontogramProps) {
     for (const [tooth, entries] of Array.from(byTooth.entries()).sort((a, b) => a[0] - b[0])) {
       const diagnoses = entries.filter(isDiagnosis)
       if (diagnoses.length === 0) continue
-      const labels = Array.from(new Set(diagnoses.map((d) => conditionStyle(d.condition).label)))
-      seeds.push({ toothNumbers: [tooth], designationFr: `${labels.join(", ")} — dent ${tooth}` })
+      const conditions = Array.from(new Set(diagnoses.map((d) => d.condition)))
+      const labels = conditions.map((c) => conditionStyle(c).label)
+      const matchedCost = conditions.reduce((sum, c) => sum + (costByCondition.get(c) ?? 0), 0)
+      seeds.push({
+        toothNumbers: [tooth],
+        designationFr: `${labels.join(", ")} — dent ${tooth}`,
+        plannedCost: matchedCost > 0 ? matchedCost : undefined,
+      })
     }
     return seeds
-  }, [byTooth])
+  }, [byTooth, costByCondition])
 
   return (
     <div className="w-full space-y-4">

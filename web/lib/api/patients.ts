@@ -57,11 +57,16 @@ export const patientsApi = {
       condition: string;
       notes?: string;
     }>;
+    isFlagged?: boolean;
+    flagNotes?: string;
   }): Promise<PatientDto> => {
     return apiPost<PatientDto>('/patients', data);
   },
 
-  update: async (id: string, data: Partial<PatientDto>): Promise<PatientDto> => {
+  update: async (
+    id: string,
+    data: Partial<PatientDto> & { isFlagged?: boolean; flagNotes?: string },
+  ): Promise<PatientDto> => {
     return apiPut<PatientDto>(`/patients/${id}`, data);
   },
 };

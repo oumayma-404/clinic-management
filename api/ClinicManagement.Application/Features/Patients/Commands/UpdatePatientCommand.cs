@@ -3,6 +3,7 @@ using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Domain.Entities;
+using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Domain.ValueObjects;
 
@@ -22,10 +23,18 @@ public class UpdatePatientCommand : IRequest<Result<PatientDto>>
     public CnamInfoDto? CnamInfo { get; set; }
     public string? MedicalHistory { get; set; }
     public string? Allergies { get; set; }
+
+    // "Signaler ce patient" toggle + note. null = leave the flag state unchanged (backward-compatible with
+    // callers that don't send it); true = ensure an active flag; false = clear any active flag.
+    public bool? IsFlagged { get; set; }
+    public string? FlagNotes { get; set; }
 }
 
 public class UpdatePatientCommandHandler : IRequestHandler<UpdatePatientCommand, Result<PatientDto>>
 {
+    // Description stamped on the flag created by the "Signaler ce patient" toggle.
+    private const string SignaledFlagDescription = "Patient signalé";
+
     private readonly IPatientRepository _patientRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
@@ -144,6 +153,32 @@ public class UpdatePatientCommandHandler : IRequestHandler<UpdatePatientCommand,
                 var medicalHistory = request.MedicalHistory ?? patient.MedicalHistory;
                 var allergies = request.Allergies ?? patient.Allergies;
                 patient.UpdateMedicalHistory(medicalHistory, allergies);
+            }
+
+            // Patient flag ("Signaler ce patient"): a single active HighPriority flag carries the toggle
+            // + note; it feeds the "Urgents" KPI and the flagged filter. A null IsFlagged leaves it unchanged.
+            if (request.IsFlagged.HasValue)
+            {
+                var activeFlag = patient.Flags.FirstOrDefault(f => f.IsActive);
+                if (request.IsFlagged.Value)
+                {
+                    if (activeFlag != null)
+                    {
+                        activeFlag.Update(activeFlag.Description, request.FlagNotes);
+                    }
+                    else
+                    {
+                        patient.AddFlag(new PatientFlag(
+                            Guid.NewGuid(), patient.Id, PatientFlagType.HighPriority, SignaledFlagDescription, request.FlagNotes));
+                    }
+                }
+                else
+                {
+                    foreach (var flag in patient.Flags.Where(f => f.IsActive).ToList())
+                    {
+                        flag.Deactivate();
+                    }
+                }
             }
 
             await _patientRepository.UpdateAsync(patient, cancellationToken);

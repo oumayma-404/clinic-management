@@ -23,6 +23,7 @@ import { formatDT, formatDateFr } from "@/lib/format"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { useConnectivity } from "@/lib/connectivity/connectivity"
+import { useClinicAccess } from "@/lib/hooks/use-clinic-access"
 import { InvoiceFormModal } from "./invoice-form-modal"
 import { PaymentModal } from "./payment-modal"
 import { invoiceStatusLabel, eInvoiceStatusLabel, eInvoiceStatusBadgeClass } from "./invoice-labels"
@@ -72,6 +73,10 @@ export function InvoicesTable({
   const [error, setError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
   const { internetReachable } = useConnectivity()
+  // El Fatoora is per-clinic opt-in: only surface the submit action when the clinic has enabled TTN
+  // e-invoicing (otherwise the submit would just fail server-side with "non activée").
+  const { status: clinicStatus } = useClinicAccess(false)
+  const eInvoicingEnabled = clinicStatus?.clinic?.ttnEInvoicingEnabled ?? false
 
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState<InvoiceDto | null>(null)
@@ -323,7 +328,7 @@ export function InvoicesTable({
                             <CreditCard className="h-4 w-4" />
                           </Button>
                         )}
-                        {!isDraft && invoice.canSubmitToElFatoora && (
+                        {!isDraft && eInvoicingEnabled && invoice.canSubmitToElFatoora && (
                           <Button
                             variant="ghost"
                             size="icon"

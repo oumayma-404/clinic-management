@@ -22,17 +22,20 @@ public class GetCaisseSummaryQuery : IRequest<Result<CaisseSummaryDto>>
 public class GetCaisseSummaryQueryHandler : IRequestHandler<GetCaisseSummaryQuery, Result<CaisseSummaryDto>>
 {
     private readonly IInvoiceRepository _invoiceRepository;
+    private readonly ITreatmentPlanRepository _planRepository;
     private readonly IExpenseRepository _expenseRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly ILogger<GetCaisseSummaryQueryHandler> _logger;
 
     public GetCaisseSummaryQueryHandler(
         IInvoiceRepository invoiceRepository,
+        ITreatmentPlanRepository planRepository,
         IExpenseRepository expenseRepository,
         ICurrentClinicResolver clinicResolver,
         ILogger<GetCaisseSummaryQueryHandler> logger)
     {
         _invoiceRepository = invoiceRepository;
+        _planRepository = planRepository;
         _expenseRepository = expenseRepository;
         _clinicResolver = clinicResolver;
         _logger = logger;
@@ -53,7 +56,11 @@ public class GetCaisseSummaryQueryHandler : IRequestHandler<GetCaisseSummaryQuer
             if (to <= from)
                 return Result<CaisseSummaryDto>.Failure("La date de fin doit être postérieure à la date de début.");
 
-            var cashIn = await _invoiceRepository.GetCollectedBetweenAsync(clinicId, from, to, cancellationToken);
+            // Encaissements = invoice payments + treatment-plan installment collections (both money tracks),
+            // so the daily caisse agrees with the dashboard "encaissé" figure (which sums both).
+            var invoiceCollected = await _invoiceRepository.GetCollectedBetweenAsync(clinicId, from, to, cancellationToken);
+            var installmentCollected = await _planRepository.GetInstallmentCollectedBetweenAsync(clinicId, from, to, cancellationToken);
+            var cashIn = invoiceCollected + installmentCollected;
             var cashOut = await _expenseRepository.GetTotalBetweenAsync(clinicId, from, to, cancellationToken);
 
             var dto = new CaisseSummaryDto

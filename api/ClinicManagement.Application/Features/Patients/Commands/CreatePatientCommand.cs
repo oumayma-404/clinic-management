@@ -3,6 +3,7 @@ using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Domain.Entities;
+using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Domain.ValueObjects;
 
@@ -23,6 +24,10 @@ public class CreatePatientCommand : IRequest<Result<PatientDto>>
     public CnamInfoDto? CnamInfo { get; set; }
     public List<MedicalHistoryEntryDto>? MedicalHistoryEntries { get; set; }
     public List<FamilyHistoryEntryDto>? FamilyHistoryEntries { get; set; }
+
+    // "Signaler ce patient" toggle + note at creation (feeds the "Urgents" KPI / flagged filter).
+    public bool? IsFlagged { get; set; }
+    public string? FlagNotes { get; set; }
 }
 
 public class MedicalHistoryEntryDto
@@ -41,6 +46,9 @@ public class FamilyHistoryEntryDto
 
 public class CreatePatientCommandHandler : IRequestHandler<CreatePatientCommand, Result<PatientDto>>
 {
+    // Description stamped on the flag created by the "Signaler ce patient" toggle.
+    private const string SignaledFlagDescription = "Patient signalé";
+
     private readonly IPatientRepository _patientRepository;
     private readonly IUserRepository _userRepository;
     private readonly IClinicContext _clinicContext;
@@ -156,6 +164,13 @@ public class CreatePatientCommandHandler : IRequestHandler<CreatePatientCommand,
             // Optional CNAM identity (ToDomain returns null for an omitted/empty block).
             patient.UpdateCnamInfo(request.CnamInfo.ToDomain());
 
+            // Optional "Signaler ce patient" flag at creation.
+            if (request.IsFlagged == true)
+            {
+                patient.AddFlag(new PatientFlag(
+                    Guid.NewGuid(), patient.Id, PatientFlagType.HighPriority, SignaledFlagDescription, request.FlagNotes));
+            }
+
             await _patientRepository.AddAsync(patient, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -244,6 +259,15 @@ public class CreatePatientCommandHandler : IRequestHandler<CreatePatientCommand,
             }
 
             dto.CnamInfo = patient.CnamInfo.ToDto();
+
+            dto.Flags = patient.Flags.Select(f => new PatientFlagDto
+            {
+                Id = f.Id,
+                FlagType = f.FlagType.ToString(),
+                Description = f.Description,
+                Notes = f.Notes,
+                IsActive = f.IsActive
+            }).ToList();
 
             return Result<PatientDto>.Success(dto);
         }

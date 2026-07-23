@@ -51,7 +51,8 @@ import { patientMedicalHistoryApi } from "@/lib/api/patient-medical-history"
 import { patientFamilyHistoryApi } from "@/lib/api/patient-family-history"
 import { dentalRecordsApi } from "@/lib/api/dental-records"
 import { patientFilesApi } from "@/lib/api/patient-files"
-import type { PatientDto, AppointmentDto, PatientMedicalHistoryDto, PatientFamilyHistoryDto, DentalRecordDto, PatientFileDto, PatientFolderDto, TreatmentPlanDto } from "@/lib/api/types"
+import { medicalDocumentsApi } from "@/lib/api/medical-documents"
+import type { PatientDto, AppointmentDto, PatientMedicalHistoryDto, PatientFamilyHistoryDto, DentalRecordDto, PatientFileDto, PatientFolderDto, TreatmentPlanDto, MedicalDocumentDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import { EditPatientDialog } from "@/components/edit-patient-dialog"
 import { PatientRecordModal } from "@/components/patient-record-modal"
@@ -102,6 +103,15 @@ const hasActiveFlags = (patient: PatientDto) => {
   return patient.flags && patient.flags.some(flag => flag.isActive)
 }
 
+// French labels for saved medical-document types (the document-editor route uses the raw type key).
+const DOCUMENT_TYPE_LABELS: Record<string, string> = {
+  prescription: "Ordonnance",
+  liaison: "Lettre de liaison",
+  certificat: "Certificat médical",
+  "bulletin-cnam": "Bulletin de soins CNAM",
+}
+const documentTypeLabel = (type: string) => DOCUMENT_TYPE_LABELS[type] ?? type
+
 export default function PatientDetailsPage() {
   const params = useParams()
   const router = useRouter()
@@ -133,6 +143,7 @@ export default function PatientDetailsPage() {
   const [aiLoading, setAiLoading] = useState(false)
   const [aiError, setAiError] = useState(false)
   const [treatmentPlans, setTreatmentPlans] = useState<TreatmentPlanDto[]>([])
+  const [medicalDocuments, setMedicalDocuments] = useState<MedicalDocumentDto[]>([])
   const [planSeeds, setPlanSeeds] = useState<TreatmentPlanSeedLine[]>([])
   const [seededPlanOpen, setSeededPlanOpen] = useState(false)
   const { internetReachable } = useConnectivity()
@@ -237,6 +248,15 @@ export default function PatientDetailsPage() {
       .list({ patientId })
       .then(setTreatmentPlans)
       .catch(() => setTreatmentPlans([]))
+  }, [patientId, refreshKey])
+
+  // Load the patient's saved medical documents (ordonnances, certificats, BS1…) for the Documents tab.
+  useEffect(() => {
+    if (!patientId) return
+    medicalDocumentsApi
+      .list(patientId)
+      .then(setMedicalDocuments)
+      .catch(() => setMedicalDocuments([]))
   }, [patientId, refreshKey])
 
   // Reload files when folder changes
@@ -515,10 +535,11 @@ export default function PatientDetailsPage() {
                 <CardContent>
                   <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                     <div>
-                      <p className="text-xs text-muted-foreground">Solde dû (total)</p>
+                      <p className="text-xs text-muted-foreground">Solde dû total</p>
                       <p className={`text-2xl font-semibold ${billingSummary.totalOutstanding > 0 ? "text-amber-600" : "text-foreground"}`}>
                         {formatDT(billingSummary.totalOutstanding)}
                       </p>
+                      <p className="text-[11px] text-muted-foreground">= factures + échéanciers</p>
                       {billingSummary.oldestOverdueDate && (
                         <Badge variant="destructive" className="mt-1">
                           En retard depuis le {formatDateFr(billingSummary.oldestOverdueDate)}
@@ -526,9 +547,9 @@ export default function PatientDetailsPage() {
                       )}
                     </div>
                     <div>
-                      <p className="text-xs text-muted-foreground">Dont factures</p>
+                      <p className="text-xs text-muted-foreground">Solde factures</p>
                       <p className="text-lg font-medium">{formatDT(billingSummary.invoiceOutstanding)}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">Dont échéanciers</p>
+                      <p className="mt-1 text-xs text-muted-foreground">Solde échéanciers</p>
                       <p className="text-lg font-medium">{formatDT(billingSummary.installmentOutstanding)}</p>
                     </div>
                     <div>
@@ -545,7 +566,7 @@ export default function PatientDetailsPage() {
             )}
 
             <Tabs defaultValue="medical-records" className="space-y-4">
-              <TabsList className="grid w-full grid-cols-7">
+              <TabsList className="grid w-full grid-cols-8">
                 <TabsTrigger value="medical-records" className="gap-2">
                   <FileCheck className="h-4 w-4" />
                   Dossiers médicaux
@@ -561,6 +582,10 @@ export default function PatientDetailsPage() {
                 <TabsTrigger value="notes" className="gap-2">
                   <FileText className="h-4 w-4" />
                   Notes
+                </TabsTrigger>
+                <TabsTrigger value="documents" className="gap-2">
+                  <FileText className="h-4 w-4" />
+                  Documents
                 </TabsTrigger>
                 <TabsTrigger value="files" className="gap-2">
                   <FileText className="h-4 w-4" />
@@ -801,7 +826,7 @@ export default function PatientDetailsPage() {
                       Odontogramme
                     </CardTitle>
                     <CardDescription>
-                      Historique des traitements par dent (lecture seule). Les états sont enregistrés lors de l'ajout d'un acte médical.
+                      Cliquez sur une dent pour noter un diagnostic (à traiter) ; les actes réalisés s'ajoutent automatiquement lors de l'enregistrement d'un acte médical.
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
@@ -893,6 +918,58 @@ export default function PatientDetailsPage() {
                         ).length === 0 && (
                           <p className="text-center text-muted-foreground py-8">Aucune note dans les dossiers médicaux</p>
                         )}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              {/* Documents Tab — saved medical documents; reopen the editor to edit / reprint. */}
+              <TabsContent value="documents">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <FileText className="h-5 w-5" />
+                      Documents médicaux
+                    </CardTitle>
+                    <CardDescription>
+                      Ordonnances, certificats, lettres de liaison et bulletins CNAM enregistrés. Cliquez sur « Ouvrir » pour modifier ou réimprimer.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {medicalDocuments.length === 0 ? (
+                      <p className="text-center text-muted-foreground py-8">Aucun document enregistré</p>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Type</TableHead>
+                              <TableHead>Date</TableHead>
+                              <TableHead className="text-right">Actions</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {medicalDocuments.map((doc) => (
+                              <TableRow key={doc.id}>
+                                <TableCell className="font-medium">{documentTypeLabel(doc.documentType)}</TableCell>
+                                <TableCell className="text-muted-foreground">{formatDate(doc.documentDate)}</TableCell>
+                                <TableCell className="text-right">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="gap-1"
+                                    onClick={() => router.push(`/documents/${doc.documentType}?id=${doc.id}`)}
+                                    title="Ouvrir le document"
+                                  >
+                                    <Eye className="h-4 w-4" />
+                                    Ouvrir
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
                       </div>
                     )}
                   </CardContent>

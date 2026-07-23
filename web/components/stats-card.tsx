@@ -1,3 +1,4 @@
+import Link from "next/link"
 import { Card, CardContent } from "@/components/ui/card"
 import type { LucideIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -9,11 +10,18 @@ interface StatsCardProps {
   description: string
   variant?: "default" | "urgent"
   loading?: boolean
+  /** When set, the whole card becomes a link to this route (KPI drill-through). */
+  href?: string
 }
 
-export function StatsCard({ title, value, icon: Icon, description, variant = "default", loading = false }: StatsCardProps) {
-  return (
-    <Card className={cn(variant === "urgent" && "border-destructive/50 bg-destructive/5")}>
+export function StatsCard({ title, value, icon: Icon, description, variant = "default", loading = false, href }: StatsCardProps) {
+  const card = (
+    <Card
+      className={cn(
+        variant === "urgent" && "border-destructive/50 bg-destructive/5",
+        href && "cursor-pointer transition-colors hover:bg-accent/40 hover:border-accent",
+      )}
+    >
       <CardContent className="p-6">
         <div className="flex items-center justify-between">
           <div className="space-y-1">
@@ -37,4 +45,14 @@ export function StatsCard({ title, value, icon: Icon, description, variant = "de
       </CardContent>
     </Card>
   )
+
+  if (href) {
+    return (
+      <Link href={href} className="block rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        {card}
+      </Link>
+    )
+  }
+
+  return card
 }

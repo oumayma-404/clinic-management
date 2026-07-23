@@ -47,6 +47,7 @@ export default function DashboardPage() {
                   loading={loading}
                   icon={Calendar}
                   description="Prévus aujourd'hui"
+                  href="/appointments"
                 />
                 <StatsCard
                   title="Total patients"
@@ -54,6 +55,7 @@ export default function DashboardPage() {
                   loading={loading}
                   icon={Users}
                   description="Patients enregistrés"
+                  href="/patients"
                 />
                 <StatsCard
                   title="En attente"
@@ -61,6 +63,7 @@ export default function DashboardPage() {
                   loading={loading}
                   icon={Clock}
                   description="En attente de confirmation"
+                  href="/appointments"
                 />
                 <StatsCard
                   title="Cette semaine"
@@ -68,6 +71,7 @@ export default function DashboardPage() {
                   loading={loading}
                   icon={CalendarDays}
                   description="Rendez-vous cette semaine"
+                  href="/appointments"
                 />
                 <StatsCard
                   title="Urgents"
@@ -76,6 +80,7 @@ export default function DashboardPage() {
                   icon={AlertCircle}
                   description="Patients signalés"
                   variant="urgent"
+                  href="/patients?flagged=1"
                 />
                 <StatsCard
                   title="Recettes (mois)"
@@ -83,6 +88,7 @@ export default function DashboardPage() {
                   loading={loading}
                   icon={Wallet}
                   description="Encaissé ce mois-ci"
+                  href="/factures"
                 />
                 <StatsCard
                   title="Créances"
@@ -90,6 +96,7 @@ export default function DashboardPage() {
                   loading={loading}
                   icon={HandCoins}
                   description="En attente de recouvrement"
+                  href="/creances"
                 />
               </div>
 

@@ -21,12 +21,15 @@ public class PatientsController : ApiControllerBase
     }
 
     /// <summary>
-    /// Get all patients for the current user's clinic
+    /// Get patients for the current user's clinic, optionally filtered by a search term (name / phone)
+    /// and capped at <paramref name="limit"/>.
     /// </summary>
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<PatientDto>>> GetPatients()
+    public async Task<ActionResult<IEnumerable<PatientDto>>> GetPatients(
+        [FromQuery] string? searchTerm = null,
+        [FromQuery] int? limit = null)
     {
-        var query = new GetPatientsQuery();
+        var query = new GetPatientsQuery { SearchTerm = searchTerm, Limit = limit };
         var result = await _mediator.Send(query);
 
         if (result.IsFailure)
