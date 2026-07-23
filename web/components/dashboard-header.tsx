@@ -131,7 +131,7 @@ export function DashboardHeader() {
       .slice(0, 2)
   }
 
-  const userName = user?.name || user?.email || "User"
+  const userName = user?.name || user?.email || "Utilisateur"
   const userEmail = user?.email || ""
   const userPicture = user?.picture
 
@@ -225,15 +225,15 @@ export function DashboardHeader() {
                 </Avatar>
                 <div className="text-left">
                   <p className="text-sm font-medium">{userName}</p>
-                  <p className="text-xs text-muted-foreground">{userEmail || "User"}</p>
+                  <p className="text-xs text-muted-foreground">{userEmail || "Utilisateur"}</p>
                 </div>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuLabel>My Account</DropdownMenuLabel>
+              <DropdownMenuLabel>Mon compte</DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => router.push("/settings")} className="cursor-pointer">
-                Settings
+                Paramètres
               </DropdownMenuItem>
               {mode === "local" && (
                 <DropdownMenuItem
@@ -241,7 +241,7 @@ export function DashboardHeader() {
                   className="flex items-center cursor-pointer"
                 >
                   <KeyRound className="mr-2 h-4 w-4" />
-                  Change password
+                  Changer le mot de passe
                 </DropdownMenuItem>
               )}
               <DropdownMenuSeparator />
@@ -250,7 +250,7 @@ export function DashboardHeader() {
                 className="flex items-center text-destructive cursor-pointer"
               >
                 <LogOut className="mr-2 h-4 w-4" />
-                Log out
+                Se déconnecter
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

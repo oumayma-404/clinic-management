@@ -1,6 +1,5 @@
 using ClinicManagement.Domain.Common;
 using ClinicManagement.Domain.ValueObjects;
-using ClinicManagement.Domain.Events;
 
 namespace ClinicManagement.Domain.Entities;
 
@@ -122,7 +121,6 @@ public class Patient : AggregateRoot<Guid>
         {
             _flags.Add(flag);
             UpdatedAt = DateTime.UtcNow;
-            AddDomainEvent(new PatientFlagAddedEvent(Id, flag.Id));
         }
     }
 

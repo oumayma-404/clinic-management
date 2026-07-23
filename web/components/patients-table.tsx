@@ -13,6 +13,7 @@ import type { PatientDto, DentalRecordDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import { EditPatientDialog } from "@/components/edit-patient-dialog"
 import { PatientSummaryModal } from "@/components/patient-summary-modal"
+import { formatDate } from "@/lib/format"
 
 interface PatientsTableProps {
   searchQuery: string
@@ -44,7 +45,7 @@ export function PatientsTable({ searchQuery, showFlaggedOnly }: PatientsTablePro
         if (!ignore) setPatients(data)
       } catch (err) {
         console.error("Failed to load patients:", err)
-        if (!ignore) setError(err instanceof ApiError ? err.message : "Failed to load patients")
+        if (!ignore) setError(err instanceof ApiError ? err.message : "Échec du chargement des patients")
       } finally {
         if (!ignore) setLoading(false)
       }
@@ -66,17 +67,6 @@ export function PatientsTable({ searchQuery, showFlaggedOnly }: PatientsTablePro
     }
     return patients
   }, [patients, showFlaggedOnly])
-
-  // Format date of birth
-  const formatDateOfBirth = (dob: string | undefined) => {
-    if (!dob) return "N/A"
-    try {
-      const date = new Date(dob)
-      return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
-    } catch {
-      return "N/A"
-    }
-  }
 
   // Calculate age from date of birth
   const calculateAge = (dob: string | undefined) => {
@@ -148,7 +138,7 @@ export function PatientsTable({ searchQuery, showFlaggedOnly }: PatientsTablePro
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Users className="h-5 w-5" />
-          Patient Records
+          Dossiers patients
           <Badge variant="secondary" className="ml-auto">
             {filteredPatients.length} {filteredPatients.length === 1 ? "patient" : "patients"}
           </Badge>
@@ -162,17 +152,17 @@ export function PatientsTable({ searchQuery, showFlaggedOnly }: PatientsTablePro
         )}
         {loading ? (
           <div className="h-24 flex items-center justify-center">
-            <p className="text-muted-foreground">Loading patients...</p>
+            <p className="text-muted-foreground">Chargement des patients…</p>
           </div>
         ) : (
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Date of Birth</TableHead>
-                <TableHead>Phone</TableHead>
+                <TableHead>Nom</TableHead>
+                <TableHead>Date de naissance</TableHead>
+                <TableHead>Téléphone</TableHead>
                 <TableHead>Email</TableHead>
-                <TableHead>Flags</TableHead>
+                <TableHead>Signalements</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -181,7 +171,7 @@ export function PatientsTable({ searchQuery, showFlaggedOnly }: PatientsTablePro
                 <TableRow>
                   <TableCell colSpan={6} className="h-24 text-center">
                     <p className="text-muted-foreground">
-                      {showFlaggedOnly ? "No flagged patients found" : searchQuery ? "No patients found matching your search" : "No patients found"}
+                      {showFlaggedOnly ? "Aucun patient signalé" : searchQuery ? "Aucun patient ne correspond à votre recherche" : "Aucun patient"}
                     </p>
                   </TableCell>
                 </TableRow>
@@ -199,18 +189,18 @@ export function PatientsTable({ searchQuery, showFlaggedOnly }: PatientsTablePro
                         <div>
                           <p className="text-foreground">{getPatientName(patient)}</p>
                           {age !== null && (
-                            <p className="text-xs text-muted-foreground">{age} years old</p>
+                            <p className="text-xs text-muted-foreground">{age} ans</p>
                           )}
                         </div>
                       </TableCell>
                       <TableCell className="text-muted-foreground">
-                        {formatDateOfBirth(patient.dateOfBirth)}
+                        {formatDate(patient.dateOfBirth)}
                       </TableCell>
                       <TableCell className="text-muted-foreground">
-                        {patient.phoneNumber || "N/A"}
+                        {patient.phoneNumber || "Non renseigné"}
                       </TableCell>
                       <TableCell className="text-muted-foreground">
-                        {patient.email || "N/A"}
+                        {patient.email || "Non renseigné"}
                       </TableCell>
                       <TableCell>
                         {hasFlags ? (
@@ -236,7 +226,7 @@ export function PatientsTable({ searchQuery, showFlaggedOnly }: PatientsTablePro
                               e.stopPropagation()
                               handleOpenSummary(patient)
                             }}
-                            title="View patient summary"
+                            title="Voir le résumé du patient"
                           >
                             <FileText className="h-4 w-4" />
                           </Button>
@@ -248,7 +238,7 @@ export function PatientsTable({ searchQuery, showFlaggedOnly }: PatientsTablePro
                               e.stopPropagation()
                               router.push(`/patients/${patient.id}/files`)
                             }}
-                            title="View patient files"
+                            title="Voir les fichiers du patient"
                           >
                             <Folder className="h-4 w-4" />
                           </Button>

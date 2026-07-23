@@ -1,6 +1,5 @@
 using ClinicManagement.Domain.Common;
 using ClinicManagement.Domain.Enums;
-using ClinicManagement.Domain.Events;
 
 namespace ClinicManagement.Domain.Entities;
 
@@ -63,11 +62,6 @@ public class Appointment : AggregateRoot<Guid>
         ProcedureColorHex = procedureColorHex;
         TreatmentPlanItemId = treatmentPlanItemId;
         CreatedAt = DateTime.UtcNow;
-
-        if (patientId.HasValue)
-        {
-            AddDomainEvent(new AppointmentCreatedEvent(id, patientId.Value, appointmentDateTime));
-        }
     }
 
     public void Confirm()
@@ -77,10 +71,6 @@ public class Appointment : AggregateRoot<Guid>
 
         Status = AppointmentStatus.Confirmed;
         UpdatedAt = DateTime.UtcNow;
-        if (PatientId.HasValue)
-        {
-            AddDomainEvent(new AppointmentConfirmedEvent(Id, PatientId.Value, AppointmentDateTime));
-        }
     }
 
     public void Start()
@@ -148,14 +138,9 @@ public class Appointment : AggregateRoot<Guid>
         if (Status == AppointmentStatus.Cancelled)
             throw new InvalidOperationException("Cannot reschedule a cancelled appointment");
 
-        var oldDateTime = AppointmentDateTime;
         AppointmentDateTime = newDateTime;
         Status = AppointmentStatus.Scheduled;
         UpdatedAt = DateTime.UtcNow;
-        if (PatientId.HasValue)
-        {
-            AddDomainEvent(new AppointmentRescheduledEvent(Id, PatientId.Value, oldDateTime, newDateTime));
-        }
     }
 
     /// <summary>

@@ -415,7 +415,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                       <Input
                         id="email"
                         type="email"
-                        placeholder="clinic@example.com"
+                        placeholder="ex. : contact@maclinique.tn"
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
                         required

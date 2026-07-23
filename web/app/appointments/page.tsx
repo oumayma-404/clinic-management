@@ -168,9 +168,9 @@ export default function AppointmentsPage() {
             <Tabs value={view} onValueChange={(v) => setView(v as "day" | "week" | "month")} className="flex-1 flex flex-col min-h-0">
               <div className="flex items-center justify-between mb-3 flex-shrink-0">
                 <TabsList>
-                  <TabsTrigger value="day">Day View</TabsTrigger>
-                  <TabsTrigger value="week">Week View</TabsTrigger>
-                  <TabsTrigger value="month">Month View</TabsTrigger>
+                  <TabsTrigger value="day">Jour</TabsTrigger>
+                  <TabsTrigger value="week">Semaine</TabsTrigger>
+                  <TabsTrigger value="month">Mois</TabsTrigger>
                 </TabsList>
                 <div className="flex items-center gap-2">
                   {!isGoogleCalendarAuthorized ? (
@@ -183,7 +183,7 @@ export default function AppointmentsPage() {
                       title={!internetReachable ? "Connexion internet requise" : undefined}
                     >
                       <Calendar className="h-4 w-4" />
-                      Sync to Google Calendar
+                      Synchroniser avec Google Calendar
                     </Button>
                   ) : (
                     <Button
@@ -195,7 +195,7 @@ export default function AppointmentsPage() {
                       title={!internetReachable ? "Connexion internet requise" : undefined}
                     >
                       <RefreshCw className={`h-4 w-4 ${isSyncing ? "animate-spin" : ""}`} />
-                      {isSyncing ? "Syncing..." : "Sync from Google"}
+                      {isSyncing ? "Synchronisation…" : "Importer depuis Google"}
                     </Button>
                   )}
                   {!internetReachable && (
@@ -203,7 +203,7 @@ export default function AppointmentsPage() {
                   )}
                   <Button onClick={() => setDialogOpen(true)} className="gap-2" size="sm">
                     <Plus className="h-4 w-4" />
-                    New Appointment
+                    Nouveau rendez-vous
                   </Button>
                 </div>
               </div>

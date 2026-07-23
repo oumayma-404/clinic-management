@@ -8,15 +8,15 @@ import { ConnectivityProvider } from "@/lib/connectivity/connectivity"
 import { SidebarProvider } from "@/contexts/sidebar-context"
 import { Toaster } from "sonner"
 import { AIChat } from "@/components/ai-chat"
+import { PRODUCT_NAME } from "@/lib/brand"
 import "./globals.css"
 
 const _geist = Geist({ subsets: ["latin"] })
 const _geistMono = Geist_Mono({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
-  title: "MediCare Clinic - Dashboard",
-  description: "Professional clinic management system for healthcare providers",
-  generator: "v0.app",
+  title: `${PRODUCT_NAME} — Tableau de bord`,
+  description: "Système de gestion de clinique pour les professionnels de santé",
   icons: {
     icon: [
       {

@@ -225,9 +225,9 @@ export function CreateAppointmentDialog({
     } catch (err) {
       console.error("Failed to load patients:", err)
       if (err instanceof ApiError) {
-        setError(`Failed to load patients: ${err.message}`)
+        setError(`Échec du chargement des patients : ${err.message}`)
       } else {
-        setError("Failed to load patients. Please try again.")
+        setError("Échec du chargement des patients. Veuillez réessayer.")
       }
     } finally {
       setLoadingPatients(false)
@@ -306,7 +306,7 @@ export function CreateAppointmentDialog({
     if (!isBusySlot) {
       if (isNewPatient) {
         if (!newPatientFirstName.trim() || !newPatientLastName.trim()) {
-          setError("Please enter both first name and last name for the new patient")
+          setError("Veuillez saisir le prénom et le nom du nouveau patient")
           return false
         }
         // AC-4/AC-5: capture a deliverable phone for the inline patient so reminders can actually be sent.
@@ -315,13 +315,13 @@ export function CreateAppointmentDialog({
           return false
         }
       } else if (!selectedPatientId) {
-        setError("Please select a patient")
+        setError("Veuillez sélectionner un patient")
         return false
       }
     }
 
     if (!date) {
-      setError("Please select a date")
+      setError("Veuillez sélectionner une date")
       return false
     }
 
@@ -329,13 +329,13 @@ export function CreateAppointmentDialog({
       const startTotalMinutes = Number.parseInt(startHour) * 60 + Number.parseInt(startMinute)
       const endTotalMinutes = Number.parseInt(endHour) * 60 + Number.parseInt(endMinute)
       if (endTotalMinutes <= startTotalMinutes) {
-        setError("End time must be after start time")
+        setError("L'heure de fin doit être postérieure à l'heure de début")
         return false
       }
     }
 
     if (calculatedDuration <= 0) {
-      setError("Duration must be greater than 0")
+      setError("La durée doit être supérieure à 0")
       return false
     }
 
@@ -364,9 +364,9 @@ export function CreateAppointmentDialog({
             patientId = newPatient.id
           } catch (err) {
             if (err instanceof ApiError) {
-              setError(`Failed to create patient: ${err.message}`)
+              setError(`Échec de la création du patient : ${err.message}`)
             } else {
-              setError("Failed to create patient")
+              setError("Échec de la création du patient")
             }
             setLoading(false)
             return
@@ -376,7 +376,7 @@ export function CreateAppointmentDialog({
 
       const appointmentDateTime = buildAppointmentDateTime()
       if (!appointmentDateTime) {
-        setError("Please select a date")
+        setError("Veuillez sélectionner une date")
         setLoading(false)
         return
       }
@@ -407,7 +407,7 @@ export function CreateAppointmentDialog({
       if (err instanceof ApiError) {
         setError(err.message)
       } else {
-        setError("Failed to create appointment")
+        setError("Échec de la création du rendez-vous")
       }
     } finally {
       setLoading(false)
@@ -491,8 +491,8 @@ export function CreateAppointmentDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="text-2xl">Create Appointment</DialogTitle>
-          <DialogDescription>Schedule a new appointment for a patient</DialogDescription>
+          <DialogTitle className="text-2xl">Créer un rendez-vous</DialogTitle>
+          <DialogDescription>Planifier un nouveau rendez-vous pour un patient</DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-6 mt-4">
@@ -558,7 +558,7 @@ export function CreateAppointmentDialog({
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-2">
                         <Label htmlFor="firstName" className="text-sm">
-                          First Name *
+                          Prénom *
                         </Label>
                         <Input
                           id="firstName"
@@ -571,7 +571,7 @@ export function CreateAppointmentDialog({
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="lastName" className="text-sm">
-                          Last Name *
+                          Nom *
                         </Label>
                         <Input
                           id="lastName"
@@ -604,7 +604,7 @@ export function CreateAppointmentDialog({
                 ) : (
                   <div className="space-y-2">
                     <Label htmlFor="patient" className="text-sm">
-                      Select Patient *
+                      Sélectionner un patient *
                     </Label>
                     {/* Searchable patient picker (AC-5): type to filter patients by name. */}
                     {/* modal: the parent Dialog is modal and disables pointer events outside its
@@ -625,10 +625,10 @@ export function CreateAppointmentDialog({
                           <span className={cn("truncate", !selectedPatientId && "text-muted-foreground")}>
                             {selectedPatientName ||
                               (loadingPatients
-                                ? "Loading patients..."
+                                ? "Chargement des patients…"
                                 : patients.length === 0
-                                  ? "No patients found"
-                                  : "Choose a patient...")}
+                                  ? "Aucun patient trouvé"
+                                  : "Choisir un patient…")}
                           </span>
                           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                         </Button>
@@ -666,7 +666,7 @@ export function CreateAppointmentDialog({
                       </PopoverContent>
                     </Popover>
                     {patients.length === 0 && !loadingPatients && (
-                      <p className="text-xs text-muted-foreground">Create a new patient using the toggle above</p>
+                      <p className="text-xs text-muted-foreground">Créez un nouveau patient à l'aide du bouton ci-dessus</p>
                     )}
                   </div>
                 )}
@@ -701,7 +701,7 @@ export function CreateAppointmentDialog({
                       )}
                     >
                       <CalendarIcon className="mr-2 h-4 w-4" />
-                      {date ? format(date, "PPP") : "Pick a date"}
+                      {date ? format(date, "dd/MM/yyyy") : "Choisir une date"}
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-auto p-0" align="start">
@@ -712,7 +712,7 @@ export function CreateAppointmentDialog({
 
               {/* Start Time */}
               <div className="space-y-2">
-                <Label className="text-sm">Start Time *</Label>
+                <Label className="text-sm">Heure de début *</Label>
                 <div className="flex gap-2">
                   <Select value={startHour} onValueChange={setStartHour} required>
                     <SelectTrigger className="h-10">
@@ -753,7 +753,7 @@ export function CreateAppointmentDialog({
             <div className="flex items-center justify-between pt-2 border-t">
               <div className="flex items-center gap-2">
                 <Clock className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm font-medium">Duration</span>
+                <span className="text-sm font-medium">Durée</span>
                 {calculatedDuration > 0 && (
                   <Badge variant="secondary" className="ml-2">
                     {durationDisplay}
@@ -761,7 +761,7 @@ export function CreateAppointmentDialog({
                 )}
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-sm text-muted-foreground">Set end time</span>
+                <span className="text-sm text-muted-foreground">Définir l'heure de fin</span>
                 <Switch
                   checked={useEndTime}
                   onCheckedChange={(checked) => {
@@ -783,7 +783,7 @@ export function CreateAppointmentDialog({
             <div className="space-y-2">
               {useEndTime ? (
                 <div className="space-y-2">
-                  <Label className="text-sm">End Time *</Label>
+                  <Label className="text-sm">Heure de fin *</Label>
                   <div className="flex gap-2">
                     <Select value={endHour} onValueChange={setEndHour} required>
                       <SelectTrigger className="h-10">
@@ -846,13 +846,13 @@ export function CreateAppointmentDialog({
           <div className="space-y-4 p-4 rounded-lg border bg-muted/30">
             <div className="flex items-center gap-2">
               <Stethoscope className="h-5 w-5 text-muted-foreground" />
-              <h3 className="font-semibold">Details</h3>
+              <h3 className="font-semibold">Détails</h3>
             </div>
 
             <div className={`grid gap-4 ${!isBusySlot ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1'}`}>
               <div className="space-y-2">
                 <Label htmlFor="doctor" className="text-sm">
-                  Doctor
+                  Médecin
                 </Label>
                 <Select
                   value={selectedDoctorId}
@@ -860,11 +860,11 @@ export function CreateAppointmentDialog({
                   disabled={loadingDoctors || loading}
                 >
                   <SelectTrigger className="h-10 w-full" id="doctor">
-                    <SelectValue placeholder={loadingDoctors ? "Loading doctors..." : doctors.length === 0 ? "No doctors found" : "Choose a doctor..."} />
+                    <SelectValue placeholder={loadingDoctors ? "Chargement des médecins…" : doctors.length === 0 ? "Aucun médecin trouvé" : "Choisir un médecin…"} />
                   </SelectTrigger>
                   <SelectContent className="max-h-[200px]">
                     {doctors.length === 0 && !loadingDoctors ? (
-                      <div className="px-2 py-1.5 text-sm text-muted-foreground">No doctors available</div>
+                      <div className="px-2 py-1.5 text-sm text-muted-foreground">Aucun médecin disponible</div>
                     ) : (
                       doctors.map((doctor) => (
                         <SelectItem key={doctor.id || doctor.name} value={doctor.id || ""}>
@@ -879,7 +879,7 @@ export function CreateAppointmentDialog({
               {!isBusySlot && (
                 <div className="space-y-2">
                   <Label htmlFor="procedureType" className="text-sm">
-                    Procedure Type
+                    Type d'acte
                   </Label>
                   <Select
                     value={selectedProcedureTypeId}
@@ -898,7 +898,7 @@ export function CreateAppointmentDialog({
                     disabled={loadingProcedureTypes}
                   >
                     <SelectTrigger id="procedureType" className="h-10 w-full">
-                      <SelectValue placeholder={loadingProcedureTypes ? "Loading..." : "Select procedure type"} />
+                      <SelectValue placeholder={loadingProcedureTypes ? "Chargement…" : "Sélectionner un type d'acte"} />
                     </SelectTrigger>
                     <SelectContent className="max-h-[200px]">
                       {procedureTypes.map((procedureType) => (
@@ -1030,7 +1030,7 @@ export function CreateAppointmentDialog({
               <h3 className="font-semibold">Notes</h3>
             </div>
             <Textarea
-              placeholder="Add any additional notes or special instructions..."
+              placeholder="Ajouter des notes ou des instructions particulières…"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               className="min-h-[80px] resize-none"
@@ -1050,7 +1050,7 @@ export function CreateAppointmentDialog({
               Cancel
             </Button>
             <Button type="submit" disabled={loading}>
-              {loading ? "Creating..." : "Create Appointment"}
+              {loading ? "Création…" : "Créer le rendez-vous"}
             </Button>
           </DialogFooter>
         </form>

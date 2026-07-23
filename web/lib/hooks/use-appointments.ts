@@ -53,7 +53,7 @@ export function useAppointments(
       if (err instanceof ApiError) {
         setError(err.message);
       } else {
-        setError('Failed to load appointments');
+        setError('Échec du chargement des rendez-vous');
       }
     } finally {
       setLoading(false);

@@ -465,16 +465,11 @@ try
         job => job.DispatchQueuedInvoices(),
         Cron.Minutely);
 
-    // Google Calendar sync from Google Calendar to App is disabled for now
-    // We only sync from App to Google Calendar (triggered on create/update actions)
-    // Remove the recurring job if it exists in Hangfire
+    // Google→App calendar sync never runs on a schedule: the recurring job and its GoogleCalendarSyncJob
+    // class were removed as dead scaffolding. App→Google sync runs inline on appointment create/update, and
+    // Google→App stays manual-only (GoogleCalendarController). Defensively drop any stale recurring
+    // registration a previous deploy may have left in Hangfire storage so it can't fire a deleted job type.
     RecurringJob.RemoveIfExists("sync-google-calendar");
-    
-    // TODO: Re-enable when needed by uncommenting the lines below
-    // RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.GoogleCalendarSyncJob>(
-    //     "sync-google-calendar",
-    //     job => job.SyncFromGoogleCalendar(),
-    //     Cron.Hourly);
 
     // Log the transport posture on startup so it is observable (S3 step 4 / fail-loud-and-observable).
     if (isLocalAuthMode)

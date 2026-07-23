@@ -34,46 +34,47 @@ export default function DashboardPage() {
             <div className="mx-auto max-w-7xl space-y-6">
               {/* Page Title */}
               <div>
-                <h1 className="text-3xl font-semibold text-foreground">Dashboard</h1>
-                <p className="mt-1 text-sm text-muted-foreground">Welcome back! Here's what's happening today.</p>
+                <h1 className="text-3xl font-semibold text-foreground">Tableau de bord</h1>
+                <p className="mt-1 text-sm text-muted-foreground">Bon retour ! Voici l&apos;activité du jour.</p>
               </div>
 
-              {/* Stats Grid */}
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-7">
+              {/* Stats Grid — reflows across breakpoints so the seven cards stay readable on a laptop
+                  (was a fixed 7-wide row). */}
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 <StatsCard
-                  title="Today's Appointments"
+                  title="Rendez-vous du jour"
                   value={display(stats?.todaysAppointments)}
                   loading={loading}
                   icon={Calendar}
-                  description="Scheduled for today"
+                  description="Prévus aujourd'hui"
                 />
                 <StatsCard
-                  title="Total Patients"
+                  title="Total patients"
                   value={display(stats?.totalPatients)}
                   loading={loading}
                   icon={Users}
-                  description="Registered patients"
+                  description="Patients enregistrés"
                 />
                 <StatsCard
-                  title="Pending"
+                  title="En attente"
                   value={display(stats?.upcomingPending)}
                   loading={loading}
                   icon={Clock}
-                  description="Awaiting confirmation"
+                  description="En attente de confirmation"
                 />
                 <StatsCard
-                  title="This Week"
+                  title="Cette semaine"
                   value={display(stats?.thisWeekAppointments)}
                   loading={loading}
                   icon={CalendarDays}
-                  description="Appointments this week"
+                  description="Rendez-vous cette semaine"
                 />
                 <StatsCard
-                  title="Urgent"
+                  title="Urgents"
                   value={display(stats?.urgentPatients)}
                   loading={loading}
                   icon={AlertCircle}
-                  description="Flagged patients"
+                  description="Patients signalés"
                   variant="urgent"
                 />
                 <StatsCard

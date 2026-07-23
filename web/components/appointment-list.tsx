@@ -30,7 +30,7 @@ export function AppointmentList() {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Clock className="h-5 w-5" />
-          Today's Appointments
+          Rendez-vous du jour
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -41,7 +41,7 @@ export function AppointmentList() {
         ) : error ? (
           <p className="py-10 text-center text-sm text-destructive">{error}</p>
         ) : visibleAppointments.length === 0 ? (
-          <p className="py-10 text-center text-sm text-muted-foreground">No appointments today</p>
+          <p className="py-10 text-center text-sm text-muted-foreground">Aucun rendez-vous aujourd'hui</p>
         ) : (
           <div className="space-y-4">
             {visibleAppointments.map((appointment) => (
@@ -58,13 +58,13 @@ export function AppointmentList() {
                   <div>
                     <p className="font-medium text-foreground">{appointment.patientName}</p>
                     <p className="text-sm text-muted-foreground">
-                      {appointment.procedureTypeName ?? "Appointment"}
+                      {appointment.procedureTypeName ?? "Rendez-vous"}
                     </p>
                   </div>
                 </div>
                 <div className="flex items-center gap-4">
                   <span className="text-sm font-medium text-foreground">
-                    {format(new Date(appointment.appointmentDateTime), "p")}
+                    {format(new Date(appointment.appointmentDateTime), "HH:mm")}
                   </span>
                   <Badge
                     variant={appointment.status === "Confirmed" ? "default" : "secondary"}
