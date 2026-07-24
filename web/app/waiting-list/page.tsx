@@ -36,6 +36,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { ClipboardList, Plus, Pencil, Trash2, UserPlus, Loader2 } from "lucide-react"
+import { CreateAppointmentDialog } from "@/components/create-appointment-dialog"
 import { cn } from "@/lib/utils"
 import { waitingListApi, type WaitingListPayload } from "@/lib/api/waiting-list"
 import { patientsApi } from "@/lib/api/patients"
@@ -101,6 +102,10 @@ export default function WaitingListPage() {
 
   // Per-row promote state (disable the button while in flight).
   const [promotingId, setPromotingId] = useState<string | null>(null)
+
+  // Promote-and-book (P1-B): the entry whose appointment we're booking. Opening the dialog is the
+  // whole "Promouvoir" gesture now — booking the RDV from the entry and promoting are one flow.
+  const [promoteBookEntry, setPromoteBookEntry] = useState<WaitingListEntryDto | null>(null)
 
   // Remove (delete) confirmation state.
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
@@ -204,14 +209,23 @@ export default function WaitingListPage() {
     }
   }
 
-  const handlePromote = async (entry: WaitingListEntryDto) => {
+  // "Promouvoir" now books the appointment from the entry (patient pre-selected) in one gesture; the
+  // entry is promoted with the new appointment's id once the dialog reports success.
+  const handlePromote = (entry: WaitingListEntryDto) => {
+    setPromoteBookEntry(entry)
+  }
+
+  const handlePromoteBooked = async (appointmentId: string) => {
+    const entry = promoteBookEntry
+    if (!entry) return
     try {
       setPromotingId(entry.id)
-      await waitingListApi.promote(entry.id)
-      toast.success("Promu — pensez à créer le rendez-vous")
+      await waitingListApi.promote(entry.id, appointmentId)
+      toast.success("Rendez-vous créé et patient promu")
       await loadEntries()
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Échec de la promotion")
+      // The appointment was already created; only the promotion link failed.
+      toast.error(err instanceof ApiError ? err.message : "Rendez-vous créé, mais la promotion a échoué")
     } finally {
       setPromotingId(null)
     }
@@ -456,6 +470,16 @@ export default function WaitingListPage() {
             </form>
           </DialogContent>
         </Dialog>
+
+        {/* Promote-and-book: create the RDV from the entry (patient pre-selected), then promote (P1-B). */}
+        <CreateAppointmentDialog
+          open={promoteBookEntry !== null}
+          onOpenChange={(open) => {
+            if (!open) setPromoteBookEntry(null)
+          }}
+          defaultPatientId={promoteBookEntry?.patientId}
+          onCreated={handlePromoteBooked}
+        />
 
         {/* Remove confirmation */}
         <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>

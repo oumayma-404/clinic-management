@@ -122,6 +122,22 @@ export function InvoicesTable({
     }
   }
 
+  // P1-D: the common "paid on the spot" case in one action — issue the draft, then open the payment
+  // modal (prefilled with the full outstanding) on the freshly-issued invoice.
+  const handleIssueAndPay = async (invoice: InvoiceDto) => {
+    setBusyId(invoice.id)
+    try {
+      const issued = await invoicesApi.issue(invoice.id)
+      toast.success("Facture émise")
+      afterMutation()
+      setPaymentTarget(issued)
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Échec de l'émission.")
+    } finally {
+      setBusyId(null)
+    }
+  }
+
   const handleDownloadPdf = async (invoice: InvoiceDto) => {
     setBusyId(invoice.id)
     try {
@@ -317,6 +333,9 @@ export function InvoicesTable({
                             </Button>
                             <Button variant="ghost" size="icon" title="Émettre" onClick={() => handleIssue(invoice)} disabled={isBusy}>
                               <Send className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="icon" title="Émettre et encaisser" onClick={() => handleIssueAndPay(invoice)} disabled={isBusy}>
+                              <CreditCard className="h-4 w-4" />
                             </Button>
                             <Button variant="ghost" size="icon" title="Supprimer" onClick={() => setDeleteTarget(invoice)} disabled={isBusy}>
                               <Trash2 className="h-4 w-4" />

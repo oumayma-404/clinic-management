@@ -40,6 +40,12 @@ export interface PlanItemOption {
   itemId: string
   planId: string
   label: string
+  /** Plan-step designation — prefilled into the record act on link (P0-1, carry-forward). */
+  designationFr?: string
+  /** Plan-step planned cost — prefilled into the record act on link. */
+  plannedCost?: number
+  /** Plan-step teeth — prefilled into the record act on link. */
+  toothNumbers?: number[]
 }
 
 interface ActRow {
@@ -166,6 +172,29 @@ export function PatientRecordModal({
       if (index === prev) return Math.min(prev, acts.length - 2)
       return prev
     })
+  }
+
+  // Linking a plan step carries its designation / cost / teeth into the focused act row, so the dentist
+  // does not retype what the plan already knows (P0-1). Only an empty row is prefilled — a value the
+  // user already typed is never overwritten.
+  const handlePlanItemLink = (value: string) => {
+    setLinkedPlanItemId(value)
+    if (value === NO_PLAN_ITEM) return
+    const item = planItems.find((p) => p.itemId === value)
+    if (!item) return
+    setActs((prev) =>
+      prev.map((a, i) => {
+        if (i !== focusedActIndex) return a
+        const isEmpty = a.procedureName.trim() === "" && a.cost.trim() === "" && a.toothNumbers.length === 0
+        if (!isEmpty) return a
+        return {
+          ...a,
+          procedureName: item.designationFr ?? a.procedureName,
+          cost: item.plannedCost != null && item.plannedCost > 0 ? String(item.plannedCost) : a.cost,
+          toothNumbers: item.toothNumbers && item.toothNumbers.length > 0 ? [...item.toothNumbers] : a.toothNumbers,
+        }
+      }),
+    )
   }
 
   // Chart-driven tooth selection: toggle a tooth in the currently focused act.
@@ -364,7 +393,7 @@ export function PatientRecordModal({
               <Label htmlFor="plan-item">
                 Acte du plan de traitement <span className="font-normal text-muted-foreground">(optionnel)</span>
               </Label>
-              <Select value={linkedPlanItemId} onValueChange={setLinkedPlanItemId} disabled={loading}>
+              <Select value={linkedPlanItemId} onValueChange={handlePlanItemLink} disabled={loading}>
                 <SelectTrigger id="plan-item">
                   <SelectValue placeholder="Lier cette fiche à un acte planifié" />
                 </SelectTrigger>

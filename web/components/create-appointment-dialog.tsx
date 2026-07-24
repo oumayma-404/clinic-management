@@ -54,6 +54,8 @@ interface CreateAppointmentDialogProps {
   defaultDate?: Date
   defaultTime?: string
   onSuccess?: () => void
+  /** Fires with the new appointment's id after a successful create (e.g. waiting-list promote-and-book). */
+  onCreated?: (appointmentId: string) => void
   /** Preselect an existing patient when booking from a patient's page ("Planifier un rendez-vous"). */
   defaultPatientId?: string
   /** When scheduling a treatment-plan step ("Planifier"): fixes the patient and links the appointment. */
@@ -70,6 +72,7 @@ export function CreateAppointmentDialog({
   defaultDate,
   defaultTime,
   onSuccess,
+  onCreated,
   defaultPatientId,
   presetPatientId,
   presetPatientName,
@@ -403,7 +406,7 @@ export function CreateAppointmentDialog({
       }
 
       // Create appointment
-      await appointmentsApi.create({
+      const created = await appointmentsApi.create({
         patientId,
         appointmentDateTime: appointmentDateTime.toISOString(),
         durationMinutes: calculatedDuration,
@@ -414,6 +417,7 @@ export function CreateAppointmentDialog({
         treatmentPlanItemId: isPlanScheduling ? presetPlanItemId : undefined,
       })
 
+      onCreated?.(created.id)
       onSuccess?.()
       onOpenChange(false)
     } catch (err) {

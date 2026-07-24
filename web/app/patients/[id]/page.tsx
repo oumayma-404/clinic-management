@@ -359,6 +359,9 @@ export default function PatientDetailsPage() {
           itemId: it.id,
           planId: p.id,
           label: `${p.number ?? p.title} · ${it.designationFr}${it.toothNumbers.length > 0 ? ` (dents ${it.toothNumbers.join(", ")})` : ""}`,
+          designationFr: it.designationFr,
+          plannedCost: it.plannedCost,
+          toothNumbers: it.toothNumbers,
         })),
     )
 
@@ -928,13 +931,26 @@ export default function PatientDetailsPage() {
               <TabsContent value="documents">
                 <Card>
                   <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <FileText className="h-5 w-5" />
-                      Documents médicaux
-                    </CardTitle>
-                    <CardDescription>
-                      Ordonnances, certificats, lettres de liaison et bulletins CNAM enregistrés. Cliquez sur « Ouvrir » pour modifier ou réimprimer.
-                    </CardDescription>
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="space-y-1.5">
+                        <CardTitle className="flex items-center gap-2">
+                          <FileText className="h-5 w-5" />
+                          Documents médicaux
+                        </CardTitle>
+                        <CardDescription>
+                          Ordonnances, certificats, lettres de liaison et bulletins CNAM enregistrés. Cliquez sur « Ouvrir » pour modifier ou réimprimer.
+                        </CardDescription>
+                      </div>
+                      {/* P2-A: prescribe for the open patient without leaving the page / re-searching them. */}
+                      <Button
+                        size="sm"
+                        className="shrink-0 gap-1"
+                        onClick={() => router.push(`/documents/prescription?patientId=${patientId}`)}
+                      >
+                        <FileText className="h-4 w-4" />
+                        Nouvelle ordonnance
+                      </Button>
+                    </div>
                   </CardHeader>
                   <CardContent>
                     {medicalDocuments.length === 0 ? (

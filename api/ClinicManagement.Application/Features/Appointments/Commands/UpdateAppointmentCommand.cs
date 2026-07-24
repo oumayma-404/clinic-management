@@ -304,6 +304,16 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                         appointment.ClinicId, appointment.Id, appointment.DoctorId, patientName,
                         appointment.AppointmentDateTime + appointment.Duration, cancellationToken);
                 }
+                else if (appointment.Status == AppointmentStatus.Completed
+                         && oldStatus != AppointmentStatus.Completed)
+                {
+                    // Visit just completed (P1-A): surface the "documenter / facturer / prochain RDV" prompt
+                    // now instead of waiting for the originally-scheduled end time (e.g. when the dentist
+                    // finishes early). Ensure = upsert, so this repoints the existing review row — no duplicate.
+                    await _notificationGenerator.EnsurePostVisitReviewAsync(
+                        appointment.ClinicId, appointment.Id, appointment.DoctorId, patientName,
+                        DateTime.UtcNow, cancellationToken);
+                }
 
                 // Outbound SMS/WhatsApp reminders mirror the branches above: void unsent reminders on
                 // cancel/no-show, void + re-enqueue on a reschedule (date change), and re-enqueue on

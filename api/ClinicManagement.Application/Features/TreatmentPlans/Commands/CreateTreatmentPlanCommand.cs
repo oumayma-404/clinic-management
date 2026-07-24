@@ -22,6 +22,7 @@ public class CreateTreatmentPlanCommandHandler : IRequestHandler<CreateTreatment
 {
     private readonly ITreatmentPlanRepository _planRepository;
     private readonly IPatientRepository _patientRepository;
+    private readonly IDentalActCodeRepository _dentalActRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<CreateTreatmentPlanCommandHandler> _logger;
@@ -29,12 +30,14 @@ public class CreateTreatmentPlanCommandHandler : IRequestHandler<CreateTreatment
     public CreateTreatmentPlanCommandHandler(
         ITreatmentPlanRepository planRepository,
         IPatientRepository patientRepository,
+        IDentalActCodeRepository dentalActRepository,
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
         ILogger<CreateTreatmentPlanCommandHandler> logger)
     {
         _planRepository = planRepository;
         _patientRepository = patientRepository;
+        _dentalActRepository = dentalActRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
         _logger = logger;
@@ -58,8 +61,8 @@ public class CreateTreatmentPlanCommandHandler : IRequestHandler<CreateTreatment
             }
 
             var plan = new TreatmentPlan(Guid.NewGuid(), clinicId, request.PatientId, request.Title, request.Notes);
-            plan.SetItems(request.Items.Select(i =>
-                (i.DesignationFr, i.PlannedCost, i.DentalActCodeId, i.CodeActe, (IReadOnlyList<int>)i.ToothNumbers)));
+            var items = await TreatmentPlanItemPricing.ResolveAsync(request.Items, clinicId, _dentalActRepository, cancellationToken);
+            plan.SetItems(items);
             plan.SetInstallments(request.Installments.Select(i => (i.DueDate, i.Amount)));
 
             await _planRepository.AddAsync(plan, cancellationToken);

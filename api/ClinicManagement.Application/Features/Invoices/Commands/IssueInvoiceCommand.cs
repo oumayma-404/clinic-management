@@ -92,6 +92,7 @@ public class IssueInvoiceCommandHandler : IRequestHandler<IssueInvoiceCommand, R
                 {
                     await _unitOfWork.SaveChangesAsync(cancellationToken);
                     _logger.LogInformation("Issued invoice {InvoiceId} as {Number}", invoice.Id, invoice.Number);
+                    await TryAutoQueueElFatooraAsync(invoice, clinic, cancellationToken);
                     return Result<InvoiceDto>.Success(await MapAsync(invoice, cancellationToken));
                 }
                 catch (DbUpdateException) when (attempt < MaxNumberingAttempts)
@@ -115,6 +116,33 @@ public class IssueInvoiceCommandHandler : IRequestHandler<IssueInvoiceCommand, R
         {
             _logger.LogError(ex, "Error issuing invoice {InvoiceId}", request.Id);
             return Result<InvoiceDto>.Failure("Erreur lors de l'émission de la facture.");
+        }
+    }
+
+    /// <summary>
+    /// Best-effort (P1-E): for a clinic that has enabled TTN « El Fatoora », queue the freshly-issued
+    /// invoice into the outbox so issuing and e-invoicing are one action — the legally-mandated e-invoice
+    /// no longer needs a second manual "envoyer à El Fatoora" click. The recurring <c>EInvoiceOutboxJob</c>
+    /// (or a manual submit) dispatches it. Runs post-commit: never fails issuance, and a clinic that has
+    /// NOT enabled El Fatoora queues nothing (no stuck row).
+    /// </summary>
+    private async Task TryAutoQueueElFatooraAsync(Domain.Entities.Invoice invoice, Domain.Entities.Clinic clinic, CancellationToken cancellationToken)
+    {
+        if (!clinic.TtnEInvoicingEnabled || !invoice.CanSubmitToElFatoora)
+        {
+            return;
+        }
+
+        try
+        {
+            invoice.QueueForElFatoora();
+            await _invoiceRepository.UpdateAsync(invoice, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            _logger.LogInformation("Auto-queued invoice {InvoiceId} for El Fatoora on issue.", invoice.Id);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to auto-queue invoice {InvoiceId} for El Fatoora on issue; leaving it un-queued.", invoice.Id);
         }
     }
 

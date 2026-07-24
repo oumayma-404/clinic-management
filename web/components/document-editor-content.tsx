@@ -348,6 +348,9 @@ export function DocumentEditorContent() {
   // Post-visit review deep-link: pre-select this appointment's patient and associate the new record with
   // it (so saving marks the appointment Completed). Only used when creating (no urlDocumentId).
   const urlAppointmentId = searchParams.get('appointmentId')
+  // Patient-page deep-link (P2-A): launch the editor with the patient already selected, so prescribing
+  // mid-visit no longer means leaving the patient and re-searching. Only used when creating.
+  const urlPatientId = searchParams.get('patientId')
 
   const [selectedPatient, setSelectedPatient] = useState<string>("")
 
@@ -359,6 +362,9 @@ export function DocumentEditorContent() {
   const [saving, setSaving] = useState(false)
   const [documentId, setDocumentId] = useState<string | null>(urlDocumentId)
   const [loadingDocument, setLoadingDocument] = useState(false)
+  // Set once "Renouveler" (P2-B) forks a loaded document into a new draft, so the edit-load effect below
+  // does not immediately reload the original when we clear documentId.
+  const renewedRef = useRef(false)
 
   const [formFields, setFormFields] = useState({
     date: new Date().toISOString().split("T")[0],
@@ -530,6 +536,13 @@ export function DocumentEditorContent() {
     }
   }, [urlAppointmentId, urlDocumentId])
 
+  // Patient-page deep-link (P2-A): pre-select the patient when launched from the patient documents tab.
+  // Skipped when editing an existing document or coming from a post-visit appointment link.
+  useEffect(() => {
+    if (!urlPatientId || urlDocumentId || urlAppointmentId) return
+    setSelectedPatient(urlPatientId)
+  }, [urlPatientId, urlDocumentId, urlAppointmentId])
+
   // Load procedure types from API (for honoraires documents)
   useEffect(() => {
     const loadProcedureTypes = async () => {
@@ -565,7 +578,7 @@ export function DocumentEditorContent() {
 
   // Load document for editing if ID is present in URL
   useEffect(() => {
-    if (urlDocumentId && urlDocumentId !== documentId) {
+    if (urlDocumentId && urlDocumentId !== documentId && !renewedRef.current) {
       const loadDocument = async () => {
         try {
           setLoadingDocument(true)
@@ -738,6 +751,19 @@ export function DocumentEditorContent() {
       prescriptions: "",
     })
     setBulletinFields({ careType: "APCI", apciCode: "", actsFrom: "", actsTo: "", acts: [] })
+  }
+
+  // Renouveler (P2-B): fork the loaded ordonnance into a new draft — same patient + same medications,
+  // dated today — so renewing keeps the original in history instead of overwriting it. Clearing
+  // documentId flips the save path to "create"; renewedRef stops the edit-load effect from reloading.
+  const renewDocument = () => {
+    renewedRef.current = true
+    setDocumentId(null)
+    setFormFields((prev) => ({ ...prev, date: new Date().toISOString().split("T")[0] }))
+    toast.success("Ordonnance dupliquée", {
+      description: "Modifiez si besoin, puis enregistrez pour créer une nouvelle ordonnance. L'originale est conservée.",
+      duration: 4000,
+    })
   }
 
   // ---- CNAM bulletin helpers ----
@@ -2150,6 +2176,17 @@ export function DocumentEditorContent() {
                 <Save className="w-4 h-4 mr-2" />
                 {saving ? "Sauvegarde..." : documentId ? "Mettre à jour" : "Sauvegarder le document"}
               </Button>
+              {documentId && documentType === "prescription" && (
+                <Button
+                  variant="outline"
+                  className="w-full h-11 bg-transparent"
+                  onClick={renewDocument}
+                  disabled={saving}
+                >
+                  <FileText className="w-4 h-4 mr-2" />
+                  Renouveler (nouvelle ordonnance)
+                </Button>
+              )}
               <div className="grid grid-cols-2 gap-3">
                 <Button variant="outline" onClick={resetForm} className="h-11 bg-transparent">
                   <RotateCcw className="w-4 h-4 mr-2" />
