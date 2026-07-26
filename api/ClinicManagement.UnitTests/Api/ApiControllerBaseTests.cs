@@ -1,4 +1,5 @@
 using ClinicManagement.API.Controllers;
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Models;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -73,6 +74,7 @@ public class ApiControllerBaseTests
         var error = ErrorOf(new TestController().InvokeFailure(message, StatusCodes.Status400BadRequest));
 
         Assert.False(string.IsNullOrWhiteSpace(error));
-        Assert.Equal("An error occurred while processing your request.", error);
+        // The canonical constant, not a copy of its text — see ExceptionMiddlewareTests for the same reason.
+        Assert.Equal(ErrorMessages.Generic, error);
     }
 }

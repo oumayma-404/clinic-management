@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Building2, ChevronRight, CheckCircle2, AlertCircle } from "lucide-react"
 import { clinicsApi, type JoinClinicRequest } from "@/lib/api/clinics"
 import { useSession } from "@/lib/auth/session"
+import { getErrorMessage } from "@/lib/errors"
 
 const specialties = [
   "Dentist",
@@ -106,8 +107,9 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
 
       // Redirect to app after successful join
       window.location.href = "/"
-    } catch (err: any) {
-      setError(err.message || "Échec de l'adhésion à la clinique. Veuillez réessayer.")
+    } catch (err) {
+      // Single formatting point (lib/errors) — same reason as the setup wizard.
+      setError(getErrorMessage(err, "Échec de l'adhésion à la clinique. Veuillez réessayer."))
       console.error("Error joining clinic:", err)
       setIsLoading(false)
     }

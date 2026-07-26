@@ -15,33 +15,10 @@ import { useRouter } from "next/navigation"
 import { clinicsApi, type CreateClinicRequest } from "@/lib/api/clinics"
 import { useAuthToken } from "@/lib/hooks/use-auth-token"
 import { useSession } from "@/lib/auth/session"
+import { TUNISIAN_GOVERNORATES } from "@/lib/tunisia"
+import { getErrorMessage } from "@/lib/errors"
 
-const tunisianGovernorates = [
-  "Tunis",
-  "Ariana",
-  "Ben Arous",
-  "Manouba",
-  "Nabeul",
-  "Zaghouan",
-  "Bizerte",
-  "Béja",
-  "Jendouba",
-  "Kef",
-  "Siliana",
-  "Sousse",
-  "Monastir",
-  "Mahdia",
-  "Sfax",
-  "Kairouan",
-  "Kasserine",
-  "Sidi Bouzid",
-  "Gabès",
-  "Medenine",
-  "Tataouine",
-  "Gafsa",
-  "Tozeur",
-  "Kebili",
-]
+const tunisianGovernorates = TUNISIAN_GOVERNORATES
 
 const specialties = [
   "Dentist",
@@ -208,6 +185,17 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
       // Combine address and governorate
       const fullAddress = address ? `${address}, ${governorate}` : governorate
 
+      // Serialize the working hours collected in step 3 into the same JSON shape the settings page +
+      // backend expect ([{ day, enabled, from, to }]) so onboarding no longer discards them (finding #16).
+      const workingHoursJson = JSON.stringify(
+        weekdays.map((day) => ({
+          day,
+          enabled: workingHours[day]?.enabled ?? false,
+          from: workingHours[day]?.from ?? "09:00",
+          to: workingHours[day]?.to ?? "17:00",
+        })),
+      )
+
       // Local (offline) first-run: create clinic + admin, then go to the login screen.
       if (isLocalMode) {
         // When the admin is also the practitioner, derive first/last name from the full name (robustly, so
@@ -233,6 +221,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
           address: fullAddress || undefined,
           city: governorate || undefined,
           doctorInfo,
+          workingHoursJson,
         })
         window.location.href = "/login"
         return
@@ -253,14 +242,17 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
           phone: personalPhone.trim() || undefined,
         } : undefined,
         logoFile: logoFile || undefined,
+        workingHoursJson,
       }
 
       await clinicsApi.create(clinicData)
 
       // Redirect to app immediately after successful creation
       window.location.href = "/"
-    } catch (err: any) {
-      setError(err.message || "Échec de la création de la clinique. Veuillez réessayer.")
+    } catch (err) {
+      // Single formatting point (lib/errors): keeps the French fallback when the thrown value carries
+      // no usable message, instead of rendering a bare `undefined`/transport string.
+      setError(getErrorMessage(err, "Échec de la création de la clinique. Veuillez réessayer."))
       console.error("Error creating clinic:", err)
       setIsLoading(false)
     }

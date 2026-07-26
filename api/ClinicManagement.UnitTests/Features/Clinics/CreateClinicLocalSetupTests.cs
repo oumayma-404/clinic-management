@@ -3,6 +3,7 @@ using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Clinics.Commands;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Xunit;
 
@@ -30,7 +31,8 @@ public class CreateClinicLocalSetupTests
 
     private CreateClinicCommandHandler Handler() => new(
         _clinics.Object, _procedureTypes.Object, _users.Object, _doctors.Object, _clinicContext.Object,
-        _auth0.Object, _fileStorage.Object, _localAuth.Object, _catalogSeeder.Object, _uow.Object);
+        _auth0.Object, _fileStorage.Object, _localAuth.Object, _catalogSeeder.Object, _uow.Object,
+        NullLogger<CreateClinicCommandHandler>.Instance);
 
     private void FreshInstall()
     {

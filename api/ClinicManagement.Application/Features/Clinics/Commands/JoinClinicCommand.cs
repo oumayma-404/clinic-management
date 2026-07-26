@@ -1,4 +1,5 @@
 using MediatR;
+using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -30,6 +31,7 @@ public class JoinClinicCommandHandler : IRequestHandler<JoinClinicCommand, Resul
     private readonly IAuth0ManagementService _auth0ManagementService;
     private readonly ILocalAuthService _localAuthService;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly ILogger<JoinClinicCommandHandler> _logger;
 
     public JoinClinicCommandHandler(
         IClinicRepository clinicRepository,
@@ -38,7 +40,8 @@ public class JoinClinicCommandHandler : IRequestHandler<JoinClinicCommand, Resul
         IClinicContext clinicContext,
         IAuth0ManagementService auth0ManagementService,
         ILocalAuthService localAuthService,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        ILogger<JoinClinicCommandHandler> logger)
     {
         _clinicRepository = clinicRepository;
         _userRepository = userRepository;
@@ -47,6 +50,7 @@ public class JoinClinicCommandHandler : IRequestHandler<JoinClinicCommand, Resul
         _auth0ManagementService = auth0ManagementService;
         _localAuthService = localAuthService;
         _unitOfWork = unitOfWork;
+        _logger = logger;
     }
 
     public async Task<Result<ClinicDto>> Handle(JoinClinicCommand request, CancellationToken cancellationToken)
@@ -63,14 +67,14 @@ public class JoinClinicCommandHandler : IRequestHandler<JoinClinicCommand, Resul
             var userId = _clinicContext.GetUserId();
             if (string.IsNullOrEmpty(userId))
             {
-                return Result<ClinicDto>.Failure("User ID not found in token");
+                return Result<ClinicDto>.Failure("Utilisateur introuvable dans le jeton d'authentification.");
             }
 
             // Validate role
             var role = request.Role.ToLowerInvariant();
             if (role != "doctor" && role != "secretary")
             {
-                return Result<ClinicDto>.Failure("Invalid role. Must be 'doctor' or 'secretary'");
+                return Result<ClinicDto>.Failure("Rôle invalide. Choisissez « médecin » ou « secrétaire ».");
             }
 
             // Validate doctor info if role is doctor
@@ -78,14 +82,14 @@ public class JoinClinicCommandHandler : IRequestHandler<JoinClinicCommand, Resul
             {
                 if (request.DoctorInfo == null)
                 {
-                    return Result<ClinicDto>.Failure("Doctor personal information is required when role is 'doctor'");
+                    return Result<ClinicDto>.Failure("Les informations du praticien sont requises pour le rôle « médecin ».");
                 }
 
                 if (string.IsNullOrWhiteSpace(request.DoctorInfo.FirstName) ||
                     string.IsNullOrWhiteSpace(request.DoctorInfo.LastName) ||
                     string.IsNullOrWhiteSpace(request.DoctorInfo.Specialty))
                 {
-                    return Result<ClinicDto>.Failure("First name, last name, and specialty are required for doctors");
+                    return Result<ClinicDto>.Failure("Le prénom, le nom et la spécialité sont requis pour un médecin.");
                 }
             }
 
@@ -93,14 +97,14 @@ public class JoinClinicCommandHandler : IRequestHandler<JoinClinicCommand, Resul
             var existingUser = await _userRepository.GetByAuth0SubAsync(userId, cancellationToken);
             if (existingUser != null)
             {
-                return Result<ClinicDto>.Failure("User already belongs to a clinic");
+                return Result<ClinicDto>.Failure("Cet utilisateur appartient déjà à un cabinet.");
             }
 
             // Find clinic by code
             var clinic = await _clinicRepository.GetByCodeAsync(request.Code, cancellationToken);
             if (clinic == null)
             {
-                return Result<ClinicDto>.Failure("Invalid clinic code");
+                return Result<ClinicDto>.Failure("Code cabinet invalide.");
             }
 
             // Get email from JWT claims (same as CreateClinicCommand)
@@ -170,7 +174,9 @@ public class JoinClinicCommandHandler : IRequestHandler<JoinClinicCommand, Resul
         }
         catch (Exception ex)
         {
-            return Result<ClinicDto>.Failure($"Error joining clinic: {ex.Message}");
+            // Detail to the log only — never leak infrastructure text to the join/register screen.
+            _logger.LogError(ex, "Error joining clinic with code {Code}", request.Code);
+            return Result<ClinicDto>.Failure(ErrorMessages.Generic);
         }
     }
 
@@ -180,21 +186,21 @@ public class JoinClinicCommandHandler : IRequestHandler<JoinClinicCommand, Resul
         var role = request.Role.ToLowerInvariant();
         if (role != "doctor" && role != "secretary")
         {
-            return Result<ClinicDto>.Failure("Invalid role. Must be 'doctor' or 'secretary'.");
+            return Result<ClinicDto>.Failure("Rôle invalide. Choisissez « médecin » ou « secrétaire ».");
         }
 
         if (string.IsNullOrWhiteSpace(request.Email))
         {
-            return Result<ClinicDto>.Failure("Email is required.");
+            return Result<ClinicDto>.Failure("L'email est requis.");
         }
         if (string.IsNullOrWhiteSpace(request.FullName))
         {
-            return Result<ClinicDto>.Failure("Full name is required.");
+            return Result<ClinicDto>.Failure("Le nom complet est requis.");
         }
         // FR-B2: password policy — minimum length.
         if (request.Password!.Length < PasswordPolicy.MinLength)
         {
-            return Result<ClinicDto>.Failure($"Password must be at least {PasswordPolicy.MinLength} characters.");
+            return Result<ClinicDto>.Failure($"Le mot de passe doit contenir au moins {PasswordPolicy.MinLength} caractères.");
         }
 
         if (role == "doctor")
@@ -204,7 +210,7 @@ public class JoinClinicCommandHandler : IRequestHandler<JoinClinicCommand, Resul
                 string.IsNullOrWhiteSpace(request.DoctorInfo.LastName) ||
                 string.IsNullOrWhiteSpace(request.DoctorInfo.Specialty))
             {
-                return Result<ClinicDto>.Failure("First name, last name, and specialty are required for doctors.");
+                return Result<ClinicDto>.Failure("Le prénom, le nom et la spécialité sont requis pour un médecin.");
             }
         }
 
@@ -212,14 +218,14 @@ public class JoinClinicCommandHandler : IRequestHandler<JoinClinicCommand, Resul
         var clinic = await _clinicRepository.GetByCodeAsync(request.Code, cancellationToken);
         if (clinic == null)
         {
-            return Result<ClinicDto>.Failure("Invalid clinic code.");
+            return Result<ClinicDto>.Failure("Code cabinet invalide.");
         }
 
         // AC-4.3: email must be unique per install.
         var existing = await _userRepository.GetByEmailAsync(request.Email, cancellationToken);
         if (existing != null)
         {
-            return Result<ClinicDto>.Failure("An account with this email already exists.");
+            return Result<ClinicDto>.Failure("Un compte existe déjà avec cet email.");
         }
 
         var passwordHash = _localAuthService.HashPassword(request.Password);

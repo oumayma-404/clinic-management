@@ -3,6 +3,7 @@ using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Clinics.Commands;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Xunit;
 
@@ -29,7 +30,8 @@ public class JoinClinicLocalRegisterTests
 
     private JoinClinicCommandHandler Handler() => new(
         _clinics.Object, _users.Object, _doctors.Object, _clinicContext.Object,
-        _auth0.Object, _localAuth.Object, _uow.Object);
+        _auth0.Object, _localAuth.Object, _uow.Object,
+        NullLogger<JoinClinicCommandHandler>.Instance);
 
     private void ValidClinicAndFreshEmail()
     {

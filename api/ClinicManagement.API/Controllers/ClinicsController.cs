@@ -37,7 +37,7 @@ public class ClinicsController : ApiControllerBase
         
         if (!result.IsSuccess)
         {
-            return BadRequest(result);
+            return HandleFailure(result);
         }
         
         return Ok(result);
@@ -59,6 +59,7 @@ public class ClinicsController : ApiControllerBase
         string? email;
         bool generateCode;
         string role;
+        string? workingHoursJson = null;
 
         // Check if request is FormData (has logo) or JSON (no logo)
         if (Request.HasFormContentType)
@@ -73,7 +74,9 @@ public class ClinicsController : ApiControllerBase
             email = formRequest["email"].ToString();
             generateCode = formRequest["generateCode"].ToString().ToLowerInvariant() == "true";
             role = formRequest["role"].ToString();
-            
+            var whForm = formRequest["workingHoursJson"].ToString();
+            workingHoursJson = string.IsNullOrWhiteSpace(whForm) ? null : whForm;
+
             // Handle logo file
             var logo = formRequest.Files["logo"];
             if (logo != null && logo.Length > 0)
@@ -94,9 +97,9 @@ public class ClinicsController : ApiControllerBase
                     };
                     doctorInfo = JsonSerializer.Deserialize<DoctorPersonalInfoDto>(doctorInfoJson, options);
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
-                    return BadRequest(new { error = $"Invalid DoctorInfo format: {ex.Message}" });
+                    return Failure("Les informations du praticien sont mal formées.");
                 }
             }
         }
@@ -106,7 +109,7 @@ public class ClinicsController : ApiControllerBase
             var bodyRequest = await Request.ReadFromJsonAsync<Application.DTOs.CreateClinicRequest>();
             if (bodyRequest == null)
             {
-                return BadRequest(new { error = "Request body is required" });
+                return Failure("Le corps de la requête est requis.");
             }
             
             name = bodyRequest.Name;
@@ -117,6 +120,7 @@ public class ClinicsController : ApiControllerBase
             generateCode = bodyRequest.GenerateCode;
             role = bodyRequest.Role;
             doctorInfo = bodyRequest.DoctorInfo;
+            workingHoursJson = bodyRequest.WorkingHoursJson;
         }
 
         var command = new CreateClinicCommand
@@ -130,14 +134,15 @@ public class ClinicsController : ApiControllerBase
             Role = role,
             DoctorInfo = doctorInfo,
             LogoFile = logoFile,
-            LogoContentType = logoContentType
+            LogoContentType = logoContentType,
+            WorkingHoursJson = workingHoursJson
         };
         
         var result = await _mediator.Send(command);
         
         if (!result.IsSuccess)
         {
-            return BadRequest(result);
+            return HandleFailure(result);
         }
         
         return CreatedAtAction(nameof(GetUserStatus), new { }, result);
@@ -160,7 +165,7 @@ public class ClinicsController : ApiControllerBase
         
         if (!result.IsSuccess)
         {
-            return BadRequest(result);
+            return HandleFailure(result);
         }
         
         return Ok(result);
@@ -181,7 +186,7 @@ public class ClinicsController : ApiControllerBase
         
         if (!result.IsSuccess)
         {
-            return BadRequest(result);
+            return HandleFailure(result);
         }
         
         return Ok(result);
@@ -216,7 +221,7 @@ public class ClinicsController : ApiControllerBase
         
         if (!result.IsSuccess)
         {
-            return BadRequest(result);
+            return HandleFailure(result);
         }
         
         return Ok(result);
@@ -234,7 +239,7 @@ public class ClinicsController : ApiControllerBase
 
         if (!result.IsSuccess)
         {
-            return BadRequest(result);
+            return HandleFailure(result);
         }
 
         return Ok(result);
@@ -252,7 +257,7 @@ public class ClinicsController : ApiControllerBase
 
         if (!result.IsSuccess)
         {
-            return BadRequest(result);
+            return HandleFailure(result);
         }
 
         return Ok(result);
@@ -272,7 +277,7 @@ public class ClinicsController : ApiControllerBase
 
         if (!result.IsSuccess)
         {
-            return BadRequest(result);
+            return HandleFailure(result);
         }
 
         return Ok(result);
@@ -291,7 +296,7 @@ public class ClinicsController : ApiControllerBase
 
         if (!result.IsSuccess)
         {
-            return BadRequest(result);
+            return HandleFailure(result);
         }
 
         return Ok(result);

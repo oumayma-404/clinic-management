@@ -7,6 +7,9 @@ namespace ClinicManagement.Application.Common;
 /// </summary>
 public static class ErrorMessages
 {
-    /// <summary>Generic, internals-free message for an unhandled failure (never leaks details to the client).</summary>
-    public const string Generic = "An error occurred while processing your request.";
+    /// <summary>
+    /// Generic, internals-free message for an unhandled failure (never leaks details to the client).
+    /// French, like the rest of the user-facing product — this string is shown verbatim in the UI.
+    /// </summary>
+    public const string Generic = "Une erreur est survenue lors du traitement de votre demande.";
 }

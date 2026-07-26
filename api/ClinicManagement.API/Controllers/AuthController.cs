@@ -99,14 +99,15 @@ public class AuthController : ApiControllerBase
             City = request.City,
             Role = "admin",
             DoctorInfo = request.DoctorInfo, // when set, the admin is also the practitioner (Doctor is created + linked)
-            GenerateCode = true
+            GenerateCode = true,
+            WorkingHoursJson = request.WorkingHoursJson
         };
 
         var result = await _mediator.Send(command);
 
         if (!result.IsSuccess)
         {
-            return BadRequest(result);
+            return HandleFailure(result);
         }
 
         return Ok(result);
@@ -140,7 +141,7 @@ public class AuthController : ApiControllerBase
 
         if (!result.IsSuccess)
         {
-            return BadRequest(result);
+            return HandleFailure(result);
         }
 
         return Ok(result);
@@ -164,7 +165,7 @@ public class AuthController : ApiControllerBase
 
         if (!result.IsSuccess)
         {
-            return BadRequest(result);
+            return HandleFailure(result);
         }
 
         return Ok(result);

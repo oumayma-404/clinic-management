@@ -1,4 +1,5 @@
 using MediatR;
+using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -22,6 +23,7 @@ public class CreateClinicCommand : IRequest<Result<ClinicDto>>
     public List<DoctorDto>? Doctors { get; set; } // Legacy: additional doctors (not the creator)
     public Stream? LogoFile { get; set; } // Logo file stream
     public string? LogoContentType { get; set; } // Logo content type
+    public string? WorkingHoursJson { get; set; } // Optional onboarding working hours (finding #16)
 
     // Local (offline) first-run only. When Password is set, the handler creates the clinic +
     // first admin from email+password (no Auth0). Never populated in Cloud mode.
@@ -41,6 +43,7 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
     private readonly ILocalAuthService _localAuthService;
     private readonly IClinicCatalogSeeder _clinicCatalogSeeder;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly ILogger<CreateClinicCommandHandler> _logger;
 
     public CreateClinicCommandHandler(
         IClinicRepository clinicRepository,
@@ -52,7 +55,8 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
         IFileStorage fileStorage,
         ILocalAuthService localAuthService,
         IClinicCatalogSeeder clinicCatalogSeeder,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        ILogger<CreateClinicCommandHandler> logger)
     {
         _clinicRepository = clinicRepository;
         _procedureTypeRepository = procedureTypeRepository;
@@ -64,6 +68,7 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
         _localAuthService = localAuthService;
         _clinicCatalogSeeder = clinicCatalogSeeder;
         _unitOfWork = unitOfWork;
+        _logger = logger;
     }
 
     public async Task<Result<ClinicDto>> Handle(CreateClinicCommand request, CancellationToken cancellationToken)
@@ -81,14 +86,14 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
             var userId = _clinicContext.GetUserId();
             if (string.IsNullOrEmpty(userId))
             {
-                return Result<ClinicDto>.Failure("User ID not found in token");
+                return Result<ClinicDto>.Failure("Utilisateur introuvable dans le jeton d'authentification.");
             }
 
             // Validate role
             var role = request.Role.ToLowerInvariant();
             if (role != "doctor" && role != "secretary")
             {
-                return Result<ClinicDto>.Failure("Invalid role. Must be 'doctor' or 'secretary'");
+                return Result<ClinicDto>.Failure("Rôle invalide. Choisissez « médecin » ou « secrétaire ».");
             }
 
             // Validate doctor info if role is doctor
@@ -96,14 +101,14 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
             {
                 if (request.DoctorInfo == null)
                 {
-                    return Result<ClinicDto>.Failure("Doctor personal information is required when role is 'doctor'");
+                    return Result<ClinicDto>.Failure("Les informations du praticien sont requises pour le rôle « médecin ».");
                 }
 
                 if (string.IsNullOrWhiteSpace(request.DoctorInfo.FirstName) ||
                     string.IsNullOrWhiteSpace(request.DoctorInfo.LastName) ||
                     string.IsNullOrWhiteSpace(request.DoctorInfo.Specialty))
                 {
-                    return Result<ClinicDto>.Failure("First name, last name, and specialty are required for doctors");
+                    return Result<ClinicDto>.Failure("Le prénom, le nom et la spécialité sont requis pour un médecin.");
                 }
             }
 
@@ -111,7 +116,7 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
             var existingUser = await _userRepository.GetByAuth0SubAsync(userId, cancellationToken);
             if (existingUser != null)
             {
-                return Result<ClinicDto>.Failure("User already belongs to a clinic");
+                return Result<ClinicDto>.Failure("Cet utilisateur appartient déjà à un cabinet.");
             }
 
             // Get email from JWT claims
@@ -147,6 +152,14 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
                 clinicCode,
                 request.City);
 
+            // Persist the working hours collected by the onboarding wizard (finding #16), normalized like
+            // UpdateClinicCommand; an invalid/empty payload leaves the clinic with no hours (unchanged before).
+            var normalizedWorkingHours = WorkingHoursSerializer.Normalize(request.WorkingHoursJson);
+            if (normalizedWorkingHours != null)
+            {
+                clinic.SetWorkingHours(normalizedWorkingHours);
+            }
+
             await _clinicRepository.AddAsync(clinic, cancellationToken);
 
             // Handle logo upload if provided
@@ -163,9 +176,11 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
                 clinic.Update(clinic.Name, clinic.Address, clinic.Phone, clinic.Email, logoUrl, clinic.City);
             }
 
-            // Determine user role: if doctor, use "doctor", otherwise use "secretary"
-            // Note: The creator is not "admin" anymore, they have their selected role
-            var userRole = role;
+            // The creator of a new clinic is its admin (finding: Cloud onboarding assigned only
+            // doctor/secretary, so no Cloud clinic ever had an admin and every admin-gated feature was
+            // unreachable). Mirrors the Local first-run, which mints an "admin". The selected doctor/secretary
+            // role still drives whether a Doctor record is created below.
+            var userRole = "admin";
 
             // Create user and associate with clinic
             var user = new User(
@@ -259,7 +274,10 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
         }
         catch (Exception ex)
         {
-            return Result<ClinicDto>.Failure($"Error creating clinic: {ex.Message}");
+            // The detail belongs in the log, never in the response: this used to surface raw infrastructure
+            // text to the operator (e.g. `42P01: relation "Users" does not exist`) on the setup screen.
+            _logger.LogError(ex, "Error creating clinic {ClinicName}", request.Name);
+            return Result<ClinicDto>.Failure(ErrorMessages.Generic);
         }
     }
 
@@ -268,25 +286,27 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
         // AC-1.2a: setup is a one-time bootstrap — closed once any user exists.
         if (await _userRepository.AnyUserExistsAsync(cancellationToken))
         {
-            return Result<ClinicDto>.Failure("Setup has already been completed for this installation.");
+            return Result<ClinicDto>.Failure(
+                "La configuration initiale a déjà été effectuée sur cette installation. "
+                + "Connectez-vous, ou rejoignez le cabinet avec son code.");
         }
 
         if (string.IsNullOrWhiteSpace(request.Name))
         {
-            return Result<ClinicDto>.Failure("Clinic name is required.");
+            return Result<ClinicDto>.Failure("Le nom du cabinet est requis.");
         }
         if (string.IsNullOrWhiteSpace(request.Email))
         {
-            return Result<ClinicDto>.Failure("Email is required.");
+            return Result<ClinicDto>.Failure("L'email est requis.");
         }
         if (string.IsNullOrWhiteSpace(request.FullName))
         {
-            return Result<ClinicDto>.Failure("Full name is required.");
+            return Result<ClinicDto>.Failure("Le nom complet est requis.");
         }
         // FR-B2: password policy — minimum length (enforced at the API).
         if (request.Password!.Length < PasswordPolicy.MinLength)
         {
-            return Result<ClinicDto>.Failure($"Password must be at least {PasswordPolicy.MinLength} characters.");
+            return Result<ClinicDto>.Failure($"Le mot de passe doit contenir au moins {PasswordPolicy.MinLength} caractères.");
         }
 
         // Single-dentist cabinet: when DoctorInfo is supplied the admin is also the practitioner, so a full
@@ -295,7 +315,7 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
         if (request.DoctorInfo != null && !string.IsNullOrWhiteSpace(request.DoctorInfo.Specialty)
             && (string.IsNullOrWhiteSpace(request.DoctorInfo.FirstName) || string.IsNullOrWhiteSpace(request.DoctorInfo.LastName)))
         {
-            return Result<ClinicDto>.Failure("First and last name are required for the practitioner.");
+            return Result<ClinicDto>.Failure("Le prénom et le nom du praticien sont requis.");
         }
 
         // Generate a unique clinic code for later staff self-registration.
@@ -313,6 +333,14 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
             request.Email,
             code,
             request.City);
+
+        // Persist the onboarding wizard's working hours (finding #16), normalized like UpdateClinicCommand.
+        var normalizedWorkingHours = WorkingHoursSerializer.Normalize(request.WorkingHoursJson);
+        if (normalizedWorkingHours != null)
+        {
+            clinic.SetWorkingHours(normalizedWorkingHours);
+        }
+
         await _clinicRepository.AddAsync(clinic, cancellationToken);
 
         var passwordHash = _localAuthService.HashPassword(request.Password);

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Exceptions;
 using FluentValidation;
 using FluentValidation.Results;
@@ -16,7 +17,11 @@ namespace ClinicManagement.UnitTests.Common.Exceptions;
 /// </summary>
 public class ExceptionMiddlewareTests
 {
-    private const string GenericMessage = "An error occurred while processing your request.";
+    // The canonical constant itself, not a third copy of the literal: the middleware and
+    // ApiControllerBase now both read ErrorMessages.Generic, so pinning the copy here would only
+    // re-create the drift the graceful-error-handling review flagged. The security property this
+    // class actually guards — the body carries NO exception detail — is asserted separately below.
+    private const string GenericMessage = ErrorMessages.Generic;
 
     private static async Task<(int status, string body, string? contentType)> InvokeWith(Exception thrown)
     {

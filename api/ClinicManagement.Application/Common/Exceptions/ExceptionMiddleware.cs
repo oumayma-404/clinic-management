@@ -52,7 +52,9 @@ public class ExceptionMiddleware
                 result = JsonSerializer.Serialize(new { error = string.IsNullOrWhiteSpace(validationMessage) ? exception.Message : validationMessage });
                 break;
             default:
-                result = JsonSerializer.Serialize(new { error = "An error occurred while processing your request." });
+                // Shared constant, not a copy: this is the other half of the `{ error }` contract with
+                // ApiControllerBase, and two literals would drift.
+                result = JsonSerializer.Serialize(new { error = ErrorMessages.Generic });
                 break;
         }
 
