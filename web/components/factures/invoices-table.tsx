@@ -346,7 +346,7 @@ export function InvoicesTable({
                             « Facturé — N° » badge, closing the loop from both ends. */}
                         {invoice.treatmentPlanId && (
                           <Link
-                            href={`/treatment-plans?plan=${invoice.treatmentPlanId}`}
+                            href={`/treatment-plans/${invoice.treatmentPlanId}`}
                             title="Voir le devis d'origine"
                           >
                             <Badge variant="outline" className="whitespace-nowrap hover:bg-accent">

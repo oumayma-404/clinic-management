@@ -11,7 +11,7 @@
 - [x] AC-8 — `InvoiceDto.treatmentPlanId` + the invoices-table « Devis » badge (session 2)
 - [x] AC-9a — the patient page watches TreatmentPlans + Invoices too (session 2)
 - [x] Slice A2 — make the four money reads agree (session 2)
-- [ ] Slice C — the workspace route
+- [x] Slice C — the workspace route (session 4)
 - [ ] Slice B — sequencing, amendment, migration
 - [~] Tests (see DEV-2) — **6 of the 8 named classes written** in session 3, plus `PlanBillingRulesTests` and
       the `RealtimeResourceResolver` keys. The remaining 2 are **blocked on code that doesn't exist yet**
@@ -185,6 +185,18 @@ stays its own chunk.
   They came in with the `f510f93` baseline (the user's in-flight adoption-QA work) and are **not** this
   feature's to fix — but they mean AC-26's "the full unit suite passes" cannot be signed off from this
   branch, and they are worth telling the user about since they sit on their own branch.
+### Session 4 quality checks
+
+- `dotnet build` → **0 errors**; full suite **677 passed / 8 failed / 685** — +9 (the new plan-link class),
+  the same 8 pre-existing failures, no regression.
+- `npx tsc --noEmit` → still exactly the **6 pre-existing** `patient-record-modal.tsx` errors. Every new and
+  changed frontend file typechecks clean, including the new dynamic route.
+- `npm run build` still not runnable for the same pre-existing reason (DEV-3).
+- **Not verified: the workspace rendering in a browser.** AC-13 – AC-16 are implementation + manual
+  verification per the spec (no FE test runner exists). Worth a click-through before the PR: open a plan from
+  /factures' « Devis » badge, from the patient card, and from a plans row; check the four états each offer one
+  action; hit a garbage id for the « Plan introuvable » card.
+
 ### Session 3 quality checks
 
 - `dotnet build ClinicManagement.UnitTests.csproj` → **0 errors**.
@@ -235,6 +247,55 @@ id-preserving `SetItems`, the guarded `MarkDone`, `RemoveItem`, `ReviseInstallme
 `amend` / `revise-installments` / `items/order`. Each of those three classes carries an XML-doc note naming
 exactly what must be added in the pass that adds the endpoint, so slice B/C cannot land without them.
 
+## Session 4 — slice C, the workspace (15 files: 6 new, 9 changed)
+
+### Backend — AC-17, the update-path plan link (2 files + 5 test-file touches)
+
+`UpdateAppointmentCommand` now accepts `TreatmentPlanId` + `TreatmentPlanItemId`, validates the pair through
+the existing `AppointmentPlanLink` and calls `Appointment.SetTreatmentPlanItem` — **which had zero callers
+until now**. Rescheduling an appointment onto a different act updates the link instead of leaving a stale one.
+
+**The field is tri-state, and that is the load-bearing decision.** `Guid?` alone cannot tell "clear this" from
+"I didn't mention it", and every existing caller (edit dialog, status flips, drag-to-reschedule) sends
+neither field. If absent meant clear, any unrelated edit would silently orphan the link — and
+`Appointment.TreatmentPlanItemId` has **no FK**, so nothing at the DB level would catch it. Implemented with a
+`TreatmentPlanItemIdSpecified` flag set from the property setter (System.Text.Json only assigns properties
+present in the payload) and `[JsonIgnore]`d off the wire contract. The controller mutates the deserialized
+instance (`command.Id = id`) rather than rebuilding it, so the flag survives binding — verified.
+
+`ITreatmentPlanRepository` joins the handler's ctor; the 4 existing construction sites were updated.
+
+### Frontend — the workspace (6 new, 7 changed)
+
+| File | |
+|---|---|
+| `web/app/treatment-plans/[id]/page.tsx` **(new)** | The route. `useParams()`, standard shell, three realtime keys. Loading (« Chargement du plan de traitement… ») and « Plan introuvable » render **outside** `ClinicGuard` per `patients/[id]:341-372` — inside it, the guard's own spinner would cover a page that has already failed. A garbage id, a deleted plan and another clinic's plan all land in the same card (the API answers 404 for cross-clinic, so this page can never confirm a plan exists elsewhere). |
+| `web/components/treatment-plans/plan-workspace.tsx` **(new)** | Header / actes / échéancier / parcours + the plan's actions. **Annuler moved here** from the list: it is the one destructive action on a numbered devis and needs the context of what is being voided. |
+| `web/components/treatment-plans/plan-act-row.tsx` **(new)** | One act, **exactly one** primary action per état. Navigation reuses deep links that already existed: `/appointments?appointmentId=` and `/patients/{id}?addRecord=1&appointmentId=` (the post-visit link — it opens the record modal already bound to that appointment, so « Enregistrer la fiche » closes the loop in one step). |
+| `web/components/treatment-plans/plan-timeline.tsx` **(new)** | « Parcours », built only from fields already on the DTO. Reuses `notification-panel.tsx:75-105`'s feed shape. |
+| `web/components/treatment-plans/plan-progress-bar.tsx` **(new)** | The hand-rolled ARIA bar, extracted so the card and the workspace share one implementation (AC-17a). |
+| `web/components/treatment-plans/treatment-plans-table.tsx` | **Rewritten as a list.** The "Gérer" dialog and the 8 unlabelled ghost icons are gone; rows navigate to the workspace and a labelled dropdown keeps Ouvrir / Devis PDF / Modifier / Supprimer. Gained an « Avancement » column (actes done + prochaine séance). |
+| `web/components/treatment-plans/patient-plan-card.tsx` | Links into the workspace now that one exists; "+N autres" still opens the plans tab. Uses the shared progress bar. |
+| `web/components/factures/invoices-table.tsx` | « Devis » badge repointed `?plan=` → `/treatment-plans/{id}`. |
+| `web/app/treatment-plans/page.tsx` | The interim `highlightPlanId` deep-link plumbing removed with the badge repoint. |
+| `web/app/patients/[id]/page.tsx` | + `?tab=` deep-link (same `window.location` idiom, no `useSearchParams`) so « Voir la fiche » can open the medical-records tab. |
+| `web/lib/api/appointments.ts` | `update` accepts the plan-link pair, with the tri-state documented at the call site. |
+
+### Deliberately not done in slice C
+
+- **`PUT {id}/items/order`** (reorder) is **slice B**, not C — it needs `SequenceNumber`, which does not exist.
+  The spec lists it under slice B's API contract; `NEXT-SESSION.md` previously implied it belonged here.
+- **A UI for re-linking an appointment to a different act.** AC-17 is about the endpoint, and the spec's
+  slice-C scope is "`UpdateAppointmentCommand` accepts and re-validates `TreatmentPlanItemId`". Building a
+  picker into the edit dialog is not in scope and would collide with `patient-record-modal.tsx` (DEV-3).
+
+### Tests (1 new class, 9 tests)
+
+`Features/Appointments/AppointmentPlanLinkUpdateTests.cs` — **the 8th of the spec's test classes**, unblocked
+by the backend change above. Move, clear, cross-clinic rejection, **cross-patient** rejection, unknown act,
+act-without-plan, patient-less slot, same-act no-op, and the regression guard that an unrelated edit leaves
+the link untouched. Every rejection asserts `Times.Never` on `SaveChangesAsync`.
+
 ## AC status for slice A (what a reviewer can verify)
 
 | AC | Status |
@@ -256,6 +317,12 @@ exactly what must be added in the pass that adds the endpoint, so slice B/C cann
 | AC-24 every plan verb is clinic-scoped, asserted with `Times.Never` | ✅ existing verbs; slice B's three pending |
 | AC-24a `CancelPlan` pinned to `AdminOrDoctor` by reflection | ✅ (+ a drift guard over every action) |
 | AC-25 `treatmentplans` pinned in `RealtimeResourceResolverTests` | ✅ |
+| AC-13/13a `/treatment-plans/{id}` renders; introuvable + loading cards | ✅ (manual click-through still owed) |
+| AC-14 one primary action per act, RDV/fiche navigation | ✅ |
+| AC-15 parcours: création, acceptation, séances, actes, paiements, facture | ✅ (the facture row is undated — the DTO exposes no issue date; it sorts last) |
+| AC-16 no detail dialog, no unlabelled icon row | ✅ retired; rows navigate, dropdown is labelled |
+| AC-17 `PUT /appointments/{id}` moves + clears the plan link | ✅ (tri-state; 9 tests) |
+| AC-17a progress bar ARIA, absent at 0 acts | ✅ shared `PlanProgressBar` |
 | AC-10 payment on a Completed plan | ✅ (`EnsurePayable`) |
 | AC-11 auto-close identical on both paths | ✅ (moved into `MarkItemDone`) |
 | AC-12 handler no longer duplicates the rule | ✅ |

@@ -81,6 +81,14 @@ export const appointmentsApi = {
     notes?: string;
     status?: string;
     procedureTypeId?: string | null;
+    /** Required alongside `treatmentPlanItemId` when linking — the server validates the pair. */
+    treatmentPlanId?: string;
+    /**
+     * Move or clear the plan act this appointment schedules. Tri-state, and the distinction matters:
+     * **omit** the key to leave the link alone, send `null` to clear it. Sending `null` when you only meant
+     * "don't change it" silently unlinks the act.
+     */
+    treatmentPlanItemId?: string | null;
   }): Promise<AppointmentDto> => {
     return apiPut<AppointmentDto>(`/appointments/${id}`, data);
   },

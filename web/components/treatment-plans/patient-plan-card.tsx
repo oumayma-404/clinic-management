@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -12,10 +13,11 @@ import type { TreatmentPlanDto } from "@/lib/api/types"
 import { formatDT, formatDateFr } from "@/lib/format"
 import { planStatusLabel, planStatusBadgeClass, planNextActionLabel } from "./treatment-plan-labels"
 import { leadPlan, planNextAction } from "./plan-next-action"
+import { PlanProgressBar } from "./plan-progress-bar"
 
 interface PatientPlanCardProps {
   plans: TreatmentPlanDto[]
-  /** Take the user to the plan surface (the patient page's plans tab). */
+  /** Show the patient's other plans — the plans tab, which lists them all. */
   onOpen: () => void
   /** Called after a mutation so the parent can refresh dependent views. */
   onChanged?: () => void
@@ -30,9 +32,14 @@ interface PatientPlanCardProps {
  */
 export function PatientPlanCard({ plans, onOpen, onChanged }: PatientPlanCardProps) {
   const [accepting, setAccepting] = useState(false)
+  const router = useRouter()
 
   const plan = leadPlan(plans)
   if (!plan) return null
+
+  // The lead plan now has a real home, so the card links straight into it; "+N autres" still goes to the
+  // tab, which is what lists the rest.
+  const openWorkspace = () => router.push(`/treatment-plans/${plan.id}`)
 
   const isDraft = plan.status === "Draft"
   const next = planNextAction(plan)
@@ -55,8 +62,6 @@ export function PatientPlanCard({ plans, onOpen, onChanged }: PatientPlanCardPro
 
   // A Draft devis is not debt (it contributes 0 to « Solde patient » by design), so the draft variant shows
   // the planned total but never a « Reste » — and no progress bar, since nothing can be done yet.
-  const pct = plan.itemsTotal > 0 ? Math.round((plan.itemsDone / plan.itemsTotal) * 100) : 0
-
   return (
     <Card>
       <CardHeader className="pb-3">
@@ -80,18 +85,7 @@ export function PatientPlanCard({ plans, onOpen, onChanged }: PatientPlanCardPro
           </p>
         ) : (
           <>
-            {plan.itemsTotal > 0 && (
-              <div
-                className="h-2 w-full overflow-hidden rounded-full bg-muted"
-                role="progressbar"
-                aria-valuenow={plan.itemsDone}
-                aria-valuemin={0}
-                aria-valuemax={plan.itemsTotal}
-                aria-label="Actes réalisés"
-              >
-                <div className="h-2 rounded-full bg-primary" style={{ width: `${pct}%` }} />
-              </div>
-            )}
+            <PlanProgressBar done={plan.itemsDone} total={plan.itemsTotal} />
             <p className="text-sm text-muted-foreground">
               {plan.itemsDone}/{plan.itemsTotal} acte{plan.itemsTotal > 1 ? "s" : ""} réalisé
               {plan.itemsDone > 1 ? "s" : ""} · {formatDT(plan.amountPaid)} / {formatDT(plan.totalPlanned)}
@@ -111,12 +105,12 @@ export function PatientPlanCard({ plans, onOpen, onChanged }: PatientPlanCardPro
               {planNextActionLabel("accept")}
             </Button>
           ) : (
-            <Button size="sm" onClick={onOpen} className="gap-2">
+            <Button size="sm" onClick={openWorkspace} className="gap-2">
               {planNextActionLabel(next.kind)}
               <ArrowRight className="h-4 w-4" />
             </Button>
           )}
-          <Button size="sm" variant="outline" onClick={onOpen}>
+          <Button size="sm" variant="outline" onClick={openWorkspace}>
             {isDraft ? "Ouvrir" : "Voir le plan"}
           </Button>
           {otherCount > 0 && (

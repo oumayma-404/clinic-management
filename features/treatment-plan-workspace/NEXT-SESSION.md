@@ -19,7 +19,7 @@ whoever is reading.
 | **Branched from** | `f510f93` — a baseline commit of the user's then-uncommitted in-flight work |
 | **Committed in the worktree** | **Nothing.** The user commits manually. |
 | **Backend build** | ✅ 0 errors, 0 warnings in changed files |
-| **Backend unit suite** | ✅ 668 passed / 8 failed — all 8 verified pre-existing on the baseline (see §4) |
+| **Backend unit suite** | ✅ 677 passed / 8 failed — all 8 verified pre-existing on the baseline (see §4) |
 | **Frontend typecheck** | ✅ for every file this feature touched (6 unrelated pre-existing errors remain — see §4) |
 
 **Slice A is done** (backend + frontend, 19 files): the derived read-back, the four états, `PatientPlanCard`
@@ -40,8 +40,16 @@ but *not* the billed-plan de-dup — it would delete real cash). Read both befor
 un-schedule (AC-1/2/3/3a), `EnsurePayable` + unified auto-close (AC-10/AC-11), the batched-read contract
 (AC-6), three-way money-read agreement (AC-12a/b/c), the plan area's **first** tenant-isolation guard
 (AC-24), `CancelPlan` pinned to `AdminOrDoctor` (AC-24a — nothing pinned it before), and the
-`treatmentplans` realtime key (AC-25). **2 of the spec's 8 classes could not be written** — they name code
-slices B and C haven't built yet; see §3.
+`treatmentplans` realtime key (AC-25).
+
+**Session 4 is done** (slice C, 15 files): the `/treatment-plans/[id]` **workspace** — header, actes with one
+primary action per état, échéancier, and a « Parcours » feed — plus the retirement of the plans-table "Gérer"
+dialog and its 8 unlabelled ghost icons (rows now navigate; a labelled dropdown keeps the rest). **AC-17**
+wired `UpdateAppointmentCommand`'s plan link, finally giving the dead `Appointment.SetTreatmentPlanItem` a
+caller; the field is **tri-state** (omit = leave alone, explicit null = clear) because every existing caller
+sends neither field and the link has no FK. That unblocked the 8th test class
+(`AppointmentPlanLinkUpdateTests`, 9 tests). **Only `AmendTreatmentPlanCommandHandlerTests` remains blocked**,
+on slice B.
 
 Read `spec.md` (APPROVED, Challenged, Type: Full) and `progress.md` (file-by-file state, per-AC table, three
 auto-approved deviations, DEV-1/2/3) before writing code. They are the source of truth; this file is only a
@@ -64,30 +72,38 @@ Read these two first, they are the source of truth:
   features/treatment-plan-workspace/spec.md       (APPROVED, Challenged, Type: Full)
   features/treatment-plan-workspace/progress.md   (what's done, per-AC table, DEV-1/2/3)
 
-Slice A, AC-8, AC-9a, slice A2 and the test suite are all done and green. Do
-slice C next — the /treatment-plans/[id] workspace route (~9 files):
+Slices A, A2 and C, plus the test suite, are all done and green. Slice B is
+what's left — sequencing + an amendable plan + one migration (~17 files + 3
+migration files). It is the highest-risk chunk: it changes domain invariants on
+a numbered financial document. The rules it could regress are now pinned, so it
+is safe to start.
 
-  - New "use client" route app/treatment-plans/[id]/page.tsx using useParams(),
-    the standard shell (ClinicGuard → DashboardSidebar → DashboardHeader → main),
-    with header / actes / échéancier / parcours sections. Loading + not-found +
-    error follow app/patients/[id]/page.tsx:326-362 (a French state-driven card
-    OUTSIDE ClinicGuard) — there is no notFound() and no not-found.tsx in web/.
-  - Retire the plans-table "Gérer" dialog and the 8 unlabelled ghost icons; a row
-    links to the workspace and keeps a small LABELLED dropdown.
-  - Wire UpdateAppointmentCommand's treatmentPlanItemId through the existing
-    AppointmentPlanLink — this finally gives the dead Appointment
-    .SetTreatmentPlanItem a caller (AC-17).
-  - Repoint the invoices-table « Devis » badge from /treatment-plans?plan={id} to
-    /treatment-plans/{id} and drop the highlightPlanId plumbing in
-    app/treatment-plans/page.tsx + treatment-plans-table.tsx.
+  - TreatmentPlanItem.SequenceNumber (int, default 0) + TreatmentPlan
+    .RevisionNumber (int, default 0), both in ONE additive migration
+    (AddTreatmentPlanRevisionAndItemSequence), styled on
+    20260724125528_AddInvoiceTreatmentPlanLink.cs.
+  - Id-preserving SetItems (AC-19), AddItems / RemoveItem / ReviseInstallments
+    on an accepted plan, SetItemOrder, Installment.SetAmount, a guarded
+    TreatmentPlanItem.MarkDone (AC-23).
+  - RemoveItem refuses a Done act AND an act with a live appointment; an
+    already-billed plan refuses every amendment (AC-22a) — that one is a
+    CORRECTNESS requirement, not convenience: the money reads treat a linked
+    invoice as representing the plan, so amending a billed plan would silently
+    undercount. Read the spec's slice-B section before writing any of it.
+  - New endpoints: POST {id}/amend and PUT {id}/installments (both
+    AdminOrDoctor), PUT {id}/items/order (no method-level policy).
 
-Tests are NOT optional for this slice (DEV-2). Slice C must also add:
-  - Features/Appointments/ — the update-path plan link: move, clear, and
-    cross-tenant rejection (AC-17). This is one of the spec's 8 classes and is
-    the ONLY reason it isn't written yet.
-  - The reorder endpoint's rows in Api/TreatmentPlansControllerAuthorizationTests
-    (it has a drift guard that FAILS on any unclassified new action — that is
-    deliberate).
+Tests are NOT optional (DEV-2). Slice B must also:
+  - Write Features/TreatmentPlans/AmendTreatmentPlanCommandHandlerTests — the
+    LAST unwritten class of the spec's 8, blocked only on the command existing.
+  - Extend Domain/TreatmentPlanTests with AC-18 – AC-23 (the class's doc comment
+    lists exactly which).
+  - Add amend / revise-installments / reorder to
+    TreatmentPlanTenantIsolationTests.
+  - Classify the three new actions in
+    Api/TreatmentPlansControllerAuthorizationTests — it has a drift guard that
+    FAILS the build on any unclassified action. That is deliberate; do not
+    weaken it.
 
 Do NOT touch web/components/patient-record-modal.tsx — the user is mid-refactor
 on it (see DEV-3 in progress.md). AC-9 stays skipped.
@@ -133,7 +149,7 @@ Replace steps 1–3 above with **one** of these. One per session — each is gen
 
 | Chunk | Size | Notes |
 |---|---|---|
-| **Slice B — sequencing + amendable plan + migration** | ~17 files + 3 migration files | Changes domain invariants on a numbered financial document. Highest risk. The slice-A/A2 rules it could regress are **now pinned**, so it is safe to start — but it must also write `AmendTreatmentPlanCommandHandlerTests` (the 8th class, blocked until the command exists) and extend `Domain/TreatmentPlanTests` (AC-18–AC-23), `TreatmentPlanTenantIsolationTests` (amend / revise-installments / reorder) and `TreatmentPlansControllerAuthorizationTests` (whose drift guard **fails** on an unclassified action — by design). |
+| **Manual click-through of the workspace** | ~20 min | AC-13 – AC-16 are implementation + manual verification (no FE test runner). Open a plan from the /factures « Devis » badge, from the patient card and from a plans row; check each of the four états offers one correct action; hit a garbage id for « Plan introuvable ». Cheap, and the only unverified part of slice C. |
 | **Docs pass** | 7 `CLAUDE.md` files | Listed at the bottom of `spec.md`. Includes correcting the stale "seedable from the odontogram" claim and the `api/ClinicManagement.API/CLAUDE.md:3` `commitASP.NET` paste typo. |
 
 ---

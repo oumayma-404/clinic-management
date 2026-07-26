@@ -254,7 +254,8 @@ public class NotificationGenerationTests
         var gen = new Mock<INotificationGenerator>();
 
         var handler = new UpdateAppointmentCommandHandler(
-            repo.Object, new Mock<IProcedureTypeRepository>().Object, new Mock<IDoctorRepository>().Object, clinicResolver.Object,
+            repo.Object, new Mock<IProcedureTypeRepository>().Object, new Mock<IDoctorRepository>().Object,
+            new Mock<ITreatmentPlanRepository>().Object, clinicResolver.Object,
             context.Object, uow.Object, new Mock<IAppointmentGoogleSyncDispatcher>().Object, gen.Object,
             new Mock<IReminderScheduler>().Object,
             NullLogger<UpdateAppointmentCommandHandler>.Instance);

@@ -291,6 +291,15 @@ export default function PatientDetailsPage() {
     }
   }, [patientId])
 
+  // ?tab=… lands the visitor on a specific tab — used by the plan workspace's « Voir la fiche », which needs
+  // to open the medical-records tab rather than dumping the user on the default one. Same window.location
+  // idiom as above (useSearchParams would force this page out of static prerendering); the param is left in
+  // the URL so a refresh keeps the tab.
+  useEffect(() => {
+    const tab = new URLSearchParams(window.location.search).get("tab")
+    if (tab) setActiveTab(tab)
+  }, [patientId])
+
   // Reload files when folder changes
   useEffect(() => {
     const loadFilesForFolder = async () => {
