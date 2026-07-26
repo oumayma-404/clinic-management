@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace ClinicManagement.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20260726200110_ToothFirstRecordPricing")]
+    [Migration("20260726204124_ToothFirstRecordPricing")]
     partial class ToothFirstRecordPricing
     {
         /// <inheritdoc />

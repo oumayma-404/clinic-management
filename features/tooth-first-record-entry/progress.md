@@ -7,7 +7,56 @@
 ## Status
 - [x] Implementation (S1 + S2 + S3)
 - [x] Quality checks (backend build, `tsc --noEmit`, `next build`)
-- [ ] Tests (handled by `/test-small-feature`)
+- [x] Tests (3 new unit classes — see Test Plan)
+
+## Test Plan
+| AC | Action | Target file | Notes |
+|----|--------|-------------|-------|
+| AC-2 | New class ×2 | `Features/Patients/DentalRecordActParserTests.cs`, `Features/Patients/DentalRecordActHandlerTests.cs` | Two acts on tooth 16 → two `ToothState` entries (parser) and two staged adds (handler) |
+| AC-3 | New class ×3 | `Domain/Entities/DentalRecordActPricingTests.cs`, parser, handler | Total + `UnitCost`/`IsPerTooth` provenance stored, parsed and echoed to the DTO |
+| AC-4 (domain half) | New class | pricing tests | An act with no teeth is never per-tooth, even when the caller asks |
+| AC-5 | New class ×2 | parser, handler | Mouth-level act charts nothing on the odontogram |
+| AC-6 | New class ×3 | parser, pricing, handler | Mixed dentition (36 + 75) accepted across acts, inside one act, and on both Create and Update |
+| AC-8 (domain half) | New class ×2 | pricing, handler | `Cost` never recomputed from unit × teeth; a legacy flat-fee act stays flat; a no-op re-save preserves costs |
+| AC-12 | New class ×2 | parser, handler | Negative cost / unit cost → `Result.Failure` with the French message, nothing committed |
+| AC-15 | New class | pricing tests | `record.Cost` == Σ act costs with third-decimal millimes (390,503) |
+| AC-16 (backend half) | New class | handler tests | Update replaces only this record's tooth states; treating a tooth closes only that tooth's diagnosis |
+
+**Coverage notes — ACs with no unit-test surface** (`web/` has no test runner and no installed ESLint per
+`features/LEARNINGS.md`, so the FE gate is `tsc --noEmit` + `next build`, both green at implementation time):
+- **AC-1, AC-7, AC-9** (select → Entrée keeps the selection; dentition flip keeps acts and clears the selection;
+  adding a tooth reprices a per-tooth act only) — pure reducer logic in `use-session-acts.ts`. No FE runner
+  exists; standing one up is a prerequisite task, not this pass's job. Covered by the typecheck/build gate plus
+  the manual script.
+- **AC-4 (UI half), AC-10, AC-11, AC-13, AC-14, AC-17** — composer toggle default, `amountPaid` mirroring,
+  odontogram overlay self-filter, summary-modal partitioning, invoice-line quantity, French error toast. All FE
+  wiring; verified by the build gate + the manual script.
+- **AC-18** — responsive layout at 1366×768. Visual only; manual.
+- The domain/parser/handler halves of the FE-facing ACs (3, 4, 5, 8, 12) **are** unit-tested above, so the
+  contract the UI depends on is pinned even where the UI itself isn't.
+
+## Tests Run
+| Suite | Filter | Result |
+|-------|--------|--------|
+| Unit (new) | `DentalRecordActPricingTests\|DentalRecordActParserTests\|DentalRecordActHandlerTests` | **52 passed, 0 failed** |
+| Unit (regression) | `Patients\|Invoice\|Domain\|RealtimeResource` | **149 passed, 0 failed** (includes the 52) |
+
+Run via the SAC workaround (Smart App Control is ON and blocks `dotnet test` at assembly load with
+`0x800711C7`): build to an isolated `OutDir` under the scratchpad, then `dotnet vstest` the built DLL.
+```
+dotnet build ClinicManagement.UnitTests/ClinicManagement.UnitTests.csproj -p:OutDir=<scratch>/utbuild/
+dotnet vstest <scratch>/utbuild/ClinicManagement.UnitTests.dll --TestCaseFilter:"FullyQualifiedName~<Class>"
+```
+This also sidesteps the running API's `bin` locks (`MSB3021`/`MSB3027`). Test-project build:
+**0 errors, 0 warnings**; no warnings attributable to the three new files.
+
+## Note — the parked `DentalRecordPostVisitCompletionTests.cs.deferred`
+Left parked. It was quarantined by `cnam-nomenclature-lookup` purely so the project compiles, and it is stale
+in three ways against today's code: its harness misses `IToothStateRepository`/`ITreatmentPlanRepository`, its
+command builder still sets the removed `ProcedureType`/`Cost`/`ToothNumbers` properties, and it asserts a
+`DentalRecordDto.AppointmentId` that does not exist. Reviving it belongs to the `post-visit-review-patient-record`
+feature's debt, not this one — the post-visit path is untouched here. Its useful part (the Create-handler Moq
+harness) was re-derived, current-signature, in `DentalRecordActHandlerTests`.
 
 ## Working tree note (start of session)
 The tree held **111 uncommitted files** of unrelated in-flight work (8 `adoption-qa-*` feature folders,
@@ -103,7 +152,27 @@ The Adulte/Enfant toggle became a pure view switch (acts on the other dentition 
 reported by a chip; the selection clears on flip). 32 permanent vs 20 deciduous teeth don't align in columns, so
 a third layout was the plan's highest visual risk for no functional gain — the acts list is the record.
 
-**DEV-4 — Migration hand-authored; must be regenerated before merge.**
+**DEV-4 — RESOLVED: migration regenerated with the EF tool.**
+The hand-authored `20260726200110_ToothFirstRecordPricing` was **replaced** by the tool-generated
+`20260726204124_ToothFirstRecordPricing` once the API was down (its service was already Stopped and no
+process held the `bin`). Procedure: `dotnet ef migrations remove` (so **EF**, not a hand edit, reverted the
+model snapshot — verified surgical: my two properties and the three precision changes came out while the
+sibling `CreditNote`/`StockMovement` entries stayed), then `dotnet ef migrations add ToothFirstRecordPricing`.
+
+The generated migration matches the hand-authored one operation-for-operation, with one real difference that
+justified regenerating: **EF emits the PostgreSQL-native `numeric(18,3)`, not `decimal(18,3)`.** They are the
+same type (`decimal` is an alias in PostgreSQL) so the hand-authored version would have worked, but `numeric`
+is what the tool produces and what every sibling migration uses.
+
+EF reported *"An operation was scaffolded that may result in the loss of data"* — its blanket warning for any
+`AlterColumn`. Precisely: `numeric(18,2)` → `numeric(18,3)` keeps 18 total digits but moves one from the
+integer side (16 → 15 digits before the point), so a stored value ≥ 10¹⁵ would fail to convert. Unreachable
+for dinar amounts; noted rather than glossed.
+
+**Still not applied to any database.** `dotnet ef database update` has not been run — verify `Up`/`Down` on a
+scratch DB (or accept the runtime `Database.Migrate()` on next boot) before relying on it.
+
+*Original entry, kept for context — why it was hand-authored in the first place:*
 `dotnet ef migrations add` initially produced an **empty** migration: the API is running (PID 31192) and holds
 its `bin`, so `--no-build` loaded a stale `Infrastructure.dll` (old model → empty diff), and rebuilding the API
 project fails at the *copy* step with `MSB3021`/`MSB3027` (every project compiles — these are lock errors, not
