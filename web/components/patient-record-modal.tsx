@@ -333,7 +333,10 @@ export function PatientRecordModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] max-w-5xl overflow-y-auto">
+      {/* NOTE: the width override MUST be `sm:max-w-*`. DialogContent's base class ends with `sm:max-w-lg`,
+          and tailwind-merge treats an unprefixed `max-w-*` as a different group — so a plain `max-w-5xl`
+          silently loses to it at every viewport ≥640px and the dialog stays 512px wide. */}
+      <DialogContent className="max-h-[92vh] w-[min(96vw,1200px)] sm:max-w-[min(96vw,1200px)] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{record ? "Modifier la fiche médicale" : "Ajouter une fiche médicale"}</DialogTitle>
           <DialogDescription>
@@ -443,7 +446,9 @@ export function PatientRecordModal({
         </div>
 
         {/* Two panes: the chart is the subject picker, the session sheet is the record */}
-        <div className="grid gap-4 lg:grid-cols-[minmax(320px,400px)_1fr]">
+        {/* The adult arch needs ~400px to render all 16 upper teeth without the chart clipping, so the
+            left column never goes below that and the split only happens when there is room for both. */}
+        <div className="grid gap-4 lg:grid-cols-[minmax(400px,440px)_1fr]">
           <div className="space-y-2 lg:sticky lg:top-0 lg:self-start">
             <RecordToothChart
               isAdult={isAdultView}
