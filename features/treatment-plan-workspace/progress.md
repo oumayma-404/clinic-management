@@ -380,7 +380,7 @@ failed the build — it did its job).
 | AC-6 one appointments query + one invoice-links query per request | ✅ (+ patient-name N+1 removed) |
 | AC-7 PatientPlanCard above the tabs, draft variant, null when no plan | ✅ |
 | AC-8 `InvoiceDto.treatmentPlanId` + invoices-table « Devis » badge | ✅ (badge deep-links to `?plan=` until slice C's route exists) |
-| AC-9 record modal auto-links the plan act | ⛔ DEV-3 (file under concurrent refactor) |
+| AC-9 record modal auto-links the plan act | ✅ session 6 — DEV-3 released once the tooth-first refactor landed; implemented on the post-refactor modal as `applyPlanItem` from `appointment.treatmentPlanItemId` |
 | AC-9a all plan surfaces watch 3 realtime keys | ✅ table + patient page (`TreatmentPlans` **and** `Invoices` both added — the page had neither) |
 | AC-12a « Solde patient » / « Créances » / dashboard agree | ✅ one shared helper on all three |
 | AC-12b a Draft plan's échéancier contributes 0 everywhere | ✅ Draft excluded in both repository aggregates |

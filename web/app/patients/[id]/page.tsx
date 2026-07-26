@@ -406,16 +406,18 @@ export default function PatientDetailsPage() {
         })),
     )
 
-  // The appointment the record documents, so its booked procedure can be PROPOSED in the record modal.
-  // Two sources, in order: the post-visit deep-link (`?addRecord=1&appointmentId=…`), then — when the modal
-  // was opened straight from this page — today's live appointment for this patient. Only appointments that
-  // actually name a procedure are useful, and a record being edited is never re-proposed.
+  // The appointment the record documents, so its booked procedure can be PROPOSED in the record modal and
+  // its plan step pre-selected (AC-9). Two sources, in order: the post-visit deep-link
+  // (`?addRecord=1&appointmentId=…`), then — when the modal was opened straight from this page — today's
+  // live appointment for this patient. A record being edited is never re-proposed.
   const recordAppointment: AppointmentDto | null = editingRecord
     ? null
     : (reviewAppointmentId
         ? appointments.find((a) => a.id === reviewAppointmentId)
         : appointments.find((a) => {
-            if (!a.procedureTypeId) return false
+            // Useful if it names a procedure to propose OR a plan step to pre-select — an appointment booked
+            // from a devis often carries only the latter, and that is exactly the case AC-9 is about.
+            if (!a.procedureTypeId && !a.treatmentPlanItemId) return false
             if (a.status === "Cancelled" || a.status === "NoShow") return false
             const when = new Date(a.appointmentDateTime)
             const today = new Date()
