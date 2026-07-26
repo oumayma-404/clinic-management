@@ -15,6 +15,13 @@ export interface ActDraft {
   /** The single editable price: per treated tooth when `perTooth`, otherwise the act's flat total. */
   unitCost: string
   perTooth: boolean
+  /**
+   * True once the dentist has used the `/dent ↔ forfait` switch on this draft. While false, `perTooth` is
+   * re-derived every time the selection changes — necessary now that the procedure is chosen BEFORE the teeth
+   * (the appointment proposes it), so the per-tooth default has to arm on the first tooth rather than at pick
+   * time. Once locked, an explicit « forfait » is never silently flipped back.
+   */
+  perToothLocked: boolean
   resultingCondition: string | null
   surfaces: Set<string>
   note: string
@@ -31,10 +38,22 @@ const emptyDraft = (): ActDraft => ({
   procedureName: "",
   unitCost: "",
   perTooth: false,
+  perToothLocked: false,
   resultingCondition: null,
   surfaces: new Set<string>(),
   note: "",
 })
+
+/**
+ * Whether the draft should be priced per tooth for a given selection size. An act that changes a tooth's state
+ * is per-tooth; one that changes nothing (consultation, détartrage, orthodontie, prothèse) is a flat session
+ * fee — and nothing is ever per-tooth with no tooth to multiply. A manual choice wins.
+ */
+function derivePerTooth(draft: ActDraft, selectionLength: number): boolean {
+  if (selectionLength === 0) return false
+  if (draft.perToothLocked) return draft.perTooth
+  return draft.resultingCondition != null
+}
 
 /** A treatment-plan step's values carried into the composer when the step is linked. */
 export interface PlanItemPrefill {
@@ -83,6 +102,8 @@ export type SessionAction =
   | { type: "clearSelection" }
   | { type: "patchDraft"; patch: Partial<ActDraft> }
   | { type: "pickProcedure"; procedure: ProcedureTypeDto }
+  | { type: "useFreeText"; name: string }
+  | { type: "applyAppointment"; procedure: ProcedureTypeDto }
   | { type: "detachProcedure" }
   | { type: "applyPlanItem"; item: PlanItemPrefill }
   | { type: "commitDraft" }
@@ -109,6 +130,8 @@ function actFromDto(a: DentalRecordActDto, key: string): SessionAct {
     toothNumbers: teeth,
     unitCost: String(perTooth && unit != null ? unit : a.cost),
     perTooth,
+    // A saved act's pricing intent is authoritative and must never be re-derived from its selection.
+    perToothLocked: true,
     resultingCondition: a.resultingCondition ?? null,
     surfaces: parseSurfaces(a.surfaces),
     note: a.note ?? "",
@@ -132,40 +155,69 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
       const selection = has
         ? state.selection.filter((t) => t !== action.tooth)
         : sorted([...state.selection, action.tooth])
-      // A mouth-level act has nothing to multiply, so clearing the last tooth drops per-tooth pricing.
-      return { ...state, selection, draft: { ...state.draft, perTooth: state.draft.perTooth && selection.length > 0 } }
+      return {
+        ...state,
+        selection,
+        draft: { ...state.draft, perTooth: derivePerTooth(state.draft, selection.length) },
+      }
     }
 
     case "selectMany": {
       const selection = sorted(action.additive ? [...state.selection, ...action.teeth] : action.teeth)
-      return { ...state, selection }
+      return {
+        ...state,
+        selection,
+        draft: { ...state.draft, perTooth: derivePerTooth(state.draft, selection.length) },
+      }
     }
 
     case "clearSelection":
       return { ...state, selection: [], draft: { ...state.draft, perTooth: false } }
 
-    case "patchDraft":
-      return { ...state, draft: { ...state.draft, ...action.patch } }
+    case "patchDraft": {
+      const draft = { ...state.draft, ...action.patch }
+      // Touching the switch itself locks the intent; changing the resulting condition re-derives it.
+      if (action.patch.perTooth !== undefined) draft.perToothLocked = true
+      else if (action.patch.resultingCondition !== undefined) {
+        draft.perTooth = derivePerTooth(draft, state.selection.length)
+      }
+      return { ...state, draft }
+    }
 
     case "pickProcedure": {
       const pt = action.procedure
-      return {
-        ...state,
-        draft: {
-          ...state.draft,
-          procedureTypeId: pt.id,
-          procedureName: pt.name,
-          // Only prefill an untouched price, so a typed amount is never overwritten.
-          unitCost:
-            state.draft.unitCost.trim() === "" && pt.defaultCost != null
-              ? String(pt.defaultCost)
-              : state.draft.unitCost,
-          // An act that changes a tooth's state is priced per tooth; one that changes nothing
-          // (consultation, détartrage, orthodontie, prothèse) is a flat session fee.
-          perTooth: pt.resultingCondition != null && state.selection.length > 0,
-          resultingCondition: pt.resultingCondition ?? state.draft.resultingCondition,
-        },
+      const draft: ActDraft = {
+        ...state.draft,
+        procedureTypeId: pt.id,
+        procedureName: pt.name,
+        // Only prefill an untouched price, so a typed amount is never overwritten.
+        unitCost:
+          state.draft.unitCost.trim() === "" && pt.defaultCost != null
+            ? String(pt.defaultCost)
+            : state.draft.unitCost,
+        // A fresh pick re-opens the pricing question, so the switch un-locks.
+        perToothLocked: false,
+        resultingCondition: pt.resultingCondition ?? null,
       }
+      return { ...state, draft: { ...draft, perTooth: derivePerTooth(draft, state.selection.length) } }
+    }
+
+    case "useFreeText": {
+      // A procedure the catalogue does not carry: keep the typed name, drop the catalogue provenance, and
+      // leave the price for the dentist (it commits at 0 with a warning rather than blocking).
+      const draft: ActDraft = {
+        ...emptyDraft(),
+        procedureName: action.name.trim(),
+      }
+      return { ...state, draft }
+    }
+
+    case "applyAppointment": {
+      // Option C: the booked procedure PROPOSES the act. Only ever fills an untouched session — reopening a
+      // saved record, or a session the dentist has already started, is never overwritten. Nothing is
+      // committed here: the proposal is a draft, so no act exists until the dentist confirms.
+      if (state.acts.length > 0 || !isDraftEmpty(state.draft)) return state
+      return reducer(state, { type: "pickProcedure", procedure: action.procedure })
     }
 
     case "detachProcedure":
@@ -176,15 +228,12 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
       if (!isDraftEmpty(state.draft)) return state
       const item = action.item
       const teeth = item.toothNumbers && item.toothNumbers.length > 0 ? sorted(item.toothNumbers) : state.selection
-      return {
-        ...state,
-        selection: teeth,
-        draft: {
-          ...state.draft,
-          procedureName: item.designationFr ?? state.draft.procedureName,
-          unitCost: item.plannedCost != null && item.plannedCost > 0 ? String(item.plannedCost) : state.draft.unitCost,
-        },
+      const draft: ActDraft = {
+        ...state.draft,
+        procedureName: item.designationFr ?? state.draft.procedureName,
+        unitCost: item.plannedCost != null && item.plannedCost > 0 ? String(item.plannedCost) : state.draft.unitCost,
       }
+      return { ...state, selection: teeth, draft: { ...draft, perTooth: derivePerTooth(draft, teeth.length) } }
     }
 
     case "commitDraft": {
@@ -241,6 +290,7 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
 export function useSessionActs(record?: DentalRecordDto | null) {
   const [state, dispatch] = useReducer(reducer, record, initialState)
 
+  /** Sum of the acts already confirmed into the session. */
   const total = useMemo(
     () =>
       roundMillimes(
@@ -249,10 +299,34 @@ export function useSessionActs(record?: DentalRecordDto | null) {
     [state.acts],
   )
 
+  /** True when the draft names a procedure, i.e. confirming the session would save one more act. */
+  const hasDraft = state.draft.procedureName.trim() !== ""
+
+  /** What the draft would be billed at against the live selection. */
+  const draftTotal = useMemo(
+    () => (hasDraft ? resolveActCost(state.draft.unitCost, state.draft.perTooth, state.selection.length) : 0),
+    [hasDraft, state.draft.unitCost, state.draft.perTooth, state.selection.length],
+  )
+
+  /**
+   * What will actually be saved. The draft counts: the confirm-first flow expects the dentist to tap teeth and
+   * press « Confirmer » without ever adding a second act, so a footer total that excluded the draft would read
+   * 0,000 on the single most common path. While editing a committed act the draft REPLACES it rather than
+   * adding to it, so that act is left out instead of being counted at its stale cost.
+   */
+  const grandTotal = useMemo(() => {
+    const others = state.acts.reduce(
+      (sum, a) =>
+        a.key === state.editingKey ? sum : sum + resolveActCost(a.unitCost, a.perTooth, a.toothNumbers.length),
+      0,
+    )
+    return roundMillimes(others + draftTotal)
+  }, [state.acts, state.editingKey, draftTotal])
+
   const editingAct = useMemo(
     () => (state.editingKey ? (state.acts.find((a) => a.key === state.editingKey) ?? null) : null),
     [state.acts, state.editingKey],
   )
 
-  return { ...state, total, editingAct, dispatch }
+  return { ...state, total, hasDraft, draftTotal, grandTotal, editingAct, dispatch }
 }

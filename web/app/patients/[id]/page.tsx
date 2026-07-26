@@ -382,6 +382,26 @@ export default function PatientDetailsPage() {
         })),
     )
 
+  // The appointment the record documents, so its booked procedure can be PROPOSED in the record modal.
+  // Two sources, in order: the post-visit deep-link (`?addRecord=1&appointmentId=…`), then — when the modal
+  // was opened straight from this page — today's live appointment for this patient. Only appointments that
+  // actually name a procedure are useful, and a record being edited is never re-proposed.
+  const recordAppointment: AppointmentDto | null = editingRecord
+    ? null
+    : (reviewAppointmentId
+        ? appointments.find((a) => a.id === reviewAppointmentId)
+        : appointments.find((a) => {
+            if (!a.procedureTypeId) return false
+            if (a.status === "Cancelled" || a.status === "NoShow") return false
+            const when = new Date(a.appointmentDateTime)
+            const today = new Date()
+            return (
+              when.getFullYear() === today.getFullYear() &&
+              when.getMonth() === today.getMonth() &&
+              when.getDate() === today.getDate()
+            )
+          })) ?? null
+
   // Compute current files based on folder selection
   // When in a folder, all loaded files belong to that folder
   // When at root, show only root files (files without folderId)
@@ -1556,6 +1576,7 @@ export default function PatientDetailsPage() {
         patient={patient}
         planItems={openPlanItems}
         appointmentId={editingRecord ? null : reviewAppointmentId}
+        appointment={recordAppointment}
         onSuccess={handleEditSuccess}
       />
 

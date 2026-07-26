@@ -23,7 +23,35 @@ Exploration also surfaced four defects that the new flow makes routine rather th
 
 ## Design Notes (the target interaction)
 
-Two panes inside a `max-w-5xl` dialog (`lg:grid-cols-[minmax(340px,420px)_1fr]`, stacking to one column below `lg`):
+> **Superseded — read this first.** The two-pane composer below shipped in `c04df8a` and was **rejected**: the
+> dentist did not accept the model and the first render was visually broken. Three further models (palette
+> d'actes, odontogramme direct, confirmer le prévu) were mocked in
+> `mockups/01-interaction-models.html` and also rejected.
+>
+> **The approved design is « confirmer le prévu » — mockup `mockups/02-confirmer-le-prevu.html`.** Its three
+> decisions, approved 2026-07-26:
+>
+> 1. **Confirm-first density.** One ~780px column, not two panes. The act comes first (proposed from the
+>    appointment's `procedureTypeId`, else picked), then the chart, then « Confirmer la séance ». Every field the
+>    two-pane form carried is kept, folded into sections whose headers render a **live summary of their own
+>    contents**, so collapsing makes a value read-only and never hidden. Sections holding a value auto-open.
+> 2. **The catalogue is one dense searchable column.** The tile grid and the icon-only magnifier popover are
+>    gone. Category headings follow the seed's clinical order and **disappear while searching**. It renders
+>    inline, which also removes the Radix `Dialog`/`Popover`/`Command` contention over `Entrée` that the Edge
+>    Cases section flags.
+> 3. **Propose, never commit.** The appointment's procedure fills the *draft* only. No `DentalRecordAct` exists
+>    until the dentist confirms, so a generic « Consultation » slot is harmless. `applyAppointment` is a no-op
+>    unless the session is untouched, so it can never clobber a saved record or work in progress.
+>
+> Costs **zero backend work**: `AppointmentDto` already carries `procedureTypeId`/`procedureTypeName`/
+> `procedureColorHex`, and the patient page already loads the patient's appointments.
+>
+> The ACs below still hold — AC-1's "no intermediate create-act-row step" is satisfied more strongly (the
+> draft persists on confirm, with no separate add step), and the `Entrée`-to-commit mechanic is replaced by
+> « Confirmer la séance » / « Ajouter un autre acte ». The S1/S2 backend and correctness work is unaffected.
+
+The rejected two-pane layout, kept for the record — two panes inside a `max-w-5xl` dialog
+(`lg:grid-cols-[minmax(340px,420px)_1fr]`, stacking to one column below `lg`):
 
 ```
 ┌ Ajouter une fiche médicale ─────────────────────────────────┐
@@ -77,6 +105,21 @@ Two panes inside a `max-w-5xl` dialog (`lg:grid-cols-[minmax(340px,420px)_1fr]`,
 - **Error surfacing:** replace the hand-rolled `err instanceof ApiError ? err.message : …` in the modal with `showErrorToast` / `getErrorMessage` from `web/lib/errors.ts` (the canonical `{ error }` contract).
 
 ### S3 — The tooth-first UI
+
+> **As shipped** (confirm-first, superseding the bullets below): `record/act-catalog-picker.tsx` (dense grouped
+> searchable list), `record/act-slot.tsx` (proposal card ↔ picker), `record/act-detail-fields.tsx` (tarif,
+> `/dent ↔ forfait`, état résultant, faces, note), `record/record-section.tsx` (collapsible + live summary).
+> `record/session-act-composer.tsx` was **deleted** — its job is now split between the slot and the detail
+> fields. `record/use-session-acts.ts` gained `applyAppointment`, `useFreeText`, `draftTotal`/`grandTotal`, and
+> a `perToothLocked` intent flag. `record/session-acts-list.tsx` and `record-tooth-chart.tsx` are **unchanged**.
+> `patient-record-modal.tsx` takes one new optional prop, `appointment?: AppointmentDto | null`.
+>
+> **Defect found and fixed while implementing:** `pickProcedure` derived `perTooth` from
+> `selection.length > 0`, and `toggleTooth` only ever *cleared* it. That worked when teeth were picked first,
+> but confirm-first arms the act *before* any tooth — so a per-tooth act stayed a forfait and 2 teeth billed as
+> 1. `derivePerTooth` now re-derives on every selection change until the dentist touches the switch
+> (`perToothLocked`), which also keeps AC-9 intact.
+
 
 - **New `web/components/record/use-session-acts.ts`** — a `useReducer` owning `acts`, `selection` and `editingKey`, so no `useEffect` can fight user input (the failure mode already reported in `features/fix-patient-dental-ui/reviews/feature-review.md` Finding 1). Actions: `reset(from?)`, `toggleTooth`, `selectMany(teeth, additive)`, `clearSelection`, `beginEditAct(key)`, `commitAct(draft)` (appends, or patches when `editingKey` is set), `cancelEdit`, `removeAct(key)`. `commitAct` deliberately **preserves** the selection. Acts carry a client-side `key` (incrementing counter, never the array index, never the server act id).
 - **New `web/components/record/session-act-composer.tsx`** — selection summary, grouped searchable catalogue picker, one editable price + `/dent ↔ forfait` toggle with the live readout, MODVL faces, état résultant, note, commit on `Entrée`. Editing a committed act loads it here **and restores its teeth as the selection**, with a visible « Annuler la modification ».
