@@ -11,11 +11,6 @@ namespace ClinicManagement.UnitTests.Api;
 /// operation with <c>AdminOrDoctor</c>: reversing or altering an already-issued financial document. Cancelling
 /// a numbered devis belongs to it — and nothing pinned that until now, so a refactor could have silently
 /// dropped the policy and let a secretary void a devis.
-/// <para>
-/// Slice B adds <c>AmendPlan</c> and <c>ReviseInstallments</c> (both <c>AdminOrDoctor</c>) and
-/// <c>ReorderItems</c> (no method-level policy — reordering is cosmetic). Add them to the arrays below in the
-/// same pass that adds the endpoints.
-/// </para>
 /// </summary>
 public class TreatmentPlansControllerAuthorizationTests
 {
@@ -23,6 +18,8 @@ public class TreatmentPlansControllerAuthorizationTests
     private static readonly string[] AdminOrDoctorActions =
     {
         nameof(TreatmentPlansController.CancelPlan),
+        nameof(TreatmentPlansController.AmendPlan),
+        nameof(TreatmentPlansController.ReviseInstallments),
     };
 
     /// <summary>Everyday clinical/billing work — any authenticated clinic member, via the class-level gate.</summary>
@@ -39,6 +36,9 @@ public class TreatmentPlansControllerAuthorizationTests
         nameof(TreatmentPlansController.DeletePlan),
         nameof(TreatmentPlansController.GetDevisPdf),
         nameof(TreatmentPlansController.GetInstallmentReceiptPdf),
+        // Reordering acts is cosmetic — no money, nothing the patient signed for — so it sits with
+        // accept/complete rather than with the financial-reversal class above.
+        nameof(TreatmentPlansController.ReorderItems),
     };
 
     [Theory]

@@ -22,8 +22,22 @@ internal static class TreatmentPlanItemPricing
         Guid clinicId,
         IDentalActCodeRepository dentalActRepository,
         CancellationToken cancellationToken)
+        => (await ResolveWithIdsAsync(items, clinicId, dentalActRepository, cancellationToken))
+            .Select(i => (i.DesignationFr, i.PlannedCost, i.DentalActCodeId, i.CodeActe, i.ToothNumbers))
+            .ToList();
+
+    /// <summary>
+    /// Same resolution, keeping each line's echoed-back <c>Id</c> so <c>SetItems</c> can preserve the identity
+    /// of an unchanged act — without which a draft edit re-issues every id and orphans any appointment or
+    /// dental-record link pointing at those acts.
+    /// </summary>
+    public static async Task<List<(Guid? Id, string DesignationFr, decimal PlannedCost, Guid? DentalActCodeId, string? CodeActe, IReadOnlyList<int> ToothNumbers)>> ResolveWithIdsAsync(
+        IEnumerable<TreatmentPlanItemRequest> items,
+        Guid clinicId,
+        IDentalActCodeRepository dentalActRepository,
+        CancellationToken cancellationToken)
     {
-        var resolved = new List<(string, decimal, Guid?, string?, IReadOnlyList<int>)>();
+        var resolved = new List<(Guid?, string, decimal, Guid?, string?, IReadOnlyList<int>)>();
         // Cache per act code so a plan with several lines of the same act does one lookup.
         var feeCache = new Dictionary<Guid, decimal?>();
 
@@ -46,7 +60,7 @@ internal static class TreatmentPlanItemPricing
                 }
             }
 
-            resolved.Add((item.DesignationFr, plannedCost, item.DentalActCodeId, item.CodeActe, (IReadOnlyList<int>)item.ToothNumbers));
+            resolved.Add((item.Id, item.DesignationFr, plannedCost, item.DentalActCodeId, item.CodeActe, (IReadOnlyList<int>)item.ToothNumbers));
         }
 
         return resolved;

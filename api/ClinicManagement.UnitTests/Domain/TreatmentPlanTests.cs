@@ -14,9 +14,11 @@ namespace ClinicManagement.UnitTests.Domain;
 /// collection, which is exactly why they need pinning.
 /// </para>
 /// <para>
-/// AC-18 – AC-23 (<c>AddItems</c>, <c>RemoveItem</c>, <c>ReviseInstallments</c>, <c>SetItemOrder</c>,
-/// <c>RevisionNumber</c>, the guarded <c>MarkDone</c> and id-preserving <c>SetItems</c>) land with slice B —
-/// those members do not exist yet and their facts belong in the same pass that adds them.
+/// Slice B's amendment surface (AC-18 – AC-23) is covered further down: ordering, id-preserving
+/// <c>SetItems</c>, the guarded <c>MarkDone</c>, and the domain half of amend/remove/revise. The handler-level
+/// rules — the billed-plan block and the live-appointment block — live in
+/// <c>Features/TreatmentPlans/AmendTreatmentPlanCommandHandlerTests</c>, because the aggregate holds neither
+/// an invoice nor an appointment reference.
 /// </para>
 /// </summary>
 public class TreatmentPlanTests
@@ -183,5 +185,259 @@ public class TreatmentPlanTests
         {
             (new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc), 100m),
         }));
+    }
+
+    // ---- Slice B: sequencing and amendment ---------------------------------------------------------
+
+    // [AC-19] THE latent-defect fix: an echoed-back id survives a draft edit, so an appointment or dental
+    // record linked to that act still resolves afterwards. Before this, editing a draft re-issued every id
+    // and orphaned those links — and neither has an FK, so nothing at the DB level would have caught it.
+    [Fact]
+    public void SetItems_Preserves_The_Id_Of_An_Echoed_Back_Line()
+    {
+        var plan = DraftPlan(actCount: 2);
+        var keptId = plan.Items.First().Id;
+
+        plan.SetItems(new[]
+        {
+            ((Guid?)keptId, "Acte 1 renommé", 500m, (Guid?)null, (string?)null, (IReadOnlyList<int>)new[] { 11 }),
+            ((Guid?)null, "Nouvel acte", 300m, (Guid?)null, (string?)null, (IReadOnlyList<int>)new[] { 13 }),
+        });
+
+        Assert.Equal(keptId, plan.Items.First().Id);
+        Assert.Equal("Acte 1 renommé", plan.Items.First().DesignationFr);
+        Assert.Equal(2, plan.Items.Count);
+    }
+
+    // [AC-19] An id the plan doesn't know is a new line, never an error — a stale client must not be able to
+    // fail the save.
+    [Fact]
+    public void SetItems_Treats_An_Unknown_Id_As_A_New_Line()
+    {
+        var plan = DraftPlan();
+        var strangerId = Guid.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd");
+
+        plan.SetItems(new[]
+        {
+            ((Guid?)strangerId, "Acte", 500m, (Guid?)null, (string?)null, (IReadOnlyList<int>)new[] { 11 }),
+        });
+
+        Assert.Single(plan.Items);
+        Assert.NotEqual(strangerId, plan.Items.First().Id);
+    }
+
+    // [AC-18] SetItems assigns positions by list order, so a freshly edited draft reads in the order typed.
+    [Fact]
+    public void SetItems_Numbers_The_Acts_By_Position()
+    {
+        var plan = DraftPlan(actCount: 3);
+
+        Assert.Equal(new[] { 0, 1, 2 }, plan.Items.Select(i => i.SequenceNumber));
+    }
+
+    // Changing the acts changes the total, so the échéancier must be resent — previously the schedule was
+    // wiped silently and nothing but the form's habit of resending it kept the money consistent.
+    [Fact]
+    public void SetItems_Refuses_To_Silently_Discard_An_Existing_Schedule()
+    {
+        var plan = DraftPlan();
+        plan.SetInstallments(new[] { (new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc), 500m) });
+
+        Assert.Throws<InvalidOperationException>(() => plan.SetItems(
+            new[] { ((Guid?)null, "Acte", 500m, (Guid?)null, (string?)null, (IReadOnlyList<int>)new[] { 11 }) },
+            scheduleWillBeResent: false));
+    }
+
+    // [AC-18] Reordering assigns positions by the given order and survives as data.
+    [Fact]
+    public void SetItemOrder_Assigns_Positions_By_Index()
+    {
+        var plan = AcceptedPlan(actCount: 3);
+        var reversed = plan.Items.Select(i => i.Id).Reverse().ToList();
+
+        plan.SetItemOrder(reversed);
+
+        Assert.Equal(reversed, plan.Items.Select(i => i.Id));
+        Assert.Equal(new[] { 0, 1, 2 }, plan.Items.Select(i => i.SequenceNumber));
+    }
+
+    // [AC-18] A partial list would leave the omitted acts at stale positions and silently interleave them.
+    [Fact]
+    public void SetItemOrder_Rejects_A_List_That_Is_Not_Exactly_The_Plans_Acts()
+    {
+        var plan = AcceptedPlan(actCount: 3);
+        var partial = plan.Items.Take(2).Select(i => i.Id).ToList();
+
+        Assert.Throws<InvalidOperationException>(() => plan.SetItemOrder(partial));
+    }
+
+    // [AC-18] Ties fall back to insertion order (stable sort), so a pre-migration plan — every act at 0 —
+    // does not reshuffle on screen before its first reorder.
+    [Fact]
+    public void Acts_Sharing_A_Sequence_Number_Keep_Their_Insertion_Order()
+    {
+        var plan = AcceptedPlan(actCount: 3);
+        foreach (var item in plan.Items) item.SetSequenceNumber(0);
+
+        Assert.Equal(new[] { "Acte 1", "Acte 2", "Acte 3" }, plan.Items.Select(i => i.DesignationFr));
+    }
+
+    // [AC-23] Re-saving the same fiche must stay idempotent…
+    [Fact]
+    public void MarkDone_Is_Idempotent_For_The_Same_Dental_Record()
+    {
+        var plan = AcceptedPlan(actCount: 2);
+        var itemId = plan.Items.First().Id;
+        plan.MarkItemDone(itemId, DoneOn, RecordId);
+        var firstDoneDate = plan.Items.First().DoneDate;
+
+        plan.MarkItemDone(itemId, DoneOn.AddDays(3), RecordId);
+
+        Assert.Equal(firstDoneDate, plan.Items.First().DoneDate);
+        Assert.Equal(RecordId, plan.Items.First().LinkedDentalRecordId);
+    }
+
+    // [AC-23] …but a *different* record must not silently overwrite when the act happened, which would
+    // rewrite clinical history.
+    [Fact]
+    public void MarkDone_Rejects_A_Different_Dental_Record()
+    {
+        var plan = AcceptedPlan(actCount: 2);
+        var itemId = plan.Items.First().Id;
+        plan.MarkItemDone(itemId, DoneOn, RecordId);
+        var otherRecordId = Guid.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee");
+
+        Assert.Throws<InvalidOperationException>(() => plan.MarkItemDone(itemId, DoneOn, otherRecordId));
+        Assert.Equal(RecordId, plan.Items.First().LinkedDentalRecordId);
+    }
+
+    // [AC-20] AddItems raises the total. It deliberately does NOT stamp the revision — see
+    // One_Amendment_Composed_Of_Several_Changes_Is_One_Revision below.
+    [Fact]
+    public void AddItems_Raises_The_Total()
+    {
+        var plan = AcceptedPlan();
+
+        plan.AddItems(new[] { ("Implant", 800m, (Guid?)null, (string?)null, (IReadOnlyList<int>)new[] { 21 }) });
+
+        Assert.Equal(1300m, plan.TotalPlanned);
+    }
+
+    // [AC-22c] The revision counts *amendments*, not mutations. A single edit routinely adds an act AND
+    // re-spreads the échéancier; if each mutator stamped its own revision, two amendments would read
+    // « révision 4 » and the number on a patient's printout could never be matched against anything.
+    [Fact]
+    public void One_Amendment_Composed_Of_Several_Changes_Is_One_Revision()
+    {
+        var plan = AcceptedPlan();
+
+        plan.AddItems(new[] { ("Implant", 500m, (Guid?)null, (string?)null, (IReadOnlyList<int>)new[] { 21 }) });
+        plan.ReviseInstallments(new[] { ((Guid?)null, DoneOn, 1000m) });
+        plan.RecordAmendment();
+
+        Assert.Equal(1, plan.RevisionNumber);
+    }
+
+    // [AC-22c] A closed plan cannot be stamped either — the guard is on the amendment, not just its parts.
+    [Fact]
+    public void RecordAmendment_Is_Rejected_On_A_Closed_Plan()
+    {
+        var plan = CompletedPlan();
+
+        Assert.Throws<InvalidOperationException>(() => plan.RecordAmendment());
+    }
+
+    // [AC-21] The domain half of the removal guards: a Done act is refused outright, and a booked one is
+    // refused when the caller supplies the booking (the aggregate cannot query appointments itself).
+    [Fact]
+    public void RemoveItem_Refuses_A_Done_Act()
+    {
+        var plan = AcceptedPlan(actCount: 2);
+        var itemId = plan.Items.First().Id;
+        plan.MarkItemDone(itemId, DoneOn, RecordId);
+
+        Assert.Throws<InvalidOperationException>(() => plan.RemoveItem(itemId));
+    }
+
+    [Fact]
+    public void RemoveItem_Refuses_An_Act_With_A_Live_Appointment()
+    {
+        var plan = AcceptedPlan(actCount: 2);
+        var itemId = plan.Items.First().Id;
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => plan.RemoveItem(itemId, new DateTime(2026, 8, 12, 9, 0, 0, DateTimeKind.Utc)));
+
+        Assert.Contains("12/08", ex.Message);
+    }
+
+    // [AC-22c] A cosmetic reorder is not an amendment — it must not bump the revision.
+    [Fact]
+    public void Reordering_Does_Not_Bump_The_Revision()
+    {
+        var plan = AcceptedPlan(actCount: 2);
+
+        plan.SetItemOrder(plan.Items.Select(i => i.Id).Reverse().ToList());
+
+        Assert.Equal(0, plan.RevisionNumber);
+    }
+
+    // [AC-22] ReviseInstallments enforces the sum invariant…
+    [Fact]
+    public void ReviseInstallments_Rejects_A_Schedule_That_Does_Not_Match_The_Total()
+    {
+        var plan = AcceptedPlan();
+
+        Assert.Throws<InvalidOperationException>(() => plan.ReviseInstallments(new[]
+        {
+            ((Guid?)null, DoneOn, 100m),
+        }));
+    }
+
+    // [AC-22b] …and a valid revision keeps it, including when a paid row is carried over by id.
+    [Fact]
+    public void ReviseInstallments_Keeps_A_Paid_Row_And_The_Sum_Invariant()
+    {
+        var plan = AcceptedPlan();
+        var paidId = plan.Installments.First().Id;
+        plan.RecordInstallmentPayment(paidId, 200m, PaymentMethod.Cash, DoneOn);
+
+        plan.ReviseInstallments(new[]
+        {
+            ((Guid?)paidId, DoneOn, 200m),
+            ((Guid?)null, DoneOn.AddMonths(1), 300m),
+        });
+
+        Assert.Equal(plan.TotalPlanned, plan.Installments.Sum(i => i.Amount));
+        Assert.Equal(200m, plan.AmountPaid);
+        Assert.Equal(2, plan.Installments.Count);
+    }
+
+    // [AC-22] An installment can never be pushed below what it has already collected.
+    [Fact]
+    public void ReviseInstallments_Rejects_A_Row_Below_Its_Collected_Amount()
+    {
+        var plan = AcceptedPlan();
+        var paidId = plan.Installments.First().Id;
+        plan.RecordInstallmentPayment(paidId, 400m, PaymentMethod.Cash, DoneOn);
+
+        Assert.Throws<InvalidOperationException>(() => plan.ReviseInstallments(new[]
+        {
+            ((Guid?)paidId, DoneOn, 300m),
+            ((Guid?)null, DoneOn.AddMonths(1), 200m),
+        }));
+    }
+
+    // A Completed or Cancelled plan has no remaining treatment to amend.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Amending_A_Closed_Plan_Is_Rejected(bool completed)
+    {
+        var plan = completed ? CompletedPlan() : AcceptedPlan();
+        if (!completed) plan.Cancel("Patient parti");
+
+        Assert.Throws<InvalidOperationException>(() =>
+            plan.AddItems(new[] { ("Implant", 800m, (Guid?)null, (string?)null, (IReadOnlyList<int>)new[] { 21 }) }));
     }
 }

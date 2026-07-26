@@ -4,17 +4,27 @@ import { useRouter } from "next/navigation"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { TableCell, TableRow } from "@/components/ui/table"
-import { CalendarPlus, CalendarCheck, FilePlus2, FileText } from "lucide-react"
+import { CalendarPlus, CalendarCheck, FilePlus2, FileText, ChevronUp, ChevronDown } from "lucide-react"
 import type { TreatmentPlanDto, TreatmentPlanItemDto } from "@/lib/api/types"
 import { formatDT, formatDateFr } from "@/lib/format"
 import { itemWorkflowLabel, itemWorkflowBadgeClass } from "./treatment-plan-labels"
 import { planItemState } from "./plan-next-action"
+
+/** Up/down controls for the act's clinical position; omitted when the plan can't be reordered. */
+interface PlanActReorder {
+  disabled: boolean
+  canMoveUp: boolean
+  canMoveDown: boolean
+  onMoveUp: () => void
+  onMoveDown: () => void
+}
 
 interface PlanActRowProps {
   plan: TreatmentPlanDto
   item: TreatmentPlanItemDto
   /** Opens the "Planifier" dialog for this act (only reachable in the `to-schedule` état). */
   onSchedule: (item: TreatmentPlanItemDto) => void
+  reorder?: PlanActReorder
 }
 
 /**
@@ -22,13 +32,39 @@ interface PlanActRowProps {
  * dialog offered every action on every row (eight unlabelled ghost icons), which is how the same act could be
  * booked twice.
  */
-export function PlanActRow({ plan, item, onSchedule }: PlanActRowProps) {
+export function PlanActRow({ plan, item, onSchedule, reorder }: PlanActRowProps) {
   const router = useRouter()
   const state = planItemState(item)
   const planIsActive = plan.status === "Accepted" || plan.status === "InProgress"
 
   return (
     <TableRow>
+      {reorder && (
+        <TableCell>
+          <div className="flex flex-col">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
+              aria-label={`Monter « ${item.designationFr} »`}
+              disabled={reorder.disabled || !reorder.canMoveUp}
+              onClick={reorder.onMoveUp}
+            >
+              <ChevronUp className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
+              aria-label={`Descendre « ${item.designationFr} »`}
+              disabled={reorder.disabled || !reorder.canMoveDown}
+              onClick={reorder.onMoveDown}
+            >
+              <ChevronDown className="h-4 w-4" />
+            </Button>
+          </div>
+        </TableCell>
+      )}
       <TableCell>
         <span className="font-medium">{item.designationFr}</span>
         {item.codeActe && (

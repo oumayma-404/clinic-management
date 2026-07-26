@@ -426,6 +426,8 @@ export interface TreatmentPlanItemDto {
   status: string;
   doneDate: string | null;
   linkedDentalRecordId: string | null;
+  /** Clinical order within the plan (0-based). The API returns acts already sorted by it. */
+  sequenceNumber: number;
   /**
    * Derived read-back (query paths only): the appointment that currently speaks for this act — the earliest
    * upcoming live one, else the most recent past live one. Null when nothing is booked, *including* when the
@@ -571,6 +573,11 @@ export interface TreatmentPlanDto {
   createdAt: string;
   /** Backend sends a nullable DateTime? — null for a plan never touched since creation. */
   updatedAt?: string | null;
+  /**
+   * Post-acceptance amendments so far (0 = never amended). Shown as « · révision N » only when > 0, so a
+   * patient holding an earlier printout can tell which version they signed.
+   */
+  revisionNumber: number;
   /** Derived clinical progress — always populated. */
   itemsDone: number;
   itemsTotal: number;

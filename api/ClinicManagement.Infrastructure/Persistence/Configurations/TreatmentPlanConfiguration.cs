@@ -54,6 +54,12 @@ public class TreatmentPlanConfiguration : IEntityTypeConfiguration<TreatmentPlan
 
         builder.Property(p => p.UpdatedAt);
 
+        // Post-acceptance amendment counter. Existing plans read 0 (never amended) and the devis prints no
+        // revision mention at 0, so nothing already in the wild changes appearance.
+        builder.Property(p => p.RevisionNumber)
+            .IsRequired()
+            .HasDefaultValue(0);
+
         // Aggregate children: cascade-deleted with the plan (a draft delete removes its items/installments).
         builder.HasMany(p => p.Items)
             .WithOne()

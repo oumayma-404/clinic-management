@@ -43,6 +43,7 @@ public static class TreatmentPlanMappingExtensions
             Outstanding = plan.Outstanding,
             CreatedAt = plan.CreatedAt,
             UpdatedAt = plan.UpdatedAt,
+            RevisionNumber = plan.RevisionNumber,
             ItemsDone = plan.Items.Count(i => i.Status == TreatmentPlanItemStatus.Done),
             ItemsTotal = plan.Items.Count,
             NextAppointmentAt = nextAppointmentAt,
@@ -84,6 +85,7 @@ public static class TreatmentPlanMappingExtensions
             Status = item.Status.ToString(),
             DoneDate = item.DoneDate,
             LinkedDentalRecordId = item.LinkedDentalRecordId,
+            SequenceNumber = item.SequenceNumber,
             ScheduledAppointmentId = hasAppointment ? appointment!.Id : null,
             ScheduledAt = hasAppointment ? appointment!.AppointmentDateTime : null,
             ScheduledAppointmentStatus = hasAppointment ? appointment!.Status.ToString() : null

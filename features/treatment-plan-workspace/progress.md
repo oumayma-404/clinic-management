@@ -12,12 +12,13 @@
 - [x] AC-9a — the patient page watches TreatmentPlans + Invoices too (session 2)
 - [x] Slice A2 — make the four money reads agree (session 2)
 - [x] Slice C — the workspace route (session 4)
-- [ ] Slice B — sequencing, amendment, migration
-- [~] Tests (see DEV-2) — **6 of the 8 named classes written** in session 3, plus `PlanBillingRulesTests` and
-      the `RealtimeResourceResolver` keys. The remaining 2 are **blocked on code that doesn't exist yet**
-      (slices B and C), not deferred — see "Session 3" below.
+- [x] Slice B — sequencing, amendment, migration (session 5)
+- [x] Tests (see DEV-2) — **all 8 named classes written**, plus `PlanBillingRulesTests`, the
+      `RealtimeResourceResolver` keys and the slice-B extensions.
 - [x] Quality checks — `dotnet build` 0 errors / 0 warnings in changed files; full unit suite
-      **668 passed / 8 failed, all 8 verified pre-existing**; `tsc --noEmit` clean for every file touched
+      **720 passed / 8 failed, all 8 verified pre-existing**; `tsc --noEmit` clean for every file touched
+- [x] Docs pass — all 7 `CLAUDE.md` files in the spec's list, plus `UnitTests/CLAUDE.md`
+- [ ] **Manual click-through** of the workspace (AC-13 – AC-16, AC-18) — the only unverified part
 
 ## Slice A backend — done (9 files, verified 0 errors / 0 new warnings)
 
@@ -295,6 +296,76 @@ instance (`command.Id = id`) rather than rebuilding it, so the flag survives bin
 by the backend change above. Move, clear, cross-clinic rejection, **cross-patient** rejection, unknown act,
 act-without-plan, patient-less slot, same-act no-op, and the regression guard that an unrelated edit leaves
 the link untouched. Every rejection asserts `Times.Never` on `SaveChangesAsync`.
+
+## Session 5 — slice B, sequencing and an amendable devis (19 files)
+
+A plan used to freeze the instant it was accepted (`SetItems`/`SetInstallments` are `EnsureDraft()`-only), so
+the first time treatment changed the only escape was Cancel + retype — losing the devis number, the
+échéancier and every réalisé act.
+
+### Schema (1 migration, scaffolded by `dotnet ef`)
+
+`20260726214818_AddTreatmentPlanRevisionAndItemSequence` — two additive `int NOT NULL DEFAULT 0` columns
+(`TreatmentPlans.RevisionNumber`, `TreatmentPlanItems.SequenceNumber`). Snapshot diff is exactly +10 lines.
+
+> ⚠️ **`dotnet ef` worked this time, but `--no-build` bit hard.** The first `migrations add --no-build` used a
+> stale API assembly and produced an **empty** migration; the follow-up `migrations remove --no-build` then
+> deleted the wrong one — the user's `20260726200110_ToothFirstRecordPricing` — because the stale assembly's
+> migration list ended there. Recovered with `git checkout -- Migrations/` (it was committed in `f510f93`),
+> then re-scaffolded **without** `--no-build`. **Never pass `--no-build` to `dotnet ef` here.**
+
+### Domain
+
+| Member | |
+|---|---|
+| `TreatmentPlanItem.SequenceNumber` + `SetSequenceNumber` | clinical order; a plain ordering field, not a séance id, so séances stay an additive change later |
+| guarded `TreatmentPlanItem.MarkDone` (AC-23) | re-linking the **same** record is a no-op (a fiche can be re-saved); a **different** record is refused rather than silently rewriting when the act happened |
+| `Installment.Revise` | never below `AmountPaid` — collected cash cannot be un-received, and a negative row would flow into « Créances » |
+| id-preserving `SetItems` (AC-19) | an echoed-back id keeps its act, so appointment/record links survive a draft edit; an unknown id is a new line, never an error. Also refuses to **silently** wipe an existing échéancier |
+| `TreatmentPlan.AddItems / RemoveItem / ReviseInstallments / SetItemOrder` | the amendment surface; `RemoveItem` refuses a Done act and a **booked** one (the caller supplies the booking — the aggregate cannot query appointments) |
+| **`TreatmentPlan.RecordAmendment()`** | stamps `RevisionNumber` **once per amendment** — see the design bug below |
+| `Items` ordering | `OrderBy(SequenceNumber)` is a *stable* sort, so pre-migration acts (all at 0) keep insertion order and don't reshuffle before the first reorder (AC-18) |
+
+**A real design bug the tests caught.** Every mutator initially bumped `RevisionNumber` itself, so one
+amendment that added an act *and* re-spread the échéancier counted as **two** — two amendments read as
+« révision 4 ». Since the whole point of the counter is that a patient's printout can be matched against it,
+that made it useless. The bump moved out of the mutators into a single `RecordAmendment()` the handlers call
+once. Pinned by `One_Amendment_Composed_Of_Several_Changes_Is_One_Revision`.
+
+### Application + API
+
+`AmendTreatmentPlanCommand` (add/remove/re-spread in one call), `ReviseTreatmentPlanInstallmentsCommand`,
+`SetTreatmentPlanItemOrderCommand`; `TreatmentPlanItemRequest`/`InstallmentRequest` gain `Id`;
+`TreatmentPlanDto.RevisionNumber` + `TreatmentPlanItemDto.SequenceNumber`. Endpoints: `POST {id}/amend` and
+`PUT {id}/installments` (**`AdminOrDoctor`**), `PUT {id}/items/order` (no policy — cosmetic).
+
+**The billed-plan block lives in the handlers, not the aggregate**, because `TreatmentPlan` holds no invoice
+reference. It reuses `PlanBillingRules.BilledPlanIds`, so "which invoice represents a plan" still has exactly
+one definition across the money reads and the amendment guard.
+
+**A changed total must arrive with a schedule.** The handler rejects an amendment that moves `TotalPlanned`
+without `installments` rather than leaving the old échéancier — otherwise `Σ installment.Amount ==
+TotalPlanned` breaks and « Solde patient » permanently disagrees with « Créances » for that patient.
+
+**Only a *future* booking blocks removal.** The spec's message says « rendez-vous prévu le JJ/MM » and its
+rationale is a patient still expected with reminders already sent — so a past appointment does not block. Its
+plan link simply stops resolving, which is harmless: the derivation runs act → appointment, never the reverse.
+
+### Frontend
+
+`types.ts` + `treatmentPlansApi` (`amend`, `reviseInstallments`, `reorderItems`); the workspace prints
+« · révision N » only when > 0 and gains per-act up/down controls (which send the **whole** order, since a
+partial list would interleave the untouched acts); the plan form echoes act ids back so AC-19 is actually
+reachable from the UI.
+
+### Tests (+43, all green)
+
+`AmendTreatmentPlanCommandHandlerTests` — **the last of the spec's 8 classes** (16 tests: happy path, append
+position, both removal guards, the cancelled-RDV release, all four money rejections, the billed block and its
+release, the sum invariant, revision counting, Draft and empty rejections). Plus AC-18–AC-23 in
+`Domain/TreatmentPlanTests`, the three new verbs in `TreatmentPlanTenantIsolationTests`, and the three new
+actions classified in `TreatmentPlansControllerAuthorizationTests` (whose drift guard would otherwise have
+failed the build — it did its job).
 
 ## AC status for slice A (what a reviewer can verify)
 

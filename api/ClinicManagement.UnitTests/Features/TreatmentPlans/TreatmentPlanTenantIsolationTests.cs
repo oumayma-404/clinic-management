@@ -1,5 +1,6 @@
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.TreatmentPlans.Commands;
 using ClinicManagement.Application.Features.TreatmentPlans.Queries;
 using ClinicManagement.Domain.Entities;
@@ -16,9 +17,8 @@ namespace ClinicManagement.UnitTests.Features.TreatmentPlans;
 /// verb, and no write is staged or committed. The plan area — a numbered financial document — had **no**
 /// tenant-isolation guard at all, unlike every other money aggregate; this is it.
 /// <para>
-/// Covers the verbs that exist today: get / update / accept / complete / cancel / delete / mark-done /
-/// record-payment, plus list scoping. <c>amend</c> / <c>revise-installments</c> / <c>items/order</c> arrive
-/// with slice B and must be added here in the same pass that adds them.
+/// Covers every verb: get / update / accept / complete / cancel / delete / mark-done / record-payment /
+/// amend / revise-installments / reorder, plus list scoping.
 /// </para>
 /// </summary>
 public class TreatmentPlanTenantIsolationTests
@@ -222,6 +222,78 @@ public class TreatmentPlanTenantIsolationTests
 
         Assert.True(result.IsFailure);
         Assert.Equal(0m, foreign.AmountPaid);
+        NothingWasWritten();
+    }
+
+    // [AC-24] Amending another clinic's devis reads as introuvable — and, critically, the billed-plan and
+    // live-appointment lookups must not even run for a foreign plan.
+    [Fact]
+    public async Task Amend_A_Foreign_Plan_Is_NotFound()
+    {
+        Authenticated();
+        var foreign = ForeignAcceptedPlan();
+        PlanIsLoadable(foreign);
+
+        var handler = new AmendTreatmentPlanCommandHandler(
+            _plans.Object, _patients.Object, _invoices.Object, _appointments.Object, _dentalActs.Object,
+            _clinicResolver.Object, _uow.Object, NullLogger<AmendTreatmentPlanCommandHandler>.Instance);
+
+        var result = await handler.Handle(new AmendTreatmentPlanCommand
+        {
+            Id = foreign.Id,
+            AddItems = new List<TreatmentPlanItemRequest> { new() { DesignationFr = "Implant", PlannedCost = 500m } },
+        }, CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(500m, foreign.TotalPlanned);
+        Assert.Equal(0, foreign.RevisionNumber);
+        _invoices.Verify(r => r.GetTreatmentPlanLinksAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+        NothingWasWritten();
+    }
+
+    [Fact]
+    public async Task ReviseInstallments_On_A_Foreign_Plan_Is_NotFound()
+    {
+        Authenticated();
+        var foreign = ForeignAcceptedPlan();
+        PlanIsLoadable(foreign);
+
+        var handler = new ReviseTreatmentPlanInstallmentsCommandHandler(
+            _plans.Object, _patients.Object, _invoices.Object, _clinicResolver.Object, _uow.Object,
+            NullLogger<ReviseTreatmentPlanInstallmentsCommandHandler>.Instance);
+
+        var result = await handler.Handle(new ReviseTreatmentPlanInstallmentsCommand
+        {
+            Id = foreign.Id,
+            Installments = new List<InstallmentRequest>
+            {
+                new() { DueDate = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc), Amount = 500m },
+            },
+        }, CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Single(foreign.Installments);
+        NothingWasWritten();
+    }
+
+    [Fact]
+    public async Task Reorder_A_Foreign_Plans_Acts_Is_NotFound()
+    {
+        Authenticated();
+        var foreign = ForeignAcceptedPlan();
+        PlanIsLoadable(foreign);
+
+        var handler = new SetTreatmentPlanItemOrderCommandHandler(
+            _plans.Object, _patients.Object, _clinicResolver.Object, _uow.Object,
+            NullLogger<SetTreatmentPlanItemOrderCommandHandler>.Instance);
+
+        var result = await handler.Handle(new SetTreatmentPlanItemOrderCommand
+        {
+            Id = foreign.Id,
+            ItemIds = foreign.Items.Select(i => i.Id).ToList(),
+        }, CancellationToken.None);
+
+        Assert.True(result.IsFailure);
         NothingWasWritten();
     }
 

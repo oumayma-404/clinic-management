@@ -49,6 +49,9 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
   const isDraft = plan.status === "Draft"
   const isActive = plan.status === "Accepted" || plan.status === "InProgress"
   const billed = isPlanBilled(plan)
+  // Reordering is cosmetic, so it stays available on a Completed plan too — only a cancelled devis (and a
+  // one-act plan, where there is nothing to move) hides the controls.
+  const canReorder = plan.status !== "Cancelled" && plan.items.length > 1
 
   const run = async (action: () => Promise<unknown>, success: string, failure: string) => {
     setBusy(true)
@@ -73,6 +76,25 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
     } finally {
       setBusy(false)
     }
+  }
+
+  /**
+   * Move an act one position up or down. The endpoint takes the **whole** order, not a delta — a partial
+   * list would leave the untouched acts at stale positions and silently interleave them — so this rebuilds
+   * the full id list and sends it.
+   */
+  const handleMove = async (index: number, direction: -1 | 1) => {
+    const target = index + direction
+    if (target < 0 || target >= plan.items.length) return
+
+    const ids = plan.items.map((i) => i.id)
+    ;[ids[index], ids[target]] = [ids[target], ids[index]]
+
+    await run(
+      () => treatmentPlansApi.reorderItems(plan.id, ids),
+      "Ordre des actes mis à jour",
+      "Échec du réordonnancement.",
+    )
   }
 
   const handleDownloadReceipt = async (installmentId: string) => {
@@ -103,6 +125,14 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <CardTitle className="flex flex-wrap items-center gap-2 text-xl">
               {plan.number ?? plan.title}
+              {/* The devis PDF re-renders live from current state under the same number and is archived
+                  nowhere, so this counter is the only way a patient's earlier printout can be identified.
+                  Hidden at 0 — a never-amended devis says nothing about revisions. */}
+              {plan.revisionNumber > 0 && (
+                <span className="text-base font-normal text-muted-foreground">
+                  · révision {plan.revisionNumber}
+                </span>
+              )}
               <Badge variant="secondary" className={planStatusBadgeClass(plan.status)}>
                 {planStatusLabel(plan.status)}
               </Badge>
@@ -241,6 +271,7 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    {canReorder && <TableHead className="w-16">Ordre</TableHead>}
                     <TableHead>Désignation</TableHead>
                     <TableHead>Dents</TableHead>
                     <TableHead className="text-right">Coût</TableHead>
@@ -249,8 +280,24 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {plan.items.map((item) => (
-                    <PlanActRow key={item.id} plan={plan} item={item} onSchedule={setScheduleTarget} />
+                  {plan.items.map((item, index) => (
+                    <PlanActRow
+                      key={item.id}
+                      plan={plan}
+                      item={item}
+                      onSchedule={setScheduleTarget}
+                      reorder={
+                        canReorder
+                          ? {
+                              disabled: busy,
+                              canMoveUp: index > 0,
+                              canMoveDown: index < plan.items.length - 1,
+                              onMoveUp: () => handleMove(index, -1),
+                              onMoveDown: () => handleMove(index, 1),
+                            }
+                          : undefined
+                      }
+                    />
                   ))}
                 </TableBody>
               </Table>

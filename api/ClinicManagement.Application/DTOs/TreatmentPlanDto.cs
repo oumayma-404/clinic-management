@@ -17,6 +17,13 @@ public class TreatmentPlanDto
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
 
+    /// <summary>
+    /// Post-acceptance amendments so far (0 = never amended). Printed as « · révision N » on the devis and
+    /// the workspace header only when &gt; 0, so a patient holding an earlier printout can tell which version
+    /// they signed. Persisted.
+    /// </summary>
+    public int RevisionNumber { get; set; }
+
     // ---- Derived (never persisted) -------------------------------------------------------------------
     // Clinical progress, always populated.
     public int ItemsDone { get; set; }
@@ -52,6 +59,9 @@ public class TreatmentPlanItemDto
     public DateTime? DoneDate { get; set; }
     public Guid? LinkedDentalRecordId { get; set; }
 
+    /// <summary>Clinical order within the plan (0-based). Persisted; acts are returned already sorted.</summary>
+    public int SequenceNumber { get; set; }
+
     // ---- Derived (never persisted) -------------------------------------------------------------------
     /// <summary>
     /// The appointment that currently speaks for this act — the earliest upcoming live one, else the most
@@ -79,6 +89,13 @@ public class InstallmentDto
 /// <summary>One requested act line when creating/updating a treatment plan (catalog act or free-text).</summary>
 public class TreatmentPlanItemRequest
 {
+    /// <summary>
+    /// The existing act this line stands for, echoed back by the client. When it matches a line already on
+    /// the plan, that line keeps its id — so an appointment or dental-record link to the act survives the
+    /// edit. Unknown ids are treated as a new line, never an error (a stale client must not fail the save).
+    /// </summary>
+    public Guid? Id { get; set; }
+
     public Guid? DentalActCodeId { get; set; }
     public string? CodeActe { get; set; }
     public string DesignationFr { get; set; } = string.Empty;
@@ -89,6 +106,13 @@ public class TreatmentPlanItemRequest
 /// <summary>One requested installment (échéance) when setting a plan's payment schedule.</summary>
 public class InstallmentRequest
 {
+    /// <summary>
+    /// The existing échéance this line revises, echoed back by the client. A row carrying collected money
+    /// MUST be echoed back — dropping it would erase that cash from the plan's balance, and the domain
+    /// refuses it.
+    /// </summary>
+    public Guid? Id { get; set; }
+
     public DateTime DueDate { get; set; }
     public decimal Amount { get; set; }
 }

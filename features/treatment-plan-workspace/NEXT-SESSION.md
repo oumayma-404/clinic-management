@@ -15,11 +15,11 @@ whoever is reading.
 | | |
 |---|---|
 | **Worktree** | `.claude/worktrees/treatment-plan-workspace` |
-| **Branch** | `feature/treatment-plan-workspace` (local only — never pushed) |
+| **Branch** | `feature/treatment-plan-workspace` — pushed, tracking `origin/` |
 | **Branched from** | `f510f93` — a baseline commit of the user's then-uncommitted in-flight work |
-| **Committed in the worktree** | **Nothing.** The user commits manually. |
+| **Committed** | `3952017` slice A + A2 · `a64b84a` tests · `a7852d6` slice C · slice B (this session). |
 | **Backend build** | ✅ 0 errors, 0 warnings in changed files |
-| **Backend unit suite** | ✅ 677 passed / 8 failed — all 8 verified pre-existing on the baseline (see §4) |
+| **Backend unit suite** | ✅ 720 passed / 8 failed — all 8 verified pre-existing on the baseline (see §4) |
 | **Frontend typecheck** | ✅ for every file this feature touched (6 unrelated pre-existing errors remain — see §4) |
 
 **Slice A is done** (backend + frontend, 19 files): the derived read-back, the four états, `PatientPlanCard`
@@ -72,38 +72,31 @@ Read these two first, they are the source of truth:
   features/treatment-plan-workspace/spec.md       (APPROVED, Challenged, Type: Full)
   features/treatment-plan-workspace/progress.md   (what's done, per-AC table, DEV-1/2/3)
 
-Slices A, A2 and C, plus the test suite, are all done and green. Slice B is
-what's left — sequencing + an amendable plan + one migration (~17 files + 3
-migration files). It is the highest-risk chunk: it changes domain invariants on
-a numbered financial document. The rules it could regress are now pinned, so it
-is safe to start.
+All four slices (A, A2, B, C) and all 8 test classes are DONE and green.
+720 passed / 8 failed (the 8 are pre-existing — see §4).
 
-  - TreatmentPlanItem.SequenceNumber (int, default 0) + TreatmentPlan
-    .RevisionNumber (int, default 0), both in ONE additive migration
-    (AddTreatmentPlanRevisionAndItemSequence), styled on
-    20260724125528_AddInvoiceTreatmentPlanLink.cs.
-  - Id-preserving SetItems (AC-19), AddItems / RemoveItem / ReviseInstallments
-    on an accepted plan, SetItemOrder, Installment.SetAmount, a guarded
-    TreatmentPlanItem.MarkDone (AC-23).
-  - RemoveItem refuses a Done act AND an act with a live appointment; an
-    already-billed plan refuses every amendment (AC-22a) — that one is a
-    CORRECTNESS requirement, not convenience: the money reads treat a linked
-    invoice as representing the plan, so amending a billed plan would silently
-    undercount. Read the spec's slice-B section before writing any of it.
-  - New endpoints: POST {id}/amend and PUT {id}/installments (both
-    AdminOrDoctor), PUT {id}/items/order (no method-level policy).
+What is left is small:
 
-Tests are NOT optional (DEV-2). Slice B must also:
-  - Write Features/TreatmentPlans/AmendTreatmentPlanCommandHandlerTests — the
-    LAST unwritten class of the spec's 8, blocked only on the command existing.
-  - Extend Domain/TreatmentPlanTests with AC-18 – AC-23 (the class's doc comment
-    lists exactly which).
-  - Add amend / revise-installments / reorder to
-    TreatmentPlanTenantIsolationTests.
-  - Classify the three new actions in
-    Api/TreatmentPlansControllerAuthorizationTests — it has a drift guard that
-    FAILS the build on any unclassified action. That is deliberate; do not
-    weaken it.
+1. MANUAL CLICK-THROUGH of the workspace — the only unverified part of the
+   feature. web/ has no test runner, so AC-13 – AC-16 and AC-18 are
+   implementation + manual verification. Start the app (/start-clinic), then:
+     - open a plan from the /factures « Devis » badge, from the patient card,
+       and from a plans-table row;
+     - check each of the four états offers exactly one correct action;
+     - reorder two acts with the up/down arrows and reload;
+     - amend an accepted devis (add an act + re-spread the échéancier) and
+       confirm the header reads « · révision 1 »;
+     - hit /treatment-plans/<garbage-guid> for the « Plan introuvable » card.
+
+2. Anything the click-through turns up.
+
+Two things that are NOT this feature's to fix, but block signing off AC-26:
+  - 8 pre-existing unit-test failures (Doctors / Reminders / Documents) that
+    came in with the f510f93 baseline and are failing on
+    feature/windows-desktop-app too.
+  - npm run build cannot pass until the user's patient-record-modal.tsx
+    refactor lands (the same cause as the 6 tsc errors).
+Decide with the user whether AC-26 is waived for the PR or those are fixed first.
 
 Do NOT touch web/components/patient-record-modal.tsx — the user is mid-refactor
 on it (see DEV-3 in progress.md). AC-9 stays skipped.
@@ -131,8 +124,14 @@ Environment gotchas, all previously hit:
   - Deep links: use window.location.search in a mount effect, never
     useSearchParams — it forces the page out of static prerendering. Recorded at
     app/patients/page.tsx:27 and app/documents/page.tsx:60.
-  - dotnet ef has failed here before (WDAC + held DLLs); hand-author the
-    migration + Designer + snapshot if it does, and say so in progress.md.
+  - dotnet ef WORKS here (used in session 5), but NEVER pass --no-build: it
+    reads a stale assembly, which silently produced an EMPTY migration and then
+    made `migrations remove` delete the WRONG migration (the user's
+    ToothFirstRecordPricing). Recovered via git checkout -- Migrations/.
+    Always: dotnet ef migrations add <Name> --project ClinicManagement.Infrastructure
+            --startup-project ClinicManagement.API      (no --no-build)
+    then check the generated Up() is non-empty and the snapshot diff is only
+    your columns.
 
 Update progress.md as you go. Tests ARE in scope for this feature (DEV-2).
 ```

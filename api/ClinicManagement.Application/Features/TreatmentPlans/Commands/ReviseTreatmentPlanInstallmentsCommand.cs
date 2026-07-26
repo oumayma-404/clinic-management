@@ -4,45 +4,49 @@ using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Domain.Repositories;
+using ClinicManagement.Domain.Services;
 
 namespace ClinicManagement.Application.Features.TreatmentPlans.Commands;
 
-/// <summary>Update a draft treatment plan's details, act lines and installment schedule (draft only).</summary>
-public class UpdateTreatmentPlanCommand : IRequest<Result<TreatmentPlanDto>>
+/// <summary>
+/// Revise only the échéancier of an accepted devis — re-spreading what the patient owes without touching the
+/// acts. The schedule must still sum exactly to <c>TotalPlanned</c>, and a paid installment can neither be
+/// dropped nor reduced below what it has collected.
+/// </summary>
+public class ReviseTreatmentPlanInstallmentsCommand : IRequest<Result<TreatmentPlanDto>>
 {
     public Guid Id { get; set; }
-    public string Title { get; set; } = string.Empty;
-    public string? Notes { get; set; }
-    public List<TreatmentPlanItemRequest> Items { get; set; } = new();
     public List<InstallmentRequest> Installments { get; set; } = new();
 }
 
-public class UpdateTreatmentPlanCommandHandler : IRequestHandler<UpdateTreatmentPlanCommand, Result<TreatmentPlanDto>>
+public class ReviseTreatmentPlanInstallmentsCommandHandler
+    : IRequestHandler<ReviseTreatmentPlanInstallmentsCommand, Result<TreatmentPlanDto>>
 {
     private readonly ITreatmentPlanRepository _planRepository;
     private readonly IPatientRepository _patientRepository;
-    private readonly IDentalActCodeRepository _dentalActRepository;
+    private readonly IInvoiceRepository _invoiceRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
-    private readonly ILogger<UpdateTreatmentPlanCommandHandler> _logger;
+    private readonly ILogger<ReviseTreatmentPlanInstallmentsCommandHandler> _logger;
 
-    public UpdateTreatmentPlanCommandHandler(
+    public ReviseTreatmentPlanInstallmentsCommandHandler(
         ITreatmentPlanRepository planRepository,
         IPatientRepository patientRepository,
-        IDentalActCodeRepository dentalActRepository,
+        IInvoiceRepository invoiceRepository,
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
-        ILogger<UpdateTreatmentPlanCommandHandler> logger)
+        ILogger<ReviseTreatmentPlanInstallmentsCommandHandler> logger)
     {
         _planRepository = planRepository;
         _patientRepository = patientRepository;
-        _dentalActRepository = dentalActRepository;
+        _invoiceRepository = invoiceRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
         _logger = logger;
     }
 
-    public async Task<Result<TreatmentPlanDto>> Handle(UpdateTreatmentPlanCommand request, CancellationToken cancellationToken)
+    public async Task<Result<TreatmentPlanDto>> Handle(
+        ReviseTreatmentPlanInstallmentsCommand request, CancellationToken cancellationToken)
     {
         try
         {
@@ -59,14 +63,18 @@ public class UpdateTreatmentPlanCommandHandler : IRequestHandler<UpdateTreatment
                 return Result<TreatmentPlanDto>.Failure("Plan de traitement introuvable.");
             }
 
-            plan.UpdateDetails(request.Title, request.Notes);
+            // Same billed-plan block as an act amendment: once an invoice represents the plan, the money
+            // reads count that invoice, so re-spreading the plan's schedule would change a balance nothing
+            // reads any more — misleading at best.
+            var links = await _invoiceRepository.GetTreatmentPlanLinksAsync(clinicId, cancellationToken);
+            if (PlanBillingRules.BilledPlanIds(links).Contains(plan.Id))
+            {
+                return Result<TreatmentPlanDto>.Failure(
+                    "Ce devis est déjà facturé. Annulez la facture (ou émettez un avoir) avant de modifier l'échéancier.");
+            }
 
-            // Echo the ids through so an unchanged line keeps its identity (AC-19). Without this, editing a
-            // draft re-issued every act id and silently orphaned any appointment or dental-record link
-            // pointing at those acts — neither of which has an FK to catch it.
-            var items = await TreatmentPlanItemPricing.ResolveWithIdsAsync(request.Items, clinicId, _dentalActRepository, cancellationToken);
-            plan.SetItems(items, scheduleWillBeResent: true);
-            plan.SetInstallments(request.Installments.Select(i => (i.DueDate, i.Amount)));
+            plan.ReviseInstallments(request.Installments.Select(i => (i.Id, i.DueDate, i.Amount)));
+            plan.RecordAmendment();
 
             await _planRepository.UpdateAsync(plan, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -84,8 +92,8 @@ public class UpdateTreatmentPlanCommandHandler : IRequestHandler<UpdateTreatment
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error updating treatment plan {PlanId}", request.Id);
-            return Result<TreatmentPlanDto>.Failure("Erreur lors de la mise à jour du plan de traitement.");
+            _logger.LogError(ex, "Error revising the installment schedule of plan {PlanId}", request.Id);
+            return Result<TreatmentPlanDto>.Failure("Erreur lors de la modification de l'échéancier.");
         }
     }
 }
