@@ -41,13 +41,13 @@ public class GetNotificationsQueryHandler : IRequestHandler<GetNotificationsQuer
             var userId = _clinicContext.GetUserId();
             if (string.IsNullOrEmpty(userId))
             {
-                return Result<IEnumerable<NotificationDto>>.Failure("User ID not found in token");
+                return Result<IEnumerable<NotificationDto>>.Failure("Session invalide, veuillez vous reconnecter.");
             }
 
             var user = await _userRepository.GetByAuth0SubAsync(userId, cancellationToken);
             if (user == null)
             {
-                return Result<IEnumerable<NotificationDto>>.Failure("User not found");
+                return Result<IEnumerable<NotificationDto>>.Failure("Utilisateur introuvable.");
             }
 
             var now = DateTime.UtcNow;

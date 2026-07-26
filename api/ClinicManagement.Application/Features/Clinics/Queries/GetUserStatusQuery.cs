@@ -36,7 +36,7 @@ public class GetUserStatusQueryHandler : IRequestHandler<GetUserStatusQuery, Res
             var userId = _clinicContext.GetUserId();
             if (string.IsNullOrEmpty(userId))
             {
-                return Result<UserStatusDto>.Failure("User ID not found in token");
+                return Result<UserStatusDto>.Failure("Session invalide, veuillez vous reconnecter.");
             }
 
             var user = await _userRepository.GetByAuth0SubAsync(userId, cancellationToken);

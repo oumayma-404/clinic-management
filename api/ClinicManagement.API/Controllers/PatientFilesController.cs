@@ -112,7 +112,7 @@ public class PatientFilesController : ApiControllerBase
     {
         if (request.File == null || request.File.Length == 0)
         {
-            return BadRequest("File is required");
+            return Failure("Le fichier est requis.");
         }
 
         var uploadedBy = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub");

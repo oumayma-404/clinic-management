@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -8,30 +8,30 @@ import { Badge } from "@/components/ui/badge"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
-import { Trash2, Plus, Search, X, AlertTriangle } from "lucide-react"
-import { cn } from "@/lib/utils"
+import { Trash2, Plus, AlertTriangle, Stethoscope } from "lucide-react"
 import { dentalRecordsApi } from "@/lib/api/dental-records"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
-import { ApiError } from "@/lib/api/client"
+import { odontogramApi } from "@/lib/api/odontogram"
+import { showErrorToast } from "@/lib/errors"
 import { toast } from "sonner"
-import type { ProcedureTypeDto, DentalRecordDto, DentalActInput, PatientDto } from "@/lib/api/types"
-import { formatDT } from "@/lib/format"
-import {
-  CONDITION_ORDER,
-  conditionStyle,
-  SURFACE_ORDER,
-  SURFACE_LABELS,
-  parseSurfaces,
-  serializeSurfaces,
-} from "@/components/odontogram-conditions"
-import { ADULT_FDI, CHILD_FDI } from "@/components/tooth-multiselect"
+import type {
+  ProcedureTypeDto,
+  DentalRecordDto,
+  DentalActInput,
+  PatientDto,
+  ToothStateDto,
+  AppointmentDto,
+} from "@/lib/api/types"
+import { formatDT, roundMillimes } from "@/lib/format"
+import { CONDITION_ORDER, conditionStyle, serializeSurfaces } from "@/components/odontogram-conditions"
+import { ADULT_FDI, CHILD_FDI, isAdultTooth } from "@/components/tooth-multiselect"
 import { RecordToothChart, type ToothPaint } from "@/components/record-tooth-chart"
+import { ActSlot } from "@/components/record/act-slot"
+import { ActDetailFields } from "@/components/record/act-detail-fields"
+import { RecordSection } from "@/components/record/record-section"
+import { SessionActsList } from "@/components/record/session-acts-list"
+import { hasInvalidPrice, resolveActCost, useSessionActs, type SessionAct } from "@/components/record/use-session-acts"
 
-// Sentinel value for the "no resulting condition" option in the État résultant Select
-// (Radix Select forbids an empty-string item value).
-const NO_CONDITION = "__none__"
 // Sentinel for "not linked to a treatment-plan step".
 const NO_PLAN_ITEM = "__none__"
 
@@ -40,33 +40,13 @@ export interface PlanItemOption {
   itemId: string
   planId: string
   label: string
-  /** Plan-step designation — prefilled into the record act on link (P0-1, carry-forward). */
+  /** Plan-step designation — prefilled into the composer on link (P0-1, carry-forward). */
   designationFr?: string
-  /** Plan-step planned cost — prefilled into the record act on link. */
+  /** Plan-step planned cost — prefilled into the composer on link. */
   plannedCost?: number
-  /** Plan-step teeth — prefilled into the record act on link. */
+  /** Plan-step teeth — become the chart selection on link. */
   toothNumbers?: number[]
 }
-
-interface ActRow {
-  procedureTypeId: string | null
-  procedureName: string
-  cost: string
-  toothNumbers: number[]
-  resultingCondition: string | null
-  surfaces: Set<string>
-  note: string
-}
-
-const emptyAct = (): ActRow => ({
-  procedureTypeId: null,
-  procedureName: "",
-  cost: "",
-  toothNumbers: [],
-  resultingCondition: null,
-  surfaces: new Set<string>(),
-  note: "",
-})
 
 interface PatientRecordModalProps {
   open: boolean
@@ -74,7 +54,7 @@ interface PatientRecordModalProps {
   patientName?: string
   patientId?: string
   record?: DentalRecordDto | null // Record to edit, null for a new record
-  /** True when the record is already billed by a (non-cancelled) invoice — its payment is invoice-managed (AC-8). */
+  /** True when the record is already billed by a (non-cancelled) invoice — its payment is invoice-managed. */
   isInvoiced?: boolean
   /** Patient — used to surface allergy / flag / medical-history alerts at the point of care. */
   patient?: PatientDto | null
@@ -82,9 +62,21 @@ interface PatientRecordModalProps {
   planItems?: PlanItemOption[]
   /** Optional appointment this record documents — completing it + dismissing its post-visit prompt on save. */
   appointmentId?: string | null
+  /**
+   * The appointment being documented, when known. Its booked `procedureTypeId` PROPOSES the act, so the
+   * common visit is "tap the teeth, confirm". Nothing is committed from it — see `ActSlot`.
+   */
+  appointment?: AppointmentDto | null
   onSuccess?: () => void
 }
 
+/**
+ * Confirm-first dental-record entry. The act comes first — proposed from the appointment when there is one,
+ * otherwise picked from the catalogue — then the chart says which teeth, then « Confirmer » saves. Everything
+ * the two-pane form carried (tarif and per-tooth pricing, état résultant, faces, notes, montant payé, several
+ * acts per session, mixed dentition) is still here, folded into sections whose headers state their own
+ * contents so nothing is hidden by being collapsed.
+ */
 export function PatientRecordModal({
   open,
   onOpenChange,
@@ -95,27 +87,36 @@ export function PatientRecordModal({
   patient,
   planItems = [],
   appointmentId,
+  appointment,
   onSuccess,
 }: PatientRecordModalProps) {
   const [patientName, setPatientName] = useState(initialPatientName)
   const [interventionDate, setInterventionDate] = useState(new Date().toISOString().split("T")[0])
-  const [isAdultTeeth, setIsAdultTeeth] = useState(true)
+  // Which dentition the chart displays. Purely a view switch: acts already charted on the other dentition
+  // are kept and stay listed, so a mixed-dentition session is recordable.
+  const [isAdultView, setIsAdultView] = useState(true)
   const [amountPaid, setAmountPaid] = useState("")
+  const [paidDirty, setPaidDirty] = useState(false)
   const [notes, setNotes] = useState<string[]>([])
   const [importantNotes, setImportantNotes] = useState<string[]>([])
-  const [acts, setActs] = useState<ActRow[]>([emptyAct()])
-  const [focusedActIndex, setFocusedActIndex] = useState(0)
   const [procedureTypes, setProcedureTypes] = useState<ProcedureTypeDto[]>([])
-  const [pickerOpenIndex, setPickerOpenIndex] = useState<number | null>(null)
+  const [priorStates, setPriorStates] = useState<ToothStateDto[]>([])
   const [linkedPlanItemId, setLinkedPlanItemId] = useState<string>(NO_PLAN_ITEM)
+  const [openSections, setOpenSections] = useState({ details: false, acts: false, notes: false })
   const [loading, setLoading] = useState(false)
+
+  const { acts, selection, draft, hasDraft, draftTotal, grandTotal, editingAct, editingKey, dispatch } =
+    useSessionActs(record)
+
+  const toggleSection = (key: keyof typeof openSections) =>
+    setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }))
 
   // Active point-of-care alerts for this patient (allergies / flags / medical history).
   const activeFlags = (patient?.flags ?? []).filter((f) => f.isActive)
   const hasAlerts =
     Boolean(patient?.allergies?.trim()) || activeFlags.length > 0 || Boolean(patient?.medicalHistory?.trim())
 
-  // Load the active procedure catalog (the "Mes actes" picker source) when the modal opens.
+  // Load the active procedure catalog (the picker's source) when the modal opens.
   useEffect(() => {
     if (!open) return
     procedureTypesApi
@@ -124,159 +125,179 @@ export function PatientRecordModal({
       .catch(() => setProcedureTypes([]))
   }, [open])
 
-  // Reset (create) or prefill (edit) the form when the modal opens.
+  // Load the patient's odontogram so the chart shows what is already on record (incl. « à traiter »
+  // diagnoses) while the dentist charts today's work. Failure is silent — it is an overlay, not a gate.
+  useEffect(() => {
+    if (!open || !patientId) return
+    let cancelled = false
+    odontogramApi
+      .get(patientId)
+      .then((data) => {
+        if (!cancelled) setPriorStates(data || [])
+      })
+      .catch(() => {
+        if (!cancelled) setPriorStates([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [open, patientId])
+
+  // Reset (create) or prefill (edit) the form when the modal opens — one explicit dispatch, so no effect
+  // can later overwrite something the user typed.
   useEffect(() => {
     if (!open) return
     setPatientName(initialPatientName)
-    setFocusedActIndex(0)
     setLinkedPlanItemId(NO_PLAN_ITEM)
+    dispatch({ type: "reset", record })
 
     if (record) {
       setInterventionDate(new Date(record.interventionDate).toISOString().split("T")[0])
-      setIsAdultTeeth(record.isAdultTeeth)
+      setIsAdultView(record.isAdultTeeth)
       setAmountPaid(String(record.amountPaid))
+      setPaidDirty(true) // a saved amount is the user's, never re-mirrored from the total
       setNotes([...record.notes])
       setImportantNotes([...record.importantNotes])
-      setActs(
-        record.acts && record.acts.length > 0
-          ? record.acts.map((a) => ({
-              procedureTypeId: a.procedureTypeId ?? null,
-              procedureName: a.procedureName,
-              cost: String(a.cost),
-              toothNumbers: a.toothNumbers ?? [],
-              resultingCondition: a.resultingCondition ?? null,
-              surfaces: parseSurfaces(a.surfaces),
-              note: a.note ?? "",
-            }))
-          : [emptyAct()],
-      )
+      // A section holding a value opens itself, so editing can never look like it lost data.
+      setOpenSections({
+        details: false,
+        acts: record.acts.length > 0,
+        notes: record.notes.length > 0 || record.importantNotes.length > 0,
+      })
     } else {
       setInterventionDate(new Date().toISOString().split("T")[0])
-      setIsAdultTeeth(true)
+      setIsAdultView(true)
       setAmountPaid("")
+      setPaidDirty(false)
       setNotes([])
       setImportantNotes([])
-      setActs([emptyAct()])
+      setOpenSections({ details: false, acts: false, notes: false })
     }
-  }, [open, initialPatientName, record])
+  }, [open, initialPatientName, record, dispatch])
 
-  const updateAct = (index: number, patch: Partial<ActRow>) => {
-    setActs((prev) => prev.map((a, i) => (i === index ? { ...a, ...patch } : a)))
-  }
-  const addAct = () => {
-    setActs((prev) => [...prev, emptyAct()])
-    setFocusedActIndex(acts.length) // the appended act lands at the current length
-  }
-  const removeAct = (index: number) => {
-    setActs((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== index) : prev))
-    setFocusedActIndex((prev) => {
-      if (acts.length <= 1) return 0
-      if (index < prev) return prev - 1
-      if (index === prev) return Math.min(prev, acts.length - 2)
-      return prev
-    })
+  // Option C: propose the appointment's booked procedure. Runs after the reset above and is itself guarded —
+  // `applyAppointment` is a no-op unless the session is untouched, so it can never clobber a saved record or
+  // work in progress. A record being edited is never re-proposed.
+  useEffect(() => {
+    if (!open || record || !appointment?.procedureTypeId || procedureTypes.length === 0) return
+    const booked = procedureTypes.find((p) => p.id === appointment.procedureTypeId)
+    if (booked) dispatch({ type: "applyAppointment", procedure: booked })
+  }, [open, record, appointment, procedureTypes, dispatch])
+
+  // « Montant payé » mirrors the running total until the user takes the field over.
+  useEffect(() => {
+    if (paidDirty || isInvoiced) return
+    setAmountPaid(grandTotal > 0 ? String(grandTotal) : "")
+  }, [grandTotal, paidDirty, isInvoiced])
+
+  // Latest recorded state per tooth, EXCLUDING the record being edited — its own tooth states are this
+  // session's output, and painting them as "prior state" would double-count them on the chart.
+  const priorByTooth = useMemo(() => {
+    const map = new Map<number, ToothStateDto>()
+    for (const state of priorStates) {
+      if (record && state.dentalRecordId === record.id) continue
+      const current = map.get(state.toothNumber)
+      if (!current || new Date(state.treatmentDate).getTime() > new Date(current.treatmentDate).getTime()) {
+        map.set(state.toothNumber, state)
+      }
+    }
+    return map
+  }, [priorStates, record])
+
+  const openDiagnosisTeeth = useMemo(
+    () =>
+      Array.from(priorByTooth.entries())
+        .filter(([, s]) => s.source === "Diagnosis")
+        .map(([tooth]) => tooth),
+    [priorByTooth],
+  )
+
+  // Per-tooth paint: prior state as the outline, confirmed acts as the fill, the live selection on top.
+  const toothPaint = useMemo(() => {
+    const map = new Map<number, ToothPaint>()
+
+    for (const [tooth, state] of priorByTooth) {
+      map.set(tooth, {
+        selected: false,
+        color: null,
+        count: 0,
+        existingColor: conditionStyle(state.condition).color,
+        existingIsDiagnosis: state.source === "Diagnosis",
+      })
+    }
+
+    for (const act of acts) {
+      const color = act.resultingCondition ? conditionStyle(act.resultingCondition).color : null
+      for (const tooth of act.toothNumbers) {
+        const prev = map.get(tooth)
+        map.set(tooth, {
+          selected: prev?.selected ?? false,
+          color: color ?? prev?.color ?? null,
+          count: (prev?.count ?? 0) + 1,
+          existingColor: prev?.existingColor ?? null,
+          existingIsDiagnosis: prev?.existingIsDiagnosis,
+        })
+      }
+    }
+
+    for (const tooth of selection) {
+      const prev = map.get(tooth)
+      map.set(tooth, {
+        selected: true,
+        color: prev?.color ?? null,
+        count: prev?.count ?? 0,
+        existingColor: prev?.existingColor ?? null,
+        existingIsDiagnosis: prev?.existingIsDiagnosis,
+      })
+    }
+
+    return map
+  }, [priorByTooth, acts, selection])
+
+  // Acts charted on the dentition that is not currently displayed — surfaced so nothing hides behind the toggle.
+  const hiddenDentitionActs = useMemo(
+    () => acts.filter((a) => a.toothNumbers.some((t) => isAdultTooth(t) !== isAdultView)).length,
+    [acts, isAdultView],
+  )
+
+  const viewTeeth = isAdultView ? ADULT_FDI : CHILD_FDI
+  const upperQuadrants = isAdultView ? [1, 2] : [5, 6]
+  const lowerQuadrants = isAdultView ? [3, 4] : [7, 8]
+  const teethInQuadrants = (quadrants: number[]) => viewTeeth.filter((t) => quadrants.includes(Math.floor(t / 10)))
+
+  const switchDentition = (adult: boolean) => {
+    if (adult === isAdultView) return
+    setIsAdultView(adult)
+    // A selection on teeth that are no longer on screen would be a lie; the charted acts are untouched.
+    dispatch({ type: "clearSelection" })
   }
 
-  // Linking a plan step carries its designation / cost / teeth into the focused act row, so the dentist
-  // does not retype what the plan already knows (P0-1). Only an empty row is prefilled — a value the
-  // user already typed is never overwritten.
+  // Linking a plan step carries its designation / cost / teeth into the draft, so the dentist does not
+  // retype what the plan already knows. Only an untouched draft is prefilled.
   const handlePlanItemLink = (value: string) => {
     setLinkedPlanItemId(value)
     if (value === NO_PLAN_ITEM) return
     const item = planItems.find((p) => p.itemId === value)
     if (!item) return
-    setActs((prev) =>
-      prev.map((a, i) => {
-        if (i !== focusedActIndex) return a
-        const isEmpty = a.procedureName.trim() === "" && a.cost.trim() === "" && a.toothNumbers.length === 0
-        if (!isEmpty) return a
-        return {
-          ...a,
-          procedureName: item.designationFr ?? a.procedureName,
-          cost: item.plannedCost != null && item.plannedCost > 0 ? String(item.plannedCost) : a.cost,
-          toothNumbers: item.toothNumbers && item.toothNumbers.length > 0 ? [...item.toothNumbers] : a.toothNumbers,
-        }
-      }),
-    )
+    dispatch({
+      type: "applyPlanItem",
+      item: { designationFr: item.designationFr, plannedCost: item.plannedCost, toothNumbers: item.toothNumbers },
+    })
+    setOpenSections((prev) => ({ ...prev, details: true }))
   }
 
-  // Chart-driven tooth selection: toggle a tooth in the currently focused act.
-  const toggleTooth = (n: number) => {
-    setActs((prev) =>
-      prev.map((a, i) => {
-        if (i !== focusedActIndex) return a
-        const has = a.toothNumbers.includes(n)
-        return {
-          ...a,
-          toothNumbers: has ? a.toothNumbers.filter((t) => t !== n) : [...a.toothNumbers, n].sort((x, y) => x - y),
-        }
-      }),
-    )
-  }
-  const clearActTeeth = (index: number) => updateAct(index, { toothNumbers: [] })
+  const reste = Math.max(0, roundMillimes(grandTotal - (Number.parseFloat(amountPaid) || 0)))
 
-  const selectProcedureType = (index: number, pt: ProcedureTypeDto) => {
-    setActs((prev) =>
-      prev.map((a, i) =>
-        i === index
-          ? {
-              ...a,
-              procedureTypeId: pt.id,
-              procedureName: pt.name,
-              // Prefill the fee only when empty; prefill the resulting condition from the procedure.
-              cost: a.cost.trim() === "" && pt.defaultCost != null ? String(pt.defaultCost) : a.cost,
-              resultingCondition: pt.resultingCondition ?? a.resultingCondition,
-            }
-          : a,
-      ),
-    )
-    setPickerOpenIndex(null)
-  }
-
-  const detachProcedure = (index: number) => updateAct(index, { procedureTypeId: null })
-
-  const toggleActSurface = (index: number, s: string) => {
-    setActs((prev) =>
-      prev.map((a, i) => {
-        if (i !== index) return a
-        const next = new Set(a.surfaces)
-        if (next.has(s)) next.delete(s)
-        else next.add(s)
-        return { ...a, surfaces: next }
-      }),
-    )
-  }
-
-  const total = acts.reduce((sum, a) => {
-    const c = Number(a.cost)
-    return Number.isFinite(c) ? sum + c : sum
-  }, 0)
-
-  // Prefill amount paid to the full total only while it hasn't been set yet (never overwrites an entry).
-  useEffect(() => {
-    if (total > 0 && amountPaid.trim() === "") setAmountPaid(String(total))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [total])
-
-  const reste = Math.max(0, total - (Number.parseFloat(amountPaid) || 0))
-
-  // Per-tooth paint for the chart: focused act wins; otherwise the latest non-focused act's condition color.
-  const toothPaint = new Map<number, ToothPaint>()
-  acts.forEach((act, i) => {
-    const focused = i === focusedActIndex
-    const color = act.resultingCondition ? conditionStyle(act.resultingCondition).color : null
-    for (const n of act.toothNumbers) {
-      const prev = toothPaint.get(n)
-      const count = (prev?.count ?? 0) + 1
-      if (focused) {
-        toothPaint.set(n, { focused: true, color, count })
-      } else if (prev?.focused) {
-        toothPaint.set(n, { focused: true, color: prev.color, count })
-      } else {
-        toothPaint.set(n, { focused: false, color, count })
-      }
-    }
-  })
+  /**
+   * Everything that will be persisted: the confirmed acts, with the in-progress draft folded in. Pressing
+   * « Confirmer » on a proposed act must save it without a separate "add" step — that IS the confirm-first
+   * flow — so the draft is materialised here rather than requiring a commit dispatch first.
+   */
+  const actsToPersist = useMemo<SessionAct[]>(() => {
+    if (!hasDraft) return acts
+    const materialised: SessionAct = { ...draft, key: editingKey ?? "draft", toothNumbers: [...selection] }
+    return editingKey ? acts.map((a) => (a.key === editingKey ? materialised : a)) : [...acts, materialised]
+  }, [acts, draft, hasDraft, editingKey, selection])
 
   const handleSave = async () => {
     if (!patientId) {
@@ -284,33 +305,46 @@ export function PatientRecordModal({
       return
     }
 
-    const parsedActs: DentalActInput[] = acts
-      .map((a) => ({
-        procedureTypeId: a.procedureTypeId,
-        procedureName: a.procedureName.trim(),
-        cost: Number(a.cost) || 0,
-        toothNumbers: a.toothNumbers,
-        resultingCondition: a.resultingCondition, // null when "Aucun"
-        surfaces: serializeSurfaces(a.surfaces) || null,
-        note: a.note.trim() || null,
-      }))
-      .filter((a) => a.procedureName !== "")
+    if (actsToPersist.length === 0) {
+      toast.error("Ajoutez au moins un acte", { description: "Choisissez l'acte réalisé, puis les dents." })
+      return
+    }
+
+    const badPrice = actsToPersist.find((a) => hasInvalidPrice(a.unitCost))
+    if (badPrice) {
+      setOpenSections((prev) => ({ ...prev, details: true }))
+      toast.error("Montant invalide", {
+        description: `Vérifiez le tarif de l'acte « ${badPrice.procedureName} ».`,
+      })
+      return
+    }
+
+    const parsedActs: DentalActInput[] = actsToPersist
+      .filter((a) => a.procedureName.trim() !== "")
+      .map((a) => {
+        const unit = Number.parseFloat(a.unitCost)
+        return {
+          procedureTypeId: a.procedureTypeId,
+          procedureName: a.procedureName.trim(),
+          cost: resolveActCost(a.unitCost, a.perTooth, a.toothNumbers.length),
+          unitCost: Number.isFinite(unit) ? roundMillimes(unit) : null,
+          isPerTooth: a.perTooth && a.toothNumbers.length > 0,
+          toothNumbers: a.toothNumbers,
+          resultingCondition: a.resultingCondition, // null when "Aucun"
+          surfaces: serializeSurfaces(a.surfaces) || null,
+          note: a.note.trim() || null,
+        }
+      })
 
     if (parsedActs.length === 0) {
       toast.error("Ajoutez au moins un acte", { description: "Chaque acte nécessite une désignation." })
       return
     }
 
-    // Teeth must match the selected dentition (backend also enforces).
-    const allowed = new Set(isAdultTeeth ? ADULT_FDI : CHILD_FDI)
-    for (const a of parsedActs) {
-      if (a.toothNumbers.some((t) => !allowed.has(t))) {
-        toast.error("Dents incompatibles", {
-          description: `Les dents d'un acte ne correspondent pas à la dentition ${isAdultTeeth ? "adulte" : "enfant"}.`,
-        })
-        return
-      }
-    }
+    // The record's dentition flag is derived, not read from the toggle: a session may legitimately chart both
+    // dentitions, so it is only a display hint — "enfant" when every charted tooth is deciduous.
+    const chartedTeeth = parsedActs.flatMap((a) => a.toothNumbers)
+    const isAdultTeeth = chartedTeeth.length === 0 ? isAdultView : chartedTeeth.some(isAdultTooth)
 
     setLoading(true)
     try {
@@ -338,69 +372,149 @@ export function PatientRecordModal({
       onSuccess?.()
       onOpenChange(false)
     } catch (err) {
-      toast.error("Erreur lors de l'enregistrement", {
-        description: err instanceof ApiError ? err.message : "Une erreur s'est produite.",
-      })
+      showErrorToast(err, "Erreur lors de l'enregistrement de la fiche.")
     } finally {
       setLoading(false)
     }
   }
 
+  // ── collapsed-section summaries: the section's contents, so folding hides nothing ──
+  const detailsSummary = useMemo(() => {
+    if (!hasDraft) return "aucun acte en cours"
+    const faces = Array.from(draft.surfaces)
+    const bits = [
+      draft.resultingCondition ? conditionStyle(draft.resultingCondition).label : "aucun état",
+      `${formatDT(Number.parseFloat(draft.unitCost) || 0)}${draft.perTooth ? " / dent" : " forfait"}`,
+      faces.length > 0 ? `faces ${faces.join(", ")}` : "aucune face",
+    ]
+    if (draft.note.trim()) bits.push("note")
+    return bits.join(" · ")
+  }, [hasDraft, draft])
+
+  const actsSummary =
+    acts.length === 0
+      ? "aucun acte confirmé"
+      : `${acts.length} acte${acts.length > 1 ? "s" : ""} · ${formatDT(
+          roundMillimes(acts.reduce((s, a) => s + resolveActCost(a.unitCost, a.perTooth, a.toothNumbers.length), 0)),
+        )}`
+
+  const noteCount = notes.filter((n) => n.trim()).length
+  const importantCount = importantNotes.filter((n) => n.trim()).length
+  const notesSummary =
+    noteCount + importantCount === 0
+      ? "aucune note"
+      : [noteCount > 0 ? `${noteCount} note${noteCount > 1 ? "s" : ""}` : null,
+         importantCount > 0 ? `${importantCount} importante${importantCount > 1 ? "s" : ""}` : null]
+          .filter(Boolean)
+          .join(" · ")
+
+  const proposedFromAppointment =
+    !record && !editingAct && acts.length === 0 && draft.procedureTypeId != null &&
+    draft.procedureTypeId === appointment?.procedureTypeId
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+      {/* NOTE: the width override MUST be `sm:max-w-*`. DialogContent's base class ends with `sm:max-w-lg`,
+          and tailwind-merge treats an unprefixed `max-w-*` as a different group — so a plain `max-w-3xl`
+          silently loses to it at every viewport ≥640px and the dialog stays 512px wide. */}
+      <DialogContent className="max-h-[92vh] w-[min(96vw,780px)] gap-3 overflow-y-auto sm:max-w-[min(96vw,780px)]">
         <DialogHeader>
           <DialogTitle>{record ? "Modifier la fiche médicale" : "Ajouter une fiche médicale"}</DialogTitle>
           <DialogDescription>
-            Détaillez les actes réalisés. L'état résultant de chaque acte alimente l'odontogramme du patient.
+            {record
+              ? "Les sections qui portent une valeur sont déjà dépliées."
+              : appointment?.procedureTypeName
+                ? "Confirmez ce qui a été réalisé, puis les dents concernées."
+                : "Indiquez l'acte réalisé, puis les dents concernées."}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-5">
-          {/* Point-of-care medical alerts — surfaced before treatment (safety). */}
-          {hasAlerts && (
-            <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/40">
-              <p className="flex items-center gap-1.5 text-sm font-semibold text-amber-800 dark:text-amber-200">
-                <AlertTriangle className="h-4 w-4" /> Alertes médicales
-              </p>
-              <div className="mt-2 space-y-1.5 text-xs">
-                {patient?.allergies?.trim() && (
-                  <p className="text-red-700 dark:text-red-300">
-                    <span className="font-semibold">Allergies :</span> {patient.allergies}
-                  </p>
-                )}
-                {activeFlags.length > 0 && (
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    {activeFlags.map((f) => (
-                      <Badge key={f.id} variant="destructive" className="text-[10px]">
-                        {f.description || f.flagType}
-                      </Badge>
-                    ))}
-                  </div>
-                )}
-                {patient?.medicalHistory?.trim() && (
-                  <p className="text-amber-800 dark:text-amber-200">
-                    <span className="font-semibold">Antécédents :</span> {patient.medicalHistory}
-                  </p>
-                )}
-              </div>
+        {/* Point-of-care medical alerts — surfaced before treatment (safety). */}
+        {hasAlerts && (
+          <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/40">
+            <p className="flex items-center gap-1.5 text-sm font-semibold text-amber-800 dark:text-amber-200">
+              <AlertTriangle className="h-4 w-4" /> Alertes médicales
+            </p>
+            <div className="mt-2 space-y-1.5 text-xs">
+              {patient?.allergies?.trim() && (
+                <p className="text-red-700 dark:text-red-300">
+                  <span className="font-semibold">Allergies :</span> {patient.allergies}
+                </p>
+              )}
+              {activeFlags.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {activeFlags.map((f) => (
+                    <Badge key={f.id} variant="destructive" className="text-[10px]">
+                      {f.description || f.flagType}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+              {patient?.medicalHistory?.trim() && (
+                <p className="text-amber-800 dark:text-amber-200">
+                  <span className="font-semibold">Antécédents :</span> {patient.medicalHistory}
+                </p>
+              )}
             </div>
-          )}
+          </div>
+        )}
 
+        {/* Session header: patient, date, dentition view, optional plan-step link */}
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div className="space-y-1.5">
             <Label htmlFor="patient-name">Patient</Label>
-            <Input id="patient-name" value={patientName} readOnly className="font-medium" />
+            <Input id="patient-name" value={patientName} readOnly className="h-9 font-medium" />
           </div>
-
-          {/* Optional link to a scheduled treatment-plan step — marks it "réalisé" on save. */}
+          <div className="space-y-1.5">
+            <Label htmlFor="date">Date</Label>
+            <Input
+              id="date"
+              type="date"
+              className="h-9"
+              value={interventionDate}
+              onChange={(e) => setInterventionDate(e.target.value)}
+              disabled={loading}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Schéma affiché</Label>
+            <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
+              <Button
+                type="button"
+                variant={isAdultView ? "default" : "ghost"}
+                size="sm"
+                className="h-7 flex-1 px-3 text-xs"
+                onClick={() => switchDentition(true)}
+                disabled={loading}
+              >
+                Adulte
+              </Button>
+              <Button
+                type="button"
+                variant={!isAdultView ? "default" : "ghost"}
+                size="sm"
+                className="h-7 flex-1 px-3 text-xs"
+                onClick={() => switchDentition(false)}
+                disabled={loading}
+              >
+                Enfant
+              </Button>
+            </div>
+            {hiddenDentitionActs > 0 && (
+              <p className="text-[11px] text-amber-600 dark:text-amber-500">
+                {hiddenDentitionActs} acte{hiddenDentitionActs > 1 ? "s" : ""} sur l&apos;autre dentition
+                (conservé{hiddenDentitionActs > 1 ? "s" : ""})
+              </p>
+            )}
+          </div>
           {planItems.length > 0 && (
             <div className="space-y-1.5">
               <Label htmlFor="plan-item">
-                Acte du plan de traitement <span className="font-normal text-muted-foreground">(optionnel)</span>
+                Acte planifié <span className="font-normal text-muted-foreground">(optionnel)</span>
               </Label>
               <Select value={linkedPlanItemId} onValueChange={handlePlanItemLink} disabled={loading}>
-                <SelectTrigger id="plan-item">
-                  <SelectValue placeholder="Lier cette fiche à un acte planifié" />
+                <SelectTrigger id="plan-item" className="h-9">
+                  <SelectValue placeholder="Lier à un acte du plan" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value={NO_PLAN_ITEM}>Aucun</SelectItem>
@@ -411,327 +525,198 @@ export function PatientRecordModal({
                   ))}
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground">
-                L'acte planifié sera marqué « réalisé » et lié à cette fiche.
-              </p>
             </div>
           )}
+        </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="date">Date</Label>
-              <Input
-                id="date"
-                type="date"
-                value={interventionDate}
-                onChange={(e) => setInterventionDate(e.target.value)}
+        {/* THE ACT — proposed from the appointment, or picked from the catalogue. One slot, two states. */}
+        <ActSlot
+          draft={draft}
+          hasDraft={hasDraft}
+          draftTotal={draftTotal}
+          procedureTypes={procedureTypes}
+          proposedFromAppointment={proposedFromAppointment}
+          editingAct={editingAct}
+          dispatch={dispatch}
+          disabled={loading}
+        />
+
+        {/* THE TEETH — full width, no longer competing with a form column for space. */}
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <Label>{hasDraft ? "Sur quelle(s) dent(s) ?" : "Dents concernées"}</Label>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-6 px-2 text-[11px]"
                 disabled={loading}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Dentition</Label>
-              <div className="flex items-center gap-1 rounded-lg bg-muted p-1 w-fit">
-                <Button
-                  type="button"
-                  variant={isAdultTeeth ? "default" : "ghost"}
-                  size="sm"
-                  className="h-8 px-4 text-xs"
-                  onClick={() => setIsAdultTeeth(true)}
-                  disabled={loading}
-                >
-                  Adulte
-                </Button>
-                <Button
-                  type="button"
-                  variant={!isAdultTeeth ? "default" : "ghost"}
-                  size="sm"
-                  className="h-8 px-4 text-xs"
-                  onClick={() => setIsAdultTeeth(false)}
-                  disabled={loading}
-                >
-                  Enfant
-                </Button>
-              </div>
+                onClick={() => dispatch({ type: "selectMany", teeth: teethInQuadrants(upperQuadrants), additive: true })}
+              >
+                Haut
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-6 px-2 text-[11px]"
+                disabled={loading}
+                onClick={() => dispatch({ type: "selectMany", teeth: teethInQuadrants(lowerQuadrants), additive: true })}
+              >
+                Bas
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-6 px-2 text-[11px]"
+                disabled={loading}
+                onClick={() => dispatch({ type: "selectMany", teeth: viewTeeth, additive: true })}
+              >
+                Toute la bouche
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-[11px]"
+                disabled={loading || selection.length === 0}
+                onClick={() => dispatch({ type: "clearSelection" })}
+              >
+                Vider
+              </Button>
             </div>
           </div>
 
-          {/* Visual dental chart — click a tooth to toggle it in the focused act. */}
-          <div className="space-y-2">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <Label>Schéma dentaire</Label>
-              <span className="text-xs text-muted-foreground">
-                Cliquez une dent pour l'ajouter/retirer de l'acte ciblé.
+          <RecordToothChart
+            isAdult={isAdultView}
+            paint={toothPaint}
+            onToggleTooth={(tooth) => dispatch({ type: "toggleTooth", tooth })}
+            disabled={loading}
+          />
+
+          {openDiagnosisTeeth.length > 0 && (
+            <button
+              type="button"
+              disabled={loading}
+              onClick={() =>
+                dispatch({
+                  type: "selectMany",
+                  teeth: openDiagnosisTeeth.filter((t) => isAdultTooth(t) === isAdultView),
+                  additive: true,
+                })
+              }
+              className="flex w-full items-center gap-1.5 rounded-md border border-orange-300 bg-orange-50 px-2 py-1.5 text-left text-[11px] text-orange-800 hover:bg-orange-100 disabled:cursor-not-allowed dark:border-orange-900 dark:bg-orange-950/40 dark:text-orange-200"
+            >
+              <Stethoscope className="h-3.5 w-3.5 shrink-0" />
+              <span>
+                {openDiagnosisTeeth.length} dent{openDiagnosisTeeth.length > 1 ? "s" : ""} à traiter (
+                {openDiagnosisTeeth.join(", ")}) — cliquez pour sélectionner
               </span>
-            </div>
-            <RecordToothChart isAdult={isAdultTeeth} paint={toothPaint} onToggleTooth={toggleTooth} disabled={loading} />
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
-              {CONDITION_ORDER.filter((c) => c !== "Sain").map((c) => (
-                <span key={c} className="flex items-center gap-1">
-                  <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: conditionStyle(c).color }} />
-                  <span className="text-muted-foreground">{conditionStyle(c).label}</span>
-                </span>
-              ))}
-            </div>
+            </button>
+          )}
+
+          {/* Selection + the live per-tooth arithmetic, so the billed number is never a surprise. */}
+          <div className="flex min-h-[24px] flex-wrap items-center gap-1.5 text-xs">
+            {selection.length > 0 ? (
+              <>
+                <span className="text-muted-foreground">Sélection :</span>
+                {selection.map((t) => (
+                  <Badge key={t} variant="secondary" className="text-xs tabular-nums">
+                    {t}
+                  </Badge>
+                ))}
+              </>
+            ) : (
+              <span className="italic text-muted-foreground">
+                Aucune dent — l&apos;acte sera enregistré comme acte général (détartrage, panoramique…)
+              </span>
+            )}
+            {hasDraft && (
+              <span className="ml-auto tabular-nums text-muted-foreground">
+                {draft.perTooth && selection.length > 0 && (
+                  <>
+                    {formatDT(Number.parseFloat(draft.unitCost) || 0)} × {selection.length} dent
+                    {selection.length > 1 ? "s" : ""} ={" "}
+                  </>
+                )}
+                <span className="font-semibold text-foreground">{formatDT(draftTotal)}</span>
+              </span>
+            )}
           </div>
 
-          {/* Acts */}
-          <div className="space-y-2">
-            <Label>Actes</Label>
-            <div className="space-y-3">
-              {acts.map((act, index) => {
-                const chipStyle = conditionStyle(act.resultingCondition ?? "Sain")
-                const isFocused = index === focusedActIndex
-                return (
-                  <div
-                    key={index}
-                    onClick={() => setFocusedActIndex(index)}
-                    className={cn(
-                      "cursor-pointer space-y-2 rounded-lg border p-3 transition-colors",
-                      isFocused ? "border-primary ring-2 ring-primary/60" : "hover:border-muted-foreground/40",
-                    )}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="flex items-center gap-1.5 text-xs font-medium">
-                        <span className={cn("h-2 w-2 rounded-full", isFocused ? "bg-primary" : "bg-muted-foreground/40")} />
-                        Acte {index + 1}
-                        {isFocused && <Badge variant="secondary" className="ml-1 text-[10px]">Ciblé</Badge>}
-                      </span>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          removeAct(index)
-                        }}
-                        disabled={loading || acts.length === 1}
-                        aria-label="Supprimer l'acte"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
+            {CONDITION_ORDER.filter((c) => c !== "Sain").map((c) => (
+              <span key={c} className="flex items-center gap-1">
+                <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: conditionStyle(c).color }} />
+                <span className="text-muted-foreground">{conditionStyle(c).label}</span>
+              </span>
+            ))}
+            <span className="flex items-center gap-1">
+              <span className="h-2.5 w-2.5 rounded-full border-2 border-dashed border-muted-foreground/70" />
+              <span className="text-muted-foreground">contour = état déjà au dossier</span>
+            </span>
+          </div>
+        </div>
 
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <Input
-                          value={act.procedureName}
-                          onChange={(e) => updateAct(index, { procedureName: e.target.value })}
-                          placeholder="Désignation de l'acte (ou choisir au catalogue)"
-                          disabled={loading}
-                        />
-                        <Popover
-                          open={pickerOpenIndex === index}
-                          onOpenChange={(o) => setPickerOpenIndex(o ? index : null)}
-                          modal
-                        >
-                          <PopoverTrigger asChild>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              className="h-9 px-3 shrink-0"
-                              disabled={loading}
-                              title="Choisir un acte du catalogue"
-                            >
-                              <Search className="h-4 w-4" />
-                              <span className="sr-only">Choisir un acte du catalogue</span>
-                            </Button>
-                          </PopoverTrigger>
-                          <PopoverContent className="p-0 w-80" align="end">
-                            <Command>
-                              <CommandInput placeholder="Rechercher un acte…" />
-                              <CommandList>
-                                <CommandEmpty>Aucun acte trouvé.</CommandEmpty>
-                                <CommandGroup heading="Mes actes">
-                                  {procedureTypes.map((pt) => (
-                                    <CommandItem
-                                      key={pt.id}
-                                      value={`pt ${pt.name}`}
-                                      onSelect={() => selectProcedureType(index, pt)}
-                                    >
-                                      <div className="flex flex-col">
-                                        <span className="text-sm font-medium">{pt.name}</span>
-                                        {pt.defaultCost != null && pt.defaultCost > 0 && (
-                                          <span className="text-xs text-muted-foreground">{formatDT(pt.defaultCost)}</span>
-                                        )}
-                                      </div>
-                                    </CommandItem>
-                                  ))}
-                                </CommandGroup>
-                              </CommandList>
-                            </Command>
-                          </PopoverContent>
-                        </Popover>
-                      </div>
-                      {act.procedureTypeId && (
-                        <Badge variant="secondary" className="gap-1 text-xs">
-                          Catalogue
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              detachProcedure(index)
-                            }}
-                            className="ml-1 rounded-full hover:text-destructive"
-                            title="Détacher du catalogue (texte libre)"
-                          >
-                            <X className="h-3 w-3" />
-                          </button>
-                        </Badge>
-                      )}
-                    </div>
+        {/* THE DETAIL — folded, never removed, always summarised. */}
+        <RecordSection
+          title="Détails de l'acte"
+          summary={detailsSummary}
+          open={openSections.details}
+          onToggle={() => toggleSection("details")}
+        >
+          {hasDraft ? (
+            <ActDetailFields draft={draft} toothCount={selection.length} dispatch={dispatch} disabled={loading} />
+          ) : (
+            <p className="text-xs italic text-muted-foreground">
+              Choisissez d&apos;abord un acte : son tarif et son état résultant seront préremplis depuis le
+              catalogue.
+            </p>
+          )}
+        </RecordSection>
 
-                    {/* Teeth — set from the chart above (focus this act, then click teeth). */}
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <span className="text-xs text-muted-foreground">Dents :</span>
-                      {act.toothNumbers.length > 0 ? (
-                        <>
-                          {act.toothNumbers.map((t) => (
-                            <Badge key={t} variant="secondary" className="text-xs">
-                              {t}
-                            </Badge>
-                          ))}
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 px-2 text-xs"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              clearActTeeth(index)
-                            }}
-                            disabled={loading}
-                          >
-                            Vider
-                          </Button>
-                        </>
-                      ) : (
-                        <span className="text-xs italic text-muted-foreground">
-                          {isFocused ? "cliquez une dent sur le schéma" : "aucune — ciblez cet acte pour en ajouter"}
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-xs text-muted-foreground">Coût (DT)</span>
-                      <Input
-                        type="number"
-                        min="0"
-                        step="0.001"
-                        value={act.cost}
-                        onChange={(e) => updateAct(index, { cost: e.target.value })}
-                        className="w-28"
-                        disabled={loading}
-                      />
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-xs text-muted-foreground">État résultant</span>
-                      <span className="inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs">
-                        <span
-                          className={cn(
-                            "h-2.5 w-2.5 rounded-full border",
-                            act.resultingCondition ? chipStyle.swatch : "bg-background",
-                          )}
-                        />
-                        {act.resultingCondition ? chipStyle.label : "Aucun"}
-                      </span>
-                      <Select
-                        value={act.resultingCondition ?? NO_CONDITION}
-                        onValueChange={(v) => updateAct(index, { resultingCondition: v === NO_CONDITION ? null : v })}
-                        disabled={loading}
-                      >
-                        <SelectTrigger className="h-8 w-44 text-xs">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value={NO_CONDITION}>Aucun</SelectItem>
-                          {CONDITION_ORDER.map((c) => (
-                            <SelectItem key={c} value={c}>
-                              {conditionStyle(c).label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-xs text-muted-foreground">Faces</span>
-                      <div className="flex items-center gap-1">
-                        {SURFACE_ORDER.map((s) => (
-                          <Button
-                            key={s}
-                            type="button"
-                            size="sm"
-                            variant={act.surfaces.has(s) ? "default" : "outline"}
-                            className="h-8 w-8 p-0 text-xs"
-                            onClick={() => toggleActSurface(index, s)}
-                            disabled={loading}
-                            title={SURFACE_LABELS[s]}
-                          >
-                            {s}
-                          </Button>
-                        ))}
-                      </div>
-                      <Input
-                        value={act.note}
-                        onChange={(e) => updateAct(index, { note: e.target.value })}
-                        placeholder="Note (optionnel)"
-                        className="h-8 min-w-[8rem] flex-1 text-xs"
-                        disabled={loading}
-                      />
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-            <Button type="button" variant="outline" size="sm" onClick={addAct} disabled={loading} className="gap-2">
-              <Plus className="h-4 w-4" /> Ajouter un acte
+        <RecordSection
+          title="Actes de la séance"
+          summary={actsSummary}
+          open={openSections.acts}
+          onToggle={() => toggleSection("acts")}
+        >
+          <SessionActsList
+            acts={acts}
+            editingKey={editingKey}
+            onEdit={(key) => {
+              dispatch({ type: "beginEditAct", key })
+              setOpenSections((prev) => ({ ...prev, details: true }))
+            }}
+            onRemove={(key) => dispatch({ type: "removeAct", key })}
+            disabled={loading}
+          />
+          {editingAct && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 justify-self-start text-xs"
+              onClick={() => dispatch({ type: "cancelEdit" })}
+              disabled={loading}
+            >
+              Annuler la modification
             </Button>
-          </div>
+          )}
+        </RecordSection>
 
-          {/* Totals + payment */}
+        <RecordSection
+          title="Notes de séance"
+          summary={notesSummary}
+          open={openSections.notes}
+          onToggle={() => toggleSection("notes")}
+          highlight={importantCount > 0}
+        >
           <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="paid">Montant payé (DT)</Label>
-              <Input
-                id="paid"
-                type="number"
-                min="0"
-                step="0.001"
-                value={amountPaid}
-                onChange={(e) => setAmountPaid(e.target.value)}
-                placeholder="0.000"
-                disabled={loading || isInvoiced}
-              />
-              {isInvoiced ? (
-                <p className="text-xs text-muted-foreground">
-                  Facturé — le paiement est géré par la facture (voir l'onglet Factures).
-                </p>
-              ) : (
-                <p className="text-xs text-muted-foreground">
-                  Reste à payer :{" "}
-                  <span className={reste > 0 ? "font-semibold text-amber-600" : "font-medium text-foreground"}>
-                    {formatDT(reste)}
-                  </span>
-                </p>
-              )}
-            </div>
-            <div className="flex items-end justify-end">
-              <div className="text-sm">
-                <span className="text-muted-foreground">Total :&nbsp;</span>
-                <span className="font-semibold">{formatDT(total)}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Notes */}
-          <div className="space-y-3">
-            <Label>
-              Notes <span className="font-normal text-muted-foreground">(facultatif)</span>
-            </Label>
             <div className="space-y-2">
+              <Label className="text-xs">Notes</Label>
               {notes.map((note, index) => (
                 <div key={index} className="flex gap-2">
                   <Textarea
@@ -769,14 +754,12 @@ export function PatientRecordModal({
                 <Plus className="mr-1 h-4 w-4" /> Ajouter une note
               </Button>
             </div>
-          </div>
 
-          <div className="space-y-3">
-            <Label>
-              Notes importantes <span className="font-normal text-muted-foreground">(facultatif)</span>
-              <span className="ml-2 text-xs text-amber-600 dark:text-amber-500">⚠ Mises en évidence</span>
-            </Label>
             <div className="space-y-2">
+              <Label className="text-xs">
+                Notes importantes
+                <span className="ml-2 text-[11px] text-amber-600 dark:text-amber-500">⚠ Mises en évidence</span>
+              </Label>
               {importantNotes.map((note, index) => (
                 <div key={index} className="flex gap-2">
                   <Textarea
@@ -815,15 +798,76 @@ export function PatientRecordModal({
               </Button>
             </div>
           </div>
+        </RecordSection>
+
+        {/* Totals + payment — the number that will be saved, always on screen. */}
+        <div className="grid gap-3 rounded-lg border bg-muted/30 p-3 sm:grid-cols-3">
+          <div className="flex items-center gap-2">
+            <Label htmlFor="paid" className="shrink-0 text-xs text-muted-foreground">
+              Payé
+            </Label>
+            <Input
+              id="paid"
+              type="number"
+              min="0"
+              step="0.001"
+              className="h-8 text-right tabular-nums"
+              value={amountPaid}
+              onChange={(e) => {
+                setPaidDirty(true)
+                setAmountPaid(e.target.value)
+              }}
+              placeholder="0.000"
+              disabled={loading || isInvoiced}
+            />
+          </div>
+          <div className="flex items-center text-xs">
+            {isInvoiced ? (
+              <p className="text-muted-foreground">Facturé — le paiement est géré par la facture.</p>
+            ) : (
+              <p className="text-muted-foreground">
+                Reste à payer :{" "}
+                <span className={reste > 0 ? "font-semibold text-amber-600" : "font-medium text-foreground"}>
+                  {formatDT(reste)}
+                </span>
+              </p>
+            )}
+          </div>
+          <div className="flex items-center justify-end gap-2 text-sm">
+            <span className="text-muted-foreground">Total</span>
+            <span className="text-base font-semibold tabular-nums">{formatDT(grandTotal)}</span>
+          </div>
         </div>
 
-        <DialogFooter className="gap-2">
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
-            Annuler
+        <DialogFooter className="gap-2 sm:justify-between">
+          {/* Confirms the act in hand and clears the draft, keeping the selection so a second procedure on the
+              same tooth is one pick away. Saving does NOT require this — the draft is persisted either way. */}
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              dispatch({ type: "commitDraft" })
+              setOpenSections((prev) => ({ ...prev, acts: true }))
+            }}
+            disabled={loading || !hasDraft}
+            className="sm:mr-auto"
+          >
+            <Plus className="mr-1 h-4 w-4" /> Ajouter un autre acte
           </Button>
-          <Button onClick={handleSave} disabled={loading} className="min-w-[140px]">
-            {loading ? "Enregistrement…" : record ? "Enregistrer" : "Créer la fiche"}
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
+              Annuler
+            </Button>
+            <Button onClick={handleSave} disabled={loading} className="min-w-[150px]">
+              {loading
+                ? "Enregistrement…"
+                : record
+                  ? "Enregistrer"
+                  : appointmentId
+                    ? "Confirmer la séance"
+                    : "Créer la fiche"}
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

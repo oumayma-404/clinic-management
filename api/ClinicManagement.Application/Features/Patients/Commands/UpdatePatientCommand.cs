@@ -65,14 +65,14 @@ public class UpdatePatientCommandHandler : IRequestHandler<UpdatePatientCommand,
             var patient = await _patientRepository.GetByIdAsync(request.Id, cancellationToken);
             if (patient == null)
             {
-                return Result<PatientDto>.Failure("Patient not found");
+                return Result<PatientDto>.Failure("Patient introuvable.");
             }
 
             // Explicit tenant check (defense-in-depth alongside the global query filter): a patient
             // from another clinic reads as "not found".
             if (patient.ClinicId != clinicResult.Value)
             {
-                return Result<PatientDto>.Failure("Patient not found");
+                return Result<PatientDto>.Failure("Patient introuvable.");
             }
 
             // AC-5: a provided phone must be a deliverable Tunisian number (same rule as the reminder engine).

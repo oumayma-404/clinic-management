@@ -58,7 +58,7 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
             // password (below) so it can't be used to enumerate accounts.
             if (user.IsLockedOut())
             {
-                return Result<LoginResultDto>.Failure("This account is temporarily locked due to repeated failed logins. Please try again later.");
+                return Result<LoginResultDto>.Failure("Ce compte est temporairement bloqué après plusieurs tentatives de connexion échouées. Veuillez réessayer plus tard.");
             }
 
             var outcome = _localAuthService.VerifyPassword(user.PasswordHash!, request.Password);
@@ -73,7 +73,7 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
             // Disclosed only to a caller who supplied the correct password (the account owner).
             if (!user.IsActive)
             {
-                return Result<LoginResultDto>.Failure("This account has been deactivated. Please contact your clinic administrator.");
+                return Result<LoginResultDto>.Failure("Ce compte a été désactivé. Veuillez contacter l'administrateur de votre clinique.");
             }
 
             // The stored hash used an outdated format — upgrade it now that we have the plaintext.
@@ -109,7 +109,7 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
         catch (Exception)
         {
             // Anonymous endpoint: do not echo internal exception details to the caller.
-            return Result<LoginResultDto>.Failure("An unexpected error occurred during login. Please try again.");
+            return Result<LoginResultDto>.Failure("Une erreur inattendue est survenue lors de la connexion. Veuillez réessayer.");
         }
     }
 }

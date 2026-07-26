@@ -44,13 +44,13 @@ public class UpdatePatientFamilyHistoryCommandHandler : IRequestHandler<UpdatePa
             var patient = await _patientRepository.GetByIdAsync(request.PatientId, cancellationToken);
             if (patient == null || patient.ClinicId != clinicResult.Value)
             {
-                return Result<PatientFamilyHistoryDto>.Failure("Patient not found");
+                return Result<PatientFamilyHistoryDto>.Failure("Patient introuvable.");
             }
 
             var entry = patient.FamilyHistoryEntries.FirstOrDefault(e => e.Id == request.Id);
             if (entry == null)
             {
-                return Result<PatientFamilyHistoryDto>.Failure("Family history entry not found");
+                return Result<PatientFamilyHistoryDto>.Failure("Antécédent familial introuvable.");
             }
 
             var relationship = request.Relationship ?? entry.Relationship;

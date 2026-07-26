@@ -50,7 +50,7 @@ public class UpdateProcedureTypeCommandHandler : IRequestHandler<UpdateProcedure
             var procedureType = await _procedureTypeRepository.GetByIdAsync(request.Id, cancellationToken);
             if (procedureType == null)
             {
-                return Result<ProcedureTypeDto>.Failure("Procedure type not found");
+                return Result<ProcedureTypeDto>.Failure("Type de procédure introuvable.");
             }
 
             // Explicit tenant check (defense-in-depth alongside the global query filter): a procedure
@@ -62,7 +62,7 @@ public class UpdateProcedureTypeCommandHandler : IRequestHandler<UpdateProcedure
             }
             if (procedureType.ClinicId != clinicResult.Value)
             {
-                return Result<ProcedureTypeDto>.Failure("Procedure type not found");
+                return Result<ProcedureTypeDto>.Failure("Type de procédure introuvable.");
             }
 
             // Update name if provided
@@ -71,7 +71,7 @@ public class UpdateProcedureTypeCommandHandler : IRequestHandler<UpdateProcedure
             {
                 if (string.IsNullOrWhiteSpace(request.Name))
                 {
-                    return Result<ProcedureTypeDto>.Failure("Name cannot be empty");
+                    return Result<ProcedureTypeDto>.Failure("Le nom ne peut pas être vide.");
                 }
 
                 // Check if name already exists (excluding current)
@@ -90,12 +90,12 @@ public class UpdateProcedureTypeCommandHandler : IRequestHandler<UpdateProcedure
             {
                 if (request.DefaultDurationMinutes.Value <= 0)
                 {
-                    return Result<ProcedureTypeDto>.Failure("Default duration must be greater than 0");
+                    return Result<ProcedureTypeDto>.Failure("La durée par défaut doit être supérieure à 0.");
                 }
 
                 if (request.DefaultDurationMinutes.Value >= 480)
                 {
-                    return Result<ProcedureTypeDto>.Failure("Default duration must be less than 480 minutes (8 hours)");
+                    return Result<ProcedureTypeDto>.Failure("La durée par défaut doit être inférieure à 480 minutes (8 heures).");
                 }
 
                 procedureType.UpdateDefaultDuration(request.DefaultDurationMinutes.Value);
@@ -125,7 +125,7 @@ public class UpdateProcedureTypeCommandHandler : IRequestHandler<UpdateProcedure
             {
                 if (request.DefaultCost.Value < 0)
                 {
-                    return Result<ProcedureTypeDto>.Failure("Default cost cannot be negative");
+                    return Result<ProcedureTypeDto>.Failure("Le tarif par défaut ne peut pas être négatif.");
                 }
                 
                 var oldCost = procedureType.DefaultCost;

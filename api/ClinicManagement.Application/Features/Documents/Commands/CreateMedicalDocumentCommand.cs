@@ -111,7 +111,7 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
             var patient = await _patientRepository.GetByIdAsync(request.PatientId, cancellationToken);
             if (patient == null || patient.ClinicId != patientClinicResult.Value)
             {
-                return Result<MedicalDocumentDto>.Failure("Patient not found");
+                return Result<MedicalDocumentDto>.Failure("Patient introuvable.");
             }
 
             // FR: the patient-info header box is labelled "Date de naissance", so both render paths — the
@@ -263,7 +263,7 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error creating medical document for patient {PatientId}", request.PatientId);
-            return Result<MedicalDocumentDto>.Failure("Error creating medical document.");
+            return Result<MedicalDocumentDto>.Failure("Erreur lors de la création du document médical.");
         }
     }
 

@@ -40,13 +40,13 @@ public class MarkAllNotificationsReadCommandHandler : IRequestHandler<MarkAllNot
             var userId = _clinicContext.GetUserId();
             if (string.IsNullOrEmpty(userId))
             {
-                return Result.Failure("User ID not found in token");
+                return Result.Failure("Session invalide, veuillez vous reconnecter.");
             }
 
             var user = await _userRepository.GetByAuth0SubAsync(userId, cancellationToken);
             if (user == null)
             {
-                return Result.Failure("User not found");
+                return Result.Failure("Utilisateur introuvable.");
             }
 
             var now = DateTime.UtcNow;

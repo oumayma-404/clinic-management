@@ -43,13 +43,13 @@ public class ChangePasswordCommandHandler : IRequestHandler<ChangePasswordComman
             var callerId = _clinicContext.GetUserId();
             if (string.IsNullOrEmpty(callerId))
             {
-                return Result.Failure("User ID not found in token");
+                return Result.Failure("Session invalide, veuillez vous reconnecter.");
             }
 
             var user = await _userRepository.GetByAuth0SubAsync(callerId, cancellationToken);
             if (user == null || !user.IsLocalAccount())
             {
-                return Result.Failure("User not found");
+                return Result.Failure("Utilisateur introuvable.");
             }
 
             if (string.IsNullOrEmpty(request.NewPassword) || request.NewPassword.Length < PasswordPolicy.MinLength)
@@ -60,7 +60,7 @@ public class ChangePasswordCommandHandler : IRequestHandler<ChangePasswordComman
             var outcome = _localAuthService.VerifyPassword(user.PasswordHash!, request.CurrentPassword);
             if (outcome == PasswordVerificationOutcome.Failed)
             {
-                return Result.Failure("The current password is incorrect.");
+                return Result.Failure("Le mot de passe actuel est incorrect.");
             }
 
             var newHash = _localAuthService.HashPassword(request.NewPassword);
@@ -74,7 +74,7 @@ public class ChangePasswordCommandHandler : IRequestHandler<ChangePasswordComman
         catch (Exception)
         {
             // Authenticated endpoint, but still avoid echoing internal exception details to the caller.
-            return Result.Failure("An unexpected error occurred while changing the password. Please try again.");
+            return Result.Failure("Une erreur inattendue est survenue lors du changement de mot de passe. Veuillez réessayer.");
         }
     }
 }

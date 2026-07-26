@@ -43,7 +43,7 @@ public class GetProcedureTypeQueryHandler : IRequestHandler<GetProcedureTypeQuer
             var procedureType = await _procedureTypeRepository.GetByIdAsync(request.Id, cancellationToken);
             if (procedureType == null || procedureType.ClinicId != clinicResult.Value)
             {
-                return Result<ProcedureTypeDto>.Failure("Procedure type not found");
+                return Result<ProcedureTypeDto>.Failure("Type de procédure introuvable.");
             }
 
             var dto = new ProcedureTypeDto

@@ -55,12 +55,12 @@ public class UploadPatientFileCommandHandler : IRequestHandler<UploadPatientFile
         {
             if (string.IsNullOrWhiteSpace(request.FileName))
             {
-                return Result<PatientFileDto>.Failure("File name is required");
+                return Result<PatientFileDto>.Failure("Le nom du fichier est requis.");
             }
 
             if (request.FileStream == null)
             {
-                return Result<PatientFileDto>.Failure("File stream is required");
+                return Result<PatientFileDto>.Failure("Le contenu du fichier est requis.");
             }
 
             // Authoritative tenant guard: resolve the caller's clinic from the DB and verify the patient
@@ -75,7 +75,7 @@ public class UploadPatientFileCommandHandler : IRequestHandler<UploadPatientFile
             var patient = await _patientRepository.GetByIdAsync(request.PatientId, cancellationToken);
             if (patient == null || patient.ClinicId != clinicResult.Value)
             {
-                return Result<PatientFileDto>.Failure("Patient not found");
+                return Result<PatientFileDto>.Failure("Patient introuvable.");
             }
 
             // Validate folder if provided
@@ -84,7 +84,7 @@ public class UploadPatientFileCommandHandler : IRequestHandler<UploadPatientFile
                 var folder = await _folderRepository.GetByIdAsync(request.FolderId.Value, cancellationToken);
                 if (folder == null || folder.PatientId != request.PatientId)
                 {
-                    return Result<PatientFileDto>.Failure("Folder not found or does not belong to the patient");
+                    return Result<PatientFileDto>.Failure("Dossier introuvable ou n'appartenant pas à ce patient.");
                 }
             }
 
@@ -139,7 +139,7 @@ public class UploadPatientFileCommandHandler : IRequestHandler<UploadPatientFile
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error uploading file for patient {PatientId}", request.PatientId);
-            return Result<PatientFileDto>.Failure("Error uploading file.");
+            return Result<PatientFileDto>.Failure("Erreur lors de l'envoi du fichier.");
         }
     }
 

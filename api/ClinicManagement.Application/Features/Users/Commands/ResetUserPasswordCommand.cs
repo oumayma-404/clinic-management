@@ -41,37 +41,37 @@ public class ResetUserPasswordCommandHandler : IRequestHandler<ResetUserPassword
             var callerId = _clinicContext.GetUserId();
             if (string.IsNullOrEmpty(callerId))
             {
-                return Result<ResetPasswordResultDto>.Failure("User ID not found in token");
+                return Result<ResetPasswordResultDto>.Failure("Session invalide, veuillez vous reconnecter.");
             }
 
             var admin = await _userRepository.GetByAuth0SubAsync(callerId, cancellationToken);
             if (admin == null)
             {
-                return Result<ResetPasswordResultDto>.Failure("User not found");
+                return Result<ResetPasswordResultDto>.Failure("Utilisateur introuvable.");
             }
 
             // AC-5.4: only an admin can reset another user's password.
             if (!admin.IsAdmin())
             {
-                return Result<ResetPasswordResultDto>.Failure("Only admins can reset passwords");
+                return Result<ResetPasswordResultDto>.Failure("Seuls les administrateurs peuvent réinitialiser les mots de passe.");
             }
 
             if (string.IsNullOrWhiteSpace(request.TargetUserId))
             {
-                return Result<ResetPasswordResultDto>.Failure("Target user is required.");
+                return Result<ResetPasswordResultDto>.Failure("L'utilisateur cible est requis.");
             }
 
             var target = await _userRepository.GetByIdAsync(request.TargetUserId, cancellationToken);
             // Scope to the admin's own clinic — never expose or mutate users of another clinic.
             if (target == null || target.ClinicId != admin.ClinicId)
             {
-                return Result<ResetPasswordResultDto>.Failure("User not found");
+                return Result<ResetPasswordResultDto>.Failure("Utilisateur introuvable.");
             }
 
             // Only local (password-backed) accounts have a password to reset.
             if (!target.IsLocalAccount())
             {
-                return Result<ResetPasswordResultDto>.Failure("This account does not use a local password.");
+                return Result<ResetPasswordResultDto>.Failure("Ce compte n'utilise pas de mot de passe local.");
             }
 
             var temporaryPassword = _localAuthService.GenerateTemporaryPassword();

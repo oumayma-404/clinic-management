@@ -38,7 +38,7 @@ public class GetPatientFamilyHistoryQueryHandler : IRequestHandler<GetPatientFam
             var patient = await _patientRepository.GetByIdAsync(request.PatientId, cancellationToken);
             if (patient == null || patient.ClinicId != clinicResult.Value)
             {
-                return Result<IEnumerable<PatientFamilyHistoryDto>>.Failure("Patient not found");
+                return Result<IEnumerable<PatientFamilyHistoryDto>>.Failure("Patient introuvable.");
             }
 
             var dtos = patient.FamilyHistoryEntries.Select(fh => new PatientFamilyHistoryDto

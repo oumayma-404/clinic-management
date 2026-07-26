@@ -65,7 +65,7 @@ public class UpdateMedicalDocumentCommandHandler : IRequestHandler<UpdateMedical
             var document = await _documentRepository.GetByIdAsync(request.Id, cancellationToken);
             if (document == null)
             {
-                return Result<MedicalDocumentDto>.Failure("Medical document not found");
+                return Result<MedicalDocumentDto>.Failure("Document médical introuvable.");
             }
 
             // Verify the document's owning patient belongs to the caller's clinic. Skipped when there is
@@ -78,7 +78,7 @@ public class UpdateMedicalDocumentCommandHandler : IRequestHandler<UpdateMedical
                 user = await _userRepository.GetByAuth0SubAsync(userId, cancellationToken);
                 if (user == null || document.Patient == null || document.Patient.ClinicId != user.ClinicId)
                 {
-                    return Result<MedicalDocumentDto>.Failure("Medical document not found");
+                    return Result<MedicalDocumentDto>.Failure("Document médical introuvable.");
                 }
             }
 
@@ -245,7 +245,7 @@ public class UpdateMedicalDocumentCommandHandler : IRequestHandler<UpdateMedical
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error updating medical document {DocumentId}", request.Id);
-            return Result<MedicalDocumentDto>.Failure("Error updating medical document.");
+            return Result<MedicalDocumentDto>.Failure("Erreur lors de la mise à jour du document médical.");
         }
     }
 

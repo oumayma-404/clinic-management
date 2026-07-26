@@ -43,7 +43,7 @@ public class DeleteMedicalDocumentCommandHandler : IRequestHandler<DeleteMedical
             var document = await _documentRepository.GetByIdAsync(request.Id, cancellationToken);
             if (document == null)
             {
-                return Result<bool>.Failure("Medical document not found");
+                return Result<bool>.Failure("Document médical introuvable.");
             }
 
             // Verify the document's owning patient belongs to the caller's clinic (MedicalDocument has no
@@ -55,7 +55,7 @@ public class DeleteMedicalDocumentCommandHandler : IRequestHandler<DeleteMedical
             }
             if (document.Patient == null || document.Patient.ClinicId != clinicResult.Value)
             {
-                return Result<bool>.Failure("Medical document not found");
+                return Result<bool>.Failure("Document médical introuvable.");
             }
 
             // Resolve the underlying stored file (if any) so we can drop both the DB row and its blob —

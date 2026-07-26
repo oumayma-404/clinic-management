@@ -37,13 +37,13 @@ public class GetAppointmentQueryHandler : IRequestHandler<GetAppointmentQuery, R
             var userId = _clinicContext.GetUserId();
             if (string.IsNullOrEmpty(userId))
             {
-                return Result<AppointmentDto>.Failure("User ID not found in token");
+                return Result<AppointmentDto>.Failure("Session invalide, veuillez vous reconnecter.");
             }
 
             var user = await _userRepository.GetByAuth0SubAsync(userId, cancellationToken);
             if (user == null)
             {
-                return Result<AppointmentDto>.Failure("User not found");
+                return Result<AppointmentDto>.Failure("Utilisateur introuvable.");
             }
 
             var appointment = await _appointmentRepository.GetByIdAsync(request.Id, cancellationToken);
@@ -51,7 +51,7 @@ public class GetAppointmentQueryHandler : IRequestHandler<GetAppointmentQuery, R
             // A missing appointment, or one belonging to another clinic, reads as "not found".
             if (appointment == null || appointment.ClinicId != user.ClinicId)
             {
-                return Result<AppointmentDto>.Failure("Appointment not found");
+                return Result<AppointmentDto>.Failure("Rendez-vous introuvable.");
             }
 
             var dto = new AppointmentDto

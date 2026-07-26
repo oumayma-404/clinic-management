@@ -27,7 +27,7 @@ export function StatsCard({ title, value, icon: Icon, description, variant = "de
           <div className="space-y-1">
             <p className="text-sm font-medium text-muted-foreground">{title}</p>
             {loading ? (
-              <span className="block h-8 w-16 animate-pulse rounded bg-muted" aria-label="Loading" />
+              <span className="block h-8 w-16 animate-pulse rounded bg-muted" aria-label="Chargement" />
             ) : (
               <p className="text-3xl font-semibold text-foreground">{value}</p>
             )}

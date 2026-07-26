@@ -36,7 +36,7 @@ public class DeleteStockItemCommandHandler : IRequestHandler<DeleteStockItemComm
 
             var item = await _stockItemRepository.GetByIdAsync(request.Id, cancellationToken);
             if (item == null || item.ClinicId != clinic.Value)
-                return Result<bool>.Failure("Stock item not found");
+                return Result<bool>.Failure("Article de stock introuvable.");
 
             await _stockItemRepository.DeleteAsync(request.Id, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);

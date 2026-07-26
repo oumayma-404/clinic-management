@@ -55,7 +55,7 @@ public class InitializeDefaultFoldersCommandHandler : IRequestHandler<Initialize
             var patient = await _patientRepository.GetByIdAsync(request.PatientId, cancellationToken);
             if (patient == null || patient.ClinicId != clinicResult.Value)
             {
-                return Result<IEnumerable<PatientFolderDto>>.Failure("Patient not found");
+                return Result<IEnumerable<PatientFolderDto>>.Failure("Patient introuvable.");
             }
 
             var existingFolders = await _folderRepository.GetRootFoldersByPatientIdAsync(request.PatientId, cancellationToken);

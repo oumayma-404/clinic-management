@@ -43,19 +43,19 @@ public class DeleteDentalRecordCommandHandler : IRequestHandler<DeleteDentalReco
             var dentalRecord = await _dentalRecordRepository.GetByIdAsync(request.Id, cancellationToken);
             if (dentalRecord == null)
             {
-                return Result<bool>.Failure("Dental record not found");
+                return Result<bool>.Failure("Dossier dentaire introuvable.");
             }
 
             if (dentalRecord.PatientId != request.PatientId)
             {
-                return Result<bool>.Failure("Dental record does not belong to the specified patient");
+                return Result<bool>.Failure("Ce dossier dentaire n'appartient pas à ce patient.");
             }
 
             // Verify the owning patient belongs to the caller's clinic before deleting.
             var patient = await _patientRepository.GetByIdAsync(dentalRecord.PatientId, cancellationToken);
             if (patient == null || patient.ClinicId != clinicResult.Value)
             {
-                return Result<bool>.Failure("Dental record not found");
+                return Result<bool>.Failure("Dossier dentaire introuvable.");
             }
 
             await _dentalRecordRepository.DeleteAsync(request.Id, cancellationToken);

@@ -65,14 +65,14 @@ public class UpdateClinicCommandHandler : IRequestHandler<UpdateClinicCommand, R
             var userId = _clinicContext.GetUserId();
             if (string.IsNullOrEmpty(userId))
             {
-                return Result<ClinicDto>.Failure("User ID not found in token");
+                return Result<ClinicDto>.Failure("Session invalide, veuillez vous reconnecter.");
             }
 
             // Get user from database to get clinic ID
             var user = await _userRepository.GetByAuth0SubAsync(userId, cancellationToken);
             if (user == null)
             {
-                return Result<ClinicDto>.Failure("User not found");
+                return Result<ClinicDto>.Failure("Utilisateur introuvable.");
             }
 
             var clinicId = user.ClinicId;
@@ -81,7 +81,7 @@ public class UpdateClinicCommandHandler : IRequestHandler<UpdateClinicCommand, R
             var clinic = await _clinicRepository.GetByIdAsync(clinicId, cancellationToken);
             if (clinic == null)
             {
-                return Result<ClinicDto>.Failure("Clinic not found");
+                return Result<ClinicDto>.Failure("Clinique introuvable.");
             }
 
             // FR-8/US-6: changing the TTN e-invoicing settings is admin-only. Non-admins may still edit the
@@ -207,7 +207,7 @@ public class UpdateClinicCommandHandler : IRequestHandler<UpdateClinicCommand, R
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error updating clinic");
-            return Result<ClinicDto>.Failure("Error updating clinic.");
+            return Result<ClinicDto>.Failure("Erreur lors de la mise à jour de la clinique.");
         }
     }
 }

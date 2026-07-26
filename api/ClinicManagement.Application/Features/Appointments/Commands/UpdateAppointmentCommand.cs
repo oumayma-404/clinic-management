@@ -106,14 +106,14 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
             var appointment = await _appointmentRepository.GetByIdAsync(request.Id, cancellationToken);
             if (appointment == null)
             {
-                return Result<AppointmentDto>.Failure("Appointment not found");
+                return Result<AppointmentDto>.Failure("Rendez-vous introuvable.");
             }
 
             // Explicit tenant check (defense-in-depth alongside the global query filter): an appointment
             // from another clinic reads as "not found".
             if (appointment.ClinicId != clinicResult.Value)
             {
-                return Result<AppointmentDto>.Failure("Appointment not found");
+                return Result<AppointmentDto>.Failure("Rendez-vous introuvable.");
             }
 
             // Capture pre-mutation state so we can tell (after commit) whether this update cancelled or
@@ -182,7 +182,7 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                 var doctor = await _doctorRepository.GetByIdAsync(request.DoctorId.Value, cancellationToken);
                 if (doctor == null || doctor.ClinicId != clinicResult.Value)
                 {
-                    return Result<AppointmentDto>.Failure("Doctor not found");
+                    return Result<AppointmentDto>.Failure("Praticien introuvable.");
                 }
                 appointment.SetDoctorId(request.DoctorId);
             }
@@ -202,12 +202,12 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                     var procedureType = await _procedureTypeRepository.GetByIdAsync(request.ProcedureTypeId.Value, cancellationToken);
                     if (procedureType == null || procedureType.ClinicId != clinicResult.Value)
                     {
-                        return Result<AppointmentDto>.Failure("Procedure type not found");
+                        return Result<AppointmentDto>.Failure("Type de procédure introuvable.");
                     }
                     
                     if (!procedureType.IsActive)
                     {
-                        return Result<AppointmentDto>.Failure("Selected procedure type is not active");
+                        return Result<AppointmentDto>.Failure("Le type de procédure sélectionné n'est pas actif.");
                     }
                     
                     appointment.SetProcedureType(

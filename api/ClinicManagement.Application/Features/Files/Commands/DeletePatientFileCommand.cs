@@ -50,19 +50,19 @@ public class DeletePatientFileCommandHandler : IRequestHandler<DeletePatientFile
             var file = await _fileRepository.GetByIdAsync(request.FileId, cancellationToken);
             if (file == null)
             {
-                return Result<bool>.Failure("File not found");
+                return Result<bool>.Failure("Fichier introuvable.");
             }
 
             if (file.PatientId != request.PatientId)
             {
-                return Result<bool>.Failure("File does not belong to the specified patient");
+                return Result<bool>.Failure("Ce fichier n'appartient pas à ce patient.");
             }
 
             // Verify the owning patient belongs to the caller's clinic before deleting (AC-1).
             var patient = await _patientRepository.GetByIdAsync(file.PatientId, cancellationToken);
             if (patient == null || patient.ClinicId != clinicResult.Value)
             {
-                return Result<bool>.Failure("File not found");
+                return Result<bool>.Failure("Fichier introuvable.");
             }
 
             // Remove the DB record first and commit; the blob is deleted only AFTER the commit so a failed

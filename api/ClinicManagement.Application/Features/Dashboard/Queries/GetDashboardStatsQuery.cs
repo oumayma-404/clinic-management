@@ -58,13 +58,13 @@ public class GetDashboardStatsQueryHandler : IRequestHandler<GetDashboardStatsQu
             var userId = _clinicContext.GetUserId();
             if (string.IsNullOrEmpty(userId))
             {
-                return Result<DashboardStatsDto>.Failure("User ID not found in token");
+                return Result<DashboardStatsDto>.Failure("Session invalide, veuillez vous reconnecter.");
             }
 
             var user = await _userRepository.GetByAuth0SubAsync(userId, cancellationToken);
             if (user == null)
             {
-                return Result<DashboardStatsDto>.Failure("User not found");
+                return Result<DashboardStatsDto>.Failure("Utilisateur introuvable.");
             }
 
             var clinicId = user.ClinicId;

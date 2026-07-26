@@ -44,7 +44,7 @@ public class GetDentalRecordsQueryHandler : IRequestHandler<GetDentalRecordsQuer
             var patient = await _patientRepository.GetByIdAsync(request.PatientId, cancellationToken);
             if (patient == null || patient.ClinicId != clinicResult.Value)
             {
-                return Result<IEnumerable<DentalRecordDto>>.Failure("Patient not found");
+                return Result<IEnumerable<DentalRecordDto>>.Failure("Patient introuvable.");
             }
 
             var records = await _dentalRecordRepository.GetByPatientIdAsync(request.PatientId, cancellationToken);

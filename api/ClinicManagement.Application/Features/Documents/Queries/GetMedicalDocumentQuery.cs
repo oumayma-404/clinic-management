@@ -34,7 +34,7 @@ public class GetMedicalDocumentQueryHandler : IRequestHandler<GetMedicalDocument
             var document = await _documentRepository.GetByIdAsync(request.Id, cancellationToken);
             if (document == null)
             {
-                return Result<MedicalDocumentDto>.Failure("Medical document not found");
+                return Result<MedicalDocumentDto>.Failure("Document médical introuvable.");
             }
 
             // Verify the document's owning patient belongs to the caller's clinic (MedicalDocument has no
@@ -46,7 +46,7 @@ public class GetMedicalDocumentQueryHandler : IRequestHandler<GetMedicalDocument
                 var user = await _userRepository.GetByAuth0SubAsync(userId, cancellationToken);
                 if (user == null || document.Patient == null || document.Patient.ClinicId != user.ClinicId)
                 {
-                    return Result<MedicalDocumentDto>.Failure("Medical document not found");
+                    return Result<MedicalDocumentDto>.Failure("Document médical introuvable.");
                 }
             }
 

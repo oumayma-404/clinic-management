@@ -121,7 +121,7 @@ public class MedicalDocumentsController : ApiControllerBase
             request = await Request.ReadFromJsonAsync<CreateMedicalDocumentRequest>(cancellationToken);
             if (request == null)
             {
-                return BadRequest("Invalid request body");
+                return Failure("Requête invalide.");
             }
         }
 
@@ -206,7 +206,7 @@ public class MedicalDocumentsController : ApiControllerBase
             command = await Request.ReadFromJsonAsync<UpdateMedicalDocumentCommand>(cancellationToken);
             if (command == null)
             {
-                return BadRequest("Invalid request body");
+                return Failure("Requête invalide.");
             }
             command.Id = id;
         }
@@ -248,7 +248,7 @@ public class MedicalDocumentsController : ApiControllerBase
 
         if (!documentResult.IsSuccess || documentResult.Value == null)
         {
-            return NotFound("Document not found");
+            return Failure("Document introuvable.", StatusCodes.Status404NotFound);
         }
 
         var document = documentResult.Value;

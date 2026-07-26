@@ -37,7 +37,7 @@ public class CreatePatientMedicalHistoryCommandHandler : IRequestHandler<CreateP
         {
             if (string.IsNullOrWhiteSpace(request.Description))
             {
-                return Result<PatientMedicalHistoryDto>.Failure("Description is required");
+                return Result<PatientMedicalHistoryDto>.Failure("La description est requise.");
             }
 
             var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
@@ -49,7 +49,7 @@ public class CreatePatientMedicalHistoryCommandHandler : IRequestHandler<CreateP
             var patient = await _patientRepository.GetByIdAsync(request.PatientId, cancellationToken);
             if (patient == null || patient.ClinicId != clinicResult.Value)
             {
-                return Result<PatientMedicalHistoryDto>.Failure("Patient not found");
+                return Result<PatientMedicalHistoryDto>.Failure("Patient introuvable.");
             }
 
             var entry = new PatientMedicalHistory(

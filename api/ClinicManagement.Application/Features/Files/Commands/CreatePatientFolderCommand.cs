@@ -39,7 +39,7 @@ public class CreatePatientFolderCommandHandler : IRequestHandler<CreatePatientFo
         {
             if (string.IsNullOrWhiteSpace(request.Name))
             {
-                return Result<PatientFolderDto>.Failure("Folder name is required");
+                return Result<PatientFolderDto>.Failure("Le nom du dossier est requis.");
             }
 
             // Authoritative tenant guard: resolve the caller's clinic from the DB and verify the patient
@@ -54,7 +54,7 @@ public class CreatePatientFolderCommandHandler : IRequestHandler<CreatePatientFo
             var patient = await _patientRepository.GetByIdAsync(request.PatientId, cancellationToken);
             if (patient == null || patient.ClinicId != clinicResult.Value)
             {
-                return Result<PatientFolderDto>.Failure("Patient not found");
+                return Result<PatientFolderDto>.Failure("Patient introuvable.");
             }
 
             // Validate parent folder if provided
@@ -63,7 +63,7 @@ public class CreatePatientFolderCommandHandler : IRequestHandler<CreatePatientFo
                 var parentFolder = await _folderRepository.GetByIdAsync(request.ParentFolderId.Value, cancellationToken);
                 if (parentFolder == null || parentFolder.PatientId != request.PatientId)
                 {
-                    return Result<PatientFolderDto>.Failure("Parent folder not found or does not belong to the patient");
+                    return Result<PatientFolderDto>.Failure("Dossier parent introuvable ou n'appartenant pas à ce patient.");
                 }
             }
 
@@ -75,7 +75,7 @@ public class CreatePatientFolderCommandHandler : IRequestHandler<CreatePatientFo
             
             if (folderExists)
             {
-                return Result<PatientFolderDto>.Failure("A folder with this name already exists in this location");
+                return Result<PatientFolderDto>.Failure("Un dossier portant ce nom existe déjà à cet emplacement.");
             }
 
             var folder = new PatientFolder(

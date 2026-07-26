@@ -71,14 +71,14 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
             var userId = _clinicContext.GetUserId();
             if (string.IsNullOrEmpty(userId))
             {
-                return Result<AppointmentDto>.Failure("User ID not found in token");
+                return Result<AppointmentDto>.Failure("Session invalide, veuillez vous reconnecter.");
             }
 
             // Get user from database to get clinic ID
             var user = await _userRepository.GetByAuth0SubAsync(userId, cancellationToken);
             if (user == null)
             {
-                return Result<AppointmentDto>.Failure("User not found");
+                return Result<AppointmentDto>.Failure("Utilisateur introuvable.");
             }
 
             var clinicId = user.ClinicId;
@@ -90,7 +90,7 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
                 patient = await _patientRepository.GetByIdAsync(request.PatientId.Value, cancellationToken);
                 if (patient == null || patient.ClinicId != clinicId)
                 {
-                    return Result<AppointmentDto>.Failure("Patient not found");
+                    return Result<AppointmentDto>.Failure("Patient introuvable.");
                 }
             }
 
@@ -101,7 +101,7 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
                 var doctor = await _doctorRepository.GetByIdAsync(request.DoctorId.Value, cancellationToken);
                 if (doctor == null || doctor.ClinicId != clinicId)
                 {
-                    return Result<AppointmentDto>.Failure("Doctor not found");
+                    return Result<AppointmentDto>.Failure("Praticien introuvable.");
                 }
             }
 
@@ -116,11 +116,11 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
                 var procedureType = await _procedureTypeRepository.GetByIdAsync(procedureTypeId.Value, cancellationToken);
                 if (procedureType == null || procedureType.ClinicId != clinicId)
                 {
-                    return Result<AppointmentDto>.Failure("Procedure type not found");
+                    return Result<AppointmentDto>.Failure("Type de procédure introuvable.");
                 }
                 if (!procedureType.IsActive)
                 {
-                    return Result<AppointmentDto>.Failure("Selected procedure type is not active");
+                    return Result<AppointmentDto>.Failure("Le type de procédure sélectionné n'est pas actif.");
                 }
                 procedureDurationMinutes = procedureType.DefaultDurationMinutes;
                 procedureColorHex = procedureType.Color.Value;

@@ -1,19 +1,34 @@
 "use client"
 
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useCallback } from "react"
+import { usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Card } from "@/components/ui/card"
 // Using div with overflow instead of ScrollArea
-import { Send, Bot, User, Loader2, X, Minimize2, Maximize2, Mic, MicOff } from "lucide-react"
+import { Send, Bot, User, Loader2, X, Trash2, Mic, MicOff } from "lucide-react"
 import { aiChatApi, type ChatMessage } from "@/lib/api/ai-chat"
 import { patientsApi } from "@/lib/api/patients"
 import type { PatientDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import { useDoctors } from "@/lib/hooks/use-doctors"
 import { useConnectivity } from "@/lib/connectivity/connectivity"
+import { useSession } from "@/lib/auth/session"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
+
+/** How long the chat stays expanded after login before collapsing itself. */
+const AUTO_OPEN_MS = 5000
+
+/** Marks the post-login greeting as spent, so a refresh doesn't re-pop the panel. */
+const AUTO_OPEN_ONCE_KEY = "clinic:ai-chat-greeted"
+
+/**
+ * Auth / onboarding routes the assistant must stay off. A path check is needed on top of the
+ * session check: on /setup and /join a Cloud user IS authenticated (Auth0 session, no clinic yet),
+ * and /change-password is a forced interstitial.
+ */
+const HIDDEN_PATHS = ["/login", "/setup", "/join", "/change-password"]
 
 interface AIChatProps {
   className?: string
@@ -28,7 +43,9 @@ export function AIChat({ className }: AIChatProps) {
   ])
   const [input, setInput] = useState("")
   const [isLoading, setIsLoading] = useState(false)
-  const [isMinimized, setIsMinimized] = useState(false)
+  // Collapsed by default: this is a global mount, so an expanded default meant the panel covered the
+  // corner of every page on every load. It expands only on the post-login greeting or on user intent.
+  const [isMinimized, setIsMinimized] = useState(true)
   const [isListening, setIsListening] = useState(false)
   const [isSpeechSupported, setIsSpeechSupported] = useState(false)
   const [isSpeaking, setIsSpeaking] = useState(false)
@@ -37,11 +54,39 @@ export function AIChat({ className }: AIChatProps) {
   // AI chat calls HuggingFace via the server, so it needs internet. In Local mode when the server has
   // no internet, the widget degrades gracefully (AC-6.2); Cloud always reports online (R-3).
   const { internetReachable } = useConnectivity()
+  const { user, isLoading: isSessionLoading } = useSession()
+  const pathname = usePathname()
   const scrollAreaRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const recognitionRef = useRef<SpeechRecognition | null>(null)
   const synthRef = useRef<SpeechSynthesis | null>(null)
   const isManuallyStoppedRef = useRef(false)
+  const autoCollapseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // The assistant has no business on screen before there is a session, or on the auth/onboarding
+  // routes. Everything below keys off this so no work (and no doomed API call) happens while hidden.
+  const isHidden =
+    isSessionLoading ||
+    !user ||
+    HIDDEN_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`))
+
+  /** Drop the pending auto-collapse so the greeting timer never fights a deliberate open/close. */
+  const cancelAutoCollapse = useCallback(() => {
+    if (autoCollapseTimerRef.current) {
+      clearTimeout(autoCollapseTimerRef.current)
+      autoCollapseTimerRef.current = null
+    }
+  }, [])
+
+  const handleCollapse = useCallback(() => {
+    cancelAutoCollapse()
+    setIsMinimized(true)
+  }, [cancelAutoCollapse])
+
+  const handleExpand = useCallback(() => {
+    cancelAutoCollapse()
+    setIsMinimized(false)
+  }, [cancelAutoCollapse])
 
   useEffect(() => {
     // Auto-scroll to bottom when new messages arrive
@@ -50,8 +95,10 @@ export function AIChat({ className }: AIChatProps) {
     }
   }, [messages])
 
-  // Load patients list for autocorrect
+  // Load patients list for autocorrect. Gated on visibility: hooks still run when the component
+  // renders null, so without this the widget fired a guaranteed-401 patients call on every /login load.
   useEffect(() => {
+    if (isHidden) return
     const loadPatients = async () => {
       try {
         const patientsList = await patientsApi.list()
@@ -61,7 +108,44 @@ export function AIChat({ className }: AIChatProps) {
       }
     }
     loadPatients()
-  }, [])
+  }, [isHidden])
+
+  // A brief hello after login so the assistant stays discoverable without being in the way:
+  // expand, then collapse on its own. Spent once per tab session (sessionStorage) so a refresh or a
+  // remount doesn't re-pop it; storage being unavailable simply skips the greeting.
+  useEffect(() => {
+    if (isHidden) return
+
+    let alreadyGreeted = true
+    try {
+      alreadyGreeted = window.sessionStorage.getItem(AUTO_OPEN_ONCE_KEY) === "1"
+      if (!alreadyGreeted) {
+        window.sessionStorage.setItem(AUTO_OPEN_ONCE_KEY, "1")
+      }
+    } catch {
+      // Private mode / storage disabled — skip rather than greet on every navigation.
+    }
+    if (alreadyGreeted) return
+
+    setIsMinimized(false)
+    autoCollapseTimerRef.current = setTimeout(() => {
+      autoCollapseTimerRef.current = null
+      setIsMinimized(true)
+    }, AUTO_OPEN_MS)
+
+    return cancelAutoCollapse
+  }, [isHidden, cancelAutoCollapse])
+
+  // Signed out: forget the greeting (and re-collapse) so the next login in this same tab greets again.
+  useEffect(() => {
+    if (isSessionLoading || user) return
+    setIsMinimized(true)
+    try {
+      window.sessionStorage.removeItem(AUTO_OPEN_ONCE_KEY)
+    } catch {
+      // Storage unavailable — nothing to forget.
+    }
+  }, [isSessionLoading, user])
 
   // Initialize speech recognition and synthesis
   useEffect(() => {
@@ -171,6 +255,9 @@ export function AIChat({ className }: AIChatProps) {
 
   const handleSend = async () => {
     if (!input.trim() || isLoading) return
+
+    // Engaged with the assistant — the greeting's auto-collapse must not fire under the conversation.
+    cancelAutoCollapse()
 
     // Short-circuit when the server has no internet — the request would only fail (AC-6.2).
     if (!internetReachable) {
@@ -565,13 +652,19 @@ export function AIChat({ className }: AIChatProps) {
     return correctedText
   }
 
+  // Signed out, still resolving the session, or on an auth/onboarding route: render nothing at all.
+  if (isHidden) {
+    return null
+  }
+
   if (isMinimized) {
     return (
       <div className={cn("fixed bottom-4 right-4 z-50", className)}>
         <Button
-          onClick={() => setIsMinimized(false)}
+          onClick={handleExpand}
           className="rounded-full h-14 w-14 shadow-lg bg-primary hover:bg-primary/90"
           size="icon"
+          title="Ouvrir l'assistant IA"
         >
           <Bot className="h-6 w-6" />
         </Button>
@@ -606,16 +699,17 @@ export function AIChat({ className }: AIChatProps) {
             onClick={handleClear}
             title="Effacer la conversation"
           >
-            <X className="h-4 w-4" />
+            <Trash2 className="h-4 w-4" />
           </Button>
+          {/* X collapses to the bubble — it used to be wired to "clear", which read as a dead close button. */}
           <Button
             variant="ghost"
             size="sm"
             className="h-8 w-8 p-0 text-primary-foreground hover:bg-primary-foreground/20"
-            onClick={() => setIsMinimized(true)}
-            title="Réduire"
+            onClick={handleCollapse}
+            title="Réduire l'assistant"
           >
-            <Minimize2 className="h-4 w-4" />
+            <X className="h-4 w-4" />
           </Button>
         </div>
       </div>
@@ -696,7 +790,12 @@ export function AIChat({ className }: AIChatProps) {
           <Textarea
             ref={inputRef}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => {
+              // Someone is typing during the post-login greeting — stop the pending auto-collapse
+              // so the panel can't close mid-sentence.
+              cancelAutoCollapse()
+              setInput(e.target.value)
+            }}
             onKeyDown={handleKeyDown}
             placeholder={!internetReachable ? "Connexion internet requise…" : isListening ? "À l'écoute…" : "Écrivez votre message…"}
             disabled={isLoading || isListening || !internetReachable}

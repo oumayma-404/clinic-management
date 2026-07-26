@@ -40,7 +40,7 @@ public class DeletePatientFamilyHistoryCommandHandler : IRequestHandler<DeletePa
             var patient = await _patientRepository.GetByIdAsync(request.PatientId, cancellationToken);
             if (patient == null || patient.ClinicId != clinicResult.Value)
             {
-                return Result.Failure("Patient not found");
+                return Result.Failure("Patient introuvable.");
             }
 
             patient.RemoveFamilyHistoryEntry(request.Id);

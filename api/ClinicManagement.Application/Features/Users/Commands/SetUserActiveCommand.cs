@@ -39,38 +39,38 @@ public class SetUserActiveCommandHandler : IRequestHandler<SetUserActiveCommand,
             var callerId = _clinicContext.GetUserId();
             if (string.IsNullOrEmpty(callerId))
             {
-                return Result<ClinicUserDto>.Failure("User ID not found in token");
+                return Result<ClinicUserDto>.Failure("Session invalide, veuillez vous reconnecter.");
             }
 
             var admin = await _userRepository.GetByAuth0SubAsync(callerId, cancellationToken);
             if (admin == null)
             {
-                return Result<ClinicUserDto>.Failure("User not found");
+                return Result<ClinicUserDto>.Failure("Utilisateur introuvable.");
             }
 
             // AC-5.4: only an admin can (de)activate users.
             if (!admin.IsAdmin())
             {
-                return Result<ClinicUserDto>.Failure("Only admins can change a user's status");
+                return Result<ClinicUserDto>.Failure("Seuls les administrateurs peuvent modifier le statut d'un utilisateur.");
             }
 
             if (string.IsNullOrWhiteSpace(request.TargetUserId))
             {
-                return Result<ClinicUserDto>.Failure("Target user is required.");
+                return Result<ClinicUserDto>.Failure("L'utilisateur cible est requis.");
             }
 
             // An admin deactivating themselves would be an unrecoverable lockout in Phase 1
             // (the recovery utility resets a password, not the active flag), so block it.
             if (!request.IsActive && string.Equals(request.TargetUserId, admin.Id, StringComparison.Ordinal))
             {
-                return Result<ClinicUserDto>.Failure("You cannot deactivate your own account.");
+                return Result<ClinicUserDto>.Failure("Vous ne pouvez pas désactiver votre propre compte.");
             }
 
             var target = await _userRepository.GetByIdAsync(request.TargetUserId, cancellationToken);
             // Scope to the admin's own clinic.
             if (target == null || target.ClinicId != admin.ClinicId)
             {
-                return Result<ClinicUserDto>.Failure("User not found");
+                return Result<ClinicUserDto>.Failure("Utilisateur introuvable.");
             }
 
             if (request.IsActive)

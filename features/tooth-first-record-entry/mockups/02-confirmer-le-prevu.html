@@ -1,0 +1,1175 @@
+<title>Fiche médicale — confirmer le prévu</title>
+<style>
+  /* ══════════════════════════════════════════════════════════════════════
+     TWO SCOPED TOKEN SETS, deliberately kept apart so they cannot collide:
+       :root   → review chrome (neutral, never blue)
+       .stage  → the clinic app's OWN tokens, copied verbatim from
+                 web/app/globals.css, so the mockup canvas IS the app
+     Same convention as 01-interaction-models.html, so the two review
+     documents read as one set.
+     ══════════════════════════════════════════════════════════════════════ */
+  :root{
+    --paper:#F7F8FA; --panel:#FFFFFF; --ink:#10151C; --muted:#5B6673;
+    --rule:#D8DDE4; --rule-soft:#E8ECF1; --flag:#B4472C; --ok:#2F6B4F;
+    --mono:ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+    --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --paper:#0B0F14; --panel:#131920; --ink:#EEF1F5; --muted:#8E9AA8;
+      --rule:#262E38; --rule-soft:#1B222B; --flag:#E08A6E; --ok:#6FBF95;
+    }
+  }
+  :root[data-theme="dark"]{
+    --paper:#0B0F14; --panel:#131920; --ink:#EEF1F5; --muted:#8E9AA8;
+    --rule:#262E38; --rule-soft:#1B222B; --flag:#E08A6E; --ok:#6FBF95;
+  }
+
+  .stage{
+    --background:oklch(0.99 0 0); --foreground:oklch(0.18 0 0); --card:oklch(1 0 0);
+    --muted-bg:oklch(0.97 0.005 250); --muted-fg:oklch(0.48 0.01 250);
+    --primary:oklch(0.52 0.14 245); --primary-fg:oklch(0.99 0 0);
+    --accent:oklch(0.965 0.01 245); --accent-fg:oklch(0.35 0.12 245);
+    --destructive:oklch(0.58 0.2 25); --border:oklch(0.93 0.005 250);
+    --secondary:oklch(0.97 0.005 250); --radius:0.5rem;
+    --app-sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; /* stands in for Geist */
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]) .stage{
+      --background:oklch(0.12 0.005 250); --foreground:oklch(0.97 0.005 250); --card:oklch(0.16 0.008 250);
+      --muted-bg:oklch(0.22 0.01 250); --muted-fg:oklch(0.58 0.01 250);
+      --primary:oklch(0.6 0.16 245); --accent:oklch(0.22 0.015 245); --accent-fg:oklch(0.75 0.12 245);
+      --destructive:oklch(0.52 0.2 25); --border:oklch(0.24 0.01 250); --secondary:oklch(0.22 0.01 250);
+    }
+  }
+  :root[data-theme="dark"] .stage{
+    --background:oklch(0.12 0.005 250); --foreground:oklch(0.97 0.005 250); --card:oklch(0.16 0.008 250);
+    --muted-bg:oklch(0.22 0.01 250); --muted-fg:oklch(0.58 0.01 250);
+    --primary:oklch(0.6 0.16 245); --accent:oklch(0.22 0.015 245); --accent-fg:oklch(0.75 0.12 245);
+    --destructive:oklch(0.52 0.2 25); --border:oklch(0.24 0.01 250); --secondary:oklch(0.22 0.01 250);
+  }
+
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  @media (prefers-reduced-motion:reduce){ html{scroll-behavior:auto} *{transition:none!important;animation:none!important} }
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+  :focus-visible{outline:2px solid var(--ink);outline-offset:2px;border-radius:3px}
+  .stage :focus-visible{outline-color:var(--primary)}
+
+  /* ── page frame ───────────────────────────────────────────────── */
+  .shell{max-width:1100px;margin:0 auto;padding:0 20px 72px;display:grid;gap:20px}
+  .masthead{padding:26px 0 4px;display:grid;gap:9px}
+  .eyebrow{font-family:var(--mono);font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--muted);display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .eyebrow button{font:inherit;letter-spacing:inherit;text-transform:inherit;border:1px solid var(--rule);background:var(--panel);color:var(--muted);border-radius:99px;padding:2px 9px;cursor:pointer}
+  .eyebrow button:hover{color:var(--ink);border-color:var(--muted)}
+  h1{font-size:25px;font-weight:600;letter-spacing:-.02em;margin:0;text-wrap:balance}
+  .standfirst{margin:0;color:var(--muted);font-size:13.5px;max-width:70ch}
+  .standfirst b{color:var(--ink);font-weight:600}
+  .standfirst code{font-family:var(--mono);font-size:12px}
+
+  /* ── the three decisions this mockup encodes ─────────────────── */
+  .decisions{display:grid;gap:1px;background:var(--rule-soft);border:1px solid var(--rule);border-radius:5px;overflow:hidden}
+  @media(min-width:820px){ .decisions{grid-template-columns:repeat(3,1fr)} }
+  .decisions div{background:var(--panel);padding:12px 14px;display:grid;gap:3px;align-content:start}
+  .decisions dt{font-family:var(--mono);font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--muted)}
+  .decisions dd{margin:0;font-size:12.5px;color:var(--muted)}
+  .decisions dd b{color:var(--ink);font-weight:600;font-size:13px;display:block;margin-bottom:2px}
+
+  /* ── scenario rail ───────────────────────────────────────────── */
+  .rail{
+    position:sticky;top:0;z-index:20;margin:0 -20px;padding:9px 20px;
+    background:var(--paper);border-bottom:1px solid var(--rule);
+    display:grid;gap:8px;grid-template-columns:1fr;
+  }
+  @media(min-width:700px){ .rail{grid-template-columns:repeat(3,minmax(0,1fr))} }
+  .opt{
+    display:grid;gap:2px;border:1px solid var(--rule);border-radius:4px;background:var(--panel);color:var(--ink);
+    font:inherit;text-align:left;padding:9px 11px;cursor:pointer;
+  }
+  .opt:hover{border-color:var(--muted)}
+  .opt[aria-selected="true"]{background:var(--ink);border-color:var(--ink);color:var(--paper)}
+  .opt .key{font-family:var(--mono);font-size:9.5px;letter-spacing:.11em;color:var(--muted)}
+  .opt[aria-selected="true"] .key{color:var(--paper);opacity:.62}
+  .opt .nm{font-size:13px;font-weight:600;letter-spacing:-.01em}
+  .opt .sub{font-size:11px;color:var(--muted);line-height:1.3}
+  .opt[aria-selected="true"] .sub{color:var(--paper);opacity:.66}
+
+  /* ── the canvas: app chrome + modal.
+        The modal sits in NORMAL FLOW so the stage grows to fit it — an
+        absolutely positioned overlay collapsed the stage in a past mockup
+        and trapped the modal inside a scrollbox. ─────────────────── */
+  .stage{
+    border:1px solid var(--rule);border-radius:6px;overflow:hidden;
+    background:var(--background);color:var(--foreground);font-family:var(--app-sans);
+    box-shadow:0 1px 2px rgba(16,21,28,.05),0 8px 24px rgba(16,21,28,.06);
+  }
+  .appbar{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border);background:var(--card)}
+  .crumb{font-size:12px;color:var(--muted-fg)}
+  .crumb b{color:var(--foreground);font-weight:600}
+  .overlay{background:rgba(15,20,27,.55);display:flex;justify-content:center;padding:20px}
+
+  .dialog{
+    width:100%;max-width:760px;background:var(--card);border:1px solid var(--border);
+    border-radius:var(--radius);box-shadow:0 10px 30px rgba(0,0,0,.2);padding:20px;display:grid;gap:13px;
+  }
+  .dtitle{font-size:17px;font-weight:600;letter-spacing:-.01em}
+  .ddesc{font-size:13px;color:var(--muted-fg);margin-top:3px}
+
+  .alert{border:1px solid #fcd34d;background:#fffbeb;border-radius:var(--radius);padding:9px 12px;font-size:12px;color:#92400e}
+  .alert b{font-weight:600}
+  @media (prefers-color-scheme:dark){ :root:not([data-theme="light"]) .alert{border-color:#78350f;background:rgba(69,26,3,.5);color:#fcd34d} }
+  :root[data-theme="dark"] .alert{border-color:#78350f;background:rgba(69,26,3,.5);color:#fcd34d}
+
+  /* ── form atoms (mirroring shadcn/ui) ────────────────────────── */
+  .metarow{display:flex;flex-wrap:wrap;gap:11px;align-items:flex-end}
+  .field{display:grid;gap:5px;min-width:0}
+  .lbl{font-size:12px;font-weight:500}
+  .inp{height:34px;border:1px solid var(--border);border-radius:calc(var(--radius) - 2px);background:var(--background);color:var(--foreground);font:inherit;font-size:13px;padding:0 10px;min-width:0;width:100%}
+  .inp[readonly]{font-weight:500;color:var(--muted-fg)}
+  .inp.num{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right}
+  .seg{display:inline-flex;gap:4px;background:var(--muted-bg);padding:3px;border-radius:calc(var(--radius) - 1px)}
+  .seg button{border:0;background:transparent;color:var(--muted-fg);font:inherit;font-size:12px;padding:5px 13px;border-radius:5px;cursor:pointer}
+  .seg button[aria-pressed="true"]{background:var(--primary);color:var(--primary-fg);font-weight:500}
+  .seg button:disabled{opacity:.4;cursor:not-allowed}
+  .btn{border:1px solid var(--border);background:var(--background);color:var(--foreground);font:inherit;font-size:12px;height:28px;padding:0 10px;border-radius:calc(var(--radius) - 2px);cursor:pointer}
+  .btn:hover{background:var(--muted-bg)}
+  .btn.primary{background:var(--primary);color:var(--primary-fg);border-color:transparent;height:36px;padding:0 18px;font-size:13px;font-weight:500}
+  .btn.primary:hover{opacity:.92;background:var(--primary)}
+  .btn.lg{height:36px;padding:0 14px;font-size:13px}
+  .btn.link{border-color:transparent;background:transparent;color:var(--accent-fg);padding:0 2px;height:auto;text-decoration:underline;text-underline-offset:2px}
+  .btn.link:hover{background:transparent;opacity:.75}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+
+  /* ── THE ACT: prévu card ↔ catalogue, one slot, two states ───── */
+  .actslot{border:1px solid var(--border);border-radius:var(--radius);background:var(--background);overflow:hidden}
+  .actslot.armed{border-color:var(--primary);background:var(--accent)}
+  .prevu{display:flex;gap:11px;align-items:center;padding:11px 13px;flex-wrap:wrap}
+  .prevu .swatch{width:5px;align-self:stretch;min-height:34px;border-radius:3px;flex:0 0 auto}
+  .prevu .body{flex:1 1 200px;min-width:0}
+  .prevu .cap{font-size:10.5px;font-family:var(--mono);letter-spacing:.09em;text-transform:uppercase;color:var(--muted-fg)}
+  .prevu .nm{font-weight:600;font-size:14px;letter-spacing:-.01em;margin-top:2px;text-wrap:balance}
+  .prevu .meta{font-size:11.5px;color:var(--muted-fg);margin-top:2px;display:flex;gap:7px;flex-wrap:wrap;align-items:center}
+  .prevu .money{font-family:var(--mono);font-size:13px;font-variant-numeric:tabular-nums;font-weight:600;flex:0 0 auto;text-align:right}
+
+  /* the dense, grouped, searchable catalogue — one column, always */
+  .picker{display:grid}
+  .pickerbar{display:flex;gap:8px;align-items:center;padding:9px 11px;border-bottom:1px solid var(--border);background:var(--card)}
+  .pickerbar .mag{color:var(--muted-fg);font-size:13px;flex:0 0 auto}
+  .pickerbar .inp{height:32px;border:0;background:transparent;padding:0;font-size:13.5px}
+  .pickerbar .inp:focus{outline:none}
+  .pickercount{font-family:var(--mono);font-size:10.5px;color:var(--muted-fg);flex:0 0 auto;font-variant-numeric:tabular-nums}
+  .pickerlist{max-height:290px;overflow-y:auto;padding:5px 0}
+  .grp{font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted-fg);padding:8px 13px 3px}
+  .opt-act{display:flex;gap:9px;align-items:center;width:100%;border:0;background:transparent;color:var(--foreground);font:inherit;text-align:left;padding:6px 13px;cursor:pointer}
+  .opt-act .swatch{width:4px;height:20px;border-radius:2px;flex:0 0 auto;background:var(--border)}
+  .opt-act .nm{flex:1;min-width:0;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .opt-act .cnd{font-size:10.5px;color:var(--muted-fg);flex:0 0 auto}
+  .opt-act .pr{font-family:var(--mono);font-size:11.5px;color:var(--muted-fg);font-variant-numeric:tabular-nums;flex:0 0 auto;min-width:74px;text-align:right}
+  .opt-act[data-cur="1"]{background:var(--accent)}
+  .opt-act[data-cur="1"] .nm{font-weight:600}
+  .opt-act:hover{background:var(--muted-bg)}
+  .pickerfoot{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:8px 12px;border-top:1px solid var(--border);background:var(--card);font-size:11.5px;color:var(--muted-fg)}
+  .kbd{font-family:var(--mono);font-size:10px;border:1px solid var(--border);border-bottom-width:2px;border-radius:3px;padding:1px 4px;background:var(--background)}
+  .freetext{display:flex;gap:9px;align-items:center;width:100%;border:0;border-top:1px dashed var(--border);background:transparent;color:var(--foreground);font:inherit;text-align:left;padding:9px 13px;cursor:pointer;font-size:12.5px}
+  .freetext:hover{background:var(--muted-bg)}
+  .freetext em{font-style:normal;font-weight:600}
+
+  /* ── tooth chart: real FDI layout + real glyph paths ─────────── */
+  .charthead{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap}
+  .charthead .lbl{font-size:12.5px;font-weight:600}
+  .chartcard{border:1px solid var(--border);border-radius:var(--radius);background:var(--background);padding:11px;overflow-x:auto}
+  .jawlabel{text-align:center;font-size:9.5px;font-weight:500;color:var(--muted-fg);margin:0 0 5px}
+  .arch{display:flex;justify-content:center;gap:8px;min-width:min-content}
+  .quad{display:flex;gap:2px}
+  .mid{width:1px;background:var(--border)}
+  .hr{height:1px;background:var(--border);margin:9px 0}
+  .tooth{display:flex;flex-direction:column;align-items:center;border:0;background:transparent;padding:0;cursor:pointer}
+  .glyphwrap{position:relative;border-radius:6px;padding:2px;transition:transform .1s}
+  .tooth:hover .glyphwrap{transform:scale(1.08)}
+  .tooth[data-sel="1"] .glyphwrap{box-shadow:0 0 0 2px var(--primary)}
+  .tooth .num{font-family:var(--mono);font-size:9px;color:var(--muted-fg);margin-top:2px;font-variant-numeric:tabular-nums}
+  .tooth[data-sel="1"] .num{color:var(--primary);font-weight:600}
+  .tooth svg path{fill:#fff;stroke:#9ca3af;stroke-width:2}
+  .badge-n{position:absolute;top:-3px;right:-4px;min-width:14px;height:14px;border-radius:99px;background:var(--primary);color:var(--primary-fg);font-family:var(--mono);font-size:8px;display:flex;align-items:center;justify-content:center;padding:0 3px}
+  .quick{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:11px;color:var(--muted-fg)}
+  .legend{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:10.5px;color:var(--muted-fg)}
+  .legend span{display:flex;align-items:center;gap:5px}
+  .dot{width:9px;height:9px;border-radius:99px;display:inline-block;flex:0 0 auto}
+  .selline{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:12.5px;min-height:24px}
+  .chipnum{display:inline-flex;align-items:center;height:21px;padding:0 8px;border-radius:99px;background:var(--secondary);font-family:var(--mono);font-size:11px;font-variant-numeric:tabular-nums}
+  .hint{color:var(--muted-fg);font-style:italic;font-size:12px}
+  .calc{font-family:var(--mono);font-size:12px;font-variant-numeric:tabular-nums;color:var(--muted-fg);margin-left:auto}
+  .calc b{color:var(--foreground);font-size:12.5px}
+  .todo{display:flex;gap:7px;align-items:center;width:100%;border:1px solid #fdba74;background:#fff7ed;color:#9a3412;border-radius:calc(var(--radius) - 2px);padding:6px 9px;font:inherit;font-size:11.5px;text-align:left;cursor:pointer}
+  .todo:hover{background:#ffedd5}
+  @media (prefers-color-scheme:dark){ :root:not([data-theme="light"]) .todo{border-color:#7c2d12;background:rgba(67,20,7,.45);color:#fdba74} }
+  :root[data-theme="dark"] .todo{border-color:#7c2d12;background:rgba(67,20,7,.45);color:#fdba74}
+
+  /* ── collapsible sections. The header carries a LIVE SUMMARY, so
+        collapsing never hides a value — this is what makes the
+        confirm-first density safe. ─────────────────────────────── */
+  .sect{border:1px solid var(--border);border-radius:var(--radius);background:var(--background)}
+  .secthead{display:flex;gap:10px;align-items:center;width:100%;border:0;background:transparent;color:var(--foreground);font:inherit;text-align:left;padding:9px 12px;cursor:pointer;border-radius:var(--radius)}
+  .secthead:hover{background:var(--muted-bg)}
+  .secthead .caret{font-size:10px;color:var(--muted-fg);flex:0 0 auto;width:9px}
+  .secthead .t{font-size:12.5px;font-weight:600;flex:0 0 auto}
+  .secthead .s{font-size:11.5px;color:var(--muted-fg);flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .secthead .s b{color:var(--foreground);font-weight:500;font-family:var(--mono);font-variant-numeric:tabular-nums}
+  .sectbody{padding:2px 12px 12px;display:grid;gap:11px;border-top:1px solid var(--border);margin-top:-1px;padding-top:11px}
+  .sectbody[hidden]{display:none}
+  .subrow{display:flex;flex-wrap:wrap;gap:9px;align-items:center;font-size:12px}
+  .subrow>.k{color:var(--muted-fg);font-size:11.5px;flex:0 0 auto}
+  .faces{display:flex;gap:4px}
+  .faces button{width:29px;height:29px;border:1px solid var(--border);background:var(--background);color:var(--foreground);font:inherit;font-size:11.5px;border-radius:calc(var(--radius) - 3px);cursor:pointer}
+  .faces button[aria-pressed="true"]{background:var(--primary);color:var(--primary-fg);border-color:transparent;font-weight:600}
+  .sel{height:30px;border:1px solid var(--border);border-radius:calc(var(--radius) - 2px);background:var(--background);color:var(--foreground);font:inherit;font-size:12px;padding:0 7px}
+  .condchip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:99px;padding:2px 9px;font-size:11.5px}
+
+  /* committed acts, grouped by tooth */
+  .grouphead{display:flex;align-items:center;gap:8px;font-size:11.5px;font-weight:600;margin:7px 0 4px}
+  .grouphead .line{flex:1;height:1px;background:var(--border)}
+  .grouphead .c{font-family:var(--mono);font-size:10px;font-weight:400;color:var(--muted-fg)}
+  .actrow{display:flex;align-items:center;gap:8px;border:1px solid var(--border);border-radius:calc(var(--radius) - 2px);padding:6px 9px;font-size:12.5px;margin-bottom:4px;background:var(--card)}
+  .actrow .swatch{width:4px;height:18px;border-radius:2px;flex:0 0 auto;background:var(--border)}
+  .actrow .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
+  .actrow .price{font-family:var(--mono);font-size:11.5px;font-variant-numeric:tabular-nums;flex:0 0 auto}
+  .actrow .ic{border:0;background:transparent;cursor:pointer;color:var(--muted-fg);font-size:12px;padding:2px 4px;line-height:1;border-radius:3px}
+  .actrow .ic:hover{color:var(--destructive);background:var(--muted-bg)}
+  .shared{font-family:var(--mono);font-size:10px;color:var(--muted-fg);flex:0 0 auto}
+  .emptyhint{font-size:12px;color:var(--muted-fg);font-style:italic}
+  .ta{border:1px solid var(--border);border-radius:calc(var(--radius) - 2px);background:var(--background);color:var(--foreground);font:inherit;font-size:12.5px;padding:7px 9px;min-height:56px;resize:vertical;width:100%}
+  .ta.imp{border-color:#fcd34d;background:#fffbeb33}
+
+  /* ── footer: the number that will be saved, always visible ───── */
+  .foot{display:flex;flex-wrap:wrap;gap:13px;align-items:center;justify-content:space-between;border-top:1px solid var(--border);padding-top:13px}
+  .totals{display:flex;flex-wrap:wrap;gap:7px 18px;align-items:center;font-size:12.5px}
+  .totals .k{color:var(--muted-fg)}
+  .totals b{font-family:var(--mono);font-size:13px;font-variant-numeric:tabular-nums}
+  .totals .big b{font-size:15px}
+  .totals .due b{color:#b45309}
+  .foot .acts{display:flex;gap:8px;align-items:center}
+  .paidwrap{display:flex;align-items:center;gap:6px}
+  .paidwrap .inp{height:30px;width:110px}
+
+  /* ── annotations ─────────────────────────────────────────────── */
+  .annot{display:grid;gap:18px;grid-template-columns:1fr}
+  @media(min-width:840px){ .annot{grid-template-columns:1fr 1fr} }
+  .annot h3{margin:0 0 9px;font-family:var(--mono);font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--muted);font-weight:400}
+  ol.steps,ul.risks{list-style:none;margin:0;padding:0;display:grid;gap:1px;background:var(--rule-soft);border:1px solid var(--rule);border-radius:4px;overflow:hidden}
+  ol.steps li,ul.risks li{display:flex;gap:10px;background:var(--panel);padding:11px 13px;font-size:12.5px;color:var(--muted)}
+  ol.steps b,ul.risks b{color:var(--ink)}
+  ol.steps .n{flex:0 0 auto;font-family:var(--mono);font-size:11px;color:var(--ink);padding-top:1px;font-variant-numeric:tabular-nums}
+  ul.risks .m{flex:0 0 auto;color:var(--flag);font-family:var(--mono);font-size:12px;line-height:1.35}
+  ul.risks .m.ok{color:var(--ok)}
+  ul.risks code,ol.steps code{font-family:var(--mono);font-size:11.5px}
+
+  .tablewrap{overflow-x:auto;border:1px solid var(--rule);border-radius:4px}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;background:var(--panel);min-width:600px}
+  caption{text-align:left;padding:12px 13px 0;font-family:var(--mono);font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--muted)}
+  th,td{padding:9px 13px;text-align:left;border-bottom:1px solid var(--rule-soft);vertical-align:top}
+  thead th{font-size:11px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--rule)}
+  tbody th{font-weight:400;color:var(--muted)}
+  tbody tr:last-child th,tbody tr:last-child td{border-bottom:0}
+  td b{color:var(--ink)}
+  td code{font-family:var(--mono);font-size:11.5px}
+</style>
+
+<div class="shell">
+  <header class="masthead">
+    <div class="eyebrow">
+      <span>Clinic Management · revue de conception · 26.07.2026</span>
+      <button type="button" id="theme">Thème</button>
+    </div>
+    <h1>Fiche médicale — confirmer le prévu</h1>
+    <p class="standfirst">
+      Le rendez-vous porte déjà un acte : l'app le <b>propose</b>, le dentiste touche les dents et
+      <b>confirme</b>. Tout le détail de l'ancien formulaire est conservé, replié derrière des en-têtes qui
+      <b>affichent leur contenu</b> — rien n'est caché, rien n'est perdu. Le catalogue passe de la grille de
+      cartes à une <b>liste dense, groupée et filtrable</b>. Rendu avec les jetons de design réels, les vraies
+      formes de dents de <code>record-tooth-chart.tsx</code>, la numérotation FDI et les tarifs réellement semés.
+    </p>
+  </header>
+
+  <dl class="decisions">
+    <div>
+      <dt>Décision 1 · densité</dt>
+      <dd><b>Confirmer d'abord</b>Une colonne de 760 px au lieu de deux volets de 1 200 px. Le détail est à un
+        clic, jamais supprimé.</dd>
+    </div>
+    <div>
+      <dt>Décision 2 · catalogue</dt>
+      <dd><b>Une liste dense</b>Une seule colonne, en-têtes de catégorie légers, filtrage au clavier. Les
+        en-têtes disparaissent pendant la recherche.</dd>
+    </div>
+    <div>
+      <dt>Décision 3 · pré-remplissage</dt>
+      <dd><b>Proposer, jamais valider</b>L'acte prévu remplit le brouillon. Aucun acte n'existe avant que le
+        dentiste ne confirme.</dd>
+    </div>
+  </dl>
+
+  <nav class="rail" role="tablist" aria-label="Scénarios">
+    <button class="opt" role="tab" aria-selected="true" data-s="rdv">
+      <span class="key">SCÉNARIO 1</span><span class="nm">Depuis le rendez-vous</span>
+      <span class="sub">Un acte est prévu — le cas courant</span>
+    </button>
+    <button class="opt" role="tab" aria-selected="false" data-s="fiche">
+      <span class="key">SCÉNARIO 2</span><span class="nm">Depuis la fiche patient</span>
+      <span class="sub">Aucun rendez-vous, donc rien à proposer</span>
+    </button>
+    <button class="opt" role="tab" aria-selected="false" data-s="edit">
+      <span class="key">SCÉNARIO 3</span><span class="nm">Modifier une fiche</span>
+      <span class="sub">Deux actes déjà saisis, notes, montant payé</span>
+    </button>
+  </nav>
+
+  <div class="stage">
+    <div class="appbar"><span class="crumb" id="crumb"></span></div>
+    <div class="overlay">
+      <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dtitle">
+
+        <div>
+          <div class="dtitle" id="dtitle"></div>
+          <div class="ddesc" id="ddesc"></div>
+        </div>
+
+        <div class="alert">
+          <b>⚠ Allergies :</b> Pénicilline · <b>Antécédents :</b> HTA traitée
+        </div>
+
+        <div class="metarow">
+          <div class="field" style="flex:1 1 180px"><span class="lbl">Patient</span>
+            <input class="inp" readonly value="oumayma benkhalifa"></div>
+          <div class="field" style="flex:0 0 132px"><span class="lbl">Date</span>
+            <input class="inp" type="date" value="2026-07-26"></div>
+          <div class="field"><span class="lbl">Schéma</span>
+            <div class="seg" id="dentseg">
+              <button type="button" data-adult="1" aria-pressed="true">Adulte</button>
+              <button type="button" data-adult="0" aria-pressed="false">Enfant</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- THE ACT — one slot, two states: proposal card ↔ dense catalogue -->
+        <div class="actslot" id="actslot"></div>
+
+        <!-- THE TEETH -->
+        <div style="display:grid;gap:8px">
+          <div class="charthead">
+            <span class="lbl" id="chartq">Sur quelle(s) dent(s) ?</span>
+            <span class="quick">
+              <button class="btn" type="button" data-q="upper">Haut</button>
+              <button class="btn" type="button" data-q="lower">Bas</button>
+              <button class="btn" type="button" data-q="all">Toute la bouche</button>
+              <button class="btn" type="button" data-q="none">Vider</button>
+            </span>
+          </div>
+          <div class="chartcard">
+            <div class="jawlabel">Maxillaire (haut)</div>
+            <div class="arch" data-arch="upper"></div>
+            <div class="hr"></div>
+            <div class="arch" data-arch="lower"></div>
+            <div class="jawlabel" style="margin:5px 0 0">Mandibule (bas)</div>
+          </div>
+          <div id="todowrap"></div>
+          <div class="selline" id="selline"></div>
+          <div class="legend" id="legend"></div>
+        </div>
+
+        <!-- DETAIL, folded but never hidden -->
+        <div class="sect">
+          <button class="secthead" type="button" data-sect="details" aria-expanded="false">
+            <span class="caret">▸</span><span class="t">Détails de l'acte</span>
+            <span class="s" id="sumDetails"></span>
+          </button>
+          <div class="sectbody" id="bodyDetails" hidden>
+            <div class="subrow">
+              <span class="k">Tarif</span>
+              <input class="inp num" id="unit" style="width:104px" inputmode="decimal">
+              <div class="seg" id="perseg">
+                <button type="button" data-per="1">/ dent</button>
+                <button type="button" data-per="0">forfait</button>
+              </div>
+              <span class="calc" id="calc"></span>
+            </div>
+            <div class="subrow">
+              <span class="k">État résultant</span>
+              <span class="condchip" id="condchip"></span>
+              <select class="sel" id="cond"></select>
+              <span class="k" style="margin-left:auto">alimente l'odontogramme</span>
+            </div>
+            <div class="subrow">
+              <span class="k">Faces</span>
+              <span class="faces" id="faces"></span>
+              <input class="inp" id="note" placeholder="Note sur l'acte (optionnel)" style="flex:1 1 160px;height:30px">
+            </div>
+            <p class="emptyhint" id="multihint" hidden></p>
+          </div>
+        </div>
+
+        <div class="sect">
+          <button class="secthead" type="button" data-sect="acts" aria-expanded="false">
+            <span class="caret">▸</span><span class="t">Actes de la séance</span>
+            <span class="s" id="sumActs"></span>
+          </button>
+          <div class="sectbody" id="bodyActs" hidden>
+            <div id="actslist"></div>
+          </div>
+        </div>
+
+        <div class="sect">
+          <button class="secthead" type="button" data-sect="notes" aria-expanded="false">
+            <span class="caret">▸</span><span class="t">Notes de séance</span>
+            <span class="s" id="sumNotes"></span>
+          </button>
+          <div class="sectbody" id="bodyNotes" hidden>
+            <div class="field"><span class="lbl">Notes</span>
+              <textarea class="ta" id="note1" placeholder="Saisir une note…"></textarea></div>
+            <div class="field"><span class="lbl">Notes importantes <span style="color:#b45309;font-size:11px">⚠ mises en évidence</span></span>
+              <textarea class="ta imp" id="note2" placeholder="Saisir une note importante…"></textarea></div>
+          </div>
+        </div>
+
+        <div class="foot">
+          <div class="totals">
+            <span class="big"><span class="k">Total</span> <b id="ftotal"></b></span>
+            <span class="paidwrap"><span class="k">Payé</span>
+              <input class="inp num" id="paid" inputmode="decimal"></span>
+            <span class="due"><span class="k">Reste</span> <b id="freste"></b></span>
+          </div>
+          <div class="acts">
+            <button class="btn lg" type="button" id="addmore">+ Ajouter un autre acte</button>
+            <button class="btn primary" type="button" id="confirm"></button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <div class="annot">
+    <div>
+      <h3>Essayez — dans l'ordre</h3>
+      <ol class="steps">
+        <li><span class="n">01</span><span><b>Touchez 16, puis « Confirmer la séance ».</b> La visite type en
+          deux gestes : l'acte était déjà proposé, le tarif déjà là.</span></li>
+        <li><span class="n">02</span><span><b>Touchez 16 <em>et</em> 26.</b> Le total suit le nombre de dents
+          (<code>90,000 × 2</code>) et le calcul reste lisible dans l'en-tête replié.</span></li>
+        <li><span class="n">03</span><span><b>« Ce n'est pas cet acte ».</b> La liste dense s'ouvre dans le même
+          emplacement — pas de fenêtre par-dessus la fenêtre. Tapez <code>det</code>, puis
+          <span class="kbd">↵</span>.</span></li>
+        <li><span class="n">04</span><span><b>Passez le catalogue à 42 actes</b> (le sélecteur en bas de la
+          liste) et refaites la recherche : la présentation ne change pas d'échelle.</span></li>
+        <li><span class="n">05</span><span><b>Dépliez « Détails de l'acte ».</b> Tarif, <code>/dent ↔
+          forfait</code>, état résultant, faces MODVL, note — tout ce qu'avait l'ancien formulaire.</span></li>
+        <li><span class="n">06</span><span><b>« + Ajouter un autre acte »</b> sur la même dent : la sélection est
+          conservée, le brouillon repart vide. Deux actes sur 16 dans la même séance.</span></li>
+        <li><span class="n">07</span><span><b>Scénario 3.</b> Une fiche existante s'ouvre : les sections qui
+          portent quelque chose sont <b>déjà dépliées</b>, donc la modification ne peut jamais avoir l'air
+          d'avoir perdu des données.</span></li>
+      </ol>
+    </div>
+    <div>
+      <h3>Ce que cette maquette tranche</h3>
+      <ul class="risks">
+        <li><span class="m ok">▲</span><span><b>L'objection « rien depuis la fiche patient » tombe.</b>
+          <code>web/app/patients/[id]/page.tsx</code> charge <em>déjà</em> les rendez-vous du patient : la fiche
+          peut donc proposer le rendez-vous du jour. Scénario 2 montre le cas réellement vide.</span></li>
+        <li><span class="m ok">▲</span><span><b>Zéro travail backend.</b>
+          <code>AppointmentDto</code> porte <code>procedureTypeId</code>, <code>procedureTypeName</code> et
+          <code>procedureColorHex</code>. Le pré-remplissage est du câblage frontend.</span></li>
+        <li><span class="m ok">▲</span><span><b>Le créneau générique n'est pas un piège.</b> Une proposition
+          n'est pas un enregistrement : aucun <code>DentalRecordAct</code> n'existe avant « Confirmer ». Si le
+          créneau disait « Consultation », on change l'acte en une frappe.</span></li>
+        <li><span class="m">◆</span><span><b>19 actes, 12 catégories.</b> Au volume semé les en-têtes frôlent le
+          nombre de lignes — ils restent donc typographiques (une ligne fine), et <b>disparaissent dès qu'on
+          tape</b>. Ils ne paient qu'à partir d'un catalogue étoffé.</span></li>
+        <li><span class="m">◆</span><span><b>L'ordre des catégories doit être clinique, pas alphabétique.</b>
+          Le composeur actuel trie par ordre alphabétique ; l'ordre du seed (consultation → radiologie → soins →
+          … → pédodontie) suit la séance.</span></li>
+        <li><span class="m">◆</span><span><b>Reste à valider par le dentiste.</b> Cette maquette tranche la
+          présentation, pas son flux de travail. Son compte-rendu chairside n'a toujours pas été
+          recueilli.</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="tablewrap">
+    <table>
+      <caption>Rien n'est perdu — où chaque champ de l'ancien formulaire se retrouve</caption>
+      <thead><tr><th>Champ (formulaire à deux volets)</th><th>Où il vit désormais</th><th>Visible replié ?</th></tr></thead>
+      <tbody>
+        <tr><th>Désignation de l'acte</th><td><b>Carte « acte prévu »</b> ou la liste dense</td><td>Toujours à l'écran</td></tr>
+        <tr><th>Dents concernées</th><td><b>Le schéma</b>, en pleine largeur</td><td>Toujours à l'écran</td></tr>
+        <tr><th>Tarif + <code>/dent ↔ forfait</code></th><td>Détails de l'acte</td><td><b>Oui</b> — dans l'en-tête et le pied</td></tr>
+        <tr><th>État résultant</th><td>Détails de l'acte</td><td><b>Oui</b> — nom de l'état dans l'en-tête</td></tr>
+        <tr><th>Faces MODVL</th><td>Détails de l'acte</td><td><b>Oui</b> — listées dans l'en-tête</td></tr>
+        <tr><th>Note de l'acte</th><td>Détails de l'acte</td><td>Oui — signalée présente</td></tr>
+        <tr><th>Liste des actes par dent</th><td>Actes de la séance</td><td><b>Oui</b> — nombre + total ; déplié dès qu'il y en a</td></tr>
+        <tr><th>Notes / notes importantes</th><td>Notes de séance</td><td>Oui — compte ; déplié si la fiche en porte</td></tr>
+        <tr><th>Montant payé · reste</th><td><b>Pied de page</b></td><td>Toujours à l'écran</td></tr>
+        <tr><th>Alertes médicales</th><td>Bandeau, sous le titre</td><td>Toujours à l'écran</td></tr>
+        <tr><th>Bascule Adulte / Enfant</th><td>Ligne d'en-tête</td><td>Toujours à l'écran</td></tr>
+        <tr><th>Lien vers un acte du plan</th><td>Ligne d'en-tête (si le patient a un plan ouvert)</td><td>Toujours à l'écran</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ── theme toggle ─────────────────────────────────────────────── */
+  document.getElementById("theme").addEventListener("click", function(){
+    var cur = document.documentElement.getAttribute("data-theme");
+    var dark = cur ? cur === "dark" : matchMedia("(prefers-color-scheme:dark)").matches;
+    document.documentElement.setAttribute("data-theme", dark ? "light" : "dark");
+  });
+
+  /* ── real FDI geometry + real glyph paths from record-tooth-chart.tsx ── */
+  var SHAPES = {
+    incisor:{w:18,h:30,vb:"0 0 32 56",d:"M16 2C12 2 9 4 7 7C5 10 4 14 4 18C4 28 4 38 6 44C8 50 11 54 16 54C21 54 24 50 26 44C28 38 28 28 28 18C28 14 27 10 25 7C23 4 20 2 16 2Z"},
+    canine:{w:18,h:30,vb:"0 0 36 58",d:"M18 2C15 2 12 3 10 5C8 7 6 10 5 14C4 18 4 24 4 28C4 36 5 44 7 48C9 52 13 56 18 56C23 56 27 52 29 48C31 44 32 36 32 28C32 24 32 18 31 14C30 10 28 7 26 5C24 3 21 2 18 2Z"},
+    premolar:{w:20,h:30,vb:"0 0 42 60",d:"M21 4C17 4 13 6 11 9C9 12 7 16 6 20C5 24 4 30 4 34C4 40 5 46 7 50C9 54 13 60 21 60C29 60 33 54 35 50C37 46 38 40 38 34C38 30 37 24 36 20C35 16 33 12 31 9C29 6 25 4 21 4Z"},
+    molar:{w:22,h:30,vb:"0 0 48 62",d:"M24 4C19 4 15 6 12 9C9 12 7 16 6 20C5 24 4 30 4 34C4 40 5 46 7 50C9 54 14 60 24 60C34 60 39 54 41 50C43 46 44 40 44 34C44 30 43 24 42 20C41 16 39 12 36 9C33 6 29 4 24 4Z"}
+  };
+  var kindOf = function(n){ var l = n % 10; return (l===1||l===2) ? "incisor" : l===3 ? "canine" : (l===4||l===5) ? "premolar" : "molar"; };
+  var ARCH = {
+    "1upper":[[18,17,16,15,14,13,12,11],[21,22,23,24,25,26,27,28]],
+    "1lower":[[48,47,46,45,44,43,42,41],[31,32,33,34,35,36,37,38]],
+    "0upper":[[55,54,53,52,51],[61,62,63,64,65]],
+    "0lower":[[85,84,83,82,81],[71,72,73,74,75]]
+  };
+  var isAdultTooth = function(n){ var q = Math.floor(n/10); return q>=1 && q<=4; };
+
+  /* ── real ToothCondition colours + labels from odontogram-conditions.ts ── */
+  var COND = {
+    Carie:["Carie","#ef4444"], Obturation:["Obturation","#3b82f6"], Couronne:["Couronne","#f59e0b"],
+    TraitementDeCanal:["Traitement de canal","#a855f7"], Bridge:["Bridge","#14b8a6"],
+    Implant:["Implant","#475569"], ExtraitAbsent:["Extrait / Absent","#9ca3af"], ATraiter:["À traiter","#fb923c"],
+    Sain:["Sain","#22c55e"]
+  };
+  var COND_ORDER = ["Carie","Obturation","Couronne","TraitementDeCanal","Bridge","Implant","ExtraitAbsent","ATraiter","Sain"];
+  var SURFACES = [["M","Mésiale"],["O","Occlusale"],["D","Distale"],["V","Vestibulaire"],["L","Linguale"]];
+
+  /* ── category order: the SEED's clinical order, not alphabetical ── */
+  var CAT_ORDER = ["Consultation","Radiologie","Soins conservateurs","Endodontie","Parodontologie",
+    "Chirurgie/Extraction","Prothèse fixe","Prothèse amovible","Implantologie","Orthodontie",
+    "Esthétique","Pédodontie"];
+  var CAT_COLOR = {
+    "Consultation":"#6C757D","Radiologie":"#60A5FA","Soins conservateurs":"#2A9D8F","Endodontie":"#4F83CC",
+    "Parodontologie":"#6BAA75","Chirurgie/Extraction":"#E76F51","Prothèse fixe":"#9B8EDC",
+    "Prothèse amovible":"#5EEAD4","Implantologie":"#E9A23B","Orthodontie":"#FB7185",
+    "Esthétique":"#FB7185","Pédodontie":"#6BAA75"
+  };
+  var CAT_COND = {
+    "Soins conservateurs":"Obturation","Endodontie":"TraitementDeCanal",
+    "Chirurgie/Extraction":"ExtraitAbsent","Prothèse fixe":"Couronne","Implantologie":"Implant"
+  };
+
+  /* the 19 rows ProcedureTypeCatalogSeed actually seeds today — real names, real prices */
+  var SEED19 = [
+    ["Consultation / examen bucco-dentaire",40,"Consultation"],
+    ["Contrôle / suivi",0,"Consultation"],
+    ["Radiographie rétro-alvéolaire",20,"Radiologie"],
+    ["Radiographie panoramique",40,"Radiologie"],
+    ["Soin de carie / obturation",90,"Soins conservateurs"],
+    ["Traitement de canal (dévitalisation)",150,"Endodontie"],
+    ["Détartrage",60,"Parodontologie"],
+    ["Traitement parodontal (surfaçage / curetage)",120,"Parodontologie"],
+    ["Extraction simple",60,"Chirurgie/Extraction"],
+    ["Extraction chirurgicale (sagesse / dent incluse)",200,"Chirurgie/Extraction"],
+    ["Couronne / bridge (par élément)",500,"Prothèse fixe"],
+    ["Prothèse amovible (partielle / complète)",800,"Prothèse amovible"],
+    ["Réparation / rebasage de prothèse",120,"Prothèse amovible"],
+    ["Implant dentaire",1500,"Implantologie"],
+    ["Traitement orthodontique (multi-attaches)",3500,"Orthodontie"],
+    ["Séance orthodontique (contrôle / activation)",80,"Orthodontie"],
+    ["Blanchiment dentaire",400,"Esthétique"],
+    ["Facette",700,"Esthétique"],
+    ["Soin dentaire enfant (dent de lait)",60,"Pédodontie"]
+  ];
+  /* a realistically-filled clinic catalogue (42 rows) — to stress-test the presentation */
+  var SEED42 = [
+    ["Consultation / examen bucco-dentaire",40,"Consultation"],["Consultation d'urgence",50,"Consultation"],
+    ["Radiographie rétro-alvéolaire",20,"Radiologie"],["Radiographie panoramique",40,"Radiologie"],
+    ["Composite / obturation (1 face)",70,"Soins conservateurs"],["Composite / obturation (2-3 faces)",110,"Soins conservateurs"],
+    ["Coiffage pulpaire / soin dentinaire",60,"Soins conservateurs"],
+    ["Dévitalisation monoradiculaire (1 canal)",120,"Endodontie"],["Dévitalisation pluriradiculaire (molaire)",180,"Endodontie"],
+    ["Retraitement endodontique",250,"Endodontie"],["Inlay-core / reconstitution corono-radiculaire",200,"Endodontie"],
+    ["Détartrage (2 arcades)",60,"Parodontologie"],["Surfaçage radiculaire / curetage (par quadrant)",120,"Parodontologie"],
+    ["Gingivectomie",200,"Parodontologie"],
+    ["Extraction simple",60,"Chirurgie/Extraction"],["Extraction dent de sagesse (érupté)",120,"Chirurgie/Extraction"],
+    ["Extraction chirurgicale / dent incluse",250,"Chirurgie/Extraction"],
+    ["Couronne céramo-métallique",450,"Prothèse fixe"],["Couronne céramique / zircone (E-max)",750,"Prothèse fixe"],
+    ["Bridge céramo-métallique (par élément)",450,"Prothèse fixe"],["Inlay / Onlay céramique",500,"Prothèse fixe"],
+    ["Prothèse complète résine (par mâchoire)",800,"Prothèse amovible"],["Prothèse partielle résine",500,"Prothèse amovible"],
+    ["Prothèse stellite (châssis métallique)",1000,"Prothèse amovible"],["Réparation / rebasage de prothèse",120,"Prothèse amovible"],
+    ["Pose d'implant (vis + pilier)",1500,"Implantologie"],["Implant + couronne (complet)",2200,"Implantologie"],
+    ["Greffe osseuse / comblement / sinus lift",1200,"Implantologie"],
+    ["Consultation + bilan orthodontique",100,"Orthodontie"],["Traitement multi-attaches métallique (bagues)",3500,"Orthodontie"],
+    ["Traitement multi-attaches céramique",4500,"Orthodontie"],["Gouttières transparentes (aligneurs)",8000,"Orthodontie"],
+    ["Appareil amovible (enfant / interception)",800,"Orthodontie"],["Contention post-orthodontique",300,"Orthodontie"],
+    ["Blanchiment au fauteuil (lampe/laser)",400,"Esthétique"],["Blanchiment ambulatoire (gouttières)",300,"Esthétique"],
+    ["Facette céramique (E-max)",700,"Esthétique"],["Facette composite (directe)",250,"Esthétique"],
+    ["Consultation enfant",40,"Pédodontie"],["Scellement de sillons (par dent)",50,"Pédodontie"],
+    ["Extraction dent de lait",40,"Pédodontie"],["Pulpotomie (dent de lait)",80,"Pédodontie"]
+  ];
+  var buildCatalog = function(rows){
+    return rows.map(function(r,i){
+      return {id:i, name:r[0], cost:r[1], cat:r[2], cond:CAT_COND[r[2]] || null, color:CAT_COLOR[r[2]] || "#6C757D"};
+    });
+  };
+
+  /* prior odontogram state already on record for this patient (the overlay) */
+  var PRIOR = { 46:{cond:"Carie",dx:true}, 36:{cond:"Carie",dx:true}, 24:{cond:"Obturation",dx:false}, 27:{cond:"Couronne",dx:false} };
+
+  var dt = function(v){ return new Intl.NumberFormat("fr-TN",{minimumFractionDigits:3,maximumFractionDigits:3}).format(v)+" DT"; };
+  var round3 = function(v){ return Math.round(v*1000)/1000; };
+
+  /* ── state ────────────────────────────────────────────────────── */
+  var S, catalog, nextKey;
+
+  function emptyDraft(){
+    return {actId:null, name:"", cost:"", cond:null, perTooth:false, faces:{}, note:""};
+  }
+
+  function reset(scenario){
+    catalog = buildCatalog(SEED19);
+    nextKey = 1;
+    S = {
+      scenario: scenario, adult:true, sel:{}, acts:[], draft:emptyDraft(),
+      picker:false, query:"", cursor:0, big:false,
+      open:{details:false, acts:false, notes:false},
+      paid:"", paidDirty:false, note1:"", note2:""
+    };
+
+    if(scenario === "rdv"){
+      /* the appointment booked "Soin de carie / obturation" → arm the draft, commit nothing */
+      applyProcedure(catalog[4], true);
+    } else if(scenario === "fiche"){
+      /* no appointment: nothing to propose, so the catalogue is the entry point */
+      S.picker = true;
+    } else {
+      /* editing a saved record: two acts, notes, a paid amount already captured */
+      S.acts = [
+        {key:nextKey++, actId:4, name:"Soin de carie / obturation", unit:90, perTooth:true,
+         teeth:[16,26], cond:"Obturation", color:CAT_COLOR["Soins conservateurs"], faces:{M:1,O:1}, note:""},
+        {key:nextKey++, actId:6, name:"Détartrage", unit:60, perTooth:false,
+         teeth:[], cond:null, color:CAT_COLOR["Parodontologie"], faces:{}, note:"2 arcades"}
+      ];
+      S.note1 = "Patient revu à 3 semaines pour contrôle de l'obturation.";
+      S.note2 = "Prémédication obligatoire — allergie pénicilline.";
+      S.paid = "240"; S.paidDirty = true;
+      S.picker = true;
+      /* anything that carries a value opens itself, so editing never looks lossy */
+      S.open.acts = true; S.open.notes = true;
+    }
+    if(S.acts.length) S.open.acts = true;
+  }
+
+  function applyProcedure(p, keepSelection){
+    var teeth = selArr();
+    S.draft = {
+      actId:p.id, name:p.name, cost:String(p.cost), cond:p.cond,
+      /* an act that changes a tooth's state is per-tooth; one that changes nothing is a session fee */
+      perTooth: p.cond !== null && teeth.length > 0,
+      faces:{}, note:""
+    };
+    S.picker = false; S.query = ""; S.cursor = 0;
+    if(!keepSelection) { /* selection untouched either way — kept for clarity */ }
+  }
+
+  var selArr = function(){ return Object.keys(S.sel).map(Number).sort(function(a,b){return a-b}); };
+  var draftUnit = function(){ var v = parseFloat(S.draft.cost); return isFinite(v) ? v : 0; };
+  var draftTotal = function(){
+    var t = selArr().length;
+    return round3(S.draft.perTooth && t > 0 ? draftUnit() * t : draftUnit());
+  };
+  var actTotal = function(a){ return round3(a.perTooth && a.teeth.length ? a.unit * a.teeth.length : a.unit); };
+  var hasDraft = function(){ return S.draft.name.trim() !== ""; };
+  var grandTotal = function(){
+    return round3(S.acts.reduce(function(s,a){ return s + actTotal(a); }, 0) + (hasDraft() ? draftTotal() : 0));
+  };
+
+  /* ── the chart ────────────────────────────────────────────────── */
+  function buildCharts(){
+    document.querySelectorAll(".arch").forEach(function(arch){
+      var quads = ARCH[(S.adult ? "1" : "0") + arch.dataset.arch];
+      arch.textContent = "";
+      quads.forEach(function(q,i){
+        if(i===1){ var m = document.createElement("div"); m.className = "mid"; arch.appendChild(m); }
+        var d = document.createElement("div"); d.className = "quad";
+        q.forEach(function(n){
+          var s = SHAPES[kindOf(n)];
+          var b = document.createElement("button");
+          b.type = "button"; b.className = "tooth"; b.dataset.n = n;
+          b.setAttribute("aria-label", "Dent " + n);
+          b.innerHTML = '<span class="glyphwrap"><svg width="'+s.w+'" height="'+s.h+'" viewBox="'+s.vb+
+            '" fill="none" aria-hidden="true"><path d="'+s.d+'"/></svg></span><span class="num">'+n+'</span>';
+          b.addEventListener("click", function(){
+            if(S.sel[n]) delete S.sel[n]; else S.sel[n] = 1;
+            /* a per-tooth default only makes sense once a tooth exists */
+            if(S.draft.actId !== null && S.draft.cond !== null && selArr().length > 0 && !S.draft.perTooth
+               && Object.keys(S.sel).length === 1) S.draft.perTooth = true;
+            render();
+          });
+          d.appendChild(b);
+        });
+        arch.appendChild(d);
+      });
+    });
+  }
+
+  function paint(){
+    document.querySelectorAll(".tooth").forEach(function(t){
+      var n = +t.dataset.n;
+      var path = t.querySelector("path"), wrap = t.querySelector(".glyphwrap");
+      var old = wrap.querySelector(".badge-n"); if(old) old.remove();
+
+      var prior = PRIOR[n];
+      var committed = S.acts.filter(function(a){ return a.teeth.indexOf(n) !== -1; });
+      var lastCond = null;
+      committed.forEach(function(a){ if(a.cond) lastCond = a.cond; });
+      var count = committed.length;
+
+      /* the draft previews its own result on the selected teeth, at reduced opacity */
+      var isSel = !!S.sel[n];
+      var previewing = isSel && hasDraft() && S.draft.cond;
+
+      path.setAttribute("fill", lastCond ? COND[lastCond][1] : (previewing ? COND[S.draft.cond][1] : "#fff"));
+      path.setAttribute("fill-opacity", lastCond ? "1" : (previewing ? "0.4" : "1"));
+      path.setAttribute("stroke", prior ? COND[prior.cond][1] : "#9ca3af");
+      path.setAttribute("stroke-width", prior ? "2.5" : "2");
+      path.setAttribute("stroke-dasharray", prior && prior.dx ? "4 3" : "");
+
+      t.dataset.sel = isSel ? "1" : "0";
+      if(count > 1){
+        var badge = document.createElement("span");
+        badge.className = "badge-n"; badge.textContent = count;
+        wrap.appendChild(badge);
+      }
+    });
+  }
+
+  /* ── the act slot: proposal card ↔ dense catalogue ───────────── */
+  function renderActSlot(){
+    var slot = document.getElementById("actslot");
+    slot.className = "actslot" + (!S.picker && hasDraft() ? " armed" : "");
+
+    if(!S.picker && hasDraft()){
+      var p = S.draft.actId !== null ? catalog[S.draft.actId] : null;
+      var color = p ? p.color : "#6C757D";
+      var cap = S.scenario === "rdv" && S.draft.actId === 4 && S.acts.length === 0
+        ? "Acte prévu au rendez-vous" : "Acte réalisé";
+      var bits = [];
+      if(S.draft.cond) bits.push('<span class="dot" style="background:'+COND[S.draft.cond][1]+'"></span>'+COND[S.draft.cond][0]);
+      else bits.push("aucun état résultant");
+      bits.push(S.draft.perTooth ? "tarif par dent" : "forfait");
+      if(!p) bits.push("texte libre");
+
+      slot.innerHTML =
+        '<div class="prevu">' +
+          '<span class="swatch" style="background:'+color+'"></span>' +
+          '<span class="body">' +
+            '<span class="cap">'+cap+'</span>' +
+            '<div class="nm">'+esc(S.draft.name)+'</div>' +
+            '<div class="meta">'+bits.join('<span style="opacity:.5">·</span>')+'</div>' +
+          '</span>' +
+          '<span class="money">'+dt(draftTotal())+'</span>' +
+          '<button class="btn" type="button" id="change">Ce n\'est pas cet acte</button>' +
+        '</div>';
+      document.getElementById("change").addEventListener("click", function(){
+        S.picker = true; S.query = ""; S.cursor = 0; render();
+        var i = document.getElementById("q"); if(i) i.focus();
+      });
+      return;
+    }
+
+    /* catalogue: one dense column. Group headings vanish while searching. */
+    var q = S.query.trim().toLowerCase();
+    var matches = catalog.filter(function(p){
+      if(!q) return true;
+      return p.name.toLowerCase().indexOf(q) !== -1 || p.cat.toLowerCase().indexOf(q) !== -1;
+    });
+    if(S.cursor >= matches.length) S.cursor = Math.max(0, matches.length - 1);
+
+    var rows = "";
+    if(!matches.length){
+      rows = '<p style="padding:16px 13px;margin:0;font-size:12.5px;color:var(--muted-fg)">Aucun acte ne correspond.</p>';
+    } else if(q){
+      /* searching: flat, ranked — headings would only add noise */
+      rows = matches.map(function(p,i){ return actRow(p,i); }).join("");
+    } else {
+      /* browsing: grouped in the seed's clinical order */
+      var seen = {}, i = 0;
+      CAT_ORDER.concat(["Autres"]).forEach(function(cat){
+        var items = matches.filter(function(p){ return (CAT_ORDER.indexOf(p.cat) === -1 ? "Autres" : p.cat) === cat; });
+        if(!items.length) return;
+        rows += '<div class="grp">'+esc(cat)+'</div>';
+        items.forEach(function(p){ rows += actRow(p, matches.indexOf(p)); });
+        seen[cat] = 1;
+      });
+    }
+
+    var free = q && !matches.some(function(p){ return p.name.toLowerCase() === q; })
+      ? '<button class="freetext" type="button" id="freeuse">＋ Enregistrer <em>«&nbsp;'+esc(S.query.trim())+'&nbsp;»</em> comme acte libre <span style="color:var(--muted-fg);margin-left:auto">sans tarif catalogue</span></button>'
+      : '';
+
+    slot.innerHTML =
+      '<div class="picker">' +
+        '<div class="pickerbar">' +
+          '<span class="mag" aria-hidden="true">⌕</span>' +
+          '<input class="inp" id="q" placeholder="Rechercher un acte…" value="'+esc(S.query)+'" autocomplete="off">' +
+          '<span class="pickercount">'+matches.length+'/'+catalog.length+'</span>' +
+        '</div>' +
+        '<div class="pickerlist" id="plist">'+rows+'</div>' +
+        free +
+        '<div class="pickerfoot">' +
+          '<span><span class="kbd">↑</span> <span class="kbd">↓</span> parcourir · <span class="kbd">↵</span> choisir · <span class="kbd">esc</span> fermer</span>' +
+          '<span>Catalogue : <button class="btn" type="button" id="sizeswap">'+
+            (S.big ? "42 actes — revenir à 19" : "19 actes — passer à 42")+'</button></span>' +
+        '</div>' +
+      '</div>';
+
+    var input = document.getElementById("q");
+    input.addEventListener("input", function(e){ S.query = e.target.value; S.cursor = 0; render(); focusQuery(); });
+    input.addEventListener("keydown", function(e){
+      if(e.key === "ArrowDown"){ e.preventDefault(); S.cursor = Math.min(S.cursor+1, matches.length-1); render(); focusQuery(); }
+      else if(e.key === "ArrowUp"){ e.preventDefault(); S.cursor = Math.max(S.cursor-1, 0); render(); focusQuery(); }
+      else if(e.key === "Enter"){
+        e.preventDefault();
+        if(matches[S.cursor]) applyProcedure(matches[S.cursor]);
+        else if(S.query.trim()) useFreeText();
+        render();
+      }
+      else if(e.key === "Escape"){ e.preventDefault(); if(hasDraft()){ S.picker = false; render(); } }
+    });
+    slot.querySelectorAll(".opt-act").forEach(function(b){
+      b.addEventListener("click", function(){ applyProcedure(catalog[+b.dataset.id]); render(); });
+    });
+    var fu = document.getElementById("freeuse");
+    if(fu) fu.addEventListener("click", function(){ useFreeText(); render(); });
+    document.getElementById("sizeswap").addEventListener("click", function(){
+      S.big = !S.big;
+      catalog = buildCatalog(S.big ? SEED42 : SEED19);
+      S.draft = emptyDraft(); S.acts = []; S.cursor = 0;
+      render(); focusQuery();
+    });
+
+    function focusQuery(){
+      var i = document.getElementById("q");
+      if(i){ i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
+    }
+  }
+
+  function actRow(p, i){
+    return '<button class="opt-act" type="button" data-id="'+p.id+'" data-cur="'+(i===S.cursor?"1":"0")+'">' +
+      '<span class="swatch" style="background:'+p.color+'"></span>' +
+      '<span class="nm">'+esc(p.name)+'</span>' +
+      '<span class="cnd">'+(p.cond ? COND[p.cond][0] : "")+'</span>' +
+      '<span class="pr">'+dt(p.cost)+'</span>' +
+    '</button>';
+  }
+
+  function useFreeText(){
+    S.draft = {actId:null, name:S.query.trim(), cost:"", cond:null, perTooth:false, faces:{}, note:""};
+    S.picker = false; S.query = ""; S.open.details = true;
+  }
+
+  /* ── details, acts, notes ─────────────────────────────────────── */
+  function renderDetails(){
+    var teeth = selArr().length;
+
+    document.getElementById("unit").value = S.draft.cost;
+    document.getElementById("unit").disabled = !hasDraft();
+    document.querySelectorAll("#perseg button").forEach(function(b){
+      b.setAttribute("aria-pressed", (b.dataset.per === "1") === S.draft.perTooth ? "true" : "false");
+      b.disabled = !hasDraft() || (b.dataset.per === "1" && teeth === 0);
+    });
+    document.getElementById("calc").innerHTML = S.draft.perTooth && teeth > 0
+      ? "× " + teeth + " dent" + (teeth>1?"s":"") + " = <b>" + dt(draftTotal()) + "</b>"
+      : "<b>" + dt(draftTotal()) + "</b>";
+
+    var chip = document.getElementById("condchip");
+    chip.innerHTML = S.draft.cond
+      ? '<span class="dot" style="background:'+COND[S.draft.cond][1]+'"></span>'+COND[S.draft.cond][0]
+      : '<span class="dot" style="border:1px solid var(--border);background:transparent"></span>Aucun';
+    var sel = document.getElementById("cond");
+    sel.innerHTML = '<option value="">Aucun</option>' + COND_ORDER.map(function(c){
+      return '<option value="'+c+'"'+(S.draft.cond===c?" selected":"")+'>'+COND[c][0]+'</option>';
+    }).join("");
+    sel.disabled = !hasDraft();
+
+    document.getElementById("faces").innerHTML = SURFACES.map(function(s){
+      return '<button type="button" data-f="'+s[0]+'" aria-pressed="'+(S.draft.faces[s[0]]?"true":"false")+
+        '" title="'+s[1]+'"'+(hasDraft()?"":" disabled")+'>'+s[0]+'</button>';
+    }).join("");
+    document.querySelectorAll("#faces button").forEach(function(b){
+      b.addEventListener("click", function(){
+        if(S.draft.faces[b.dataset.f]) delete S.draft.faces[b.dataset.f]; else S.draft.faces[b.dataset.f] = 1;
+        render();
+      });
+    });
+    var noteEl = document.getElementById("note");
+    noteEl.value = S.draft.note; noteEl.disabled = !hasDraft();
+
+    var hint = document.getElementById("multihint");
+    var showHint = teeth > 1 && (Object.keys(S.draft.faces).length > 0 || S.draft.note.trim() !== "");
+    hint.hidden = !showHint;
+    if(showHint) hint.textContent = "Les faces et la note s'appliquent aux " + teeth +
+      " dents. Pour des faces différentes, enregistrez un acte par dent.";
+
+    /* the collapsed summary — this is why folding is safe */
+    var faceList = Object.keys(S.draft.faces);
+    var parts = [];
+    if(!hasDraft()) parts.push("aucun acte en cours");
+    else {
+      parts.push(S.draft.cond ? COND[S.draft.cond][0] : "aucun état");
+      parts.push("<b>" + dt(draftUnit()) + "</b>" + (S.draft.perTooth ? " / dent" : " forfait"));
+      parts.push(faceList.length ? "faces " + faceList.join(", ") : "aucune face");
+      if(S.draft.note.trim()) parts.push("note");
+    }
+    document.getElementById("sumDetails").innerHTML = parts.join(" · ");
+  }
+
+  function renderActs(){
+    var list = document.getElementById("actslist");
+    if(!S.acts.length){
+      list.innerHTML = '<p class="emptyhint">Aucun acte confirmé pour l\'instant. L\'acte en cours ci-dessus sera enregistré en confirmant la séance.</p>';
+    } else {
+      /* grouped by tooth, plus a mouth-level bucket — a multi-tooth act is listed
+         under each of its teeth, its fee printed once (lowest tooth), « inclus » elsewhere */
+      var byTooth = {}, general = [];
+      S.acts.forEach(function(a){
+        if(!a.teeth.length){ general.push(a); return; }
+        a.teeth.forEach(function(t){ (byTooth[t] = byTooth[t] || []).push(a); });
+      });
+      var html = "";
+      Object.keys(byTooth).map(Number).sort(function(x,y){return x-y}).forEach(function(t){
+        html += '<div class="grouphead"><span>Dent '+t+'</span><span class="line"></span><span class="c">'+
+          byTooth[t].length+'</span></div>';
+        byTooth[t].forEach(function(a){
+          var owner = Math.min.apply(null, a.teeth) === t;
+          html += row(a, a.teeth.length > 1 ? (owner ? "⛓ "+a.teeth.join(", ") : "⛓ inclus") : "",
+                      owner ? dt(actTotal(a)) : "inclus");
+        });
+      });
+      if(general.length){
+        html += '<div class="grouphead"><span>Actes généraux</span><span class="line"></span><span class="c">'+
+          general.length+'</span></div>';
+        general.forEach(function(a){ html += row(a, "sans dent", dt(actTotal(a))); });
+      }
+      list.innerHTML = html;
+      list.querySelectorAll("[data-del]").forEach(function(b){
+        b.addEventListener("click", function(){
+          S.acts = S.acts.filter(function(a){ return a.key !== +b.dataset.del; });
+          render();
+        });
+      });
+    }
+
+    var n = S.acts.length;
+    var sum = round3(S.acts.reduce(function(s,a){ return s + actTotal(a); }, 0));
+    document.getElementById("sumActs").innerHTML = n === 0
+      ? "aucun acte confirmé"
+      : n + " acte" + (n>1?"s":"") + " · <b>" + dt(sum) + "</b>";
+
+    function row(a, marker, price){
+      return '<div class="actrow">' +
+        '<span class="swatch" style="background:'+(a.color||"#6C757D")+'"></span>' +
+        '<span class="nm">'+esc(a.name)+'</span>' +
+        (marker ? '<span class="shared">'+esc(marker)+'</span>' : '') +
+        '<span class="price">'+price+'</span>' +
+        '<button class="ic" type="button" data-del="'+a.key+'" aria-label="Retirer l\'acte">✕</button>' +
+      '</div>';
+    }
+  }
+
+  function renderNotes(){
+    document.getElementById("note1").value = S.note1;
+    document.getElementById("note2").value = S.note2;
+    var c = (S.note1.trim()?1:0), i = (S.note2.trim()?1:0);
+    document.getElementById("sumNotes").textContent = (c+i) === 0
+      ? "aucune note"
+      : [c ? c+" note" : null, i ? i+" importante" : null].filter(Boolean).join(" · ");
+  }
+
+  /* ── chrome + footer ─────────────────────────────────────────── */
+  function renderChrome(){
+    var crumb = document.getElementById("crumb");
+    var title = document.getElementById("dtitle"), desc = document.getElementById("ddesc");
+    var confirm = document.getElementById("confirm");
+    if(S.scenario === "rdv"){
+      crumb.innerHTML = "Rendez-vous de 14:30 › <b>oumayma benkhalifa</b>";
+      title.textContent = "Fiche médicale — visite du 26/07/2026, 14:30";
+      desc.textContent = "Confirmez ce qui a été réalisé. Le rendez-vous sera clôturé.";
+      confirm.textContent = "Confirmer la séance";
+    } else if(S.scenario === "fiche"){
+      crumb.innerHTML = "Patients › <b>oumayma benkhalifa</b> › Dossier dentaire";
+      title.textContent = "Ajouter une fiche médicale";
+      desc.textContent = "Aucun rendez-vous à documenter — indiquez l'acte réalisé, puis les dents concernées.";
+      confirm.textContent = "Créer la fiche";
+    } else {
+      crumb.innerHTML = "Patients › <b>oumayma benkhalifa</b> › Dossier dentaire";
+      title.textContent = "Modifier la fiche du 26/07/2026";
+      desc.textContent = "Les sections qui portent une valeur sont déjà dépliées.";
+      confirm.textContent = "Enregistrer";
+    }
+
+    document.querySelectorAll("#dentseg button").forEach(function(b){
+      b.setAttribute("aria-pressed", (b.dataset.adult === "1") === S.adult ? "true" : "false");
+    });
+
+    document.getElementById("chartq").textContent = hasDraft()
+      ? "Sur quelle(s) dent(s) ?" : "Dents concernées";
+
+    /* selection line + the live per-tooth arithmetic */
+    var teeth = selArr();
+    var line = document.getElementById("selline");
+    var left = teeth.length
+      ? '<span style="font-size:12px;color:var(--muted-fg)">Sélection :</span>' +
+        teeth.map(function(t){ return '<span class="chipnum">'+t+'</span>'; }).join("")
+      : '<span class="hint">Aucune dent — l\'acte sera enregistré comme acte général (détartrage, panoramique…)</span>';
+    var right = hasDraft() && S.draft.perTooth && teeth.length
+      ? '<span class="calc">'+dt(draftUnit())+' × '+teeth.length+' dent'+(teeth.length>1?"s":"")+
+        ' = <b>'+dt(draftTotal())+'</b></span>'
+      : (hasDraft() ? '<span class="calc"><b>'+dt(draftTotal())+'</b></span>' : '');
+    line.innerHTML = left + right;
+
+    /* « à traiter » quick-select, from the prior odontogram */
+    var todo = Object.keys(PRIOR).map(Number).filter(function(n){
+      return PRIOR[n].dx && isAdultTooth(n) === S.adult;
+    });
+    var wrap = document.getElementById("todowrap");
+    if(todo.length){
+      wrap.innerHTML = '<button class="todo" type="button" id="picktodo">⌁ ' + todo.length + ' dent' +
+        (todo.length>1?"s":"") + ' à traiter (' + todo.join(", ") + ") — toucher pour sélectionner</button>";
+      document.getElementById("picktodo").addEventListener("click", function(){
+        todo.forEach(function(n){ S.sel[n] = 1; });
+        if(S.draft.cond !== null) S.draft.perTooth = true;
+        render();
+      });
+    } else wrap.innerHTML = "";
+
+    document.getElementById("legend").innerHTML =
+      COND_ORDER.filter(function(c){ return c !== "Sain"; }).map(function(c){
+        return '<span><span class="dot" style="background:'+COND[c][1]+'"></span>'+COND[c][0]+'</span>';
+      }).join("") +
+      '<span><span class="dot" style="border:2px dashed var(--muted-fg);background:transparent"></span>contour = déjà au dossier</span>';
+
+    /* sections */
+    ["details","acts","notes"].forEach(function(k){
+      var head = document.querySelector('[data-sect="'+k+'"]');
+      var body = document.getElementById("body" + k.charAt(0).toUpperCase() + k.slice(1));
+      head.setAttribute("aria-expanded", S.open[k] ? "true" : "false");
+      head.querySelector(".caret").textContent = S.open[k] ? "▾" : "▸";
+      body.hidden = !S.open[k];
+    });
+
+    /* footer */
+    var total = grandTotal();
+    if(!S.paidDirty) S.paid = total > 0 ? String(total) : "";
+    var paidEl = document.getElementById("paid");
+    if(document.activeElement !== paidEl) paidEl.value = S.paid;
+    document.getElementById("ftotal").textContent = dt(total);
+    document.getElementById("freste").textContent = dt(Math.max(0, round3(total - (parseFloat(S.paid) || 0))));
+    document.getElementById("addmore").disabled = !hasDraft();
+    document.getElementById("confirm").disabled = !hasDraft() && S.acts.length === 0;
+  }
+
+  function render(){
+    buildCharts();
+    renderActSlot();
+    paint();
+    renderDetails();
+    renderActs();
+    renderNotes();
+    renderChrome();
+  }
+
+  function esc(s){ return String(s).replace(/[&<>"]/g, function(c){
+    return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]; }); }
+
+  /* ── wiring that survives re-render (delegated / stable nodes) ── */
+  document.querySelectorAll(".rail .opt").forEach(function(b){
+    b.addEventListener("click", function(){
+      document.querySelectorAll(".rail .opt").forEach(function(o){ o.setAttribute("aria-selected","false"); });
+      b.setAttribute("aria-selected","true");
+      reset(b.dataset.s); render();
+    });
+  });
+  document.querySelectorAll("[data-sect]").forEach(function(b){
+    b.addEventListener("click", function(){ S.open[b.dataset.sect] = !S.open[b.dataset.sect]; render(); });
+  });
+  document.querySelectorAll("#dentseg button").forEach(function(b){
+    b.addEventListener("click", function(){
+      var adult = b.dataset.adult === "1";
+      if(adult === S.adult) return;
+      S.adult = adult;
+      /* a selection on teeth that are no longer on screen would be a lie; the acts are untouched */
+      S.sel = {};
+      render();
+    });
+  });
+  document.querySelectorAll("[data-q]").forEach(function(b){
+    b.addEventListener("click", function(){
+      var up = ARCH[(S.adult?"1":"0")+"upper"].flat(), lo = ARCH[(S.adult?"1":"0")+"lower"].flat();
+      var pick = b.dataset.q === "upper" ? up : b.dataset.q === "lower" ? lo :
+                 b.dataset.q === "all" ? up.concat(lo) : [];
+      if(b.dataset.q === "none") S.sel = {};
+      else pick.forEach(function(n){ S.sel[n] = 1; });
+      if(S.draft.cond !== null && selArr().length) S.draft.perTooth = true;
+      render();
+    });
+  });
+  document.querySelectorAll("#perseg button").forEach(function(b){
+    b.addEventListener("click", function(){ S.draft.perTooth = b.dataset.per === "1"; render(); });
+  });
+  document.getElementById("unit").addEventListener("input", function(e){ S.draft.cost = e.target.value; renderAfterField(); });
+  document.getElementById("note").addEventListener("input", function(e){ S.draft.note = e.target.value; renderAfterField(); });
+  document.getElementById("cond").addEventListener("change", function(e){ S.draft.cond = e.target.value || null; render(); });
+  document.getElementById("note1").addEventListener("input", function(e){ S.note1 = e.target.value; renderNotes(); });
+  document.getElementById("note2").addEventListener("input", function(e){ S.note2 = e.target.value; renderNotes(); });
+  document.getElementById("paid").addEventListener("input", function(e){ S.paidDirty = true; S.paid = e.target.value; renderChrome(); });
+
+  /* keep focus + caret while typing into a field that a full render would rebuild */
+  function renderAfterField(){
+    var id = document.activeElement && document.activeElement.id;
+    var pos = document.activeElement && document.activeElement.selectionStart;
+    render();
+    if(id){
+      var el = document.getElementById(id);
+      if(el){ el.focus(); if(pos != null && el.setSelectionRange) { try{ el.setSelectionRange(pos,pos); }catch(_){} } }
+    }
+  }
+
+  document.getElementById("addmore").addEventListener("click", function(){
+    if(!hasDraft()) return;
+    var p = S.draft.actId !== null ? catalog[S.draft.actId] : null;
+    S.acts.push({
+      key:nextKey++, actId:S.draft.actId, name:S.draft.name.trim(),
+      unit:draftUnit(), perTooth:S.draft.perTooth && selArr().length > 0,
+      teeth:selArr(), cond:S.draft.cond, color:p ? p.color : "#6C757D",
+      faces:Object.assign({}, S.draft.faces), note:S.draft.note
+    });
+    /* the selection is deliberately KEPT — a second act on the same tooth is one pick away */
+    S.draft = emptyDraft();
+    S.picker = true; S.query = ""; S.cursor = 0;
+    S.open.acts = true;
+    render();
+    var i = document.getElementById("q"); if(i) i.focus();
+  });
+
+  document.getElementById("confirm").addEventListener("click", function(){
+    var n = S.acts.length + (hasDraft() ? 1 : 0);
+    document.getElementById("confirm").textContent = "✓ " + n + " acte" + (n>1?"s":"") +
+      " · " + dt(grandTotal());
+    setTimeout(renderChrome, 1900);
+  });
+
+  reset("rdv");
+  render();
+})();
+</script>

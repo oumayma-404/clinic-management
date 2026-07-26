@@ -268,7 +268,7 @@ public class GoogleCalendarController : ApiControllerBase
         if (string.IsNullOrEmpty(code))
         {
             _logger.LogWarning("Authorization code not provided in callback");
-            return BadRequest(new { error = "Authorization code not provided" });
+            return BadRequest(new { error = "Code d'autorisation manquant." });
         }
 
         // CSRF + clinic binding: reject a callback whose state we didn't issue, that is missing, or that does
@@ -282,7 +282,7 @@ public class GoogleCalendarController : ApiControllerBase
             || !_cache.TryGetValue(OAuthStateCachePrefix + state, out Guid clinicId))
         {
             _logger.LogWarning("Google OAuth callback rejected: missing, unrecognized, or unbound state parameter");
-            return BadRequest(new { error = "Invalid or expired authorization state. Please restart the Google authorization." });
+            return BadRequest(new { error = "Demande d'autorisation invalide ou expirée. Veuillez relancer la connexion à Google." });
         }
         _cache.Remove(OAuthStateCachePrefix + state);
 
@@ -298,7 +298,7 @@ public class GoogleCalendarController : ApiControllerBase
 
             if (string.IsNullOrEmpty(clientId) || string.IsNullOrEmpty(clientSecret))
             {
-                return BadRequest(new { error = "Google Calendar credentials not configured" });
+                return BadRequest(new { error = "Identifiants Google Agenda non configurés." });
             }
 
             // Exchange authorization code for tokens
