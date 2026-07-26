@@ -115,6 +115,21 @@ public class InvoiceRepository : IInvoiceRepository
             .ToList();
     }
 
+    public async Task<IReadOnlyList<(Guid TreatmentPlanId, Guid InvoiceId, string? Number, InvoiceStatus Status)>>
+        GetTreatmentPlanLinksAsync(Guid clinicId, CancellationToken cancellationToken = default)
+    {
+        // Light projection: a « Facturé » badge and the money-read de-dup need the link + status, never the
+        // lines/payments graph. Cancelled bridges are returned too — the caller decides if they still count.
+        var rows = await _context.Invoices
+            .Where(i => i.ClinicId == clinicId && i.TreatmentPlanId != null)
+            .Select(i => new { TreatmentPlanId = i.TreatmentPlanId!.Value, InvoiceId = i.Id, i.Number, i.Status })
+            .ToListAsync(cancellationToken);
+
+        return rows
+            .Select(r => (r.TreatmentPlanId, r.InvoiceId, r.Number, r.Status))
+            .ToList();
+    }
+
     public async Task<Invoice?> GetByPaymentIdAsync(Guid paymentId, CancellationToken cancellationToken = default)
     {
         return await _context.Invoices

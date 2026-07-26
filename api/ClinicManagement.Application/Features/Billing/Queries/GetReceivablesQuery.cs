@@ -49,7 +49,14 @@ public class GetReceivablesQueryHandler : IRequestHandler<GetReceivablesQuery, R
 
             var now = DateTime.UtcNow;
             var invoiceByPatient = await _invoiceRepository.GetOutstandingByPatientAsync(clinicId, cancellationToken);
-            var planByPatient = await _planRepository.GetInstallmentOutstandingByPatientAsync(clinicId, now, cancellationToken);
+
+            // A plan bridged into a real invoice is already counted on the invoice track above; counting its
+            // échéancier too would bill the same acts twice here while « Solde patient » counts them once.
+            // Same shared rule, one light projection (no lines/payments loaded).
+            var billedPlanIds = PlanBillingRules.BilledPlanIds(
+                await _invoiceRepository.GetTreatmentPlanLinksAsync(clinicId, cancellationToken));
+            var planByPatient = await _planRepository.GetInstallmentOutstandingByPatientAsync(
+                clinicId, now, billedPlanIds, cancellationToken);
 
             // Merge the two tracks per patient.
             var totals = new Dictionary<Guid, decimal>();

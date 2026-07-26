@@ -49,5 +49,11 @@ public class TreatmentPlanItemConfiguration : IEntityTypeConfiguration<Treatment
 
         builder.Property(i => i.DoneDate);
         builder.Property(i => i.LinkedDentalRecordId);
+
+        // Clinical order within the plan. Existing rows backfill to 0 and keep their insertion order until
+        // the plan is first reordered (TreatmentPlan.Items sorts stably, so ties preserve it).
+        builder.Property(i => i.SequenceNumber)
+            .IsRequired()
+            .HasDefaultValue(0);
     }
 }

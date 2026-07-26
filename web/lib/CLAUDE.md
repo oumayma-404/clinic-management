@@ -26,7 +26,7 @@ Each exports a `<name>Api` object of async methods over `client.ts` (endpoints r
 
 | Module | Object | Endpoints / notes |
 |--------|--------|-------------------|
-| `appointments.ts` | `appointmentsApi` | `/appointments` list/get/create/update (**no delete**); recurring series: `listRecurring`/`createRecurring`/`cancelRecurring`. Create can link a treatment-plan step. |
+| `appointments.ts` | `appointmentsApi` | `/appointments` list/get/create/update (**no delete**); recurring series: `listRecurring`/`createRecurring`/`cancelRecurring`. Create **and update** can link a treatment-plan step — on update the pair is **tri-state**: omit the key to leave the link alone, send `treatmentPlanItemId: null` to clear it. |
 | `patients.ts` | `patientsApi` | `/patients` list(searchTerm/limit)/get/create/update; `getAiSummary` (`/patients/{id}/ai-summary`, live HuggingFace). Create accepts CNAM + inline medical/family-history entries. |
 | `procedure-types.ts` | `procedureTypesApi` | `/procedure-types` CRUD (`includeInactive`); `initializeDefaults` (19 general Tunisian procedures). |
 | `dental-records.ts` | `dentalRecordsApi` | `/patients/{id}/dental-records` CRUD (multi-act; exports `CreateDentalRecordRequest`); can mark a plan step réalisé. |
@@ -38,7 +38,7 @@ Each exports a `<name>Api` object of async methods over `client.ts` (endpoints r
 | `stock.ts` | `stockApi` | `/stock` list(`lowStockOnly`)/create/update/delete; exports `StockItemPayload`. |
 | `invoices.ts` | `invoicesApi` | `/invoices` list/get/create/update/issue/recordPayment/cancel/delete; `revenue`; `submitToElFatoora`; `downloadPdf`/`downloadEInvoiceArtifact` (Blob, raw fetch). |
 | `billing.ts` | `billingApi` | `getPatientSummary` (`/patients/{id}/billing-summary`), `getReceivables` (`/billing/receivables`), `downloadPaymentReceipt` (Blob). |
-| `treatment-plans.ts` | `treatmentPlansApi` | `/treatment-plans` list/get/create/update/accept/cancel/remove; `recordInstallmentPayment`, `markItemDone`; `downloadDevisPdf`/`downloadInstallmentReceipt` (Blob). |
+| `treatment-plans.ts` | `treatmentPlansApi` | `/treatment-plans` list/get/create/update/accept/**complete**/cancel/remove; `recordInstallmentPayment`, `markItemDone`; `downloadDevisPdf`/`downloadInstallmentReceipt` (Blob). |
 | `expenses.ts` | `expensesApi` | `/expenses` CRUD + `caisseSummary` (`/billing/caisse`). |
 | `cnam-nomenclature.ts` | `cnamNomenclatureApi` | `/cnam-nomenclature` list/create/update/deactivate/`confirmData` (admin) + `listLetterValues`/`updateLetterValue`. Also exports client-side `estimateReimbursement`/`reimbursementRate` (mirrors backend calculator; editor-only, never persisted). |
 | `medications.ts` | `medicationsApi` | `/medications` list/create/update/deactivate/`confirmData` (admin; backs ordonnance picker). |

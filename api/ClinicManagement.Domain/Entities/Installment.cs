@@ -34,6 +34,28 @@ public class Installment : Entity<Guid>
         Amount = InvoiceCalculator.RoundMoney(amount);
     }
 
+    /// <summary>
+    /// Revise this échéance during an amendment. The amount can never drop below what has already been
+    /// collected on it — money in the caisse cannot be un-received, and an installment whose
+    /// <see cref="Amount"/> was under its <see cref="AmountPaid"/> would report a negative balance into
+    /// « Créances ».
+    /// </summary>
+    public void Revise(DateTime dueDate, decimal amount)
+    {
+        if (amount <= 0)
+            throw new ArgumentException("Le montant de l'échéance doit être supérieur à 0.", nameof(amount));
+
+        var rounded = InvoiceCalculator.RoundMoney(amount);
+        if (rounded < AmountPaid)
+        {
+            throw new InvalidOperationException(
+                $"Une échéance ne peut pas être ramenée en dessous du montant déjà encaissé ({AmountPaid:0.000} DT).");
+        }
+
+        DueDate = dueDate;
+        Amount = rounded;
+    }
+
     public void RecordPayment(decimal amount, PaymentMethod method, DateTime paidOn)
     {
         if (amount <= 0)

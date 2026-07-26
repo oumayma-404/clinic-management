@@ -20,8 +20,11 @@ export default function TreatmentPlansPage() {
   const [status, setStatus] = useState<string>(ALL_STATUSES)
   const [reloadKey, setReloadKey] = useState(0)
 
-  const fromIso = from ? `${from}T00:00:00` : undefined
-  const toIso = to ? `${to}T23:59:59` : undefined
+  // Send UTC instants, not timezone-naive wall-clock strings: the backend compares these against a UTC
+  // CreatedAt, so `${from}T00:00:00` silently shifted the range by the browser's offset and dropped (or
+  // added) plans created near either edge of the window.
+  const fromIso = from ? new Date(`${from}T00:00:00`).toISOString() : undefined
+  const toIso = to ? new Date(`${to}T23:59:59.999`).toISOString() : undefined
   const statusFilter = status === ALL_STATUSES ? undefined : status
 
   const applyFilters = () => setReloadKey((k) => k + 1)

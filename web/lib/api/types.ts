@@ -96,6 +96,8 @@ export interface InvoiceDto {
   patientName?: string | null;
   dentalRecordId?: string | null;
   appointmentId?: string | null;
+  /** The devis this note was bridged from (devis→facture), or null for a standalone note. */
+  treatmentPlanId?: string | null;
   number?: string | null;
   issueDate?: string | null;
   /** Draft | Issued | PartiallyPaid | Paid | Cancelled */
@@ -424,6 +426,17 @@ export interface TreatmentPlanItemDto {
   status: string;
   doneDate: string | null;
   linkedDentalRecordId: string | null;
+  /** Clinical order within the plan (0-based). The API returns acts already sorted by it. */
+  sequenceNumber: number;
+  /**
+   * Derived read-back (query paths only): the appointment that currently speaks for this act — the earliest
+   * upcoming live one, else the most recent past live one. Null when nothing is booked, *including* when the
+   * only linked appointment was cancelled or a no-show, so the act returns to « À planifier » and can be
+   * booked again. See `plan-next-action.ts` for the état mapping.
+   */
+  scheduledAppointmentId?: string | null;
+  scheduledAt?: string | null;
+  scheduledAppointmentStatus?: string | null;
 }
 
 // A payment installment (échéance) on an accepted treatment plan. `lastMethod` is a PaymentMethod enum
@@ -558,7 +571,25 @@ export interface TreatmentPlanDto {
   amountPaid: number;
   outstanding: number;
   createdAt: string;
-  updatedAt: string;
+  /** Backend sends a nullable DateTime? — null for a plan never touched since creation. */
+  updatedAt?: string | null;
+  /**
+   * Post-acceptance amendments so far (0 = never amended). Shown as « · révision N » only when > 0, so a
+   * patient holding an earlier printout can tell which version they signed.
+   */
+  revisionNumber: number;
+  /** Derived clinical progress — always populated. */
+  itemsDone: number;
+  itemsTotal: number;
+  /** Derived (query paths only): earliest still-upcoming séance across the plan's acts. */
+  nextAppointmentAt?: string | null;
+  /**
+   * Derived (query paths only): the non-cancelled invoice this devis was billed into. Once set, the plan is
+   * represented by that invoice in « Solde patient » — and it can no longer be re-billed.
+   */
+  linkedInvoiceId?: string | null;
+  linkedInvoiceNumber?: string | null;
+  linkedInvoiceStatus?: string | null;
   items: TreatmentPlanItemDto[];
   installments: InstallmentDto[];
 }

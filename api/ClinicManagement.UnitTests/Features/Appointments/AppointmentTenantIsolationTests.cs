@@ -86,6 +86,7 @@ public class AppointmentTenantIsolationTests
             repo.Object,
             new Mock<IProcedureTypeRepository>().Object,
             new Mock<IDoctorRepository>().Object,
+            new Mock<ITreatmentPlanRepository>().Object,
             clinicResolver.Object,
             new Mock<IClinicContext>().Object,
             uow.Object,

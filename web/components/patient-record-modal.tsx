@@ -175,6 +175,30 @@ export function PatientRecordModal({
     }
   }, [open, initialPatientName, record, dispatch])
 
+  // AC-9: an appointment booked FROM a plan step already knows which act this visit is for, so opening the
+  // record from it pre-selects that step — the dentist no longer has to find it in the dropdown to close the
+  // loop. Runs before the procedure proposal below so the plan act wins when both are available: the plan
+  // step is the more specific truth (it carries the agreed désignation, cost and teeth), and both dispatches
+  // no-op on a non-empty draft, so whichever lands first keeps it.
+  //
+  // Only pre-selects a step that is actually in `planItems` — that list holds the plan's OPEN steps, so an
+  // act already marked réalisé (or on a cancelled plan) correctly falls through to the normal flow.
+  useEffect(() => {
+    if (!open || record || !appointment?.treatmentPlanItemId) return
+    const linked = planItems.find((p) => p.itemId === appointment.treatmentPlanItemId)
+    if (!linked) return
+
+    setLinkedPlanItemId(linked.itemId)
+    dispatch({
+      type: "applyPlanItem",
+      item: {
+        designationFr: linked.designationFr,
+        plannedCost: linked.plannedCost,
+        toothNumbers: linked.toothNumbers,
+      },
+    })
+  }, [open, record, appointment, planItems, dispatch])
+
   // Option C: propose the appointment's booked procedure. Runs after the reset above and is itself guarded —
   // `applyAppointment` is a no-op unless the session is untouched, so it can never clobber a saved record or
   // work in progress. A record being edited is never re-proposed.

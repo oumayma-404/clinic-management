@@ -27,11 +27,28 @@ public class TreatmentPlan : AggregateRoot<Guid>
     /// <summary>Sum of the planned act costs (TND millimes) — the devis total.</summary>
     public decimal TotalPlanned { get; private set; }
 
+    /// <summary>
+    /// How many times this devis has been amended since acceptance (0 = never). The devis PDF and the
+    /// workspace header print « · révision N » when &gt; 0, so a patient holding an earlier printout can tell
+    /// which version they signed — the PDF re-renders live from current state and is archived nowhere, so
+    /// this counter is the only thing distinguishing two printouts of the same number. The
+    /// <see cref="Number"/> itself is never reused, suffixed or reassigned.
+    /// </summary>
+    public int RevisionNumber { get; private set; }
+
     public DateTime CreatedAt { get; private set; }
     public DateTime? UpdatedAt { get; private set; }
 
     private readonly List<TreatmentPlanItem> _items = new();
-    public IReadOnlyCollection<TreatmentPlanItem> Items => _items.AsReadOnly();
+
+    /// <summary>
+    /// The planned acts in clinical order. <c>OrderBy</c> is a stable sort, so acts sharing a
+    /// <see cref="TreatmentPlanItem.SequenceNumber"/> — every act on a plan created before the column
+    /// existed, all of which default to 0 — keep their insertion order and do not reshuffle on screen before
+    /// the plan is first reordered.
+    /// </summary>
+    public IReadOnlyCollection<TreatmentPlanItem> Items =>
+        _items.OrderBy(i => i.SequenceNumber).ToList().AsReadOnly();
 
     private readonly List<Installment> _installments = new();
     public IReadOnlyCollection<Installment> Installments => _installments.AsReadOnly();
@@ -75,14 +92,59 @@ public class TreatmentPlan : AggregateRoot<Guid>
 
     /// <summary>Replace all planned act lines. Draft only. Clears any installment schedule (totals change).</summary>
     public void SetItems(IEnumerable<(string designationFr, decimal plannedCost, Guid? dentalActCodeId, string? codeActe, IReadOnlyList<int> toothNumbers)> items)
+        => SetItems(items.Select(i => ((Guid?)null, i.designationFr, i.plannedCost, i.dentalActCodeId, i.codeActe, i.toothNumbers)));
+
+    /// <summary>
+    /// Replace all planned act lines, **preserving the id** of every echoed-back line. Draft only.
+    /// <para>
+    /// Id preservation is not a micro-optimisation. Editing a draft used to <c>Guid.NewGuid()</c> every line,
+    /// so an <c>Appointment.TreatmentPlanItemId</c> or <c>TreatmentPlanItem.LinkedDentalRecordId</c> pointing
+    /// at that act silently began pointing at nothing — and since neither link has an FK, the database could
+    /// not catch it. A line whose id the caller echoes back keeps it; an unknown id is treated as a new line
+    /// rather than an error, so a stale client cannot fail the save.
+    /// </para>
+    /// <para>
+    /// Wiping the échéancier is now **explicit**: this still clears it (the total is changing), but it
+    /// refuses to do so silently when a schedule exists and the caller sent no replacement — previously the
+    /// only reason no money was lost is that the form always happened to resend the schedule.
+    /// </para>
+    /// </summary>
+    public void SetItems(
+        IEnumerable<(Guid? id, string designationFr, decimal plannedCost, Guid? dentalActCodeId, string? codeActe, IReadOnlyList<int> toothNumbers)> items,
+        bool scheduleWillBeResent = true)
     {
         EnsureDraft();
-        _items.Clear();
-        _installments.Clear();
-        foreach (var (designationFr, plannedCost, dentalActCodeId, codeActe, toothNumbers) in items)
+
+        if (_installments.Any(i => i.AmountPaid > 0m))
         {
-            _items.Add(new TreatmentPlanItem(Guid.NewGuid(), Id, designationFr, plannedCost, dentalActCodeId, codeActe, toothNumbers));
+            // Defensive: a Draft cannot take payments today (EnsurePayable rejects Draft), so this can only
+            // fire if that guard ever loosens. Losing collected money to a line edit must never be possible.
+            throw new InvalidOperationException(
+                "Ce devis comporte des échéances déjà encaissées et ne peut plus être modifié ligne par ligne.");
         }
+        if (_installments.Count > 0 && !scheduleWillBeResent)
+        {
+            throw new InvalidOperationException(
+                "Modifier les actes change le total du devis : renvoyez l'échéancier avec la mise à jour.");
+        }
+
+        var existingById = _items.ToDictionary(i => i.Id);
+        var rebuilt = new List<TreatmentPlanItem>();
+        var position = 0;
+
+        foreach (var (id, designationFr, plannedCost, dentalActCodeId, codeActe, toothNumbers) in items)
+        {
+            // An echoed-back id that still exists on this plan keeps its identity, so every link to that act
+            // survives the edit. Anything else is a new line.
+            var reusedId = id.HasValue && existingById.ContainsKey(id.Value) ? id.Value : Guid.NewGuid();
+            rebuilt.Add(new TreatmentPlanItem(
+                reusedId, Id, designationFr, plannedCost, dentalActCodeId, codeActe, toothNumbers, position));
+            position++;
+        }
+
+        _items.Clear();
+        _items.AddRange(rebuilt);
+        _installments.Clear();
         RecomputeTotal();
         Touch();
     }
@@ -153,10 +215,13 @@ public class TreatmentPlan : AggregateRoot<Guid>
         Touch();
     }
 
-    /// <summary>Record a payment against one installment. Allowed only on an accepted/in-progress plan.</summary>
+    /// <summary>
+    /// Record a payment against one installment. Allowed on an accepted, in-progress <b>or completed</b> plan —
+    /// see <see cref="EnsurePayable"/>. A payment never re-opens a completed plan.
+    /// </summary>
     public void RecordInstallmentPayment(Guid installmentId, decimal amount, PaymentMethod method, DateTime paidOn)
     {
-        EnsureActive();
+        EnsurePayable();
         var installment = _installments.FirstOrDefault(i => i.Id == installmentId)
             ?? throw new InvalidOperationException("Échéance introuvable.");
 
@@ -166,7 +231,16 @@ public class TreatmentPlan : AggregateRoot<Guid>
         Touch();
     }
 
-    /// <summary>Mark a planned act as carried out, optionally linking the dental record that recorded it.</summary>
+    /// <summary>
+    /// Mark a planned act as carried out, optionally linking the dental record that recorded it. When this was
+    /// the last outstanding act the plan closes itself.
+    /// <para>
+    /// The auto-close rule lives here, not in a handler, so every path behaves identically: previously only
+    /// <c>MarkTreatmentPlanItemDoneCommand</c> auto-closed while the record-driven path
+    /// (<c>DentalRecordLinker</c>) did not — and since that command has no UI caller, a fully-treated plan
+    /// never actually reached « Terminé » on its own.
+    /// </para>
+    /// </summary>
     public void MarkItemDone(Guid itemId, DateTime doneOn, Guid? linkedDentalRecordId)
     {
         EnsureActive();
@@ -176,6 +250,13 @@ public class TreatmentPlan : AggregateRoot<Guid>
         item.MarkDone(doneOn, linkedDentalRecordId);
         if (Status == TreatmentPlanStatus.Accepted)
             Status = TreatmentPlanStatus.InProgress;
+
+        // EnsureActive + the bump above leave the plan InProgress, so Complete() can never throw here.
+        if (_items.Count > 0 && _items.All(i => i.Status == TreatmentPlanItemStatus.Done))
+        {
+            Complete();
+        }
+
         Touch();
     }
 
@@ -189,6 +270,190 @@ public class TreatmentPlan : AggregateRoot<Guid>
 
         Status = TreatmentPlanStatus.Completed;
         Touch();
+    }
+
+    // ---- Amendment (post-acceptance) ---------------------------------------------------------------
+    //
+    // Before this, a plan froze the instant it was accepted: SetItems/SetInstallments are EnsureDraft()-only,
+    // so the first time treatment changed the only escape was Cancel + retype, losing the devis number, the
+    // échéancier and every réalisé act. These four methods let an accepted plan evolve instead.
+    //
+    // The caller (the amend handler) is responsible for the one rule this aggregate cannot see: a plan with a
+    // linked non-cancelled invoice must refuse every amendment, because the money reads treat that invoice as
+    // *representing* the plan and its lines froze at issue — added acts would be silently invisible in every
+    // balance. TreatmentPlan holds no invoice reference, so that guard lives in the handler with the
+    // repository that can answer it.
+
+    /// <summary>
+    /// Add acts to an accepted or in-progress plan. New acts append after the current last one, so an
+    /// amendment never reshuffles the clinical order the dentist already set. Bumps the revision.
+    /// </summary>
+    public void AddItems(IEnumerable<(string designationFr, decimal plannedCost, Guid? dentalActCodeId, string? codeActe, IReadOnlyList<int> toothNumbers)> items)
+    {
+        EnsureAmendable();
+
+        var next = NextSequenceNumber();
+        var added = 0;
+        foreach (var (designationFr, plannedCost, dentalActCodeId, codeActe, toothNumbers) in items)
+        {
+            _items.Add(new TreatmentPlanItem(
+                Guid.NewGuid(), Id, designationFr, plannedCost, dentalActCodeId, codeActe, toothNumbers, next));
+            next++;
+            added++;
+        }
+
+        if (added == 0)
+        {
+            return;
+        }
+
+        RecomputeTotal();
+        Touch();
+    }
+
+    /// <summary>
+    /// Remove an act from an accepted or in-progress plan and lower <see cref="TotalPlanned"/> accordingly.
+    /// Bumps the revision.
+    /// <para>
+    /// Refused for an act already <c>Done</c>, and refused for an act the patient is still booked for —
+    /// <paramref name="liveAppointmentAt"/> carries that booking (the aggregate cannot query appointments, so
+    /// the caller supplies it). Removing a booked act would leave an appointment row pointing at a vanished
+    /// id, with the patient still expected — reminders already sent — for work that no longer exists, and no
+    /// FK to catch it. Whether to un-book the patient or repurpose the slot is a phone call, not a cascade.
+    /// </para>
+    /// </summary>
+    public void RemoveItem(Guid itemId, DateTime? liveAppointmentAt = null)
+    {
+        EnsureAmendable();
+
+        var item = _items.FirstOrDefault(i => i.Id == itemId)
+            ?? throw new InvalidOperationException("Acte introuvable.");
+
+        if (item.Status == TreatmentPlanItemStatus.Done)
+        {
+            throw new InvalidOperationException("Cet acte est déjà réalisé et ne peut plus être retiré du devis.");
+        }
+        if (liveAppointmentAt.HasValue)
+        {
+            throw new InvalidOperationException(
+                $"Cet acte a un rendez-vous prévu le {liveAppointmentAt.Value:dd/MM}. Annulez ou déplacez le rendez-vous avant de retirer l'acte.");
+        }
+
+        _items.Remove(item);
+        RecomputeTotal();
+        Touch();
+    }
+
+    /// <summary>
+    /// Replace the échéancier on an accepted plan. An installment whose id is echoed back keeps its identity
+    /// (and therefore its collected money); anything else is a new row.
+    /// <para>
+    /// The schedule must sum <b>exactly</b> to <see cref="TotalPlanned"/>. That invariant is load-bearing well
+    /// beyond this method: « Solde patient » reads <c>plan.Outstanding</c> (<c>TotalPlanned − Σ AmountPaid</c>)
+    /// while « Créances » and the dashboard read <c>Σ (Amount − AmountPaid)</c>, and the two agree only while
+    /// it holds. Nothing enforced it before because nothing could change the total after acceptance.
+    /// </para>
+    /// <para>Bumps the revision. As with <c>SetInstallments</c>, the caller lands the millime remainder.</para>
+    /// </summary>
+    public void ReviseInstallments(IEnumerable<(Guid? id, DateTime dueDate, decimal amount)> installments)
+    {
+        EnsureAmendable();
+
+        var list = installments.ToList();
+        if (list.Count == 0)
+        {
+            throw new InvalidOperationException("L'échéancier ne peut pas être vide sur un devis accepté.");
+        }
+
+        var sum = InvoiceCalculator.RoundMoney(list.Sum(i => i.amount));
+        if (sum != TotalPlanned)
+        {
+            throw new InvalidOperationException("Le total des échéances doit être égal au coût total planifié du devis.");
+        }
+        if (TotalPlanned < AmountPaid)
+        {
+            throw new InvalidOperationException(
+                $"Le total du devis ne peut pas être inférieur au montant déjà encaissé ({AmountPaid:0.000} DT).");
+        }
+
+        var existingById = _installments.ToDictionary(i => i.Id);
+
+        // Every installment carrying money must survive the revision — dropping one would erase collected
+        // cash from the plan's balance with no trace.
+        var keptIds = list.Where(i => i.id.HasValue).Select(i => i.id!.Value).ToHashSet();
+        var droppedWithMoney = _installments.Where(i => i.AmountPaid > 0m && !keptIds.Contains(i.Id)).ToList();
+        if (droppedWithMoney.Count > 0)
+        {
+            throw new InvalidOperationException(
+                "Une échéance déjà encaissée ne peut pas être supprimée de l'échéancier. Conservez-la et ajustez les autres.");
+        }
+
+        var rebuilt = new List<Installment>();
+        foreach (var (id, dueDate, amount) in list)
+        {
+            if (id.HasValue && existingById.TryGetValue(id.Value, out var existing))
+            {
+                existing.Revise(dueDate, amount); // guards amount >= AmountPaid
+                rebuilt.Add(existing);
+            }
+            else
+            {
+                rebuilt.Add(new Installment(Guid.NewGuid(), Id, dueDate, amount));
+            }
+        }
+
+        _installments.Clear();
+        _installments.AddRange(rebuilt);
+        Touch();
+    }
+
+    /// <summary>
+    /// Reorder the plan's acts. <paramref name="itemIds"/> must be exactly this plan's acts, each once —
+    /// a partial list would leave the rest at stale positions and silently interleave them. Cosmetic, so it
+    /// does **not** bump the revision: nothing a patient signed for changes.
+    /// </summary>
+    public void SetItemOrder(IReadOnlyList<Guid> itemIds)
+    {
+        if (Status == TreatmentPlanStatus.Cancelled)
+            throw new InvalidOperationException("Un plan annulé ne peut pas être réordonné.");
+
+        if (itemIds.Count != _items.Count || itemIds.Distinct().Count() != itemIds.Count
+            || itemIds.Any(id => _items.All(i => i.Id != id)))
+        {
+            throw new InvalidOperationException("La liste des actes ne correspond pas exactement à celle du devis.");
+        }
+
+        for (var position = 0; position < itemIds.Count; position++)
+        {
+            _items.First(i => i.Id == itemIds[position]).SetSequenceNumber(position);
+        }
+        Touch();
+    }
+
+    /// <summary>
+    /// Stamp one completed amendment. Called **once** per user-visible change by the amend / revise-schedule
+    /// handlers, deliberately not by <see cref="AddItems"/>, <see cref="RemoveItem"/> and
+    /// <see cref="ReviseInstallments"/> themselves: a single amendment routinely composes several of them
+    /// (adding an act *and* re-spreading the échéancier is one edit, not two), and self-bumping mutators made
+    /// « révision 4 » out of two amendments — a number the patient's printout could never be matched against.
+    /// </summary>
+    public void RecordAmendment()
+    {
+        EnsureAmendable();
+        RevisionNumber++;
+        Touch();
+    }
+
+    private int NextSequenceNumber() => _items.Count == 0 ? 0 : _items.Max(i => i.SequenceNumber) + 1;
+
+    /// <summary>An amendment only makes sense on a live devis: a Draft is edited outright, a Cancelled one is
+    /// void, and a Completed one has no remaining treatment to change.</summary>
+    private void EnsureAmendable()
+    {
+        if (Status != TreatmentPlanStatus.Accepted && Status != TreatmentPlanStatus.InProgress)
+        {
+            throw new InvalidOperationException("Seul un devis accepté ou en cours peut être modifié.");
+        }
     }
 
     /// <summary>Cancel an accepted/in-progress plan (motif required). A draft is deleted, not cancelled.</summary>
@@ -218,6 +483,22 @@ public class TreatmentPlan : AggregateRoot<Guid>
     {
         if (Status != TreatmentPlanStatus.Accepted && Status != TreatmentPlanStatus.InProgress)
             throw new InvalidOperationException("Le plan doit être accepté pour cette opération.");
+    }
+
+    /// <summary>
+    /// Money may still be collected on a <c>Completed</c> plan. « Terminé » means every act was carried out,
+    /// not that the patient has paid — treatment routinely finishes before the last échéance is collected, so
+    /// closing the clinical track must never close the financial one. (Wider than <see cref="EnsureActive"/>,
+    /// which still guards act completion.)
+    /// </summary>
+    private void EnsurePayable()
+    {
+        if (Status != TreatmentPlanStatus.Accepted
+            && Status != TreatmentPlanStatus.InProgress
+            && Status != TreatmentPlanStatus.Completed)
+        {
+            throw new InvalidOperationException("Le plan doit être accepté pour enregistrer un paiement.");
+        }
     }
 
     private void Touch() => UpdatedAt = DateTime.UtcNow;

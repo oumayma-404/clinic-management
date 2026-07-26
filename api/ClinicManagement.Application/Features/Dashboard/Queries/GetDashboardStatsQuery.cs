@@ -97,10 +97,14 @@ public class GetDashboardStatsQueryHandler : IRequestHandler<GetDashboardStatsQu
                 clinicId, monthStart, monthEnd, cancellationToken);
             var monthlyRevenueCollected = InvoiceCalculator.RoundMoney(invoiceCollected + installmentCollected);
 
-            // En attente de recouvrement = clinic-wide outstanding across both tracks.
+            // En attente de recouvrement = clinic-wide outstanding across both tracks. A plan bridged into a
+            // real invoice is counted through that invoice only (PlanBillingRules — the same rule
+            // « Solde patient » and « Créances » apply), so the KPI can't overstate what patients owe.
             var invoiceOutstanding = (await _invoiceRepository.GetOutstandingByPatientAsync(clinicId, cancellationToken))
                 .Sum(r => r.Outstanding);
-            var installmentOutstanding = (await _planRepository.GetInstallmentOutstandingByPatientAsync(clinicId, now, cancellationToken))
+            var billedPlanIds = PlanBillingRules.BilledPlanIds(
+                await _invoiceRepository.GetTreatmentPlanLinksAsync(clinicId, cancellationToken));
+            var installmentOutstanding = (await _planRepository.GetInstallmentOutstandingByPatientAsync(clinicId, now, billedPlanIds, cancellationToken))
                 .Sum(r => r.Outstanding);
             var totalOutstanding = InvoiceCalculator.RoundMoney(invoiceOutstanding + installmentOutstanding);
 

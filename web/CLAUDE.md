@@ -92,7 +92,7 @@ All app pages are client components (`"use client"`) that render `DashboardSideb
 | `/appointments` | `app/appointments/page.tsx` | Day/week calendar, create/edit dialogs, Google Calendar sync controls (Local: gated on internet reachability + per-appointment "non synchronisé"/Push-to-Google via `useConnectivity()`) |
 | `/recurring-series` | `app/recurring-series/page.tsx` | Recurring appointment series ("Rendez-vous récurrents") — create/list via `appointmentsApi` |
 | `/waiting-list` | `app/waiting-list/page.tsx` | "Salle d'attente / Liste d'attente" (`waitingListApi`) — queue + promote to appointment |
-| `/patients` | `app/patients/page.tsx` | Patients table + search/flag filter, create patient dialog (`patients/loading.tsx` skeleton) |
+| `/patients` | `app/patients/page.tsx` | Patients table + search/flag filter, create patient dialog. (`patients/loading.tsx` exists but `return null` — it is a no-op, **not** a skeleton.) |
 | `/patients/[id]` | `app/patients/[id]/page.tsx` | Patient detail (tabbed): info, dental records/odontogram, history, AI summary, documents, treatment plans/devis |
 | `/patients/[id]/files` | `app/patients/[id]/files/page.tsx` | Per-patient file/folder manager |
 | `/procedure-types` | `app/procedure-types/page.tsx` | Procedure types CRUD table + form modal |
@@ -100,7 +100,8 @@ All app pages are client components (`"use client"`) that render `DashboardSideb
 | `/documents/[type]` | `app/documents/[type]/page.tsx` | Document editor (`DocumentEditorContent`, Suspense-wrapped) |
 | `/stock` | `app/stock/page.tsx` | Stock/inventory table + item form modal (`stockApi`) |
 | `/factures` | `app/factures/page.tsx` | "Factures & Recettes": invoices table (`invoicesApi`) + revenue KPI, date/status filters |
-| `/treatment-plans` | `app/treatment-plans/page.tsx` | "Plans de traitement & Devis": `TreatmentPlansTable` + status filter |
+| `/treatment-plans` | `app/treatment-plans/page.tsx` | "Plans de traitement & Devis": `TreatmentPlansTable` (a **list** — rows link to the workspace) + status filter |
+| `/treatment-plans/[id]` | `app/treatment-plans/[id]/page.tsx` | The devis **workspace** (`PlanWorkspace`): header (statut, progress, Total/Encaissé/Reste, prochaine séance, the plan's actions), actes with one primary action per état, échéancier, and a « Parcours » feed. The plan area's only dynamic route. Loading / « Plan introuvable » render *outside* `ClinicGuard`, following `patients/[id]`. |
 | `/creances` | `app/creances/page.tsx` | "Créances": per-patient balances due (`ReceivablesTable`) |
 | `/caisse` | `app/caisse/page.tsx` | "Caisse": cash register / expenses (`expensesApi`) |
 | `/lab-orders` | `app/lab-orders/page.tsx` | "Laboratoire — bons de prothèse" (`labOrdersApi`) |

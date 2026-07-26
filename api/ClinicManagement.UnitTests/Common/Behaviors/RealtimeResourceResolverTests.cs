@@ -12,6 +12,7 @@ using ClinicManagement.Application.Features.Notifications.Commands;
 using ClinicManagement.Application.Features.Patients.Commands;
 using ClinicManagement.Application.Features.ProcedureTypes.Commands;
 using ClinicManagement.Application.Features.Stock.Commands;
+using ClinicManagement.Application.Features.TreatmentPlans.Commands;
 using ClinicManagement.Application.Features.Users.Commands;
 using Xunit;
 
@@ -44,6 +45,11 @@ public class RealtimeResourceResolverTests
     [InlineData(typeof(CreateStockItemCommand), "stock")]
     [InlineData(typeof(MarkNotificationReadCommand), "notifications")]
     [InlineData(typeof(CreateInvoiceCommand), "invoices")]
+    // [AC-25] Plan commands broadcast "treatmentplans" — the key PatientPlanCard, the plans table and the
+    // patient page all subscribe to. Renaming Features/TreatmentPlans would silently break every one of them.
+    [InlineData(typeof(CreateTreatmentPlanCommand), "treatmentplans")]
+    [InlineData(typeof(AcceptTreatmentPlanCommand), "treatmentplans")]
+    [InlineData(typeof(RecordInstallmentPaymentCommand), "treatmentplans")]
     public void Resolve_Maps_MutatingCommand_To_ExpectedResourceKey(Type command, string expected)
         => Assert.Equal(expected, RealtimeResourceResolver.Resolve(command));
 

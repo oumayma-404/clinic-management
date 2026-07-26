@@ -60,8 +60,12 @@ public class UpdateTreatmentPlanCommandHandler : IRequestHandler<UpdateTreatment
             }
 
             plan.UpdateDetails(request.Title, request.Notes);
-            var items = await TreatmentPlanItemPricing.ResolveAsync(request.Items, clinicId, _dentalActRepository, cancellationToken);
-            plan.SetItems(items);
+
+            // Echo the ids through so an unchanged line keeps its identity (AC-19). Without this, editing a
+            // draft re-issued every act id and silently orphaned any appointment or dental-record link
+            // pointing at those acts — neither of which has an FK to catch it.
+            var items = await TreatmentPlanItemPricing.ResolveWithIdsAsync(request.Items, clinicId, _dentalActRepository, cancellationToken);
+            plan.SetItems(items, scheduleWillBeResent: true);
             plan.SetInstallments(request.Installments.Select(i => (i.DueDate, i.Amount)));
 
             await _planRepository.UpdateAsync(plan, cancellationToken);

@@ -139,6 +139,26 @@ public class AppointmentRepository : IAppointmentRepository
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<Appointment>> GetByTreatmentPlanItemIdsAsync(
+        Guid clinicId,
+        IReadOnlyCollection<Guid> treatmentPlanItemIds,
+        CancellationToken cancellationToken = default)
+    {
+        if (treatmentPlanItemIds.Count == 0)
+        {
+            return Array.Empty<Appointment>();
+        }
+
+        // No Include here (unlike the other reads): the plan-workflow projection needs only the link,
+        // the date and the status, and this runs for every plan on a list page.
+        return await _context.Appointments
+            .Where(a => a.ClinicId == clinicId
+                        && a.TreatmentPlanItemId != null
+                        && treatmentPlanItemIds.Contains(a.TreatmentPlanItemId.Value))
+            .OrderBy(a => a.AppointmentDateTime)
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<Appointment> AddAsync(Appointment appointment, CancellationToken cancellationToken = default)
     {
         await _context.Appointments.AddAsync(appointment, cancellationToken);

@@ -6,6 +6,7 @@ using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Domain.Enums;
 using Microsoft.Extensions.Logging;
+using System.Text.Json.Serialization;
 
 namespace ClinicManagement.Application.Features.Appointments.Commands;
 
@@ -20,6 +21,36 @@ public class UpdateAppointmentCommand : IRequest<Result<AppointmentDto>>
     public Guid? ProcedureTypeId { get; set; }
     /// <summary>Reassign the appointment's practitioner (an FK to Doctor). Ignored when null.</summary>
     public Guid? DoctorId { get; set; }
+
+    /// <summary>The plan the linked act belongs to — required whenever <see cref="TreatmentPlanItemId"/> is set.</summary>
+    public Guid? TreatmentPlanId { get; set; }
+
+    private Guid? _treatmentPlanItemId;
+
+    /// <summary>
+    /// Move — or clear — the treatment-plan act this appointment schedules.
+    /// <para>
+    /// Deliberately tri-state, unlike the other nullable fields here: an explicit <c>null</c> clears the
+    /// link, while <b>omitting</b> the property leaves it untouched. Every existing caller (the edit dialog,
+    /// the calendar's status flips, the drag-to-reschedule) sends neither field, so treating "absent" as
+    /// "clear" would silently orphan the plan link on any unrelated edit — and because the link has no FK,
+    /// nothing at the database level would catch it.
+    /// </para>
+    /// </summary>
+    public Guid? TreatmentPlanItemId
+    {
+        get => _treatmentPlanItemId;
+        set
+        {
+            _treatmentPlanItemId = value;
+            TreatmentPlanItemIdSpecified = true;
+        }
+    }
+
+    /// <summary>True once the caller has actually sent <see cref="TreatmentPlanItemId"/> (System.Text.Json
+    /// only assigns properties present in the payload). Not part of the wire contract.</summary>
+    [JsonIgnore]
+    public bool TreatmentPlanItemIdSpecified { get; private set; }
 }
 
 public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointmentCommand, Result<AppointmentDto>>
@@ -27,6 +58,7 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
     private readonly IAppointmentRepository _appointmentRepository;
     private readonly IProcedureTypeRepository _procedureTypeRepository;
     private readonly IDoctorRepository _doctorRepository;
+    private readonly ITreatmentPlanRepository _treatmentPlanRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IClinicContext _clinicContext;
     private readonly IUnitOfWork _unitOfWork;
@@ -39,6 +71,7 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
         IAppointmentRepository appointmentRepository,
         IProcedureTypeRepository procedureTypeRepository,
         IDoctorRepository doctorRepository,
+        ITreatmentPlanRepository treatmentPlanRepository,
         ICurrentClinicResolver clinicResolver,
         IClinicContext clinicContext,
         IUnitOfWork unitOfWork,
@@ -50,6 +83,7 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
         _appointmentRepository = appointmentRepository;
         _procedureTypeRepository = procedureTypeRepository;
         _doctorRepository = doctorRepository;
+        _treatmentPlanRepository = treatmentPlanRepository;
         _clinicResolver = clinicResolver;
         _clinicContext = clinicContext;
         _unitOfWork = unitOfWork;
@@ -245,6 +279,29 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                         }
                     }
                 }
+            }
+
+            // Move or clear the treatment-plan act this appointment schedules (AC-17). Only when the caller
+            // actually sent the field — see the tri-state note on the command. Rescheduling an appointment
+            // onto a different act now updates the link instead of leaving a stale one pointing at the act
+            // the patient is no longer coming in for.
+            if (request.TreatmentPlanItemIdSpecified
+                && request.TreatmentPlanItemId != appointment.TreatmentPlanItemId)
+            {
+                if (request.TreatmentPlanItemId.HasValue)
+                {
+                    // Same validation the create path uses: the act must exist on a plan of this clinic AND
+                    // of this appointment's patient, so a link can never cross a tenant or a patient.
+                    var linkResult = await AppointmentPlanLink.ValidateAsync(
+                        _treatmentPlanRepository, request.TreatmentPlanId, request.TreatmentPlanItemId.Value,
+                        clinicResult.Value, appointment.PatientId, cancellationToken);
+                    if (linkResult.IsFailure)
+                    {
+                        return Result<AppointmentDto>.Failure(linkResult.Error!);
+                    }
+                }
+
+                appointment.SetTreatmentPlanItem(request.TreatmentPlanItemId);
             }
 
             // Hard double-booking guard: after applying the requested changes, reject an overlapping,

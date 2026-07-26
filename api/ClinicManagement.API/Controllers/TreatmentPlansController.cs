@@ -90,6 +90,44 @@ public class TreatmentPlansController : ApiControllerBase
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
     }
 
+    /// <summary>
+    /// Amend an accepted devis: add/remove acts and revise the échéancier in one call. `AdminOrDoctor` —
+    /// this alters what the patient owes on a numbered document, the same class as cancelling an issued
+    /// invoice or issuing an avoir. Enforcement is controller-only, deliberately, as for that whole class.
+    /// </summary>
+    [HttpPost("{id:guid}/amend")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    public async Task<ActionResult<TreatmentPlanDto>> AmendPlan(Guid id, [FromBody] AmendTreatmentPlanCommand command)
+    {
+        command.Id = id;
+        var result = await _mediator.Send(command);
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>Revise only the échéancier of an accepted devis (no act change). `AdminOrDoctor` — same class.</summary>
+    [HttpPut("{id:guid}/installments")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    public async Task<ActionResult<TreatmentPlanDto>> ReviseInstallments(
+        Guid id, [FromBody] ReviseTreatmentPlanInstallmentsCommand command)
+    {
+        command.Id = id;
+        var result = await _mediator.Send(command);
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>
+    /// Reorder the plan's acts. No method-level policy: reordering is cosmetic and changes no money, so it
+    /// matches the unpoliced accept/complete rather than the financial-reversal class above.
+    /// </summary>
+    [HttpPut("{id:guid}/items/order")]
+    public async Task<ActionResult<TreatmentPlanDto>> ReorderItems(
+        Guid id, [FromBody] SetTreatmentPlanItemOrderCommand command)
+    {
+        command.Id = id;
+        var result = await _mediator.Send(command);
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
     [HttpPost("{id:guid}/cancel")]
     [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
     public async Task<ActionResult<TreatmentPlanDto>> CancelPlan(Guid id, [FromBody] CancelTreatmentPlanCommand command)

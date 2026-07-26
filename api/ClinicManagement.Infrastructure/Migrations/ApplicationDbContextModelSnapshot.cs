@@ -1765,6 +1765,11 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<Guid>("PatientId")
                         .HasColumnType("uuid");
 
+                    b.Property<int>("RevisionNumber")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
                     b.Property<int>("Status")
                         .HasColumnType("integer");
 
@@ -1815,6 +1820,11 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                     b.Property<decimal>("PlannedCost")
                         .HasColumnType("decimal(18,3)");
+
+                    b.Property<int>("SequenceNumber")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
 
                     b.Property<int>("Status")
                         .HasColumnType("integer");

@@ -34,6 +34,15 @@ public interface IInvoiceRepository
     Task<IReadOnlyList<(Guid PatientId, decimal Outstanding)>> GetOutstandingByPatientAsync(
         Guid clinicId, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// One row per devis→facture bridge in the clinic: the plan it was generated from, the invoice's id,
+    /// number and status. A light projection (no lines/payments loaded) so a plan can show « Facturé » and
+    /// the money reads can count the invoice instead of the plan without over-fetching. Cancelled invoices
+    /// are included — the caller decides whether a cancelled bridge still represents the plan.
+    /// </summary>
+    Task<IReadOnlyList<(Guid TreatmentPlanId, Guid InvoiceId, string? Number, InvoiceStatus Status)>>
+        GetTreatmentPlanLinksAsync(Guid clinicId, CancellationToken cancellationToken = default);
+
     /// <summary>Load the invoice that owns a given payment (with lines + payments), or null. Clinic-agnostic — the caller guards the clinic.</summary>
     Task<Invoice?> GetByPaymentIdAsync(Guid paymentId, CancellationToken cancellationToken = default);
 

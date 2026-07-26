@@ -48,12 +48,45 @@ public class GetDashboardStatsQueryHandlerTests
         _invoiceRepository
             .Setup(r => r.GetOutstandingByPatientAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<(Guid PatientId, decimal Outstanding)>());
+        _invoiceRepository
+            .Setup(r => r.GetTreatmentPlanLinksAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<(Guid TreatmentPlanId, Guid InvoiceId, string? Number, InvoiceStatus Status)>());
         _planRepository
             .Setup(r => r.GetInstallmentCollectedBetweenAsync(It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(0m);
         _planRepository
-            .Setup(r => r.GetInstallmentOutstandingByPatientAsync(It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .Setup(r => r.GetInstallmentOutstandingByPatientAsync(It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<(Guid PatientId, decimal Outstanding, DateTime? OldestOverdueDueDate)>());
+    }
+
+    // [AC-12a] The dashboard's outstanding KPI de-duplicates a bridged plan exactly like « Solde patient »:
+    // a plan represented by an issued invoice is passed to the plan aggregate as an excluded id, so its
+    // échéancier is never added on top of the invoice's own balance.
+    [Fact]
+    public async Task Handle_Should_Exclude_Plans_Already_Billed_To_An_Invoice_From_Outstanding()
+    {
+        SetupAuthenticatedUser();
+
+        var billedPlanId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        var cancelledBridgePlanId = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+        _invoiceRepository
+            .Setup(r => r.GetTreatmentPlanLinksAsync(ClinicId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<(Guid TreatmentPlanId, Guid InvoiceId, string? Number, InvoiceStatus Status)>
+            {
+                (billedPlanId, Guid.NewGuid(), "2026-0031", InvoiceStatus.Issued),
+                // A cancelled bridge is void: the plan carries its own balance again and must NOT be excluded.
+                (cancelledBridgePlanId, Guid.NewGuid(), "2026-0030", InvoiceStatus.Cancelled)
+            });
+
+        await CreateHandler().Handle(CreateQuery(), CancellationToken.None);
+
+        _planRepository.Verify(
+            r => r.GetInstallmentOutstandingByPatientAsync(
+                ClinicId,
+                It.IsAny<DateTime>(),
+                It.Is<IReadOnlyCollection<Guid>>(ids => ids.Count == 1 && ids.Contains(billedPlanId)),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
     }
 
     // [AC-1][AC-3][AC-4] Returns the real, clinic-scoped counts mapped onto the DTO.

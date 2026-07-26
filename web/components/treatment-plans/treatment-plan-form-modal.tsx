@@ -29,6 +29,12 @@ import { formatDT } from "@/lib/format"
 import { ToothMultiSelect } from "@/components/tooth-multiselect"
 
 interface LineRow {
+  /**
+   * The existing act this row stands for, when editing. Echoed back on save so the server keeps that act's
+   * id — otherwise every draft edit re-issues the ids and silently orphans any appointment or dental-record
+   * link pointing at those acts (neither has an FK to catch it).
+   */
+  id: string | null
   dentalActCodeId: string | null
   codeActe: string | null
   designationFr: string
@@ -42,6 +48,7 @@ interface InstallmentRow {
 }
 
 const emptyLine = (): LineRow => ({
+  id: null,
   dentalActCodeId: null,
   codeActe: null,
   designationFr: "",
@@ -122,6 +129,7 @@ export function TreatmentPlanFormModal({
       setLines(
         editingPlan.items.length > 0
           ? editingPlan.items.map((it) => ({
+              id: it.id,
               dentalActCodeId: it.dentalActCodeId,
               codeActe: it.codeActe,
               designationFr: it.designationFr,
@@ -144,6 +152,8 @@ export function TreatmentPlanFormModal({
       setLines(
         seeded
           ? seedLines!.map((s) => ({
+              // Odontogram seeds are always new lines — there is no existing act to preserve.
+              id: null,
               dentalActCodeId: null,
               codeActe: null,
               designationFr: s.designationFr,
@@ -240,6 +250,7 @@ export function TreatmentPlanFormModal({
 
     const parsedLines: TreatmentPlanItemInput[] = lines
       .map((l) => ({
+        id: l.id,
         dentalActCodeId: l.dentalActCodeId,
         codeActe: l.codeActe,
         designationFr: l.designationFr.trim(),

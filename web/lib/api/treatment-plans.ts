@@ -17,6 +17,11 @@ async function getAccessToken(): Promise<string | null> {
 }
 
 export interface TreatmentPlanItemInput {
+  /**
+   * The existing act this line stands for, echoed back when editing so the server preserves its id — without
+   * which any appointment or dental-record link to that act is orphaned by the edit.
+   */
+  id?: string | null;
   /** Catalog act id when picked from the dental-act catalog; omitted for a free-text line. */
   dentalActCodeId?: string | null;
   /** Snapshot of the catalog code (or omitted for free text). */
@@ -27,8 +32,21 @@ export interface TreatmentPlanItemInput {
 }
 
 export interface TreatmentPlanInstallmentInput {
+  /**
+   * The existing échéance this line revises. A row that has collected money MUST be echoed back — dropping
+   * it would erase that cash from the plan's balance, and the server refuses it.
+   */
+  id?: string | null;
   dueDate: string;
   amount: number;
+}
+
+/** Amend an accepted devis: add/remove acts and re-spread the échéancier in one call. */
+export interface AmendTreatmentPlanRequest {
+  addItems?: TreatmentPlanItemInput[];
+  removeItemIds?: string[];
+  /** Required whenever the amendment changes the total; the server rejects a mismatch. */
+  installments?: TreatmentPlanInstallmentInput[];
 }
 
 export interface CreateTreatmentPlanRequest {
@@ -89,6 +107,21 @@ export const treatmentPlansApi = {
 
   markItemDone: async (id: string, itemId: string, data: MarkItemDoneRequest): Promise<TreatmentPlanDto> =>
     apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/items/${itemId}/done`, data),
+
+  /** Add/remove acts on an accepted devis (+ the matching échéancier). Server-side: AdminOrDoctor. */
+  amend: async (id: string, data: AmendTreatmentPlanRequest): Promise<TreatmentPlanDto> =>
+    apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/amend`, data),
+
+  /** Re-spread the échéancier without touching the acts. Server-side: AdminOrDoctor. */
+  reviseInstallments: async (
+    id: string,
+    installments: TreatmentPlanInstallmentInput[],
+  ): Promise<TreatmentPlanDto> =>
+    apiPut<TreatmentPlanDto>(`/treatment-plans/${id}/installments`, { installments }),
+
+  /** Reorder the acts. Cosmetic — no role policy, no revision bump. Send every act id, once. */
+  reorderItems: async (id: string, itemIds: string[]): Promise<TreatmentPlanDto> =>
+    apiPut<TreatmentPlanDto>(`/treatment-plans/${id}/items/order`, { itemIds }),
 
   cancel: async (id: string, reason: string): Promise<TreatmentPlanDto> =>
     apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/cancel`, { reason }),

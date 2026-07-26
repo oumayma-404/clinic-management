@@ -21,17 +21,23 @@ public class GetTreatmentPlansQueryHandler : IRequestHandler<GetTreatmentPlansQu
 {
     private readonly ITreatmentPlanRepository _planRepository;
     private readonly IPatientRepository _patientRepository;
+    private readonly IAppointmentRepository _appointmentRepository;
+    private readonly IInvoiceRepository _invoiceRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly ILogger<GetTreatmentPlansQueryHandler> _logger;
 
     public GetTreatmentPlansQueryHandler(
         ITreatmentPlanRepository planRepository,
         IPatientRepository patientRepository,
+        IAppointmentRepository appointmentRepository,
+        IInvoiceRepository invoiceRepository,
         ICurrentClinicResolver clinicResolver,
         ILogger<GetTreatmentPlansQueryHandler> logger)
     {
         _planRepository = planRepository;
         _patientRepository = patientRepository;
+        _appointmentRepository = appointmentRepository;
+        _invoiceRepository = invoiceRepository;
         _clinicResolver = clinicResolver;
         _logger = logger;
     }
@@ -59,16 +65,18 @@ public class GetTreatmentPlansQueryHandler : IRequestHandler<GetTreatmentPlansQu
 
             var plans = (await _planRepository.GetFilteredAsync(clinicId, request.PatientId, status, request.From, request.To, cancellationToken)).ToList();
 
-            // Resolve patient names once per distinct patient (small N for a clinic's plan list).
-            var names = new Dictionary<Guid, string?>();
-            foreach (var patientId in plans.Select(p => p.PatientId).Distinct())
-            {
-                var patient = await _patientRepository.GetByIdAsync(patientId, cancellationToken);
-                names[patientId] = patient?.GetFullName();
-            }
+            // One query for patient names, mapped by id (a clinic's patient set is small) — mirrors
+            // GetInvoicesQuery rather than a GetByIdAsync per distinct patient.
+            var patients = await _patientRepository.GetByClinicIdAsync(clinicId, cancellationToken);
+            var names = patients.ToDictionary(p => p.Id, p => p.GetFullName());
+
+            // Derived scheduling + devis→facture read-back for the whole page: two batched queries total,
+            // never one per plan or per patient.
+            var workflow = await TreatmentPlanWorkflowProjection.BuildAsync(
+                plans, clinicId, _appointmentRepository, _invoiceRepository, DateTime.UtcNow, cancellationToken);
 
             var dtos = plans
-                .Select(p => p.ToDto(names.TryGetValue(p.PatientId, out var name) ? name : null))
+                .Select(p => p.ToDto(names.TryGetValue(p.PatientId, out var name) ? name : null, workflow))
                 .ToList();
 
             return Result<List<TreatmentPlanDto>>.Success(dtos);
