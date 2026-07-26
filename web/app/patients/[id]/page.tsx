@@ -63,6 +63,7 @@ import { InvoicesTable } from "@/components/factures/invoices-table"
 import { InvoiceFormModal } from "@/components/factures/invoice-form-modal"
 import { Odontogram } from "@/components/odontogram"
 import { TreatmentPlansTable } from "@/components/treatment-plans/treatment-plans-table"
+import { PatientPlanCard } from "@/components/treatment-plans/patient-plan-card"
 import { TreatmentPlanFormModal, type TreatmentPlanSeedLine } from "@/components/treatment-plans/treatment-plan-form-modal"
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
 import type { PlanItemOption } from "@/components/patient-record-modal"
@@ -146,6 +147,8 @@ export default function PatientDetailsPage() {
   const [aiLoading, setAiLoading] = useState(false)
   const [aiError, setAiError] = useState(false)
   const [treatmentPlans, setTreatmentPlans] = useState<TreatmentPlanDto[]>([])
+  // Controlled so PatientPlanCard can send the user to the plans tab.
+  const [activeTab, setActiveTab] = useState("medical-records")
   const [medicalDocuments, setMedicalDocuments] = useState<MedicalDocumentDto[]>([])
   const [planSeeds, setPlanSeeds] = useState<TreatmentPlanSeedLine[]>([])
   const [seededPlanOpen, setSeededPlanOpen] = useState(false)
@@ -181,8 +184,20 @@ export default function PatientDetailsPage() {
 
   // Real-time: when any client of this clinic edits this patient's record, appointments, or files, the
   // server signals the resource and we re-run the loader below (bump refreshKey). Additive (AC-5).
+  //
+  // TreatmentPlans + Invoices are here for PatientPlanCard (AC-9a): its progress, « prochaine séance » and
+  // « Facturé » badge are derived from three different aggregates, and RealtimeBroadcastBehavior keys off
+  // the *command's* namespace — so a peer accepting a plan broadcasts "treatmentplans" and issuing its
+  // invoice broadcasts "invoices", neither of which "patients" would catch. Without them the card silently
+  // goes stale while the rest of the page refreshes.
   useClinicRealtime(
-    [RealtimeResource.Patients, RealtimeResource.Appointments, RealtimeResource.Files],
+    [
+      RealtimeResource.Patients,
+      RealtimeResource.Appointments,
+      RealtimeResource.Files,
+      RealtimeResource.TreatmentPlans,
+      RealtimeResource.Invoices,
+    ],
     () => setRefreshKey((k) => k + 1),
   )
 
@@ -476,7 +491,7 @@ export default function PatientDetailsPage() {
             {/* Back Button */}
             <Button variant="ghost" onClick={() => router.push("/patients")} className="gap-2">
               <ArrowLeft className="h-4 w-4" />
-              Back to Patients
+              Retour aux patients
             </Button>
 
             <div className="flex items-center justify-between">
@@ -585,7 +600,15 @@ export default function PatientDetailsPage() {
               </Card>
             )}
 
-            <Tabs defaultValue="medical-records" className="space-y-4">
+            {/* Treatment leads the patient page now. A devis buried in the 8th tab was the whole reason the
+                plan felt disconnected from the patient it belongs to. Renders nothing when there is no plan. */}
+            <PatientPlanCard
+              plans={treatmentPlans}
+              onOpen={() => setActiveTab("treatment-plans")}
+              onChanged={() => setRefreshKey((k) => k + 1)}
+            />
+
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
               <TabsList className="grid w-full grid-cols-8">
                 <TabsTrigger value="medical-records" className="gap-2">
                   <FileCheck className="h-4 w-4" />

@@ -118,6 +118,7 @@
 ## Domain services (`Services/`)
 
 - **`InvoiceCalculator`** (`Services/InvoiceCalculator.cs`) — pure, testable Tunisian money arithmetic (no persistence). `RoundMoney` (millime, away-from-zero), `LineTotal`, and `Compute(totalHt, vatApplicable, vatRate, stampDutyAmount) → InvoiceTotals(HT, VAT, TTC)`. The single rounding authority reused by `Invoice`, `TreatmentPlan`, `Installment`, `DentalRecord`, and their lines.
+- **`PlanBillingRules`** (`Services/PlanBillingRules.cs`) — pure policy: **which treatment plans carry patient debt**, shared by all four money reads (« Solde patient », « Créances », la caisse, dashboard) so they can never report different figures. `DebtBearingPlanStatuses`/`CarriesDebt` (Accepted/InProgress/Completed only — a `Draft` devis is an unaccepted quote, a `Cancelled` one is void), `RepresentsItsPlan(InvoiceStatus)` (non-Draft, non-Cancelled), and two `BilledPlanIds` overloads (from loaded `Invoice`s, or from the light bridge-link tuple projection) that yield the plans a devis→facture invoice already represents. ⚠️ These rules apply to **outstanding** balances only, never to collected cash — the bridge copies no payment onto the invoice, so suppressing a bridged plan's collections would erase real receipts from the caisse.
 
 ## Repository interfaces (`Repositories/`)
 
@@ -126,7 +127,7 @@ Async, `CancellationToken`-aware contracts implemented in Infrastructure. Persis
 | Interface | Notable methods |
 |-----------|-----------------|
 | `IPatientRepository` | `GetByIdWithAppointmentsAsync`, `GetByClinicIdAsync`, `Count*ByClinicIdAsync`, `GetFlaggedPatientsAsync`, `AddMedical/FamilyHistoryEntryAsync` |
-| `IAppointmentRepository` | `GetByClinicIdAsync(date range, doctorId)`, `CountByClinicIdAsync(status filters)`, `GetUpcomingAppointmentsAsync`, `GetAppointmentsForDateAsync`, `GetByProcedureTypeIdAsync` |
+| `IAppointmentRepository` | `GetByClinicIdAsync(date range, doctorId)`, `CountByClinicIdAsync(status filters)`, `GetUpcomingAppointmentsAsync`, `GetAppointmentsForDateAsync`, `GetByProcedureTypeIdAsync`, `GetByTreatmentPlanItemIdsAsync` (one batched read behind the plan's derived per-act état; first user of `IX_Appointments_TreatmentPlanItemId`) |
 | `IClinicRepository` | `GetByCodeAsync`, `GetByNameAsync`, `CodeExistsAsync` |
 | `IUserRepository` | `GetByAuth0SubAsync`, `GetByEmailAsync` (Local login), `AnyUserExistsAsync` (closes first-run setup), sync `Update`/`Remove` |
 | `IDoctorRepository` | `GetByClinicIdAsync`, `GetByUserIdAsync` |
@@ -136,8 +137,8 @@ Async, `CancellationToken`-aware contracts implemented in Infrastructure. Persis
 | `IPatientFileRepository` / `IPatientFolderRepository` | by patient / folder / root / name |
 | `IMedicalDocumentRepository` | by patient / document type / clinic |
 | `IStockItemRepository` | `GetByClinicIdAsync(lowStockOnly)`, `GetLowStockItemsAsync`, `GetOutOfStockItemsAsync` |
-| `IInvoiceRepository` | `GetFilteredAsync`, `GetMaxSequenceForYearAsync` (gapless per-clinic-per-year), `GetCollectedBetweenAsync`, `GetOutstandingByPatientAsync`, `GetByPaymentIdAsync`, `GetDueForElFatooraDispatchAsync` (outbox) |
-| `ITreatmentPlanRepository` | `GetFilteredAsync`, `GetMaxSequenceForYearAsync` (separate sequence), `GetInstallmentCollectedBetweenAsync`, `GetInstallmentOutstandingByPatientAsync` (with oldest-overdue) |
+| `IInvoiceRepository` | `GetFilteredAsync`, `GetMaxSequenceForYearAsync` (gapless per-clinic-per-year), `GetCollectedBetweenAsync`, `GetOutstandingByPatientAsync`, `GetTreatmentPlanLinksAsync` (light devis→facture bridge projection — no lines/payments), `GetByPaymentIdAsync`, `GetDueForElFatooraDispatchAsync` (outbox) |
+| `ITreatmentPlanRepository` | `GetFilteredAsync`, `GetMaxSequenceForYearAsync` (separate sequence), `GetInstallmentCollectedBetweenAsync`, `GetInstallmentOutstandingByPatientAsync` (with oldest-overdue; takes a **required** `excludedPlanIds` from `PlanBillingRules.BilledPlanIds` so a money read can't silently skip the de-dup). Both aggregates count only `PlanBillingRules.DebtBearingPlanStatuses`. |
 | `ICnamCatalogRepository` | nomenclature entries + VLC letter values (`CodeActeExistsAsync`, `GetLetterValueByCleAsync`) |
 | `IDentalActCodeRepository` | DCH catalog (`CodeActeExistsAsync`, `AnyProvisionalAsync`, `GetProvisionalAsync`) |
 | `IMedicationCatalogRepository` | drug catalog (`BrandExistsAsync`) |

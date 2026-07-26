@@ -3,7 +3,6 @@ using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
-using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 
 namespace ClinicManagement.Application.Features.TreatmentPlans.Commands;
@@ -55,16 +54,9 @@ public class MarkTreatmentPlanItemDoneCommandHandler : IRequestHandler<MarkTreat
                 return Result<TreatmentPlanDto>.Failure("Plan de traitement introuvable.");
             }
 
+            // Auto-close once every act is done is enforced inside MarkItemDone, so this path and the
+            // record-driven one (DentalRecordLinker) behave identically.
             plan.MarkItemDone(request.ItemId, request.DoneOn ?? DateTime.UtcNow, request.LinkedDentalRecordId);
-
-            // Auto-close the plan once every act is done (finding #5 — otherwise "Terminé" is unreachable
-            // since nothing else calls Complete()). Guarded so Complete() never throws.
-            if (plan.Status != TreatmentPlanStatus.Completed
-                && plan.Items.Count > 0
-                && plan.Items.All(i => i.Status == TreatmentPlanItemStatus.Done))
-            {
-                plan.Complete();
-            }
 
             await _planRepository.UpdateAsync(plan, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);

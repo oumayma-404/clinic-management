@@ -62,7 +62,14 @@ public class GetCaisseSummaryQueryHandler : IRequestHandler<GetCaisseSummaryQuer
                 return Result<CaisseSummaryDto>.Failure("La date de fin doit être postérieure à la date de début.");
 
             // Encaissements = invoice payments + treatment-plan installment collections (both money tracks),
-            // so the daily caisse agrees with the dashboard "encaissé" figure (which sums both).
+            // so the daily caisse agrees with the dashboard "encaissé" figure (which sums both). The plan
+            // side now skips Draft/Cancelled plans (PlanBillingRules, applied in the repository) so an
+            // unaccepted devis's échéancier never shows up as clinic cash.
+            //
+            // No billed-plan de-duplication here, unlike the outstanding reads: this is cash *received*, and
+            // the devis→facture bridge carries no payment onto the invoice (the bridge invoice starts at
+            // AmountCollected = 0). Suppressing a bridged plan's collections would erase real receipts from
+            // the till instead of removing a double count.
             var invoiceCollected = await _invoiceRepository.GetCollectedBetweenAsync(clinicId, from, to, cancellationToken);
             var installmentCollected = await _planRepository.GetInstallmentCollectedBetweenAsync(clinicId, from, to, cancellationToken);
             // Avoirs (credit notes) refunded in the period reduce net encaissements (finding #8) — netted into

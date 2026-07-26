@@ -17,6 +17,25 @@ public class TreatmentPlanDto
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
 
+    // ---- Derived (never persisted) -------------------------------------------------------------------
+    // Clinical progress, always populated.
+    public int ItemsDone { get; set; }
+    public int ItemsTotal { get; set; }
+
+    /// <summary>
+    /// Earliest still-upcoming appointment across the plan's acts (« prochaine séance »), or null. Derived,
+    /// so a cancelled appointment stops counting immediately. Populated on the query paths only.
+    /// </summary>
+    public DateTime? NextAppointmentAt { get; set; }
+
+    /// <summary>
+    /// The non-cancelled invoice this devis was billed into, when one exists — the plan is then represented by
+    /// that invoice in « Solde patient ». Populated on the query paths only.
+    /// </summary>
+    public Guid? LinkedInvoiceId { get; set; }
+    public string? LinkedInvoiceNumber { get; set; }
+    public string? LinkedInvoiceStatus { get; set; }
+
     public List<TreatmentPlanItemDto> Items { get; set; } = new();
     public List<InstallmentDto> Installments { get; set; } = new();
 }
@@ -32,6 +51,17 @@ public class TreatmentPlanItemDto
     public string Status { get; set; } = string.Empty;
     public DateTime? DoneDate { get; set; }
     public Guid? LinkedDentalRecordId { get; set; }
+
+    // ---- Derived (never persisted) -------------------------------------------------------------------
+    /// <summary>
+    /// The appointment that currently speaks for this act — the earliest upcoming live one, else the most
+    /// recent past live one. Null when nothing is booked, including when the only linked appointment was
+    /// cancelled or a no-show (so the act returns to « À planifier » and can be booked again).
+    /// Populated on the query paths only.
+    /// </summary>
+    public Guid? ScheduledAppointmentId { get; set; }
+    public DateTime? ScheduledAt { get; set; }
+    public string? ScheduledAppointmentStatus { get; set; }
 }
 
 public class InstallmentDto

@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
+using ClinicManagement.Domain.Services;
 using ClinicManagement.Infrastructure.Persistence;
 
 namespace ClinicManagement.Infrastructure.Repositories;
@@ -85,21 +86,39 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
 
     public async Task<decimal> GetInstallmentCollectedBetweenAsync(Guid clinicId, DateTime from, DateTime to, CancellationToken cancellationToken = default)
     {
+        // Committed plans only (PlanBillingRules): a Draft devis's hand-built échéancier is not clinic money
+        // and a cancelled plan is void. No billed-plan exclusion here on purpose — this is cash received, and
+        // the devis→facture bridge copies no payment onto the invoice, so excluding a bridged plan would
+        // delete real receipts from the caisse rather than de-duplicate them.
+        var debtStatuses = PlanBillingRules.DebtBearingPlanStatuses;
+
         return await _context.TreatmentPlans
-            .Where(p => p.ClinicId == clinicId && p.Status != TreatmentPlanStatus.Cancelled)
+            .Where(p => p.ClinicId == clinicId && debtStatuses.Contains(p.Status))
             .SelectMany(p => p.Installments)
             .Where(i => i.LastPaidOn != null && i.LastPaidOn >= from && i.LastPaidOn <= to)
             .SumAsync(i => (decimal?)i.AmountPaid, cancellationToken) ?? 0m;
     }
 
     public async Task<IReadOnlyList<(Guid PatientId, decimal Outstanding, DateTime? OldestOverdueDueDate)>> GetInstallmentOutstandingByPatientAsync(
-        Guid clinicId, DateTime asOfUtc, CancellationToken cancellationToken = default)
+        Guid clinicId, DateTime asOfUtc, IReadOnlyCollection<Guid> excludedPlanIds, CancellationToken cancellationToken = default)
     {
-        // Flatten each non-cancelled plan's not-fully-paid installments (carrying the plan's patient id), then
+        // Only committed plans carry debt, and a plan already represented by an invoice is counted through
+        // that invoice instead — both rules come from PlanBillingRules so « Créances », the dashboard and
+        // « Solde patient » can't drift apart.
+        var debtStatuses = PlanBillingRules.DebtBearingPlanStatuses;
+
+        var plans = _context.TreatmentPlans
+            .Where(p => p.ClinicId == clinicId && debtStatuses.Contains(p.Status));
+
+        if (excludedPlanIds.Count > 0)
+        {
+            plans = plans.Where(p => !excludedPlanIds.Contains(p.Id));
+        }
+
+        // Flatten each remaining plan's not-fully-paid installments (carrying the plan's patient id), then
         // aggregate per patient in memory — a clinic's open-installment set is small, and Amount/AmountPaid
         // arithmetic + a conditional min are clearer this way than as a grouped SQL projection.
-        var rows = await _context.TreatmentPlans
-            .Where(p => p.ClinicId == clinicId && p.Status != TreatmentPlanStatus.Cancelled)
+        var rows = await plans
             .SelectMany(p => p.Installments
                 .Where(i => i.Amount > i.AmountPaid)
                 .Select(i => new { p.PatientId, i.Amount, i.AmountPaid, i.DueDate }))

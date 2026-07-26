@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table"
@@ -27,7 +27,8 @@ import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { TreatmentPlanFormModal } from "./treatment-plan-form-modal"
 import { InstallmentPaymentModal } from "./installment-payment-modal"
-import { planStatusLabel, planStatusBadgeClass, itemStatusLabel } from "./treatment-plan-labels"
+import { planStatusLabel, planStatusBadgeClass, itemWorkflowLabel, itemWorkflowBadgeClass } from "./treatment-plan-labels"
+import { planItemState, isPlanBilled } from "./plan-next-action"
 import { CreateAppointmentDialog } from "@/components/create-appointment-dialog"
 
 /** Target for the "Planifier" action: an open plan item to schedule as an appointment. */
@@ -50,6 +51,8 @@ interface TreatmentPlansTableProps {
   reloadKey?: number
   /** Called after any mutation so the parent can refresh dependent views. */
   onChanged?: () => void
+  /** Deep-linked plan (from a devis-born invoice's « Devis » badge): scrolled to and highlighted once loaded. */
+  highlightPlanId?: string | null
 }
 
 export function TreatmentPlansTable({
@@ -61,6 +64,7 @@ export function TreatmentPlansTable({
   showPatientColumn = true,
   reloadKey = 0,
   onChanged,
+  highlightPlanId = null,
 }: TreatmentPlansTableProps) {
   const [plans, setPlans] = useState<TreatmentPlanDto[]>([])
   const [loading, setLoading] = useState(true)
@@ -95,7 +99,22 @@ export function TreatmentPlansTable({
     load()
   }, [load, reloadKey])
 
-  useClinicRealtime(RealtimeResource.TreatmentPlans, load)
+  // Bring a deep-linked plan into view — the row only exists once the list has loaded, so this can't run
+  // from the parent's mount effect.
+  const highlightedRowRef = useRef<HTMLTableRowElement | null>(null)
+  useEffect(() => {
+    if (!highlightPlanId || loading) return
+    highlightedRowRef.current?.scrollIntoView({ block: "center", behavior: "smooth" })
+  }, [highlightPlanId, loading, plans])
+
+  // Three keys, not one: an act's état is derived from Appointment rows and the « Facturé » badge from Invoice
+  // rows, and RealtimeBroadcastBehavior keys off the *command's* namespace — so cancelling an appointment
+  // broadcasts "appointments", never "treatmentplans". Watching only the latter would leave an act showing
+  // « Planifié » with "Planifier" hidden: booked-looking and unbookable until a manual reload.
+  useClinicRealtime(
+    [RealtimeResource.TreatmentPlans, RealtimeResource.Appointments, RealtimeResource.Invoices],
+    load,
+  )
 
   const afterMutation = () => {
     load()
@@ -276,8 +295,13 @@ export function TreatmentPlansTable({
                 const isDraft = plan.status === "Draft"
                 const isActive = plan.status === "Accepted" || plan.status === "InProgress"
                 const isCancellable = isActive
+                const isHighlighted = plan.id === highlightPlanId
                 return (
-                  <TableRow key={plan.id}>
+                  <TableRow
+                    key={plan.id}
+                    ref={isHighlighted ? highlightedRowRef : undefined}
+                    className={isHighlighted ? "bg-accent/60" : undefined}
+                  >
                     <TableCell className="font-medium">{plan.number ?? plan.title}</TableCell>
                     {showPatientColumn && <TableCell>{plan.patientName ?? "—"}</TableCell>}
                     <TableCell>
@@ -309,10 +333,15 @@ export function TreatmentPlansTable({
                             <ListChecks className="h-4 w-4" />
                           </Button>
                         )}
-                        {isActive && (
+                        {isActive && !isPlanBilled(plan) && (
                           <Button variant="ghost" size="icon" title="Facturer le devis" onClick={() => handleInvoiceFromPlan(plan)} disabled={isBusy}>
                             <ReceiptText className="h-4 w-4" />
                           </Button>
+                        )}
+                        {isPlanBilled(plan) && (
+                          <Badge variant="outline" className="self-center whitespace-nowrap">
+                            Facturé{plan.linkedInvoiceNumber ? ` — ${plan.linkedInvoiceNumber}` : ""}
+                          </Badge>
                         )}
                         {isActive && (
                           <Button variant="ghost" size="icon" title="Terminer le plan" onClick={() => handleComplete(plan)} disabled={isBusy}>
@@ -387,12 +416,20 @@ export function TreatmentPlansTable({
                           </TableCell>
                           <TableCell className="text-right">{formatDT(item.plannedCost)}</TableCell>
                           <TableCell>
-                            <Badge variant={item.status === "Done" ? "secondary" : "outline"}>
-                              {itemStatusLabel(item.status)}
+                            <Badge variant="secondary" className={itemWorkflowBadgeClass(planItemState(item))}>
+                              {itemWorkflowLabel(planItemState(item))}
                             </Badge>
+                            {item.scheduledAt && item.status !== "Done" && (
+                              <span className="ml-2 whitespace-nowrap text-xs text-muted-foreground">
+                                {formatDateFr(item.scheduledAt)}
+                              </span>
+                            )}
                           </TableCell>
                           <TableCell className="text-right">
-                            {item.status !== "Done" &&
+                            {/* Only an act with nothing booked can be scheduled — this is what makes a second
+                                click impossible. A cancelled/no-show appointment leaves the act "to-schedule",
+                                so it correctly becomes bookable again. */}
+                            {planItemState(item) === "to-schedule" &&
                               (manageTarget.status === "Accepted" || manageTarget.status === "InProgress") && (
                                 <Button
                                   variant="ghost"

@@ -17,6 +17,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { FileDown, Pencil, Trash2, Send, CreditCard, Ban, Plus, Loader2, Landmark, FileCode2, ReceiptText } from "lucide-react"
+import Link from "next/link"
 import { toast } from "sonner"
 import { invoicesApi } from "@/lib/api/invoices"
 import { ApiError } from "@/lib/api/client"
@@ -337,7 +338,24 @@ export function InvoicesTable({
                 const isCancellable = invoice.status === "Issued" && invoice.amountCollected <= 0
                 return (
                   <TableRow key={invoice.id}>
-                    <TableCell className="font-medium">{invoice.number ?? "—"}</TableCell>
+                    <TableCell className="font-medium">
+                      <div className="flex items-center gap-2">
+                        <span>{invoice.number ?? "—"}</span>
+                        {/* A devis-born note is otherwise indistinguishable here from a standalone one, and
+                            the devis→facture link was write-only until now. Mirrors the plans table's
+                            « Facturé — N° » badge, closing the loop from both ends. */}
+                        {invoice.treatmentPlanId && (
+                          <Link
+                            href={`/treatment-plans?plan=${invoice.treatmentPlanId}`}
+                            title="Voir le devis d'origine"
+                          >
+                            <Badge variant="outline" className="whitespace-nowrap hover:bg-accent">
+                              Devis
+                            </Badge>
+                          </Link>
+                        )}
+                      </div>
+                    </TableCell>
                     {showPatientColumn && <TableCell>{invoice.patientName ?? "—"}</TableCell>}
                     <TableCell>{invoice.issueDate ? formatDateFr(invoice.issueDate) : formatDateFr(invoice.createdAt)}</TableCell>
                     <TableCell>

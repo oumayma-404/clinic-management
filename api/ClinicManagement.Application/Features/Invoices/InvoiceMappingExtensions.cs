@@ -13,6 +13,7 @@ public static class InvoiceMappingExtensions
         PatientName = patientName,
         DentalRecordId = invoice.DentalRecordId,
         AppointmentId = invoice.AppointmentId,
+        TreatmentPlanId = invoice.TreatmentPlanId,
         Number = invoice.Number,
         IssueDate = invoice.IssueDate,
         Status = invoice.Status.ToString(),

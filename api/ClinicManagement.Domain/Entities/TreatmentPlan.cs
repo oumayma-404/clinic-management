@@ -153,10 +153,13 @@ public class TreatmentPlan : AggregateRoot<Guid>
         Touch();
     }
 
-    /// <summary>Record a payment against one installment. Allowed only on an accepted/in-progress plan.</summary>
+    /// <summary>
+    /// Record a payment against one installment. Allowed on an accepted, in-progress <b>or completed</b> plan —
+    /// see <see cref="EnsurePayable"/>. A payment never re-opens a completed plan.
+    /// </summary>
     public void RecordInstallmentPayment(Guid installmentId, decimal amount, PaymentMethod method, DateTime paidOn)
     {
-        EnsureActive();
+        EnsurePayable();
         var installment = _installments.FirstOrDefault(i => i.Id == installmentId)
             ?? throw new InvalidOperationException("Échéance introuvable.");
 
@@ -166,7 +169,16 @@ public class TreatmentPlan : AggregateRoot<Guid>
         Touch();
     }
 
-    /// <summary>Mark a planned act as carried out, optionally linking the dental record that recorded it.</summary>
+    /// <summary>
+    /// Mark a planned act as carried out, optionally linking the dental record that recorded it. When this was
+    /// the last outstanding act the plan closes itself.
+    /// <para>
+    /// The auto-close rule lives here, not in a handler, so every path behaves identically: previously only
+    /// <c>MarkTreatmentPlanItemDoneCommand</c> auto-closed while the record-driven path
+    /// (<c>DentalRecordLinker</c>) did not — and since that command has no UI caller, a fully-treated plan
+    /// never actually reached « Terminé » on its own.
+    /// </para>
+    /// </summary>
     public void MarkItemDone(Guid itemId, DateTime doneOn, Guid? linkedDentalRecordId)
     {
         EnsureActive();
@@ -176,6 +188,13 @@ public class TreatmentPlan : AggregateRoot<Guid>
         item.MarkDone(doneOn, linkedDentalRecordId);
         if (Status == TreatmentPlanStatus.Accepted)
             Status = TreatmentPlanStatus.InProgress;
+
+        // EnsureActive + the bump above leave the plan InProgress, so Complete() can never throw here.
+        if (_items.Count > 0 && _items.All(i => i.Status == TreatmentPlanItemStatus.Done))
+        {
+            Complete();
+        }
+
         Touch();
     }
 
@@ -218,6 +237,22 @@ public class TreatmentPlan : AggregateRoot<Guid>
     {
         if (Status != TreatmentPlanStatus.Accepted && Status != TreatmentPlanStatus.InProgress)
             throw new InvalidOperationException("Le plan doit être accepté pour cette opération.");
+    }
+
+    /// <summary>
+    /// Money may still be collected on a <c>Completed</c> plan. « Terminé » means every act was carried out,
+    /// not that the patient has paid — treatment routinely finishes before the last échéance is collected, so
+    /// closing the clinical track must never close the financial one. (Wider than <see cref="EnsureActive"/>,
+    /// which still guards act completion.)
+    /// </summary>
+    private void EnsurePayable()
+    {
+        if (Status != TreatmentPlanStatus.Accepted
+            && Status != TreatmentPlanStatus.InProgress
+            && Status != TreatmentPlanStatus.Completed)
+        {
+            throw new InvalidOperationException("Le plan doit être accepté pour enregistrer un paiement.");
+        }
     }
 
     private void Touch() => UpdatedAt = DateTime.UtcNow;

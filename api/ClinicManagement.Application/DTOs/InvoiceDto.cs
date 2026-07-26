@@ -7,6 +7,11 @@ public class InvoiceDto
     public string? PatientName { get; set; }
     public Guid? DentalRecordId { get; set; }
     public Guid? AppointmentId { get; set; }
+
+    /// <summary>The devis this note was bridged from (devis→facture), or null for a standalone note. Lets
+    /// « Factures » mark a devis-born invoice and navigate back to the plan it represents.</summary>
+    public Guid? TreatmentPlanId { get; set; }
+
     public string? Number { get; set; }
     public DateTime? IssueDate { get; set; }
     public string Status { get; set; } = string.Empty;

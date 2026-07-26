@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { ClinicGuard } from "@/components/clinic-guard"
 import { DashboardSidebar } from "@/components/dashboard-sidebar"
 import { DashboardHeader } from "@/components/dashboard-header"
@@ -19,9 +19,21 @@ export default function TreatmentPlansPage() {
   const [to, setTo] = useState("")
   const [status, setStatus] = useState<string>(ALL_STATUSES)
   const [reloadKey, setReloadKey] = useState(0)
+  const [highlightPlanId, setHighlightPlanId] = useState<string | null>(null)
 
-  const fromIso = from ? `${from}T00:00:00` : undefined
-  const toIso = to ? `${to}T23:59:59` : undefined
+  // Deep-link from a devis-born invoice's « Devis » badge (?plan=…): scroll to and highlight that plan.
+  // Read from window.location.search in a mount effect rather than useSearchParams, which would force this
+  // page out of static prerendering — the same pattern the appointments / patients deep-links use.
+  useEffect(() => {
+    const planId = new URLSearchParams(window.location.search).get("plan")
+    if (planId) setHighlightPlanId(planId)
+  }, [])
+
+  // Send UTC instants, not timezone-naive wall-clock strings: the backend compares these against a UTC
+  // CreatedAt, so `${from}T00:00:00` silently shifted the range by the browser's offset and dropped (or
+  // added) plans created near either edge of the window.
+  const fromIso = from ? new Date(`${from}T00:00:00`).toISOString() : undefined
+  const toIso = to ? new Date(`${to}T23:59:59.999`).toISOString() : undefined
   const statusFilter = status === ALL_STATUSES ? undefined : status
 
   const applyFilters = () => setReloadKey((k) => k + 1)
@@ -84,6 +96,7 @@ export default function TreatmentPlansPage() {
                 to={toIso}
                 status={statusFilter}
                 reloadKey={reloadKey}
+                highlightPlanId={highlightPlanId}
               />
             </div>
           </main>
