@@ -23,8 +23,12 @@ async function handleResponse<T>(response: Response): Promise<T> {
           errorMessage = errorData;
         }
       } else if (errorData) {
-        if (errorData.title || errorData.message) {
-          errorMessage = errorData.title || errorData.message;
+        // `error` is the canonical backend failure body (`{ error }` from ApiControllerBase /
+        // ExceptionMiddleware) and must be read first — without it every Result.Failure reason in the app
+        // was dropped and the user only saw "HTTP 400: Bad Request". `title`/`message` still cover ASP.NET
+        // ProblemDetails and the raw Result envelope a few endpoints return (Auth/Clinics BadRequest(result)).
+        if (errorData.error || errorData.title || errorData.message) {
+          errorMessage = errorData.error || errorData.title || errorData.message;
         }
         if (errorData.errors) {
           const validationErrors = Object.entries(errorData.errors)
