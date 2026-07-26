@@ -20,13 +20,13 @@ public class CurrentClinicResolver : ICurrentClinicResolver
         var userId = _clinicContext.GetUserId();
         if (string.IsNullOrEmpty(userId))
         {
-            return Result<Guid>.Failure("User ID not found in token");
+            return Result<Guid>.Failure("Session invalide, veuillez vous reconnecter.");
         }
 
         var user = await _userRepository.GetByAuth0SubAsync(userId, cancellationToken);
         if (user == null)
         {
-            return Result<Guid>.Failure("User not found");
+            return Result<Guid>.Failure("Utilisateur introuvable.");
         }
 
         return Result<Guid>.Success(user.ClinicId);

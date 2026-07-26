@@ -38,7 +38,7 @@ public class GetPatientMedicalHistoryQueryHandler : IRequestHandler<GetPatientMe
             var patient = await _patientRepository.GetByIdAsync(request.PatientId, cancellationToken);
             if (patient == null || patient.ClinicId != clinicResult.Value)
             {
-                return Result<IEnumerable<PatientMedicalHistoryDto>>.Failure("Patient not found");
+                return Result<IEnumerable<PatientMedicalHistoryDto>>.Failure("Patient introuvable.");
             }
 
             var dtos = patient.MedicalHistoryEntries.Select(mh => new PatientMedicalHistoryDto

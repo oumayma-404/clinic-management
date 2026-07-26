@@ -38,14 +38,14 @@ public class GetAppointmentsQueryHandler : IRequestHandler<GetAppointmentsQuery,
             var userId = _clinicContext.GetUserId();
             if (string.IsNullOrEmpty(userId))
             {
-                return Result<IEnumerable<AppointmentDto>>.Failure("User ID not found in token");
+                return Result<IEnumerable<AppointmentDto>>.Failure("Session invalide, veuillez vous reconnecter.");
             }
 
             // Get user from database to get clinic ID
             var user = await _userRepository.GetByAuth0SubAsync(userId, cancellationToken);
             if (user == null)
             {
-                return Result<IEnumerable<AppointmentDto>>.Failure("User not found");
+                return Result<IEnumerable<AppointmentDto>>.Failure("Utilisateur introuvable.");
             }
 
             var clinicId = user.ClinicId;

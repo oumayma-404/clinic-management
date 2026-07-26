@@ -76,14 +76,14 @@ public class CreatePatientCommandHandler : IRequestHandler<CreatePatientCommand,
             var userId = _clinicContext.GetUserId();
             if (string.IsNullOrEmpty(userId))
             {
-                return Result<PatientDto>.Failure("User ID not found in token");
+                return Result<PatientDto>.Failure("Session invalide, veuillez vous reconnecter.");
             }
 
             // Get user from database to get clinic ID
             var user = await _userRepository.GetByAuth0SubAsync(userId, cancellationToken);
             if (user == null)
             {
-                return Result<PatientDto>.Failure("User not found");
+                return Result<PatientDto>.Failure("Utilisateur introuvable.");
             }
 
             var clinicId = user.ClinicId;

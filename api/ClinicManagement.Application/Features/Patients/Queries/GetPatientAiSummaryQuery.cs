@@ -70,7 +70,7 @@ public class GetPatientAiSummaryQueryHandler : IRequestHandler<GetPatientAiSumma
             if (response == null || string.IsNullOrWhiteSpace(response.Message))
             {
                 // The AI backend answered but produced nothing usable — treat as unavailable (→ 400 → FR fallback).
-                return Result<PatientAiSummaryDto>.Failure("AI summary is currently unavailable");
+                return Result<PatientAiSummaryDto>.Failure("Le résumé IA est momentanément indisponible.");
             }
 
             return Result<PatientAiSummaryDto>.Success(new PatientAiSummaryDto { Summary = response.Message.Trim() });
@@ -80,7 +80,7 @@ public class GetPatientAiSummaryQueryHandler : IRequestHandler<GetPatientAiSumma
             // AI call failed (offline, backend error, timeout): log and surface a clean failure. The frontend
             // maps this to the French "résumé indisponible" fallback while the rest of the page still loads (AC-7).
             _logger.LogError(ex, "Failed to generate AI summary for patient {PatientId}", request.PatientId);
-            return Result<PatientAiSummaryDto>.Failure("AI summary generation failed");
+            return Result<PatientAiSummaryDto>.Failure("La génération du résumé IA a échoué.");
         }
     }
 

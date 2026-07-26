@@ -41,20 +41,20 @@ public class MarkNotificationReadCommandHandler : IRequestHandler<MarkNotificati
             var userId = _clinicContext.GetUserId();
             if (string.IsNullOrEmpty(userId))
             {
-                return Result.Failure("User ID not found in token");
+                return Result.Failure("Session invalide, veuillez vous reconnecter.");
             }
 
             var user = await _userRepository.GetByAuth0SubAsync(userId, cancellationToken);
             if (user == null)
             {
-                return Result.Failure("User not found");
+                return Result.Failure("Utilisateur introuvable.");
             }
 
             var notification = await _notifications.GetByIdAsync(request.Id, cancellationToken);
             // Cross-clinic (or missing) reads as not-found — never confirm another clinic's id exists.
             if (notification == null || notification.ClinicId != user.ClinicId)
             {
-                return Result.Failure("Notification not found");
+                return Result.Failure("Notification introuvable.");
             }
 
             // Idempotent: only insert a marker if one doesn't already exist.

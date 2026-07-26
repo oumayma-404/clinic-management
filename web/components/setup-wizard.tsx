@@ -423,7 +423,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                       <div className="relative w-24 h-24 rounded-lg border-2 border-blue-200 overflow-hidden">
                         <Image
                           src={logoPreview || "/placeholder.svg"}
-                          alt="Logo preview"
+                          alt="Aperçu du logo"
                           fill
                           className="object-cover"
                         />

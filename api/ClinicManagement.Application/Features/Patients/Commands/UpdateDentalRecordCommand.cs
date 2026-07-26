@@ -66,13 +66,13 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
             var dentalRecord = await _dentalRecordRepository.GetByIdAsync(request.Id, cancellationToken);
             if (dentalRecord == null || dentalRecord.PatientId != request.PatientId)
             {
-                return Result<DentalRecordDto>.Failure("Dental record not found");
+                return Result<DentalRecordDto>.Failure("Dossier dentaire introuvable.");
             }
 
             var patient = await _patientRepository.GetByIdAsync(dentalRecord.PatientId, cancellationToken);
             if (patient == null || patient.ClinicId != clinicResult.Value)
             {
-                return Result<DentalRecordDto>.Failure("Dental record not found");
+                return Result<DentalRecordDto>.Failure("Dossier dentaire introuvable.");
             }
 
             var parsed = DentalRecordActParser.Parse(request.Acts);

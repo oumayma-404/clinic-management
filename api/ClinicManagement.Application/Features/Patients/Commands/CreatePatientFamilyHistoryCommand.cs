@@ -37,12 +37,12 @@ public class CreatePatientFamilyHistoryCommandHandler : IRequestHandler<CreatePa
         {
             if (string.IsNullOrWhiteSpace(request.Relationship))
             {
-                return Result<PatientFamilyHistoryDto>.Failure("Relationship is required");
+                return Result<PatientFamilyHistoryDto>.Failure("Le lien de parenté est requis.");
             }
 
             if (string.IsNullOrWhiteSpace(request.Condition))
             {
-                return Result<PatientFamilyHistoryDto>.Failure("Condition is required");
+                return Result<PatientFamilyHistoryDto>.Failure("L'affection est requise.");
             }
 
             var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
@@ -54,7 +54,7 @@ public class CreatePatientFamilyHistoryCommandHandler : IRequestHandler<CreatePa
             var patient = await _patientRepository.GetByIdAsync(request.PatientId, cancellationToken);
             if (patient == null || patient.ClinicId != clinicResult.Value)
             {
-                return Result<PatientFamilyHistoryDto>.Failure("Patient not found");
+                return Result<PatientFamilyHistoryDto>.Failure("Patient introuvable.");
             }
 
             var entry = new PatientFamilyHistory(

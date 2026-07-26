@@ -44,7 +44,7 @@ public class GetPatientFoldersQueryHandler : IRequestHandler<GetPatientFoldersQu
             var patient = await _patientRepository.GetByIdAsync(request.PatientId, cancellationToken);
             if (patient == null || patient.ClinicId != clinicResult.Value)
             {
-                return Result<IEnumerable<PatientFolderDto>>.Failure("Patient not found");
+                return Result<IEnumerable<PatientFolderDto>>.Failure("Patient introuvable.");
             }
 
             IEnumerable<Domain.Entities.PatientFolder> folders;
@@ -54,7 +54,7 @@ public class GetPatientFoldersQueryHandler : IRequestHandler<GetPatientFoldersQu
                 var parentFolder = await _folderRepository.GetByIdAsync(request.ParentFolderId.Value, cancellationToken);
                 if (parentFolder == null || parentFolder.PatientId != request.PatientId)
                 {
-                    return Result<IEnumerable<PatientFolderDto>>.Failure("Folder not found");
+                    return Result<IEnumerable<PatientFolderDto>>.Failure("Dossier introuvable.");
                 }
 
                 folders = await _folderRepository.GetSubFoldersAsync(request.ParentFolderId.Value, cancellationToken);

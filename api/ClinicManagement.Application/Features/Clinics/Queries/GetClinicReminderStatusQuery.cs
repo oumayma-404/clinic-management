@@ -46,18 +46,18 @@ public class GetClinicReminderStatusQueryHandler
             var callerId = _clinicContext.GetUserId();
             if (string.IsNullOrEmpty(callerId))
             {
-                return Result<IReadOnlyList<ReminderStatusDto>>.Failure("User ID not found in token");
+                return Result<IReadOnlyList<ReminderStatusDto>>.Failure("Session invalide, veuillez vous reconnecter.");
             }
 
             var user = await _userRepository.GetByAuth0SubAsync(callerId, cancellationToken);
             if (user == null)
             {
-                return Result<IReadOnlyList<ReminderStatusDto>>.Failure("User not found");
+                return Result<IReadOnlyList<ReminderStatusDto>>.Failure("Utilisateur introuvable.");
             }
 
             if (!user.IsAdmin())
             {
-                return Result<IReadOnlyList<ReminderStatusDto>>.Failure("Only admins can view reminder delivery status");
+                return Result<IReadOnlyList<ReminderStatusDto>>.Failure("Seuls les administrateurs peuvent consulter l'état d'envoi des rappels.");
             }
 
             var take = Math.Clamp(request.Take, 1, GetClinicReminderStatusQuery.MaxTake);

@@ -514,7 +514,7 @@ export default function ClinicSettings() {
           </div>
           <div>
             <h1 className="text-xl font-bold text-gray-900 dark:text-white">Paramètres de la clinique</h1>
-            <p className="text-xs text-muted-foreground">Manage your clinic information and team</p>
+            <p className="text-xs text-muted-foreground">Gérez les informations et l&apos;équipe de votre clinique</p>
           </div>
         </div>
 
@@ -683,7 +683,7 @@ export default function ClinicSettings() {
                     <div className="relative w-20 h-20 rounded-lg border-2 border-blue-200 dark:border-blue-800 overflow-hidden shadow-sm group">
                       <Image
                         src={logoPreview}
-                        alt="Logo preview"
+                        alt="Aperçu du logo"
                         fill
                         className="object-cover"
                       />
@@ -706,7 +706,7 @@ export default function ClinicSettings() {
                     <label className="w-20 h-20 flex flex-col items-center justify-center border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-lg cursor-pointer hover:border-blue-500 hover:bg-gradient-to-br hover:from-blue-50 hover:to-indigo-50 dark:hover:from-blue-950/20 dark:hover:to-indigo-950/20 transition-all group">
                       <Upload className="w-5 h-5 text-slate-400 group-hover:text-blue-600 transition-colors" />
                       <span className="text-[10px] text-slate-500 group-hover:text-blue-600 font-medium transition-colors mt-1">
-                        {logoUrl ? "Change" : "Upload"}
+                        {logoUrl ? "Modifier" : "Téléverser"}
                       </span>
                       <input type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
                     </label>

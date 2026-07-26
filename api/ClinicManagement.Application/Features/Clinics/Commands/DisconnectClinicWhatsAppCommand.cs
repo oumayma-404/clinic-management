@@ -49,18 +49,18 @@ public class DisconnectClinicWhatsAppCommandHandler
             var callerId = _clinicContext.GetUserId();
             if (string.IsNullOrEmpty(callerId))
             {
-                return Result<ReminderSettingsDto>.Failure("User ID not found in token");
+                return Result<ReminderSettingsDto>.Failure("Session invalide, veuillez vous reconnecter.");
             }
 
             var user = await _userRepository.GetByAuth0SubAsync(callerId, cancellationToken);
             if (user == null)
             {
-                return Result<ReminderSettingsDto>.Failure("User not found");
+                return Result<ReminderSettingsDto>.Failure("Utilisateur introuvable.");
             }
 
             if (!user.IsAdmin())
             {
-                return Result<ReminderSettingsDto>.Failure("Only admins can disconnect WhatsApp");
+                return Result<ReminderSettingsDto>.Failure("Seuls les administrateurs peuvent déconnecter WhatsApp.");
             }
 
             var settings = await _settingsRepository.GetByClinicIdAsync(user.ClinicId, cancellationToken);

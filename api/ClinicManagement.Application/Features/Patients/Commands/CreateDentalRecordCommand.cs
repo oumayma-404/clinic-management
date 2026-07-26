@@ -83,7 +83,7 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
             var patient = await _patientRepository.GetByIdAsync(request.PatientId, cancellationToken);
             if (patient == null || patient.ClinicId != clinicResult.Value)
             {
-                return Result<DentalRecordDto>.Failure("Patient not found");
+                return Result<DentalRecordDto>.Failure("Patient introuvable.");
             }
 
             var parsed = DentalRecordActParser.Parse(request.Acts);

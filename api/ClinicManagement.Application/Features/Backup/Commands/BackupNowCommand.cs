@@ -45,19 +45,19 @@ public class BackupNowCommandHandler : IRequestHandler<BackupNowCommand, Result<
             var callerId = _clinicContext.GetUserId();
             if (string.IsNullOrEmpty(callerId))
             {
-                return Result<BackupResultDto>.Failure("User ID not found in token");
+                return Result<BackupResultDto>.Failure("Session invalide, veuillez vous reconnecter.");
             }
 
             var admin = await _userRepository.GetByAuth0SubAsync(callerId, cancellationToken);
             if (admin == null)
             {
-                return Result<BackupResultDto>.Failure("User not found");
+                return Result<BackupResultDto>.Failure("Utilisateur introuvable.");
             }
 
             // AC-8.1: only an admin may trigger a backup.
             if (!admin.IsAdmin())
             {
-                return Result<BackupResultDto>.Failure("Only admins can run a backup");
+                return Result<BackupResultDto>.Failure("Seuls les administrateurs peuvent lancer une sauvegarde.");
             }
 
             var result = await _backupService.CreateBackupAsync(request.DestinationFolder, cancellationToken);

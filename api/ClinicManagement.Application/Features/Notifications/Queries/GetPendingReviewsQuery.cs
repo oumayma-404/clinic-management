@@ -43,13 +43,13 @@ public class GetPendingReviewsQueryHandler : IRequestHandler<GetPendingReviewsQu
             userId = _clinicContext.GetUserId();
             if (string.IsNullOrEmpty(userId))
             {
-                return Result<IEnumerable<PendingReviewDto>>.Failure("User ID not found in token");
+                return Result<IEnumerable<PendingReviewDto>>.Failure("Session invalide, veuillez vous reconnecter.");
             }
 
             var user = await _userRepository.GetByAuth0SubAsync(userId, cancellationToken);
             if (user == null)
             {
-                return Result<IEnumerable<PendingReviewDto>>.Failure("User not found");
+                return Result<IEnumerable<PendingReviewDto>>.Failure("Utilisateur introuvable.");
             }
 
             var now = DateTime.UtcNow;
@@ -61,7 +61,7 @@ public class GetPendingReviewsQueryHandler : IRequestHandler<GetPendingReviewsQu
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error retrieving pending reviews for user {UserId}", userId);
-            return Result<IEnumerable<PendingReviewDto>>.Failure("Error retrieving pending reviews.");
+            return Result<IEnumerable<PendingReviewDto>>.Failure("Erreur lors du chargement des visites à saisir.");
         }
     }
 }

@@ -53,19 +53,19 @@ public class DeletePatientFolderCommandHandler : IRequestHandler<DeletePatientFo
             var folder = await _folderRepository.GetByIdAsync(request.FolderId, cancellationToken);
             if (folder == null)
             {
-                return Result<bool>.Failure("Folder not found");
+                return Result<bool>.Failure("Dossier introuvable.");
             }
 
             if (folder.PatientId != request.PatientId)
             {
-                return Result<bool>.Failure("Folder does not belong to the specified patient");
+                return Result<bool>.Failure("Ce dossier n'appartient pas à ce patient.");
             }
 
             // Verify the owning patient belongs to the caller's clinic before deleting (AC-1).
             var patient = await _patientRepository.GetByIdAsync(folder.PatientId, cancellationToken);
             if (patient == null || patient.ClinicId != clinicResult.Value)
             {
-                return Result<bool>.Failure("Folder not found");
+                return Result<bool>.Failure("Dossier introuvable.");
             }
 
             // Note: Nested folders are not supported in the UI, so we don't check for subfolders.

@@ -50,19 +50,19 @@ public class DownloadPatientFileQueryHandler : IRequestHandler<DownloadPatientFi
             var file = await _fileRepository.GetByIdAsync(request.FileId, cancellationToken);
             if (file == null)
             {
-                return Result<FileDownloadDto>.Failure("File not found");
+                return Result<FileDownloadDto>.Failure("Fichier introuvable.");
             }
 
             if (file.PatientId != request.PatientId)
             {
-                return Result<FileDownloadDto>.Failure("File does not belong to the specified patient");
+                return Result<FileDownloadDto>.Failure("Ce fichier n'appartient pas à ce patient.");
             }
 
             // Verify the owning patient belongs to the caller's clinic before streaming any bytes (AC-1).
             var patient = await _patientRepository.GetByIdAsync(file.PatientId, cancellationToken);
             if (patient == null || patient.ClinicId != clinicResult.Value)
             {
-                return Result<FileDownloadDto>.Failure("File not found");
+                return Result<FileDownloadDto>.Failure("Fichier introuvable.");
             }
 
             var fileStream = await _fileStorage.DownloadAsync(file.StorageKey, cancellationToken);

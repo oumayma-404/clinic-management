@@ -30,7 +30,7 @@ public class ChatCommandHandler : IRequestHandler<ChatCommand, Result<ChatRespon
             var lastUserMessage = request.Messages.LastOrDefault(m => m.Role == "user");
             if (lastUserMessage == null)
             {
-                return Result<ChatResponse>.Failure("No user message found");
+                return Result<ChatResponse>.Failure("Aucun message utilisateur à traiter.");
             }
 
             // Check if user wants to perform an action

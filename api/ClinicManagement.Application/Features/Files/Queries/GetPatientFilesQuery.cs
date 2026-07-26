@@ -47,7 +47,7 @@ public class GetPatientFilesQueryHandler : IRequestHandler<GetPatientFilesQuery,
             var patient = await _patientRepository.GetByIdAsync(request.PatientId, cancellationToken);
             if (patient == null || patient.ClinicId != clinicResult.Value)
             {
-                return Result<IEnumerable<PatientFileDto>>.Failure("Patient not found");
+                return Result<IEnumerable<PatientFileDto>>.Failure("Patient introuvable.");
             }
 
             IEnumerable<Domain.Entities.PatientFile> files;
@@ -57,7 +57,7 @@ public class GetPatientFilesQueryHandler : IRequestHandler<GetPatientFilesQuery,
                 var folder = await _folderRepository.GetByIdAsync(request.FolderId.Value, cancellationToken);
                 if (folder == null || folder.PatientId != request.PatientId)
                 {
-                    return Result<IEnumerable<PatientFileDto>>.Failure("Folder not found");
+                    return Result<IEnumerable<PatientFileDto>>.Failure("Dossier introuvable.");
                 }
 
                 files = await _fileRepository.GetByFolderIdAsync(request.FolderId.Value, cancellationToken);

@@ -39,14 +39,14 @@ public class UpdateDoctorsCommandHandler : IRequestHandler<UpdateDoctorsCommand,
             var userId = _clinicContext.GetUserId();
             if (string.IsNullOrEmpty(userId))
             {
-                return Result<List<DoctorDto>>.Failure("User ID not found in token");
+                return Result<List<DoctorDto>>.Failure("Session invalide, veuillez vous reconnecter.");
             }
 
             // Get user from database to get clinic ID
             var user = await _userRepository.GetByAuth0SubAsync(userId, cancellationToken);
             if (user == null)
             {
-                return Result<List<DoctorDto>>.Failure("User not found");
+                return Result<List<DoctorDto>>.Failure("Utilisateur introuvable.");
             }
 
             var clinicId = user.ClinicId;

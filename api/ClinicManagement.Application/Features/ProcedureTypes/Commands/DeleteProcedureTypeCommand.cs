@@ -40,7 +40,7 @@ public class DeleteProcedureTypeCommandHandler : IRequestHandler<DeleteProcedure
             var procedureType = await _procedureTypeRepository.GetByIdAsync(request.Id, cancellationToken);
             if (procedureType == null)
             {
-                return Result<bool>.Failure("Procedure type not found");
+                return Result<bool>.Failure("Type de procédure introuvable.");
             }
 
             // Explicit tenant check (defense-in-depth alongside the global query filter): a procedure
@@ -52,7 +52,7 @@ public class DeleteProcedureTypeCommandHandler : IRequestHandler<DeleteProcedure
             }
             if (procedureType.ClinicId != clinicResult.Value)
             {
-                return Result<bool>.Failure("Procedure type not found");
+                return Result<bool>.Failure("Type de procédure introuvable.");
             }
 
             // Check if used by future appointments

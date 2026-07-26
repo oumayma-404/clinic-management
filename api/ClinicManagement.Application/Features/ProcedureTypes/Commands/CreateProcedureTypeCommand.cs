@@ -47,7 +47,7 @@ public class CreateProcedureTypeCommandHandler : IRequestHandler<CreateProcedure
             // Validate name is not empty
             if (string.IsNullOrWhiteSpace(request.Name))
             {
-                return Result<ProcedureTypeDto>.Failure("Name is required");
+                return Result<ProcedureTypeDto>.Failure("Le nom est requis.");
             }
 
             // Resolve the caller's clinic — the new procedure type is scoped to it.
@@ -69,18 +69,18 @@ public class CreateProcedureTypeCommandHandler : IRequestHandler<CreateProcedure
             // Validate duration
             if (request.DefaultDurationMinutes <= 0)
             {
-                return Result<ProcedureTypeDto>.Failure("Default duration must be greater than 0");
+                return Result<ProcedureTypeDto>.Failure("La durée par défaut doit être supérieure à 0.");
             }
 
             if (request.DefaultDurationMinutes >= 480)
             {
-                return Result<ProcedureTypeDto>.Failure("Default duration must be less than 480 minutes (8 hours)");
+                return Result<ProcedureTypeDto>.Failure("La durée par défaut doit être inférieure à 480 minutes (8 heures).");
             }
 
             // Validate default cost if provided
             if (request.DefaultCost.HasValue && request.DefaultCost.Value < 0)
             {
-                return Result<ProcedureTypeDto>.Failure("Default cost cannot be negative");
+                return Result<ProcedureTypeDto>.Failure("Le tarif par défaut ne peut pas être négatif.");
             }
 
             // Validate and create color

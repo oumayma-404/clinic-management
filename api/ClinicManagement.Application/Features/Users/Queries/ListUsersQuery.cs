@@ -34,19 +34,19 @@ public class ListUsersQueryHandler : IRequestHandler<ListUsersQuery, Result<IEnu
             var userId = _clinicContext.GetUserId();
             if (string.IsNullOrEmpty(userId))
             {
-                return Result<IEnumerable<ClinicUserDto>>.Failure("User ID not found in token");
+                return Result<IEnumerable<ClinicUserDto>>.Failure("Session invalide, veuillez vous reconnecter.");
             }
 
             var currentUser = await _userRepository.GetByAuth0SubAsync(userId, cancellationToken);
             if (currentUser == null)
             {
-                return Result<IEnumerable<ClinicUserDto>>.Failure("User not found");
+                return Result<IEnumerable<ClinicUserDto>>.Failure("Utilisateur introuvable.");
             }
 
             // AC-5.4: only an admin can view the user list.
             if (!currentUser.IsAdmin())
             {
-                return Result<IEnumerable<ClinicUserDto>>.Failure("Only admins can view users");
+                return Result<IEnumerable<ClinicUserDto>>.Failure("Seuls les administrateurs peuvent consulter les utilisateurs.");
             }
 
             var users = await _userRepository.GetByClinicIdAsync(currentUser.ClinicId, cancellationToken);

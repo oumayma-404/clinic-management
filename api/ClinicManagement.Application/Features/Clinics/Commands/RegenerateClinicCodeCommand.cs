@@ -40,25 +40,25 @@ public class RegenerateClinicCodeCommandHandler : IRequestHandler<RegenerateClin
             var callerId = _clinicContext.GetUserId();
             if (string.IsNullOrEmpty(callerId))
             {
-                return Result<ClinicDto>.Failure("User ID not found in token");
+                return Result<ClinicDto>.Failure("Session invalide, veuillez vous reconnecter.");
             }
 
             var admin = await _userRepository.GetByAuth0SubAsync(callerId, cancellationToken);
             if (admin == null)
             {
-                return Result<ClinicDto>.Failure("User not found");
+                return Result<ClinicDto>.Failure("Utilisateur introuvable.");
             }
 
             // AC-5.4 / AC-4.5: only an admin can regenerate the clinic code.
             if (!admin.IsAdmin())
             {
-                return Result<ClinicDto>.Failure("Only admins can regenerate the clinic code");
+                return Result<ClinicDto>.Failure("Seuls les administrateurs peuvent régénérer le code de la clinique.");
             }
 
             var clinic = await _clinicRepository.GetByIdAsync(admin.ClinicId, cancellationToken);
             if (clinic == null)
             {
-                return Result<ClinicDto>.Failure("Clinic not found");
+                return Result<ClinicDto>.Failure("Clinique introuvable.");
             }
 
             var code = ClinicCodeGenerator.Generate();

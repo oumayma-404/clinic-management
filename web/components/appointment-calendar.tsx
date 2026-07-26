@@ -7,6 +7,7 @@ import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import { ChevronLeft, ChevronRight, Calendar, Filter, CloudOff, UploadCloud } from "lucide-react"
 import { format, addDays, startOfWeek, addWeeks, subWeeks, subDays, startOfDay, endOfDay, isToday, startOfMonth, addMonths, subMonths, isSameMonth } from "date-fns"
+import { fr } from "date-fns/locale"
 import { useMemo, useRef, useEffect, useState, type CSSProperties } from "react"
 import { toast } from "sonner"
 import { useAppointments } from "@/lib/hooks/use-appointments"
@@ -523,14 +524,14 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
             key={`dow-${day.toISOString()}`}
             className="border-r py-2 text-center text-xs font-medium uppercase tracking-wider text-muted-foreground last:border-r-0"
           >
-            {format(day, "EEE")}
+            {format(day, "EEE", { locale: fr })}
           </div>
         ))}
       </div>
 
       {loading ? (
         <div className="flex flex-1 items-center justify-center">
-          <p className="text-muted-foreground">Loading appointments...</p>
+          <p className="text-muted-foreground">Chargement des rendez-vous…</p>
         </div>
       ) : (
         <div className="grid flex-1 grid-cols-7 grid-rows-6 min-h-0">
@@ -569,7 +570,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                   {visible.map((appointment) => renderMonthChip(appointment))}
                   {overflow > 0 && (
                     <span className="px-1 text-[10px] font-medium text-muted-foreground hover:text-foreground">
-                      +{overflow} more
+                      +{overflow} autres
                     </span>
                   )}
                 </div>
@@ -597,14 +598,14 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
           </div>
           <Button variant="outline" size="sm" onClick={handleToday} className="gap-2 bg-transparent">
             <Calendar className="h-4 w-4" />
-            Today
+            Aujourd&apos;hui
           </Button>
           <div className="ml-2 text-xl font-semibold">
             {view === "week"
-              ? `${format(weekDays[0], "MMM d")} - ${format(weekDays[6], "MMM d, yyyy")}`
+              ? `${format(weekDays[0], "d MMM", { locale: fr })} - ${format(weekDays[6], "d MMM yyyy", { locale: fr })}`
               : view === "month"
-                ? format(selectedDate, "MMMM yyyy")
-                : format(selectedDate, "EEEE, MMMM d, yyyy")}
+                ? format(selectedDate, "MMMM yyyy", { locale: fr })
+                : format(selectedDate, "EEEE d MMMM yyyy", { locale: fr })}
           </div>
         </div>
 
@@ -613,15 +614,15 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
           <div className="flex items-center gap-4 text-sm">
             <div className="flex items-center gap-2">
               <div className="h-3 w-3 rounded bg-blue-500" />
-              <span className="text-muted-foreground">Scheduled</span>
+              <span className="text-muted-foreground">Planifié</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="h-3 w-3 rounded bg-green-500" />
-              <span className="text-muted-foreground">Completed</span>
+              <span className="text-muted-foreground">Terminé</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="h-3 w-3 rounded bg-gray-400" />
-              <span className="text-muted-foreground">Cancelled</span>
+              <span className="text-muted-foreground">Annulé</span>
             </div>
           </div>
 
@@ -629,7 +630,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
           <div className="flex items-center gap-4 pl-4 border-l">
             <div className="flex items-center gap-2">
               <Filter className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm font-medium text-muted-foreground">Show:</span>
+              <span className="text-sm font-medium text-muted-foreground">Afficher :</span>
             </div>
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
@@ -641,7 +642,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                   }}
                 />
                 <Label htmlFor="show-completed" className="text-sm cursor-pointer">
-                  Completed
+                  Terminés
                 </Label>
               </div>
               <div className="flex items-center gap-2">
@@ -653,7 +654,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                   }}
                 />
                 <Label htmlFor="show-cancelled" className="text-sm cursor-pointer">
-                  Cancelled
+                  Annulés
                 </Label>
               </div>
             </div>
@@ -677,7 +678,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
               weekDays.map((day) => (
                 <div key={day.toISOString()} className="border-r py-2 text-center last:border-r-0 min-w-0">
                   <div className="mb-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                    {format(day, "EEE")}
+                    {format(day, "EEE", { locale: fr })}
                   </div>
                   <div
                     className={cn(
@@ -692,7 +693,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
             ) : (
               <div className="py-2 text-center">
                 <div className="mb-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  {format(selectedDate, "EEEE")}
+                  {format(selectedDate, "EEEE", { locale: fr })}
                 </div>
                 <div
                   className={cn(
@@ -708,7 +709,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
 
           {loading ? (
             <div className="flex h-96 items-center justify-center flex-shrink-0">
-              <p className="text-muted-foreground">Loading appointments...</p>
+              <p className="text-muted-foreground">Chargement des rendez-vous…</p>
             </div>
           ) : (
             <div ref={scrollContainerRef} className="flex-1 overflow-y-auto overflow-x-hidden min-h-0 relative">

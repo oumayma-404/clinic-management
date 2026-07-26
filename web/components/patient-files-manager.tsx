@@ -538,7 +538,7 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold truncate text-foreground">{file.fileName}</p>
                       <p className="text-xs text-muted-foreground">
-                        {formatFileSize(file.fileSize)} • {new Date(file.uploadedAt).toLocaleDateString()}
+                        {formatFileSize(file.fileSize)} • {new Date(file.uploadedAt).toLocaleDateString("fr-FR")}
                       </p>
                     </div>
                   </div>

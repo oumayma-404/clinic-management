@@ -44,13 +44,13 @@ public class UpdatePatientMedicalHistoryCommandHandler : IRequestHandler<UpdateP
             var patient = await _patientRepository.GetByIdAsync(request.PatientId, cancellationToken);
             if (patient == null || patient.ClinicId != clinicResult.Value)
             {
-                return Result<PatientMedicalHistoryDto>.Failure("Patient not found");
+                return Result<PatientMedicalHistoryDto>.Failure("Patient introuvable.");
             }
 
             var entry = patient.MedicalHistoryEntries.FirstOrDefault(e => e.Id == request.Id);
             if (entry == null)
             {
-                return Result<PatientMedicalHistoryDto>.Failure("Medical history entry not found");
+                return Result<PatientMedicalHistoryDto>.Failure("Antécédent médical introuvable.");
             }
 
             var description = request.Description ?? entry.Description;

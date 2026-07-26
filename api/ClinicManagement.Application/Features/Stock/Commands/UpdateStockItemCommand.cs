@@ -44,17 +44,17 @@ public class UpdateStockItemCommandHandler : IRequestHandler<UpdateStockItemComm
         try
         {
             if (string.IsNullOrWhiteSpace(request.Name))
-                return Result<StockItemDto>.Failure("Name is required");
+                return Result<StockItemDto>.Failure("Le nom est requis.");
             if (string.IsNullOrWhiteSpace(request.Category))
-                return Result<StockItemDto>.Failure("Category is required");
+                return Result<StockItemDto>.Failure("La catégorie est requise.");
             if (string.IsNullOrWhiteSpace(request.Unit))
-                return Result<StockItemDto>.Failure("Unit is required");
+                return Result<StockItemDto>.Failure("L'unité est requise.");
             if (request.MinimumStockLevel < 0)
-                return Result<StockItemDto>.Failure("Minimum stock level cannot be negative");
+                return Result<StockItemDto>.Failure("Le stock minimum ne peut pas être négatif.");
             if (request.CurrentStock < 0)
-                return Result<StockItemDto>.Failure("Quantity cannot be negative");
+                return Result<StockItemDto>.Failure("La quantité ne peut pas être négative.");
             if (request.UnitPrice.HasValue && request.UnitPrice.Value < 0)
-                return Result<StockItemDto>.Failure("Unit price cannot be negative");
+                return Result<StockItemDto>.Failure("Le prix unitaire ne peut pas être négatif.");
 
             var clinic = await _clinicResolver.GetClinicIdAsync(cancellationToken);
             if (clinic.IsFailure)
@@ -62,7 +62,7 @@ public class UpdateStockItemCommandHandler : IRequestHandler<UpdateStockItemComm
 
             var item = await _stockItemRepository.GetByIdAsync(request.Id, cancellationToken);
             if (item == null || item.ClinicId != clinic.Value)
-                return Result<StockItemDto>.Failure("Stock item not found");
+                return Result<StockItemDto>.Failure("Article de stock introuvable.");
 
             var maximum = request.MaximumStockLevel.HasValue && request.MaximumStockLevel.Value >= request.MinimumStockLevel
                 ? request.MaximumStockLevel.Value
