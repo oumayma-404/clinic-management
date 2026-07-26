@@ -9,12 +9,18 @@ import { StockItemFormModal } from "@/components/stock-item-form-modal"
 import { Button } from "@/components/ui/button"
 import { Plus } from "lucide-react"
 import type { StockItemDto } from "@/lib/api/types"
+import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
+import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 
 export default function StockPage() {
   const [modalOpen, setModalOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<StockItemDto | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [highlightItemId, setHighlightItemId] = useState<string | null>(null)
+
+  // Live-refresh on a peer's stock mutation (finding #14: the page didn't subscribe though the backend
+  // already broadcasts the "stock" key).
+  useClinicRealtime(RealtimeResource.Stock, useCallback(() => setRefreshKey((k) => k + 1), []))
 
   // Deep-link from a low-stock notification: highlight the referenced item's row. Clears the query
   // param so a refresh doesn't re-trigger it. Graceful — if the item isn't in the list, nothing is

@@ -25,13 +25,15 @@ public class DentalRecordConfiguration : IEntityTypeConfiguration<DentalRecord>
             .IsRequired()
             .HasMaxLength(200);
 
+        // Millimes (3 decimals), matching DentalRecordAct.Cost and every other money column — a 2-decimal
+        // column silently rounded the derived total away from the sum of its acts.
         builder.Property(dr => dr.Cost)
             .IsRequired()
-            .HasColumnType("decimal(18,2)");
+            .HasColumnType("decimal(18,3)");
 
         builder.Property(dr => dr.AmountPaid)
             .IsRequired()
-            .HasColumnType("decimal(18,2)");
+            .HasColumnType("decimal(18,3)");
 
         builder.Property(dr => dr.Notes)
             .HasConversion(

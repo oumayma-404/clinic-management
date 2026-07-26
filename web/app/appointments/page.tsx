@@ -20,6 +20,7 @@ import { useConnectivity } from "@/lib/connectivity/connectivity"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { useDoctors } from "@/lib/hooks/use-doctors"
+import { useSession } from "@/lib/auth/session"
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select"
 
 export default function AppointmentsPage() {
@@ -38,6 +39,10 @@ export default function AppointmentsPage() {
   // Google Calendar needs the server's internet egress; gate its controls in Local offline mode
   // (AC-6.2). Cloud always reports online (R-3).
   const { internetReachable } = useConnectivity()
+  // Google Calendar connect/import/push endpoints are AdminOnly — only show the controls to admins so
+  // a non-admin never gets a 403 → generic "Échec" toast (finding #9).
+  const { user } = useSession()
+  const isAdmin = user?.role === "admin"
   // Per-practitioner filter (AC-3.2): "all" = no filter. Passed down to the calendar's fetch.
   const { doctors } = useDoctors()
   const [selectedDoctorId, setSelectedDoctorId] = useState<string>("all")
@@ -202,7 +207,7 @@ export default function AppointmentsPage() {
                   <TabsTrigger value="month">Mois</TabsTrigger>
                 </TabsList>
                 <div className="flex items-center gap-2">
-                  {!isGoogleCalendarAuthorized ? (
+                  {isAdmin && (!isGoogleCalendarAuthorized ? (
                     <Button
                       onClick={handleAuthorizeGoogleCalendar}
                       variant="outline"
@@ -226,8 +231,8 @@ export default function AppointmentsPage() {
                       <RefreshCw className={`h-4 w-4 ${isSyncing ? "animate-spin" : ""}`} />
                       {isSyncing ? "Synchronisation…" : "Importer depuis Google"}
                     </Button>
-                  )}
-                  {!internetReachable && (
+                  ))}
+                  {isAdmin && !internetReachable && (
                     <span className="text-xs text-amber-600 dark:text-amber-400">Connexion requise</span>
                   )}
                   <Select value={selectedDoctorId} onValueChange={setSelectedDoctorId}>

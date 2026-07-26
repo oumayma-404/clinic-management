@@ -97,12 +97,13 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
   }, [calculatedDuration])
 
   // Advisory overlap warning (AC-3): excludes the appointment being edited; non-blocking.
-  const overlapWarning = useAppointmentOverlap({
+  const { warning: overlapWarning, blocking: overlapBlocking } = useAppointmentOverlap({
     enabled: open,
     date,
     startHour,
     startMinute,
     durationMinutes: calculatedDuration,
+    doctorId: selectedDoctorId || undefined,
     excludeAppointmentId: appointment?.id,
   })
 
@@ -557,9 +558,17 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                 )}
               </div>
 
-              {/* Overlap warning (AC-3): non-blocking amber text naming the conflicting appointment. */}
+              {/* Overlap warning: red + blocking for a same-practitioner clash, amber advisory otherwise. */}
               {overlapWarning && (
-                <p className="text-sm text-amber-600 dark:text-amber-400">⚠ {overlapWarning}</p>
+                <p
+                  className={
+                    overlapBlocking
+                      ? "text-sm text-red-600 dark:text-red-400"
+                      : "text-sm text-amber-600 dark:text-amber-400"
+                  }
+                >
+                  ⚠ {overlapWarning}
+                </p>
               )}
             </div>
 
@@ -700,7 +709,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
                 Close
               </Button>
-              <Button type="submit" disabled={loading}>
+              <Button type="submit" disabled={loading || overlapBlocking}>
                 <Save className="h-4 w-4 mr-2" />
                 {loading ? "Enregistrement…" : "Enregistrer les modifications"}
               </Button>

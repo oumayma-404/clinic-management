@@ -77,6 +77,9 @@ export const treatmentPlansApi = {
   accept: async (id: string): Promise<TreatmentPlanDto> =>
     apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/accept`, {}),
 
+  complete: async (id: string): Promise<TreatmentPlanDto> =>
+    apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/complete`, {}),
+
   recordInstallmentPayment: async (
     id: string,
     installmentId: string,

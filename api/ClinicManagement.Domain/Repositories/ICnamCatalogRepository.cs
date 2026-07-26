@@ -3,8 +3,8 @@ using ClinicManagement.Domain.Entities;
 namespace ClinicManagement.Domain.Repositories;
 
 /// <summary>
-/// Persistence for the global CNAM catalog: nomenclature entries + valeurs de la lettre clé (VLC).
-/// Both are global reference data (no <c>ClinicId</c>, not clinic-filtered). Mutations only stage
+/// Persistence for the per-clinic CNAM catalog: nomenclature entries + valeurs de la lettre clé (VLC).
+/// Both are per-clinic reference data (have <c>ClinicId</c>, clinic-filtered). Mutations only stage
 /// changes — the caller commits via <see cref="ClinicManagement.Application.Common.Interfaces.IUnitOfWork"/>.
 /// </summary>
 public interface ICnamCatalogRepository

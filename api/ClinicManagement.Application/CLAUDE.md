@@ -1,94 +1,107 @@
 # ClinicManagement.Application
 
-> The use-case layer. Implements CQRS with **MediatR**: every API operation is a `Command` or `Query` with a co-located handler. Depends on Domain (entities + repository interfaces); defines its own infrastructure-facing interfaces (implemented in Infrastructure). Returns a `Result<T>` instead of throwing for business failures.
+> The use-case layer. Implements CQRS with **MediatR**: every API operation is a `Command` or `Query` with a co-located handler. Depends on Domain (entities + repository interfaces); defines its own infrastructure-facing interfaces (implemented in Infrastructure — a few live here). Returns `Result<T>` instead of throwing for business failures.
 
 ## Dependencies
-MediatR, FluentValidation, `Microsoft.AspNetCore.*` (for `IHttpContextAccessor`, authorization, middleware), EF Core (only `using` references in a few queries). DI entry point: **`Extensions.cs`** → `services.AddApplication()`.
+`MediatR` (14), `FluentValidation` (12.1.1), `Microsoft.AspNetCore.Authorization` + `Http.Abstractions` (for `IHttpContextAccessor` / policies / middleware), `Microsoft.EntityFrameworkCore` (8 — a few queries catch `DbUpdateException`; project references only Domain). DI entry point: **`Extensions.cs`** → `services.AddApplication()`.
 
 ## DI wiring — `Extensions.cs`
 ```
 AddApplication():
-  AddMediatR(...from executing assembly)        // registers all handlers & event handlers
-  AddValidatorsFromAssembly(...)                // FluentValidation (no validators currently defined)
+  AddMediatR(RegisterServicesFromAssembly(...))     // all handlers (no INotificationHandlers exist)
+  AddValidatorsFromAssembly(...)                     // FluentValidation — ZERO validators defined today
   AddTransient(IPipelineBehavior<,>, ValidationBehavior<,>)
   AddTransient(IPipelineBehavior<,>, LoggingBehavior<,>)
-  AddScoped<IClinicContext, ClinicContext>()    // needs IHttpContextAccessor (registered in API/Program.cs)
+  AddTransient(IPipelineBehavior<,>, RealtimeBroadcastBehavior<,>)
+  AddScoped<IClinicContext, ClinicContext>()         // needs IHttpContextAccessor (from API/Program.cs)
+  AddScoped<ICurrentClinicResolver, CurrentClinicResolver>()
+  AddScoped<INotificationGenerator, NotificationGenerator>()
+  AddScoped<IAppointmentGoogleSyncDispatcher, AppointmentGoogleSyncDispatcher>()
+  AddScoped<ICurrentClinicProvider, CurrentClinicProvider>()   // EF global-query-filter backstop
+  AddScoped<ICnamBillingCalculator, CnamBillingCalculator>()
 ```
+`ClinicContext`, `CurrentClinicResolver`, `CurrentClinicProvider`, `NotificationGenerator`, `CnamBillingCalculator`, `AppointmentGoogleSyncDispatcher` are all **implemented in this layer** (`Common/Services/`) — they need only Domain repos + `IUnitOfWork` (+ `IRealtimeNotifier`/`IServiceScopeFactory`), no external infra.
 
 ## MediatR pipeline (request → response)
-`Send(command/query)` → **ValidationBehavior** → **LoggingBehavior** → **RealtimeBroadcastBehavior** → **Handler**. Behaviors live in `Common/Behaviors/`:
+`Send(command/query)` → **ValidationBehavior** → **LoggingBehavior** → **RealtimeBroadcastBehavior** → **Handler** (registration order). Behaviors in `Common/Behaviors/`:
 
-- **`ValidationBehavior<TRequest,TResponse>`** — resolves all `IValidator<TRequest>`, runs them, throws `FluentValidation.ValidationException` on failure. (No `AbstractValidator`s exist yet, so this is effectively a no-op today; handlers currently do validation inline and return `Result.Failure(...)`.)
-- **`LoggingBehavior<TRequest,TResponse>`** — logs "Handling/Handled {RequestName}".
-- **`RealtimeBroadcastBehavior<TRequest,TResponse>`** — the single wiring point for real-time "any edit is live". After the handler returns (i.e. after its commit), if the request is a mutating command (namespace `...Features.<Area>.Commands`, excluding `Auth`/`AI`/`Backup`/`Connectivity`) **and** the response is a successful `Result`, it resolves the caller's clinic (same `IClinicContext`→`IUserRepository` lookup handlers use) and calls `IRealtimeNotifier.NotifyEntityChangedAsync(clinicId, "<area>")` — clients of that clinic then refetch. Purely structural (no per-command marker), so new commands broadcast automatically. Additive/fail-safe: it runs after commit (a failed command's `Result` is a failure → no broadcast) and swallows any resolution/broadcast error so a broadcast can never fail the committed command. `IRealtimeNotifier` is implemented in the API layer (`SignalRRealtimeNotifier` over the `ClinicHub`).
-
-Order is registration order (Validation → Logging → RealtimeBroadcast).
+- **`ValidationBehavior<,>`** — resolves `IValidator<TRequest>`, throws `FluentValidation.ValidationException` on failure. **No validators exist**, so it is a no-op today; handlers validate inline and return `Result.Failure(...)`. (If one were added, `ExceptionMiddleware` maps the exception → 400.)
+- **`LoggingBehavior<,>`** — logs "Handling/Handled {RequestName}".
+- **`RealtimeBroadcastBehavior<,>`** — the single wiring point for "any edit is live". After the handler returns (post-commit), if the request is a mutating command **and** the response is a successful `Result`, it resolves the caller's clinic (`IClinicContext`→`IUserRepository`) and calls `IRealtimeNotifier.NotifyEntityChangedAsync(clinicId, "<area>")`; clients of that clinic refetch. Purely structural — the resource key is derived by **`RealtimeResourceResolver`** from the namespace (`...Features.<Area>.Commands` → `<area>` lowercased), so new commands broadcast automatically. Excluded (no broadcast): `Auth`, `AI`, `Backup`, `Connectivity`, all queries. Fail-safe: swallows any resolution/transport error so a broadcast never fails the committed command. `IRealtimeNotifier` is implemented in the API layer (SignalR `ClinicHub`); the key contract with `web/lib/realtime/clinic-hub.ts` is pinned by `RealtimeResourceResolverTests`.
 
 ## Result pattern — `Common/Models/Result.cs`
-- `Result` — `IsSuccess` / `IsFailure` / `Error`; `Result.Success()`, `Result.Failure(error)`.
+- `Result` — `IsSuccess`/`IsFailure`/`Error`; `Result.Success()`, `Result.Failure(error)`.
 - `Result<T>` — adds `Value`; `Result<T>.Success(value)`, `Result<T>.Failure(error)`.
-- **Convention:** almost every handler returns `Result<TDto>`, wraps its body in `try/catch`, and converts exceptions/business errors into `Result.Failure(...)`. The API layer maps this to HTTP responses.
+- **Convention:** nearly every handler returns `Result<TDto>`, wraps its body in `try/catch`, and converts business errors/exceptions into `Result.Failure(...)`. `ApiControllerBase` (API layer) maps this to HTTP. A **not-found** subset of newer query handlers instead throws `NotFoundException` → 404 via `ExceptionMiddleware` (e.g. `GetPatientBillingSummaryQuery`, `GetPatientAiSummaryQuery`, the receipt-PDF queries).
 
-## Feature folders (CQRS) — `Features/<Area>/{Commands,Queries,EventHandlers}`
-Each command/query file typically contains **both** the request class (`IRequest<Result<...>>`) and its handler (`IRequestHandler<...>`) in one file. Handlers inject repositories (Domain interfaces), `IClinicContext`, `IUnitOfWork`, and service interfaces.
+## Clinic resolution (multi-tenant scoping) — two patterns
+Every request is scoped to a clinic resolved from the **DB user record** (not just the JWT claim). Two idioms coexist:
+1. **Newer / dominant** (~94 files): inject `ICurrentClinicResolver`, call `GetClinicIdAsync()` → `Result<Guid>` (JWT `sub` → `User.ClinicId`), short-circuit on failure.
+2. **Legacy** (~34 files): inject `IClinicContext` + `IUserRepository`, do `GetUserId()` then `GetByAuth0SubAsync(...)` inline (e.g. `CreateAppointmentCommand`, `BackupNowCommand`, admin-guarded commands).
 
-| Area | Commands | Queries | Event handlers |
-|------|----------|---------|----------------|
-| **Appointments** | `CreateAppointmentCommand`, `UpdateAppointmentCommand` (both call `INotificationGenerator` post-commit) | `GetAppointmentQuery`, `GetAppointmentsQuery` | — |
-| **Notifications** (in-app feed) | `MarkNotificationReadCommand`, `MarkAllNotificationsReadCommand` (both return `Result.Failure("...not found")` on tenant/missing — a **not-found convention**, mapped to 404 by the controller) | `GetNotificationsQuery` (50 newest, viewer-scoped), `GetUnreadCountQuery` | — |
-| **Patients** | Create/Update `PatientCommand`; medical & family history Create/Update/Delete; dental record Create/Update/Delete | `GetPatientQuery`, `GetPatientsQuery`, `GetPatient{Medical,Family}HistoryQuery`, `GetDentalRecordsQuery` | — |
-| **Clinics** | `CreateClinicCommand`, `UpdateClinicCommand`, `JoinClinicCommand`, `UpdateDoctorsCommand`, `RegenerateClinicCodeCommand` (admin-only) | `GetUserStatusQuery`, `GetClinicLogoQuery` | — |
-| **ProcedureTypes** | Create/Update/Delete | `GetProcedureTypeQuery`, `GetProcedureTypesQuery` | — |
-| **Files** | `CreatePatientFolderCommand`, `DeletePatientFolderCommand`, `UploadPatientFileCommand`, `DeletePatientFileCommand`, `InitializeDefaultFoldersCommand` | `GetPatientFoldersQuery`, `GetPatientFilesQuery`, `DownloadPatientFileQuery` | — |
-| **Documents** | Create/Update/Delete `MedicalDocumentCommand` | `GetMedicalDocumentQuery`, `GetMedicalDocumentsQuery` | — |
-| **Users** | `ResetUserPasswordCommand`, `SetUserActiveCommand` (admin-only) | `ListUsersQuery` (admin-only; users + status) | — |
-| **Auth** (Local mode) | `LoginCommand` (email+password → JWT; rejects inactive/locked; generic `InvalidCredentialsError`), `ChangePasswordCommand` (clears `MustChangePassword`) | — | — |
-| **AI** | `ChatCommand` (+ `ChatCommandHandler.cs` as a separate handler file) | — | — |
-| **Connectivity** (Local mode) | — | `GetConnectivityStatusQuery` (probes internet egress via `IInternetProbe`; returns `ConnectivityStatusDto`; swallows probe errors into `internetReachable=false` — never a 500 for a poll) | — |
-| **Backup** (Local, Phase 5) | `BackupNowCommand` (admin-only one-click backup — resolves caller, re-checks `IsAdmin()`, delegates to `IBackupService`; catches `InvalidOperationException` → `Result.Failure` with the operator message, lets other exceptions propagate to middleware) | — | — |
+Both then verify each loaded aggregate's `ClinicId == clinicId` before use (defense in depth). `ICurrentClinicProvider` is a **separate, synchronous backstop** that feeds the EF Core global query filter the JWT `clinic_id`; it is fail-open (null → filter inactive) so jobs/CLI/anonymous flows work, and is **not** the authoritative tenant guard — the per-handler DB check is.
 
-### Event handlers
-Domain events (`IDomainEvent : INotification`) implement `INotificationHandler<TEvent>`, **but no domain-event dispatch is currently wired** — `SaveChanges` does not drain `AggregateRoot.DomainEvents`, so no handler runs. The former `AppointmentCreatedEventHandler` was removed as dead code (had it ever fired, it would have enqueued a `NotificationType.Both` reminder the `NotificationJob` dispatcher has no sender for). Appointment reminders are produced inline by `ReminderScheduler` + `NotificationGenerator` from the command handlers instead.
+### Typical handler shape
+Resolve clinic → validate inputs / load related aggregates (tenant-checking each) → mutate via aggregate methods → repository `AddAsync/UpdateAsync` → **one `IUnitOfWork.SaveChangesAsync`** → map to DTO → `Result<TDto>.Success`. Post-commit best-effort side effects (notifications, reminders, Google sync) fire *after* the save and never roll it back.
 
-### Handler conventions (see `CreateAppointmentCommand.cs`, `GetPatientsQuery.cs`, `CreateClinicCommand.cs`)
-1. Read current user via `IClinicContext.GetUserId()`; load `User` via `IUserRepository.GetByAuth0SubAsync` to resolve the **clinic id** (multi-tenant scoping).
-2. Validate inputs / load related aggregates; return `Result.Failure` on any problem.
-3. Mutate domain via aggregate methods, persist via repository `AddAsync/UpdateAsync`, then **`IUnitOfWork.SaveChangesAsync`** (one save per use case).
-4. Map the aggregate to a DTO and return `Result<TDto>.Success`.
+## Feature folders (CQRS) — `Features/<Area>/{Commands,Queries}`
+Each command/query file usually holds both the request (`IRequest<Result<...>>`) and its handler. `EventHandlers` folders are vestigial/empty — the domain-events pipeline was removed (no `INotificationHandler`, no `IDomainEvent` dispatch anywhere in the layer). Areas:
 
-## Common interfaces — `Common/Interfaces/` (implemented in Infrastructure)
-| Interface | Purpose |
-|-----------|---------|
-| `IUnitOfWork` | `SaveChangesAsync` + explicit `Begin/Commit/RollbackTransactionAsync`. |
-| `IClinicContext` | Reads clinic id / role / user id / email from JWT claims; `BelongsToClinic`, `EnsureClinicAccess` (throws `ForbiddenAccessException`). **Implemented in this layer** (`Common/Services/ClinicContext.cs`). |
-| `INotificationGenerator` | Best-effort writer for the in-app staff feed (`StaffNotification`). Methods `AppointmentCreatedAsync`/`ScheduleAppointmentReminderAsync`/`AppointmentCancelledAsync`/`AppointmentRescheduledAsync`/`LowStockAsync`, called **inline from command handlers after their own commit**. Each persists its notification(s) + broadcasts the `"notifications"` realtime key but **never throws back** — a failure must never fail/roll back the core operation. **Implemented in this layer** (`Common/Services/NotificationGenerator.cs`), not Infrastructure. |
-| `IFileStorage` | Blob upload/download/delete by storage key (custom path overload). Backend is mode-branched: MinIO (Cloud) or `LocalDiskFileStorage` (Local). |
-| `IGoogleCalendarService` | Low-level Google Calendar CRUD; exposes `GoogleCalendarEvent`. |
-| `IGoogleCalendarSyncService` | Two-way sync of appointments ↔ Google Calendar. |
-| `IPdfGenerationService` | Generate PDF from `MedicalDocumentPdfData`. |
-| `IAuth0ManagementService` | Push `clinic_id`/`role` into Auth0 `app_metadata`. Local mode wires a no-op impl. |
-| `ILocalAuthService` | Local-mode auth (Phase 1): `HashPassword`/`VerifyPassword` (ASP.NET `PasswordHasher`, PBKDF2), `GenerateToken` (HS256 JWT via the per-install key), `GenerateTemporaryPassword` (CSPRNG). Impl in Infrastructure. |
-| `IAIActionService` | Decide & execute AI-driven actions (defines `AIActionRequest`/`AIActionResult`). |
-| `IHuggingFaceAIService` | Chat completions for the AI feature (the sole wired AI backend); defines message/response/token DTOs. *(The parallel `IGoogleAIService` was removed as dead code in `reliability-and-polish`.)* |
-| `IInternetProbe` | Connectivity awareness (Phase 3): `IsInternetReachableAsync()` — does the **server** have working internet egress. Impl in Infrastructure (Singleton, cached). Backs the Local-only `GET /api/connectivity` used to gate AI + Google Calendar offline. |
-| `IGoogleTokenStore` | Google OAuth refresh-token persistence (Phase 4 / US-3): `GetRefreshToken()` + `SaveRefreshTokenAsync(...)`. Stores the token in a gitignored per-install `.local/` file (falling back to `GoogleCalendar:RefreshToken` config), **replacing** the old callback that rewrote the token into committed `appsettings.json`. Impl in Infrastructure (Singleton, in-memory cache for read-after-write). |
-| `IBackupService` | One-click "Backup now" (Phase 5 / US-8 / FR-G): `CreateBackupAsync(destinationFolder?, ct)` → `BackupResultDto`. A seam over the `pg_dump` shell-out so the command handler stays unit-testable/mockable. Contract: surface every operator-facing failure (unwritable dest, disk full, `pg_dump` missing, dump failed) as a distinct `InvalidOperationException` — never a silent partial success. Impl `PgDumpBackupService` in Infrastructure. |
+| Area | Notes |
+|------|-------|
+| **Appointments** | Single `Create`/`Update` + recurring series (`CreateRecurringSeriesCommand`/`CancelRecurringSeriesCommand`/`GetRecurringSeriesQuery`). Create/Update fire post-commit: `INotificationGenerator` (created / reminder / post-visit-review), `IReminderScheduler` (SMS/WhatsApp), `IAppointmentGoogleSyncDispatcher`. `AppointmentPlanLink` = shared treatment-plan-step link validation. |
+| **Patients** | Patient CRUD; medical/family history CRUD; dental records CRUD; **odontogram** (`DiagnoseToothCommand`, `RemoveToothConditionCommand`, `GetOdontogramQuery`, `ToothState`); `GetPatientAiSummaryQuery` (live HuggingFace, tenant-guarded). Helpers: `DentalRecordActParser`, `DentalRecordLinker`, `DentalRecordMappingExtensions`. |
+| **Invoices** | Notes d'honoraires: `Create/Update/Delete/Issue/Cancel`, `RecordPayment`, `SubmitInvoiceToElFatoora`. Queries: get/list, revenue, invoice PDF, payment-receipt PDF, e-invoice artifact. `IssueInvoiceCommand` assigns gapless `AAAA-NNNN` numbers (unique index + recompute-and-retry). `InvoiceMappingExtensions`. |
+| **Billing** | Read-only cross-cutting money views: `GetPatientBillingSummaryQuery` (« Solde patient », invoices + plans + indicative CNAM split), `GetCaisseSummaryQuery`, `GetReceivablesQuery`. |
+| **TreatmentPlans** | Devis lifecycle: `Create/Update/Delete/Accept/Cancel`, `MarkTreatmentPlanItemDoneCommand`, `RecordInstallmentPaymentCommand`; devis + installment-receipt PDFs. `TreatmentPlanMappingExtensions`. |
+| **CnamNomenclature** | CNAM catalog CRUD (`Create/Update/Deactivate` entry, `UpdateCnamLetterValueCommand`, `ConfirmCnamDataCommand`), queries (nomenclature, letter values, `GetReimbursementEstimateQuery`). `CnamReimbursementCalculator` (pure: coefficient × VLC × age-rate, 70% ages 4–18 else 60%); `CnamEntryMapper`. |
+| **DentalActs** | Dental act-code catalog CRUD + `ConfirmDentalActsCommand`; `GetDentalActsQuery`; `DentalActMappingExtensions`. |
+| **Medications** | Medication catalog CRUD + `ConfirmMedicationDataCommand`; `GetMedicationsQuery`; `MedicationMapper`. |
+| **Doctors** | `UpdateDoctorProfileCommand`, `SetDoctorWorkingHoursCommand`; queries: my profile, working hours, `GetDoctorCachetQuery`. |
+| **Stock** | Item CRUD + `GetStockItemsQuery`. `Update` fires `INotificationGenerator.LowStockAsync` on not-low→low crossing. |
+| **Expenses / LabOrders / WaitingList / Recall** | Expenses CRUD+list; lab work-order CRUD + status; waiting-list CRUD + `PromoteWaitingListEntryCommand`; recall (`SendRecallCommand`, `SnoozeRecallCommand`, `MarkRecallContactedCommand`, `SetRecallSettingsCommand`, `GetPatientsToRecallQuery`, settings). |
+| **Notifications** (in-app feed) | `MarkNotificationReadCommand`/`MarkAllNotificationsReadCommand` (return `Result.Failure("...not found")` on tenant/missing → 404 by controller). Queries: `GetNotificationsQuery`, `GetUnreadCountQuery`, `GetPendingReviewsQuery` (due post-visit-review popups). |
+| **Clinics** | `Create`/`Update`/`Join`/`UpdateDoctors`/`RegenerateClinicCode`, WhatsApp connect/disconnect, `UpdateClinicReminderSettingsCommand`. Queries: user status, clinic logo, reminder settings, reminder status. `ClinicCodeGenerator`. |
+| **Users** | `ResetUserPasswordCommand`, `SetUserActiveCommand`, `ListUsersQuery` (all admin-only). |
+| **ProcedureTypes** | CRUD + `InitializeDefaultProcedureTypesCommand`; `ProcedureTypeCatalogSeed`. |
+| **Files / Documents** | Patient folder/file CRUD + download over `IFileStorage` (store-blob-then-persist; delete blob if the DB save fails). Medical documents CRUD + PDF snapshot (`GetPractitionerRenderSnapshotQuery`, `DocumentFileNaming`, `DocumentTypes`, `PractitionerRenderSnapshot`). |
+| **Dashboard** | `GetDashboardStatsQuery` (KPIs). |
+| **Auth** (Local) | `LoginCommand` (email+password → JWT; lockout-before-password, generic `InvalidCredentialsError`, rehash-on-login, inactive disclosed only after correct password), `ChangePasswordCommand`. |
+| **AI** | `ChatCommand` + separate `ChatCommandHandler` (`IAIActionService` then `IHuggingFaceAIService`). *(`Features/AISummary/` is empty scaffolding — the real summary is under `Patients`.)* |
+| **Connectivity** (Local) | `GetConnectivityStatusQuery` (probes `IInternetProbe`; swallows errors → `internetReachable=false`, never a 500). |
+| **Backup** (Local) | `BackupNowCommand` (admin-only; re-checks `IsAdmin()`, delegates to `IBackupService`; catches `InvalidOperationException` → `Result.Failure`, lets other exceptions propagate). |
 
-## DTOs — `DTOs/`
-Plain request/response records used by handlers & controllers: `PatientDto`, `AppointmentDto` (includes `IsSyncedToGoogle`, derived from `GoogleCalendarEventId != null` — mapped in all four Create/Update/Get/GetAll handlers; drives the "not synced to Google" badge), `NotificationDto` (in-app feed row: id, category, title, message, `EffectiveFeedTime`, `IsRead`, target kind + optional appointment/stock id), `ConnectivityStatusDto` (`InternetReachable`), `BackupResultDto` (`DestinationPath`/`SizeBytes`/`TimestampUtc`, Phase 5), `ClinicDto`, `DoctorPersonalInfoDto`, `UserDto`, `UserStatusDto`, `AddressDto`, `InsuranceInfoDto`, `PatientFlagDto`, `PatientMedicalHistoryDto`, `PatientFamilyHistoryDto`, `DentalRecordDto`, `PatientFileDto`, `MedicalDocumentDto`, `ProcedureTypeDto`, plus request shapes `CreateClinicRequest`, `JoinClinicRequest`, `UpdateDoctorsRequest`. `Common/Models/MedicalDocumentPdfData.cs` is the PDF-generation model.
+## Outbound interfaces — `Common/Interfaces/`
+Implemented in **Infrastructure** unless noted. Grouped:
+
+**Tenant / context (impl here)** — `IClinicContext` (JWT claims → clinic/role/user/email; `BelongsToClinic`/`EnsureClinicAccess`→`ForbiddenAccessException`), `ICurrentClinicResolver` (async `GetClinicIdAsync()`→`Result<Guid>`), `ICurrentClinicProvider` (sync backstop for the EF filter), `IUnitOfWork` (`SaveChangesAsync` + explicit `Begin/Commit/RollbackTransactionAsync`), `IRealtimeNotifier` (SignalR, impl in API).
+
+**In-app feed / reminders** — `INotificationGenerator` (impl here — staff-feed writer: appointment created/reminder/cancelled/rescheduled, low-stock, post-visit-review; best-effort, never throws, logs at Error), `IReminderScheduler` (SMS/WhatsApp outbox enqueue/void, best-effort post-commit), `IReminderSettingsProvider` (effective per-clinic-else-install settings + enabled channels), `IReminderSecretProtector` (encrypt/decrypt channel secrets over Data Protection), `IWhatsAppOnboardingService` (Meta Embedded-Signup steps; `WhatsAppOnboardingException`/`WhatsAppOnboardingError`).
+
+**Billing / CNAM / e-invoicing** — `ICnamBillingCalculator` (impl here — indicative reimbursable/out-of-pocket split; defines `CnamBillingLine`/`CnamSplit`), `IEInvoiceService` (one El Fatoora dispatch attempt: build→sign→store→submit→persist; self-committing, never throws), `ITeifXmlGenerator` (unsigned TEIF XML), `IEInvoiceSigner` (XAdES/XMLDSig RSA-SHA256), `ITtnClient` (TTN submit; sandbox/production), `IQrCodeGenerator` (visible cachet PNG), `IPdfGenerationService` (document / invoice / devis / receipt PDFs).
+
+**Integrations / infra** — `IFileStorage` (mode-branched MinIO vs LocalDisk), `IGoogleCalendarService` (low-level CRUD; `GoogleCalendarEvent`), `IGoogleCalendarSyncService` (two-way sync), `IAppointmentGoogleSyncDispatcher` (impl here — fire-and-forget, connectivity-gated post-commit push over `IServiceScopeFactory`), `IInternetProbe` (server-egress check, cached), `IHuggingFaceAIService` (sole wired AI chat backend), `IAIActionService` (AI-driven action decide/execute; `AIActionRequest`/`AIActionResult`), `IBackupService` (`pg_dump` + file copy; distinct `InvalidOperationException` per failure), `IClinicCatalogSeeder` (per-clinic default CNAM/medication/dental-act catalogs; idempotent, startup backfill).
+
+**Auth** — `ILocalAuthService` (Local: PBKDF2 hash/verify with rehash outcome, HS256 JWT, CSPRNG temp password), `IAuth0ManagementService` (push `clinic_id`/`role` into Auth0 `app_metadata`; Local wires a no-op).
+
+> **Retired:** `IGoogleTokenStore`/`FileGoogleTokenStore` were removed (cloud-security-and-tenant-isolation) — Google refresh tokens are now per-clinic in the DB, not a shared `.local/` file.
+
+## DTOs & models
+- **`DTOs/`** — request/response records for handlers + controllers. Clinical: `PatientDto`, `AppointmentDto` (`IsSyncedToGoogle` ← `GoogleCalendarEventId != null`), `RecurringAppointmentDto`, `DentalRecordDto`, `ToothStateDto`, `MedicalDocumentDto`, `PatientMedicalHistoryDto`/`PatientFamilyHistoryDto`, `PatientFlagDto`, `PatientAiSummaryDto`, `PatientFileDto`, `ProcedureTypeDto`. Money: `InvoiceDto`, `TreatmentPlanDto`, `PatientBillingSummaryDto`, `CaisseSummaryDto`, `ReceivableDto`, `ExpenseDto`, `DashboardStatsDto`. CNAM/acts/meds: `CnamNomenclatureEntryDto`, `CnamLetterValueDto`, `CnamInfoDto`, `ReimbursementEstimateDto`, `DentalActDto`, `MedicationDto`. Ops: `StockItemDto`, `LabWorkOrderDto`, `WaitingListEntryDto`, `RecallDto`, `PendingReviewDto`, `NotificationDto`, `ConnectivityStatusDto`, `BackupResultDto`. Clinic/users/auth: `ClinicDto`, `ClinicUserDto`, `UserDto`/`UserStatusDto`, `DoctorProfileDto`/`DoctorPersonalInfoDto`/`WorkingHoursDto`, `LoginResultDto`, `ResetPasswordResultDto`, `ReminderSettingsDto`/`ReminderStatusDto` (`ReminderSettingsMappings.cs`), plus request shapes (`CreateClinicRequest`, `JoinClinicRequest`, `UpdateDoctorsRequest`, …).
+- **`Common/Models/`** — `Result`, PDF inputs (`MedicalDocumentPdfData`, `InvoicePdfData`, `DevisPdfData`, `ReceiptPdfData`), e-invoicing (`EInvoiceModels`: `TeifInvoiceInput`, `SignedEInvoiceResult`, `TtnSubmissionResult`/`TtnSubmissionOutcome`, `EInvoiceArtifactResult`), `ResolvedReminderSettings` (decrypted-in-memory effective reminder settings; `SmsConfigured`/`WhatsAppConfigured` single-source-of-truth sendability).
+- **Mapping** lives in co-located static helpers in the feature folders (`InvoiceMappingExtensions`, `TreatmentPlanMappingExtensions`, `DentalActMappingExtensions`, `DentalRecordMappingExtensions`, `MedicationMapper`, `CnamEntryMapper`) + `DTOs/ReminderSettingsMappings.cs`. **`Common/Mappings/` is empty** (no AutoMapper).
 
 ## Cross-cutting — `Common/`
-- **Services** (`Common/Services/`): `ClinicContext` (`IClinicContext`) and **`NotificationGenerator`** (`INotificationGenerator`) — the in-app-feed writer. Lives here (not Infrastructure) because it only needs the domain repos + `IUnitOfWork` + `IRealtimeNotifier`; its `SafelyAsync` helper wraps each write so an exception is logged at **Error** and swallowed (post-commit best-effort), then broadcasts the `"notifications"` realtime key.
-- **Maintenance** (`Common/Maintenance/`): `AdminPasswordRecoveryService` — the testable core of the offline admin-lockout recovery utility (find admin → temp password → `SetPassword` → persist). Deliberately **not** DI-registered (no HTTP-reachable reset path); driven only by the `reset-admin-password` CLI wrapper in the API project. Lives here because `UnitTests` references only Application.
-- **Exceptions** (`Common/Exceptions/`): `NotFoundException`, `ForbiddenAccessException`, and **`ExceptionMiddleware`** (ASP.NET middleware mapping these to 404/403, everything else → 500 with a generic JSON body).
-- **Authorization** (`Common/Authorization/`): policy-based.
-  - `AuthorizationPolicies.cs` — policy names `DoctorOrSecretary`, `DoctorOnly`, `SecretaryOnly`, `AdminOnly` + `ConfigurePolicies(options, isLocalMode)`. In **Local** mode (Phase 4 / FR-E3 release gate) it installs a fail-closed `FallbackPolicy = RequireAuthenticatedUser()` so every endpoint without an explicit `[AllowAnonymous]` returns 401; in **Cloud** the fallback stays null (named policies only) → Cloud unchanged.
-  - `Requirements/RoleRequirement.cs` — `params string[] AllowedRoles`.
-  - `Handlers/RoleAuthorizationHandler.cs` — reads role claim (tries `https://clinic-management.com/role`, `role`, `ClaimTypes.Role`) and succeeds if it matches an allowed role.
+- **Services** (`Common/Services/`) — `ClinicContext`, `CurrentClinicResolver`, `CurrentClinicProvider`, `NotificationGenerator` (feed writer; `SafelyAsync` logs-and-swallows, broadcasts `"notifications"`), `CnamBillingCalculator`, `AppointmentGoogleSyncDispatcher`.
+- **Maintenance** (`Common/Maintenance/`) — `AdminPasswordRecoveryService`: offline admin-lockout recovery core (find admin → temp password → activate + `SetPassword` → persist). **Deliberately NOT DI-registered** (no HTTP-reachable reset); driven only by the API `reset-admin-password` CLI. Here so `UnitTests` (which references only Application) can test it.
+- **Exceptions** (`Common/Exceptions/`) — `NotFoundException`, `ForbiddenAccessException`, and `ExceptionMiddleware` (ASP.NET middleware): `ForbiddenAccessException`→403, `NotFoundException`→404, `FluentValidation.ValidationException`→400, else→500. All emit the canonical `{ "error": "<message>" }` body; the generic fallback comes from `Common/ErrorMessages.cs` (shared with the API `ApiControllerBase`).
+- **Authorization** (`Common/Authorization/`) — `AuthorizationPolicies.ConfigurePolicies(options, isLocalMode)` defines 5 policies: `DoctorOrSecretary`, `DoctorOnly`, `SecretaryOnly`, `AdminOnly`, `AdminOrDoctor`. In **Local** mode it installs a fail-closed `FallbackPolicy = RequireAuthenticatedUser()` (endpoints without `[AllowAnonymous]` → 401); in **Cloud** the fallback stays null. `Requirements/RoleRequirement` (`params string[] AllowedRoles`) + `Handlers/RoleAuthorizationHandler` (reads role from `https://clinic-management.com/role` / `role` / `ClaimTypes.Role`).
+- **Constants** — `ErrorMessages`, `PasswordPolicy` (`MinLength = 8`), `PaymentMethodLabels` (French `PaymentMethod` labels for receipts).
 
 ## Gotchas
-- **No FluentValidation validators are defined yet** — `ValidationBehavior` runs but finds none; validation is inline in handlers via `Result.Failure`.
-- Clinic scoping is resolved per-request from the DB (`User.ClinicId`), not just from the JWT `clinic_id` claim.
-- Some handlers swallow non-critical failures (e.g. Auth0 metadata update in `CreateClinicCommand`) so the core use case still succeeds.
-- **`CreateClinicCommand` / `JoinClinicCommand` are dual-path**: a non-null `Password` on the request switches them into the Local first-run / self-registration branch (creates a password-backed `User`); a null `Password` keeps the original Cloud/Auth0 flow. Only the Local-mode `AuthController` endpoints (`setup`/`register`) ever set `Password`.
-- File storage goes through the single `IFileStorage` seam (backend chosen by `Auth:Mode`); handlers that store a blob then persist a DB record clean up the blob if the save fails (FR-C3 orphan prevention). `IHuggingFaceAIService` is the wired AI chat provider (the unused `IGoogleAIService` was removed in `reliability-and-polish`).
+- **No FluentValidation validators exist** — `ValidationBehavior` finds none; validation is inline via `Result.Failure`.
+- Clinic scoping is DB-resolved (`User.ClinicId`), not just the JWT `clinic_id` claim. `ICurrentClinicProvider` (the EF filter backstop) is fail-open and **not** an isolation guard — the per-handler DB check is.
+- Post-commit side effects (`INotificationGenerator`, `IReminderScheduler`, `IAppointmentGoogleSyncDispatcher`, inline El Fatoora dispatch) are best-effort: they run after `SaveChangesAsync`, swallow/log failures, and never roll back the core operation.
+- `CreateClinicCommand`/`JoinClinicCommand` are dual-path: a non-null `Password` switches to the Local first-run / self-registration branch; null keeps the Cloud/Auth0 flow. Only Local `AuthController` `setup`/`register` set `Password`.
+- Some handlers swallow non-critical failures (e.g. Auth0 metadata update) so the core use case still succeeds.
+- `IHuggingFaceAIService` is the sole wired AI backend. `IGoogleTokenStore` no longer exists (retired).

@@ -19,4 +19,8 @@ public class SetupRequest
     /// certificats work. Null → an admin-only account with no practitioner profile.
     /// </summary>
     public DoctorPersonalInfoDto? DoctorInfo { get; set; }
+
+    /// <summary>Optional working hours captured by the onboarding wizard (finding #16), as the same JSON
+    /// the settings page sends (normalized server-side).</summary>
+    public string? WorkingHoursJson { get; set; }
 }

@@ -23,6 +23,8 @@ public class InvoiceConfiguration : IEntityTypeConfiguration<Invoice>
 
         builder.Property(i => i.DentalRecordId);
         builder.Property(i => i.AppointmentId);
+        // Soft link to the devis this note was generated from (no FK, like DentalRecordId/AppointmentId).
+        builder.Property(i => i.TreatmentPlanId);
 
         builder.Property(i => i.Number)
             .HasMaxLength(20);

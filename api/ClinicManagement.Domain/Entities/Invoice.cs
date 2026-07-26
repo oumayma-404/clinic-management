@@ -16,6 +16,9 @@ public class Invoice : AggregateRoot<Guid>
     public Guid PatientId { get; private set; }
     public Guid? DentalRecordId { get; private set; }
     public Guid? AppointmentId { get; private set; }
+    /// <summary>The treatment plan (devis) this note was generated from, if any — the devis→facture link
+    /// used by « Solde patient » to count the invoice instead of the plan (no double-count).</summary>
+    public Guid? TreatmentPlanId { get; private set; }
 
     /// <summary>Sequential number <c>AAAA-NNNN</c>; null while a draft (assigned at issue).</summary>
     public string? Number { get; private set; }
@@ -85,7 +88,8 @@ public class Invoice : AggregateRoot<Guid>
         Guid clinicId,
         Guid patientId,
         Guid? dentalRecordId = null,
-        Guid? appointmentId = null)
+        Guid? appointmentId = null,
+        Guid? treatmentPlanId = null)
     {
         if (clinicId == Guid.Empty)
             throw new ArgumentException("Le cabinet est requis.", nameof(clinicId));
@@ -98,6 +102,7 @@ public class Invoice : AggregateRoot<Guid>
         PatientId = patientId;
         DentalRecordId = dentalRecordId;
         AppointmentId = appointmentId;
+        TreatmentPlanId = treatmentPlanId;
         Status = InvoiceStatus.Draft;
         CreatedAt = DateTime.UtcNow;
         RecomputeTotals();
@@ -215,6 +220,11 @@ public class Invoice : AggregateRoot<Guid>
 
         if (Status == InvoiceStatus.Cancelled)
             throw new InvalidOperationException("La facture est déjà annulée.");
+
+        // A note with recorded payments must not be silently voided — that would erase collected cash from
+        // the caisse with no trail. Corrections go through an avoir (credit note).
+        if (_payments.Count > 0)
+            throw new InvalidOperationException("Une facture avec des paiements enregistrés ne peut pas être annulée. Établissez un avoir.");
 
         if (string.IsNullOrWhiteSpace(reason))
             throw new ArgumentException("Le motif d'annulation est requis.", nameof(reason));

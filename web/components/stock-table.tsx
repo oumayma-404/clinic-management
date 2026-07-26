@@ -18,9 +18,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { Package, Search, Pencil, Trash2, Loader2, AlertTriangle } from "lucide-react"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
+import { Package, Search, Pencil, Trash2, Loader2, AlertTriangle, Minus, Plus, History } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { stockApi } from "@/lib/api/stock"
+import { stockApi, type StockMovementDto } from "@/lib/api/stock"
+import { formatDateTime } from "@/lib/format"
 import { ApiError } from "@/lib/api/client"
 import type { StockItemDto } from "@/lib/api/types"
 
@@ -41,6 +44,15 @@ export function StockTable({ refreshKey, onEdit, highlightItemId }: StockTablePr
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [itemToDelete, setItemToDelete] = useState<StockItemDto | null>(null)
   const [deleting, setDeleting] = useState(false)
+  // Movement (sortie/entrée) dialog state (finding #14).
+  const [adjustTarget, setAdjustTarget] = useState<StockItemDto | null>(null)
+  const [adjustMode, setAdjustMode] = useState<"consume" | "restock">("consume")
+  const [adjustQty, setAdjustQty] = useState("")
+  const [adjusting, setAdjusting] = useState(false)
+  // Movement-history dialog state (finding #14).
+  const [historyTarget, setHistoryTarget] = useState<StockItemDto | null>(null)
+  const [movements, setMovements] = useState<StockMovementDto[]>([])
+  const [movementsLoading, setMovementsLoading] = useState(false)
   const highlightRowRef = useRef<HTMLTableRowElement | null>(null)
   // Scroll to the deep-linked row only once per deep-link — reset when the target changes.
   const hasScrolledRef = useRef(false)
@@ -109,6 +121,50 @@ export function StockTable({ refreshKey, onEdit, highlightItemId }: StockTablePr
       toast.error(err instanceof ApiError ? err.message : "Échec de la suppression de l'article")
     } finally {
       setDeleting(false)
+    }
+  }
+
+  const openHistory = async (item: StockItemDto) => {
+    setHistoryTarget(item)
+    setMovements([])
+    setMovementsLoading(true)
+    try {
+      setMovements(await stockApi.movements(item.id))
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Échec du chargement de l'historique")
+    } finally {
+      setMovementsLoading(false)
+    }
+  }
+
+  const openAdjust = (item: StockItemDto, mode: "consume" | "restock") => {
+    setAdjustTarget(item)
+    setAdjustMode(mode)
+    setAdjustQty("")
+  }
+
+  const confirmAdjust = async () => {
+    if (!adjustTarget) return
+    const qty = Number.parseInt(adjustQty, 10)
+    if (!Number.isFinite(qty) || qty <= 0) {
+      toast.error("La quantité doit être supérieure à 0.")
+      return
+    }
+    try {
+      setAdjusting(true)
+      if (adjustMode === "consume") {
+        await stockApi.consume(adjustTarget.id, qty)
+        toast.success(`Sortie enregistrée (${qty})`)
+      } else {
+        await stockApi.restock(adjustTarget.id, { quantity: qty })
+        toast.success(`Entrée enregistrée (${qty})`)
+      }
+      setAdjustTarget(null)
+      await loadItems()
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Échec du mouvement de stock")
+    } finally {
+      setAdjusting(false)
     }
   }
 
@@ -218,6 +274,17 @@ export function StockTable({ refreshKey, onEdit, highlightItemId }: StockTablePr
                         <TableCell className="text-muted-foreground">{item.supplier ?? "—"}</TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
+                            <Button variant="ghost" size="sm" onClick={() => openAdjust(item, "consume")} className="h-8 gap-1" title="Sortie de stock">
+                              <Minus className="h-3 w-3" />
+                              Sortie
+                            </Button>
+                            <Button variant="ghost" size="sm" onClick={() => openAdjust(item, "restock")} className="h-8 gap-1" title="Entrée de stock">
+                              <Plus className="h-3 w-3" />
+                              Entrée
+                            </Button>
+                            <Button variant="ghost" size="sm" onClick={() => openHistory(item)} className="h-8 w-8 p-0" title="Historique des mouvements">
+                              <History className="h-4 w-4" />
+                            </Button>
                             <Button variant="ghost" size="sm" onClick={() => onEdit(item)} className="h-8 gap-1">
                               <Pencil className="h-3 w-3" />
                               Modifier
@@ -243,6 +310,77 @@ export function StockTable({ refreshKey, onEdit, highlightItemId }: StockTablePr
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={!!adjustTarget} onOpenChange={(open) => { if (!open) setAdjustTarget(null) }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>
+              {adjustMode === "consume" ? "Sortie de stock" : "Entrée de stock"}
+              {adjustTarget ? ` — ${adjustTarget.name}` : ""}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="adjustQty">Quantité</Label>
+            <Input
+              id="adjustQty"
+              type="number"
+              min="1"
+              step="1"
+              value={adjustQty}
+              onChange={(e) => setAdjustQty(e.target.value)}
+              placeholder="0"
+              autoFocus
+            />
+            {adjustTarget && (
+              <p className="text-xs text-muted-foreground">Stock actuel : {adjustTarget.currentStock}</p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAdjustTarget(null)} disabled={adjusting}>
+              Annuler
+            </Button>
+            <Button onClick={confirmAdjust} disabled={adjusting}>
+              {adjusting ? "Enregistrement…" : "Confirmer"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!historyTarget} onOpenChange={(open) => { if (!open) setHistoryTarget(null) }}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Historique des mouvements{historyTarget ? ` — ${historyTarget.name}` : ""}</DialogTitle>
+          </DialogHeader>
+          <div className="max-h-80 overflow-y-auto">
+            {movementsLoading ? (
+              <p className="py-6 text-center text-sm text-muted-foreground">Chargement…</p>
+            ) : movements.length === 0 ? (
+              <p className="py-6 text-center text-sm text-muted-foreground">Aucun mouvement enregistré.</p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead className="text-right">Quantité</TableHead>
+                    <TableHead className="text-right">Stock résultant</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {movements.map((m) => (
+                    <TableRow key={m.id}>
+                      <TableCell className="text-muted-foreground">{formatDateTime(m.createdAt)}</TableCell>
+                      <TableCell>{m.type === "Consume" ? "Sortie" : "Entrée"}</TableCell>
+                      <TableCell className="text-right">{m.type === "Consume" ? `-${m.quantity}` : `+${m.quantity}`}</TableCell>
+                      <TableCell className="text-right">{m.resultingStock}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>

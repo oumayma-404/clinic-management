@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { TUNISIAN_GOVERNORATES } from "@/lib/tunisia"
 import { Switch } from "@/components/ui/switch"
 import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
@@ -48,6 +49,8 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
   const [addressGovernorate, setAddressGovernorate] = useState("")
   const [addressCity, setAddressCity] = useState("")
   const [addressPostalCode, setAddressPostalCode] = useState("")
+  const [emergencyName, setEmergencyName] = useState("")
+  const [emergencyPhone, setEmergencyPhone] = useState("")
 
   // Medical Info State
   const [chronicDiseases, setChronicDiseases] = useState("")
@@ -114,6 +117,10 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
         setAddressPostalCode("")
       }
 
+      // Emergency contact (finding #11)
+      setEmergencyName(patient.emergencyContactName || "")
+      setEmergencyPhone(patient.emergencyContactPhone || "")
+
       // Insurance info
       setInsuranceProvider(patient.insuranceInfo?.provider || "")
       setInsuranceNumber(patient.insuranceInfo?.policyNumber || "")
@@ -162,6 +169,8 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
         setAddressGovernorate("")
         setAddressCity("")
         setAddressPostalCode("")
+        setEmergencyName("")
+        setEmergencyPhone("")
         setChronicDiseases("")
         setAllergies("")
         setInsuranceProvider("")
@@ -367,6 +376,8 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
           phoneNumber: phone.trim(),
           email: email.trim() || undefined,
           address: addressObj,
+          emergencyContactName: emergencyName.trim(),
+          emergencyContactPhone: emergencyPhone.trim(),
           medicalHistory: chronicDiseases.trim() || undefined,
           allergies: allergies.trim() || undefined,
           insuranceInfo: (insuranceProvider.trim() || insuranceNumber.trim()) ? {
@@ -466,6 +477,8 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
           medicalHistory: chronicDiseases.trim() || undefined,
           allergies: allergies.trim() || undefined,
           address: addressObj,
+          emergencyContactName: emergencyName.trim() || undefined,
+          emergencyContactPhone: emergencyPhone.trim() || undefined,
           insuranceInfo: (insuranceProvider.trim() || insuranceNumber.trim()) ? {
             provider: insuranceProvider.trim() || "Unknown",
             policyNumber: insuranceNumber.trim() || "Unknown",
@@ -667,15 +680,19 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                   />
                 </div>
 
-                {/* Governorate */}
+                {/* Governorate (finding #17: Tunisian dropdown, not free text) */}
                 <div className="space-y-2">
                   <Label htmlFor="addressGovernorate">Gouvernorat</Label>
-                  <Input
-                    id="addressGovernorate"
-                    value={addressGovernorate}
-                    onChange={(e) => setAddressGovernorate(e.target.value)}
-                    placeholder="Tunis"
-                  />
+                  <Select value={addressGovernorate} onValueChange={setAddressGovernorate}>
+                    <SelectTrigger id="addressGovernorate">
+                      <SelectValue placeholder="Sélectionner un gouvernorat" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {TUNISIAN_GOVERNORATES.map((gov) => (
+                        <SelectItem key={gov} value={gov}>{gov}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 {/* City */}
@@ -699,6 +716,31 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                     value={addressPostalCode}
                     onChange={(e) => setAddressPostalCode(e.target.value)}
                     placeholder="1000"
+                  />
+                </div>
+
+                {/* Emergency contact (finding #11) */}
+                <div className="space-y-2">
+                  <Label htmlFor="emergencyName">
+                    Contact d'urgence <span className="text-muted-foreground text-xs">(optionnel)</span>
+                  </Label>
+                  <Input
+                    id="emergencyName"
+                    value={emergencyName}
+                    onChange={(e) => setEmergencyName(e.target.value)}
+                    placeholder="Nom du contact"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="emergencyPhone">
+                    Téléphone d'urgence <span className="text-muted-foreground text-xs">(optionnel)</span>
+                  </Label>
+                  <Input
+                    id="emergencyPhone"
+                    value={emergencyPhone}
+                    onChange={(e) => setEmergencyPhone(e.target.value)}
+                    placeholder="+216 ..."
                   />
                 </div>
               </div>

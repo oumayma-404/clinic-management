@@ -18,15 +18,18 @@ public class GetInvoiceRevenueQuery : IRequest<Result<InvoiceRevenueDto>>
 public class GetInvoiceRevenueQueryHandler : IRequestHandler<GetInvoiceRevenueQuery, Result<InvoiceRevenueDto>>
 {
     private readonly IInvoiceRepository _invoiceRepository;
+    private readonly ICreditNoteRepository _creditNoteRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly ILogger<GetInvoiceRevenueQueryHandler> _logger;
 
     public GetInvoiceRevenueQueryHandler(
         IInvoiceRepository invoiceRepository,
+        ICreditNoteRepository creditNoteRepository,
         ICurrentClinicResolver clinicResolver,
         ILogger<GetInvoiceRevenueQueryHandler> logger)
     {
         _invoiceRepository = invoiceRepository;
+        _creditNoteRepository = creditNoteRepository;
         _clinicResolver = clinicResolver;
         _logger = logger;
     }
@@ -52,13 +55,31 @@ public class GetInvoiceRevenueQueryHandler : IRequestHandler<GetInvoiceRevenueQu
                 .ToList();
 
             var totalInvoiced = billable.Sum(i => i.TotalTtc);
-            var totalCollected = billable.Sum(i => i.AmountCollected);
+            var outstanding = billable.Sum(i => i.Outstanding);
+
+            // « Total encaissé » is attributed by payment date (PaidOn) — matching the caisse — not by the
+            // invoice issue date (finding #18), so a payment collected in a different period from issuance
+            // lands in the same bucket both views use. With no period, fall back to collected-to-date.
+            decimal totalCollected;
+            if (request.From.HasValue && request.To.HasValue)
+            {
+                var collected = await _invoiceRepository.GetCollectedBetweenAsync(
+                    clinicId, request.From.Value, request.To.Value, cancellationToken);
+                // Net out avoirs refunded in the same window so "encaissé" matches the caisse (finding #8).
+                var refunds = await _creditNoteRepository.GetRefundedBetweenAsync(
+                    clinicId, request.From.Value, request.To.Value, cancellationToken);
+                totalCollected = collected - refunds;
+            }
+            else
+            {
+                totalCollected = billable.Sum(i => i.AmountCollected);
+            }
 
             var dto = new InvoiceRevenueDto
             {
                 TotalInvoiced = totalInvoiced,
                 TotalCollected = totalCollected,
-                Outstanding = totalInvoiced - totalCollected
+                Outstanding = outstanding
             };
 
             return Result<InvoiceRevenueDto>.Success(dto);

@@ -1,10 +1,10 @@
 using MediatR;
+using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Patients;
 using ClinicManagement.Domain.Entities;
-using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 
 namespace ClinicManagement.Application.Features.Patients.Commands;
@@ -23,6 +23,9 @@ public class CreateDentalRecordCommand : IRequest<Result<DentalRecordDto>>
     public Guid? TreatmentPlanId { get; set; }
     /// <summary>Optional plan step this record carries out — marked "réalisé" and linked to this record on save.</summary>
     public Guid? TreatmentPlanItemId { get; set; }
+    /// <summary>Optional appointment this record documents — completing it and dismissing its post-visit review
+    /// prompt (finding #10), so recording the dental work (not only a medical document) closes the loop.</summary>
+    public Guid? AppointmentId { get; set; }
 }
 
 public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalRecordCommand, Result<DentalRecordDto>>
@@ -31,23 +34,35 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
     private readonly IDentalRecordRepository _dentalRecordRepository;
     private readonly IToothStateRepository _toothStateRepository;
     private readonly ITreatmentPlanRepository _treatmentPlanRepository;
+    private readonly IAppointmentRepository _appointmentRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly INotificationGenerator _notificationGenerator;
+    private readonly IRealtimeNotifier _realtimeNotifier;
+    private readonly ILogger<CreateDentalRecordCommandHandler> _logger;
 
     public CreateDentalRecordCommandHandler(
         IPatientRepository patientRepository,
         IDentalRecordRepository dentalRecordRepository,
         IToothStateRepository toothStateRepository,
         ITreatmentPlanRepository treatmentPlanRepository,
+        IAppointmentRepository appointmentRepository,
         ICurrentClinicResolver clinicResolver,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        INotificationGenerator notificationGenerator,
+        IRealtimeNotifier realtimeNotifier,
+        ILogger<CreateDentalRecordCommandHandler> logger)
     {
         _patientRepository = patientRepository;
         _dentalRecordRepository = dentalRecordRepository;
         _toothStateRepository = toothStateRepository;
         _treatmentPlanRepository = treatmentPlanRepository;
+        _appointmentRepository = appointmentRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
+        _notificationGenerator = notificationGenerator;
+        _realtimeNotifier = realtimeNotifier;
+        _logger = logger;
     }
 
     public async Task<Result<DentalRecordDto>> Handle(CreateDentalRecordCommand request, CancellationToken cancellationToken)
@@ -71,7 +86,7 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
                 return Result<DentalRecordDto>.Failure("Patient not found");
             }
 
-            var parsed = DentalRecordActParser.Parse(request.Acts, request.IsAdultTeeth);
+            var parsed = DentalRecordActParser.Parse(request.Acts);
             if (parsed.IsFailure)
             {
                 return Result<DentalRecordDto>.Failure(parsed.Error!);
@@ -86,9 +101,7 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
                 request.Notes,
                 request.ImportantNotes);
 
-            record.SetActs(parsed.Value!.Select(p =>
-                (p.Input.ProcedureTypeId, p.Input.ProcedureName, p.Input.Cost,
-                 (IReadOnlyList<int>)p.Input.ToothNumbers, p.Condition, p.Input.Surfaces, p.Input.Note)));
+            record.SetActs(parsed.Value!);
 
             await _dentalRecordRepository.AddAsync(record, cancellationToken);
 
@@ -119,6 +132,13 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
+            // If this record documents a scheduled appointment, close its post-visit-review loop
+            // (finding #10) — best-effort, never rolls back the committed record.
+            if (request.AppointmentId.HasValue)
+            {
+                await CompleteReviewedAppointmentAsync(request.AppointmentId.Value, clinicResult.Value, cancellationToken);
+            }
+
             return Result<DentalRecordDto>.Success(record.ToDto());
         }
         catch (ArgumentException ex)
@@ -132,6 +152,37 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
         catch (Exception ex)
         {
             return Result<DentalRecordDto>.Failure($"Error creating dental record: {ex.Message}");
+        }
+    }
+
+    // Marks the documented appointment Completed (if it resolves in the caller's clinic) and removes its
+    // pending post-visit review — mirrors CreateMedicalDocumentCommand.CompleteReviewedAppointmentAsync.
+    // A cross-clinic/missing id is a silent no-op. Wrapped so any failure only logs — never rolls back the
+    // already-committed dental record.
+    private async Task CompleteReviewedAppointmentAsync(Guid appointmentId, Guid clinicId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var appointment = await _appointmentRepository.GetByIdAsync(appointmentId, cancellationToken);
+            if (appointment == null || appointment.ClinicId != clinicId)
+            {
+                return; // cross-clinic or unknown id → leave everything unchanged
+            }
+
+            appointment.MarkVisitCompleted(); // idempotent no-op if already terminal
+            // The appointment is change-tracked from GetByIdAsync, so SaveChanges persists MarkVisitCompleted().
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            // The review is fulfilled — remove it so the popup/panel stops prompting.
+            await _notificationGenerator.CancelPostVisitReviewAsync(appointment.ClinicId, appointmentId, cancellationToken);
+
+            // This command broadcasts "patients"; also tell "appointments" consumers so the calendar reflects
+            // the now-Completed status.
+            await _realtimeNotifier.NotifyEntityChangedAsync(appointment.ClinicId, "appointments", cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Post-visit completion side-effect failed for appointment {AppointmentId}", appointmentId);
         }
     }
 }

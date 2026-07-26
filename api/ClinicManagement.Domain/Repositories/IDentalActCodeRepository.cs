@@ -3,8 +3,8 @@ using ClinicManagement.Domain.Entities;
 namespace ClinicManagement.Domain.Repositories;
 
 /// <summary>
-/// Persistence for the global dental act catalog (chapitre DCH). Global reference data (no
-/// <c>ClinicId</c>, not clinic-filtered). Mutations only stage changes — the caller commits via
+/// Persistence for the per-clinic dental act catalog (chapitre DCH). Per-clinic reference data (has
+/// <c>ClinicId</c>, clinic-filtered). Mutations only stage changes — the caller commits via
 /// <see cref="ClinicManagement.Application.Common.Interfaces.IUnitOfWork"/>.
 /// </summary>
 public interface IDentalActCodeRepository

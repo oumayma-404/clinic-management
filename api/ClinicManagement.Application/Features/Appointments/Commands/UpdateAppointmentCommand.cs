@@ -86,6 +86,8 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
             // rescheduled the appointment, for in-app staff notifications (spec US-3).
             var oldStatus = appointment.Status;
             var oldDateTime = appointment.AppointmentDateTime;
+            var oldDuration = appointment.Duration;
+            var oldDoctorId = appointment.DoctorId;
 
             // Update appointment date/time if provided
             if (request.AppointmentDateTime.HasValue)
@@ -245,6 +247,34 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                 }
             }
 
+            // Hard double-booking guard: after applying the requested changes, reject an overlapping,
+            // still-active appointment for the same practitioner (excluding this one). Only when the
+            // schedule actually changed (date/duration/doctor) and the appointment is still active — so a
+            // notes-only edit never trips on a pre-existing clash, and cancelling never blocks.
+            var scheduleChanged = appointment.AppointmentDateTime != oldDateTime
+                                  || appointment.Duration != oldDuration
+                                  || appointment.DoctorId != oldDoctorId;
+            if (scheduleChanged
+                && appointment.DoctorId.HasValue
+                && appointment.Status != AppointmentStatus.Cancelled
+                && appointment.Status != AppointmentStatus.Completed
+                && appointment.Status != AppointmentStatus.NoShow)
+            {
+                var windowStart = appointment.AppointmentDateTime.AddDays(-1);
+                var windowEnd = appointment.AppointmentDateTime + appointment.Duration;
+                var others = await _appointmentRepository.GetByClinicIdAsync(
+                    clinicResult.Value, windowStart, windowEnd, appointment.DoctorId, cancellationToken);
+                var collides = others.Any(e =>
+                    e.Id != appointment.Id &&
+                    e.Status != AppointmentStatus.Cancelled &&
+                    e.Status != AppointmentStatus.NoShow &&
+                    Overlaps(e.AppointmentDateTime, e.Duration, appointment.AppointmentDateTime, appointment.Duration));
+                if (collides)
+                {
+                    return Result<AppointmentDto>.Failure("Ce créneau est déjà réservé pour ce praticien.");
+                }
+            }
+
             await _appointmentRepository.UpdateAsync(appointment, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -376,5 +406,8 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
             return Result<AppointmentDto>.Failure($"Error updating appointment: {ex.Message}");
         }
     }
+
+    private static bool Overlaps(DateTime aStart, TimeSpan aDuration, DateTime bStart, TimeSpan bDuration) =>
+        aStart < bStart + bDuration && bStart < aStart + aDuration;
 }
 

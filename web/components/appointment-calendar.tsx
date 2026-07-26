@@ -13,6 +13,7 @@ import { useAppointments } from "@/lib/hooks/use-appointments"
 import { googleCalendarApi } from "@/lib/api/google-calendar"
 import { ApiError } from "@/lib/api/client"
 import { useConnectivity } from "@/lib/connectivity/connectivity"
+import { useSession } from "@/lib/auth/session"
 import type { AppointmentDto } from "@/lib/api/types"
 import { cn, parseDurationToMinutes } from "@/lib/utils"
 
@@ -53,6 +54,10 @@ interface AppointmentCalendarProps {
 
 export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSlotClick, onAppointmentClick, onSelectDay, showCancelled = false, showCompleted = false, onShowCancelledChange, onShowCompletedChange, onChanged, doctorId }: AppointmentCalendarProps) {
   const { internetReachable } = useConnectivity()
+  // The "Push to Google" endpoint is AdminOnly — only admins get the action (finding #9); everyone still
+  // sees the "non synchronisé" status badge.
+  const { user } = useSession()
+  const isAdmin = user?.role === "admin"
   const [pushingId, setPushingId] = useState<string | null>(null)
 
   const handlePushToGoogle = async (appointment: AppointmentDto) => {
@@ -98,16 +103,18 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
           <CloudOff className="h-2.5 w-2.5" />
           non synchronisé
         </Badge>
-        <button
-          type="button"
-          onClick={() => handlePushToGoogle(appointment)}
-          disabled={!internetReachable || pushingId === appointment.id}
-          title={internetReachable ? "Envoyer vers Google Agenda" : "Connexion internet requise"}
-          className="inline-flex h-4 items-center gap-0.5 rounded bg-white/60 px-1 text-[9px] leading-none hover:bg-white disabled:cursor-not-allowed disabled:opacity-50 dark:bg-background/60"
-        >
-          <UploadCloud className="h-2.5 w-2.5" />
-          {pushingId === appointment.id ? "..." : "Push"}
-        </button>
+        {isAdmin && (
+          <button
+            type="button"
+            onClick={() => handlePushToGoogle(appointment)}
+            disabled={!internetReachable || pushingId === appointment.id}
+            title={internetReachable ? "Envoyer vers Google Agenda" : "Connexion internet requise"}
+            className="inline-flex h-4 items-center gap-0.5 rounded bg-white/60 px-1 text-[9px] leading-none hover:bg-white disabled:cursor-not-allowed disabled:opacity-50 dark:bg-background/60"
+          >
+            <UploadCloud className="h-2.5 w-2.5" />
+            {pushingId === appointment.id ? "..." : "Push"}
+          </button>
+        )}
       </div>
     )
   }

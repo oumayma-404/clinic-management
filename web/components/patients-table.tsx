@@ -6,13 +6,19 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Users, Flag, FileText, Folder } from "lucide-react"
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import { Users, Flag, FileText, Folder, Trash2 } from "lucide-react"
+import { toast } from "sonner"
 import { patientsApi } from "@/lib/api/patients"
 import { dentalRecordsApi } from "@/lib/api/dental-records"
 import type { PatientDto, DentalRecordDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import { EditPatientDialog } from "@/components/edit-patient-dialog"
 import { PatientSummaryModal } from "@/components/patient-summary-modal"
+import { useSession } from "@/lib/auth/session"
 import { formatDate } from "@/lib/format"
 
 interface PatientsTableProps {
@@ -30,6 +36,26 @@ export function PatientsTable({ searchQuery, showFlaggedOnly }: PatientsTablePro
   const [summaryModalOpen, setSummaryModalOpen] = useState(false)
   const [summaryPatient, setSummaryPatient] = useState<PatientDto | null>(null)
   const [summaryDentalRecords, setSummaryDentalRecords] = useState<DentalRecordDto[]>([])
+  const [patientToDelete, setPatientToDelete] = useState<PatientDto | null>(null)
+  const [deleting, setDeleting] = useState(false)
+  // Delete is admin-gated (finding #15) — matches the app's admin-only destructive-action convention.
+  const { user } = useSession()
+  const isAdmin = user?.role === "admin"
+
+  const handleConfirmDelete = async () => {
+    if (!patientToDelete) return
+    try {
+      setDeleting(true)
+      await patientsApi.delete(patientToDelete.id)
+      setPatients((prev) => prev.filter((p) => p.id !== patientToDelete.id))
+      toast.success(`Patient « ${patientToDelete.firstName} ${patientToDelete.lastName} » supprimé`)
+      setPatientToDelete(null)
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Échec de la suppression du patient")
+    } finally {
+      setDeleting(false)
+    }
+  }
 
   // Load patients from API
   useEffect(() => {
@@ -242,6 +268,20 @@ export function PatientsTable({ searchQuery, showFlaggedOnly }: PatientsTablePro
                           >
                             <Folder className="h-4 w-4" />
                           </Button>
+                          {isAdmin && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setPatientToDelete(patient)
+                              }}
+                              title="Supprimer le patient"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>
@@ -266,6 +306,29 @@ export function PatientsTable({ searchQuery, showFlaggedOnly }: PatientsTablePro
         patient={summaryPatient}
         dentalRecords={summaryDentalRecords}
       />
+
+      <AlertDialog open={!!patientToDelete} onOpenChange={(open) => { if (!open) setPatientToDelete(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Supprimer ce patient ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Cela supprimera définitivement{" "}
+              <span className="font-semibold">{patientToDelete?.firstName} {patientToDelete?.lastName}</span>.
+              Si des données liées (factures, rendez-vous, dossiers) existent, la suppression sera refusée.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); handleConfirmDelete() }}
+              disabled={deleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? "Suppression…" : "Supprimer"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   )
 }

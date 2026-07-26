@@ -75,16 +75,14 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
                 return Result<DentalRecordDto>.Failure("Dental record not found");
             }
 
-            var parsed = DentalRecordActParser.Parse(request.Acts, request.IsAdultTeeth);
+            var parsed = DentalRecordActParser.Parse(request.Acts);
             if (parsed.IsFailure)
             {
                 return Result<DentalRecordDto>.Failure(parsed.Error!);
             }
 
             dentalRecord.Update(request.InterventionDate, request.AmountPaid, request.Notes, request.ImportantNotes);
-            dentalRecord.SetActs(parsed.Value!.Select(p =>
-                (p.Input.ProcedureTypeId, p.Input.ProcedureName, p.Input.Cost,
-                 (IReadOnlyList<int>)p.Input.ToothNumbers, p.Condition, p.Input.Surfaces, p.Input.Note)));
+            dentalRecord.SetActs(parsed.Value!);
 
             await _dentalRecordRepository.UpdateAsync(dentalRecord, cancellationToken);
 

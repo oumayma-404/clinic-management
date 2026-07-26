@@ -24,6 +24,7 @@ public class GetCaisseSummaryQueryHandler : IRequestHandler<GetCaisseSummaryQuer
     private readonly IInvoiceRepository _invoiceRepository;
     private readonly ITreatmentPlanRepository _planRepository;
     private readonly IExpenseRepository _expenseRepository;
+    private readonly ICreditNoteRepository _creditNoteRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly ILogger<GetCaisseSummaryQueryHandler> _logger;
 
@@ -31,12 +32,14 @@ public class GetCaisseSummaryQueryHandler : IRequestHandler<GetCaisseSummaryQuer
         IInvoiceRepository invoiceRepository,
         ITreatmentPlanRepository planRepository,
         IExpenseRepository expenseRepository,
+        ICreditNoteRepository creditNoteRepository,
         ICurrentClinicResolver clinicResolver,
         ILogger<GetCaisseSummaryQueryHandler> logger)
     {
         _invoiceRepository = invoiceRepository;
         _planRepository = planRepository;
         _expenseRepository = expenseRepository;
+        _creditNoteRepository = creditNoteRepository;
         _clinicResolver = clinicResolver;
         _logger = logger;
     }
@@ -50,9 +53,11 @@ public class GetCaisseSummaryQueryHandler : IRequestHandler<GetCaisseSummaryQuer
                 return Result<CaisseSummaryDto>.Failure(clinicResult.Error ?? "Cabinet introuvable.");
             var clinicId = clinicResult.Value;
 
-            // Default to the current UTC day when no range is supplied.
+            // Default to the current UTC day when no range is supplied. The default upper bound is the last
+            // tick of the day (not the next midnight): the "between" queries are inclusive on both ends, so a
+            // payment recorded at exactly 00:00 the next day would otherwise be counted in BOTH days (#20).
             var from = request.From ?? DateTime.UtcNow.Date;
-            var to = request.To ?? from.AddDays(1);
+            var to = request.To ?? from.AddDays(1).AddTicks(-1);
             if (to <= from)
                 return Result<CaisseSummaryDto>.Failure("La date de fin doit être postérieure à la date de début.");
 
@@ -60,7 +65,10 @@ public class GetCaisseSummaryQueryHandler : IRequestHandler<GetCaisseSummaryQuer
             // so the daily caisse agrees with the dashboard "encaissé" figure (which sums both).
             var invoiceCollected = await _invoiceRepository.GetCollectedBetweenAsync(clinicId, from, to, cancellationToken);
             var installmentCollected = await _planRepository.GetInstallmentCollectedBetweenAsync(clinicId, from, to, cancellationToken);
-            var cashIn = invoiceCollected + installmentCollected;
+            // Avoirs (credit notes) refunded in the period reduce net encaissements (finding #8) — netted into
+            // CashIn so the caisse stays reconcilable (CashIn − CashOut = Net) without a new DTO field.
+            var refunds = await _creditNoteRepository.GetRefundedBetweenAsync(clinicId, from, to, cancellationToken);
+            var cashIn = invoiceCollected + installmentCollected - refunds;
             var cashOut = await _expenseRepository.GetTotalBetweenAsync(clinicId, from, to, cancellationToken);
 
             var dto = new CaisseSummaryDto

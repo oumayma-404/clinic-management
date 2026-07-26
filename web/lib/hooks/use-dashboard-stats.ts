@@ -2,9 +2,11 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { dashboardApi } from '@/lib/api/dashboard';
 import type { DashboardStats } from '@/lib/api/types';
 import { ApiError } from '@/lib/api/client';
-import { format, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
+import { startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
 
-const formatRange = (date: Date) => format(date, "yyyy-MM-dd'T'HH:mm:ss");
+// Send UTC instants (like use-appointments.ts) — a bare wall-clock string is parsed by the API as
+// UTC, shifting the day/week/month window by the clinic's offset and disagreeing with the agenda.
+const formatRange = (date: Date) => date.toISOString();
 
 export function useDashboardStats() {
   const [stats, setStats] = useState<DashboardStats | null>(null);

@@ -82,8 +82,9 @@ public class CreateStockItemCommandHandlerTests
     private readonly Mock<IStockItemRepository> _stock = new();
     private readonly Mock<ICurrentClinicResolver> _clinicResolver = new();
     private readonly Mock<IUnitOfWork> _uow = new();
+    private readonly Mock<INotificationGenerator> _notifications = new();
 
-    private CreateStockItemCommandHandler Handler() => new(_stock.Object, _clinicResolver.Object, _uow.Object);
+    private CreateStockItemCommandHandler Handler() => new(_stock.Object, _clinicResolver.Object, _uow.Object, _notifications.Object);
 
     private StockItem? _captured;
 

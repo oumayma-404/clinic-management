@@ -11,6 +11,7 @@ public class CreateClinicRequest
     public string Role { get; set; } = "doctor"; // "doctor" or "secretary"
     public DoctorPersonalInfoDto? DoctorInfo { get; set; } // Required if Role is "doctor"
     public List<DoctorDto>? Doctors { get; set; } // Legacy: additional doctors (not the creator)
+    public string? WorkingHoursJson { get; set; } // Optional onboarding working hours (finding #16)
 }
 
 public class DoctorDto

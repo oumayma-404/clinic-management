@@ -3,8 +3,8 @@ using ClinicManagement.Domain.Common;
 namespace ClinicManagement.Domain.Entities;
 
 /// <summary>
-/// A CNAM dental nomenclature act — DB-backed, <b>global</b> reference data (no <c>ClinicId</c>; excluded
-/// from the clinic query filter, shared across every clinic). Replaces the former in-code
+/// A CNAM dental nomenclature act — DB-backed, <b>per-clinic</b> reference data (has <c>ClinicId</c> and a
+/// clinic query filter; every clinic is seeded the same defaults, then edits stay private). Replaces the former in-code
 /// <c>CnamNomenclatureProvider</c> (FR-5.1). Entries are seeded <b>provisionally</b> ("à vérifier") until
 /// an admin confirms the data against the current CNAM dentist convention; nothing is blocked while the
 /// flag is set. Create/update/deactivate/confirm are admin-only (enforced at the controller).

@@ -25,15 +25,18 @@ public class CreateStockItemCommandHandler : IRequestHandler<CreateStockItemComm
     private readonly IStockItemRepository _stockItemRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly INotificationGenerator _notificationGenerator;
 
     public CreateStockItemCommandHandler(
         IStockItemRepository stockItemRepository,
         ICurrentClinicResolver clinicResolver,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        INotificationGenerator notificationGenerator)
     {
         _stockItemRepository = stockItemRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
+        _notificationGenerator = notificationGenerator;
     }
 
     public async Task<Result<StockItemDto>> Handle(CreateStockItemCommand request, CancellationToken cancellationToken)
@@ -78,6 +81,14 @@ public class CreateStockItemCommandHandler : IRequestHandler<CreateStockItemComm
 
             await _stockItemRepository.AddAsync(item, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            // Notify if an item is created already at/below its minimum (finding #14) — the update path only
+            // fires on a not-low→low crossing, so a born-low item would otherwise never notify. Best-effort.
+            if (item.IsLowStock())
+            {
+                await _notificationGenerator.LowStockAsync(
+                    clinic.Value, item.Id, item.Name, item.CurrentStock, item.MinimumStockLevel, cancellationToken);
+            }
 
             return Result<StockItemDto>.Success(item.ToDto());
         }

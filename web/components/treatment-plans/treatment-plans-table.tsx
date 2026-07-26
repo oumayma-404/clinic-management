@@ -14,9 +14,11 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { FileDown, Pencil, Trash2, CheckCircle2, Ban, ListChecks, CreditCard, CalendarPlus, Plus, Loader2, ReceiptText } from "lucide-react"
+import { FileDown, Pencil, Trash2, CheckCircle2, CheckCheck, Ban, ListChecks, CreditCard, CalendarPlus, Plus, Loader2, ReceiptText } from "lucide-react"
+import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
+import { invoicesApi } from "@/lib/api/invoices"
 import { ApiError } from "@/lib/api/client"
 import type { TreatmentPlanDto, InstallmentDto } from "@/lib/api/types"
 import { formatDT, formatDateFr } from "@/lib/format"
@@ -74,6 +76,8 @@ export function TreatmentPlansTable({
   const [cancelReason, setCancelReason] = useState("")
   const [scheduleTarget, setScheduleTarget] = useState<ScheduleTarget | null>(null)
 
+  const router = useRouter()
+
   const load = useCallback(async () => {
     try {
       setLoading(true)
@@ -116,6 +120,33 @@ export function TreatmentPlansTable({
       afterMutation()
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Échec de l'acceptation.")
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  const handleComplete = async (plan: TreatmentPlanDto) => {
+    setBusyId(plan.id)
+    try {
+      await treatmentPlansApi.complete(plan.id)
+      toast.success("Plan terminé")
+      afterMutation()
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Échec de la clôture du plan.")
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  const handleInvoiceFromPlan = async (plan: TreatmentPlanDto) => {
+    setBusyId(plan.id)
+    try {
+      await invoicesApi.createFromPlan(plan.id)
+      toast.success("Facture brouillon créée depuis le devis")
+      afterMutation()
+      router.push("/factures")
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Échec de la facturation du devis.")
     } finally {
       setBusyId(null)
     }
@@ -276,6 +307,16 @@ export function TreatmentPlansTable({
                         {(isActive || plan.status === "Completed") && (
                           <Button variant="ghost" size="icon" title="Gérer les actes et paiements" onClick={() => setManageTarget(plan)} disabled={isBusy}>
                             <ListChecks className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {isActive && (
+                          <Button variant="ghost" size="icon" title="Facturer le devis" onClick={() => handleInvoiceFromPlan(plan)} disabled={isBusy}>
+                            <ReceiptText className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {isActive && (
+                          <Button variant="ghost" size="icon" title="Terminer le plan" onClick={() => handleComplete(plan)} disabled={isBusy}>
+                            <CheckCheck className="h-4 w-4" />
                           </Button>
                         )}
                         {isCancellable && (

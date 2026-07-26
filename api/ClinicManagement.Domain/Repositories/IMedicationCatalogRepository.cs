@@ -3,8 +3,8 @@ using ClinicManagement.Domain.Entities;
 namespace ClinicManagement.Domain.Repositories;
 
 /// <summary>
-/// Persistence for the global medication catalog. Medications + their active ingredients are global
-/// reference data (no <c>ClinicId</c>, not clinic-filtered). Mutations only stage changes — the caller
+/// Persistence for the per-clinic medication catalog. Medications + their active ingredients are per-clinic
+/// reference data (medications have <c>ClinicId</c> and are clinic-filtered). Mutations only stage changes — the caller
 /// commits via <see cref="ClinicManagement.Application.Common.Interfaces.IUnitOfWork"/>.
 /// </summary>
 public interface IMedicationCatalogRepository

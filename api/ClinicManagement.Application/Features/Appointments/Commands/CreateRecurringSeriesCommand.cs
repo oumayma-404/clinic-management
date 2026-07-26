@@ -40,7 +40,11 @@ public class CreateRecurringSeriesCommandHandler : IRequestHandler<CreateRecurri
     private readonly IDoctorRepository _doctorRepository;
     private readonly IProcedureTypeRepository _procedureTypeRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
+    private readonly IClinicContext _clinicContext;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly INotificationGenerator _notificationGenerator;
+    private readonly IReminderScheduler _reminderScheduler;
+    private readonly IAppointmentGoogleSyncDispatcher _googleSyncDispatcher;
 
     public CreateRecurringSeriesCommandHandler(
         IRecurringAppointmentRepository recurringRepository,
@@ -49,7 +53,11 @@ public class CreateRecurringSeriesCommandHandler : IRequestHandler<CreateRecurri
         IDoctorRepository doctorRepository,
         IProcedureTypeRepository procedureTypeRepository,
         ICurrentClinicResolver clinicResolver,
-        IUnitOfWork unitOfWork)
+        IClinicContext clinicContext,
+        IUnitOfWork unitOfWork,
+        INotificationGenerator notificationGenerator,
+        IReminderScheduler reminderScheduler,
+        IAppointmentGoogleSyncDispatcher googleSyncDispatcher)
     {
         _recurringRepository = recurringRepository;
         _appointmentRepository = appointmentRepository;
@@ -57,7 +65,11 @@ public class CreateRecurringSeriesCommandHandler : IRequestHandler<CreateRecurri
         _doctorRepository = doctorRepository;
         _procedureTypeRepository = procedureTypeRepository;
         _clinicResolver = clinicResolver;
+        _clinicContext = clinicContext;
         _unitOfWork = unitOfWork;
+        _notificationGenerator = notificationGenerator;
+        _reminderScheduler = reminderScheduler;
+        _googleSyncDispatcher = googleSyncDispatcher;
     }
 
     public async Task<Result<RecurringSeriesResultDto>> Handle(CreateRecurringSeriesCommand request, CancellationToken cancellationToken)
@@ -156,7 +168,7 @@ public class CreateRecurringSeriesCommandHandler : IRequestHandler<CreateRecurri
             var now = DateTime.UtcNow;
             var skippedPast = 0;
             var conflicts = new List<DateTime>();
-            var created = 0;
+            var createdAppointments = new List<Appointment>();
 
             foreach (var occ in occurrences)
             {
@@ -180,15 +192,35 @@ public class CreateRecurringSeriesCommandHandler : IRequestHandler<CreateRecurri
                     request.DoctorName, request.Notes, series.Id,
                     request.ProcedureTypeId, procedureDurationMinutes, procedureColorHex, null);
                 await _appointmentRepository.AddAsync(appointment, cancellationToken);
-                created++;
+                createdAppointments.Add(appointment);
             }
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
+            // Post-commit side effects — parity with the single-appointment path (CreateAppointmentCommand):
+            // each occurrence gets an in-app "created" notification, a ~24h SMS/WhatsApp reminder, a
+            // post-visit review, and a Google Calendar push. Best-effort — the generators/scheduler swallow
+            // their own failures, and a Google push is fire-and-forget; none rolls back the committed series.
+            var actorUserId = _clinicContext.GetUserId();
+            var patientName = patient.GetFullName();
+            foreach (var appointment in createdAppointments)
+            {
+                await _notificationGenerator.AppointmentCreatedAsync(
+                    clinicId, appointment.Id, actorUserId, patientName, appointment.AppointmentDateTime, cancellationToken);
+                await _notificationGenerator.ScheduleAppointmentReminderAsync(
+                    clinicId, appointment.Id, patientName, appointment.AppointmentDateTime, cancellationToken);
+                await _notificationGenerator.EnsurePostVisitReviewAsync(
+                    clinicId, appointment.Id, appointment.DoctorId, patientName,
+                    appointment.AppointmentDateTime + appointment.Duration, cancellationToken);
+                await _reminderScheduler.ScheduleForAppointmentAsync(
+                    clinicId, appointment.Id, patient.Id, patientName, appointment.AppointmentDateTime, cancellationToken);
+                _googleSyncDispatcher.Dispatch(appointment.Id);
+            }
+
             return Result<RecurringSeriesResultDto>.Success(new RecurringSeriesResultDto
             {
                 RecurringAppointmentId = series.Id,
-                CreatedCount = created,
+                CreatedCount = createdAppointments.Count,
                 SkippedPastCount = skippedPast,
                 Conflicts = conflicts
             });

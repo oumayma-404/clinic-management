@@ -90,6 +90,20 @@ public class PatientsController : ApiControllerBase
         return Ok(result.Value);
     }
 
+    /// <summary>Delete a patient. 400 with a clear message if related records block it.</summary>
+    [HttpDelete("{id}")]
+    public async Task<IActionResult> DeletePatient(Guid id)
+    {
+        var result = await _mediator.Send(new DeletePatientCommand { Id = id });
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+
+        return NoContent();
+    }
+
     /// <summary>
     /// Get a live, AI-generated French summary of the patient (not persisted). Cross-clinic/missing
     /// patient → 404 (thrown NotFoundException); AI backend unavailable → 400 { error } (FR fallback on FE).

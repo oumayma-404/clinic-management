@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiPut } from './client';
+import { apiGet, apiPost, apiPut, apiDelete } from './client';
 import type { PatientDto } from './types';
 
 export const patientsApi = {
@@ -57,6 +57,8 @@ export const patientsApi = {
       condition: string;
       notes?: string;
     }>;
+    emergencyContactName?: string;
+    emergencyContactPhone?: string;
     isFlagged?: boolean;
     flagNotes?: string;
   }): Promise<PatientDto> => {
@@ -68,6 +70,10 @@ export const patientsApi = {
     data: Partial<PatientDto> & { isFlagged?: boolean; flagNotes?: string },
   ): Promise<PatientDto> => {
     return apiPut<PatientDto>(`/patients/${id}`, data);
+  },
+
+  delete: async (id: string): Promise<void> => {
+    return apiDelete<void>(`/patients/${id}`);
   },
 };
 

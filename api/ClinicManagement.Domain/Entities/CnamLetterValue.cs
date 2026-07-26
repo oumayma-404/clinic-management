@@ -5,7 +5,7 @@ namespace ClinicManagement.Domain.Entities;
 /// <summary>
 /// The <b>valeur de la lettre clé (VLC)</b> — the dinar value per lettre clé (CD/CDS/VD/D/RD…) used in the
 /// indicative CNAM reimbursement estimate (FR-5.2). Like <see cref="CnamNomenclatureEntry"/> this is
-/// <b>global</b> reference data (no <c>ClinicId</c>, not in the clinic query filter) and seeded
+/// <b>per-clinic</b> reference data (has <c>ClinicId</c> and a clinic query filter) and seeded
 /// provisionally ("à vérifier") until an admin confirms it. Read by any authenticated user; only an admin
 /// can change a value.
 /// </summary>

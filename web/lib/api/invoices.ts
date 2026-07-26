@@ -56,6 +56,10 @@ export const invoicesApi = {
   create: async (data: CreateInvoiceRequest): Promise<InvoiceDto> =>
     apiPost<InvoiceDto>('/invoices', data),
 
+  // Devis→facture bridge: create a draft invoice from an accepted treatment plan (seeds lines + links back).
+  createFromPlan: async (planId: string): Promise<InvoiceDto> =>
+    apiPost<InvoiceDto>(`/invoices/from-plan/${planId}`, {}),
+
   update: async (
     id: string,
     data: CreateInvoiceRequest,
@@ -69,6 +73,13 @@ export const invoicesApi = {
 
   cancel: async (id: string, reason: string): Promise<InvoiceDto> =>
     apiPost<InvoiceDto>(`/invoices/${id}/cancel`, { reason }),
+
+  // Establish an avoir (credit note) against a (partially) paid invoice — the lawful correction path.
+  createAvoir: async (
+    id: string,
+    data: { amount: number; reason: string; method?: string; refundedOn?: string },
+  ): Promise<{ id: string; number: string; amount: number }> =>
+    apiPost<{ id: string; number: string; amount: number }>(`/invoices/${id}/avoir`, data),
 
   // Send (or retry sending) an issued invoice to TTN « El Fatoora ». Idempotent per invoice.
   submitToElFatoora: async (id: string): Promise<InvoiceDto> =>

@@ -64,6 +64,14 @@ public class TreatmentPlansController : ApiControllerBase
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
     }
 
+    /// <summary>Close a fully-treated plan (« Terminer »). 400 if not all acts are done.</summary>
+    [HttpPost("{id:guid}/complete")]
+    public async Task<ActionResult<TreatmentPlanDto>> CompletePlan(Guid id)
+    {
+        var result = await _mediator.Send(new CompleteTreatmentPlanCommand { Id = id });
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
     [HttpPost("{id:guid}/installments/{installmentId:guid}/payments")]
     public async Task<ActionResult<TreatmentPlanDto>> RecordInstallmentPayment(Guid id, Guid installmentId, [FromBody] RecordInstallmentPaymentCommand command)
     {

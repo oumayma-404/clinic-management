@@ -356,6 +356,54 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.ToTable("CnamNomenclatureEntries", (string)null);
                 });
 
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.CreditNote", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Amount")
+                        .HasColumnType("decimal(18,3)");
+
+                    b.Property<Guid>("ClinicId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("InvoiceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("IssueDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("Method")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Number")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<DateTime>("RefundedOn")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("InvoiceId");
+
+                    b.HasIndex("ClinicId", "Number")
+                        .IsUnique();
+
+                    b.HasIndex("ClinicId", "RefundedOn");
+
+                    b.ToTable("CreditNotes", (string)null);
+                });
+
             modelBuilder.Entity("ClinicManagement.Domain.Entities.DentalActCode", b =>
                 {
                     b.Property<Guid>("Id")
@@ -419,10 +467,10 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<decimal>("AmountPaid")
-                        .HasColumnType("decimal(18,2)");
+                        .HasColumnType("decimal(18,3)");
 
                     b.Property<decimal>("Cost")
-                        .HasColumnType("decimal(18,2)");
+                        .HasColumnType("decimal(18,3)");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -473,6 +521,9 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<Guid>("DentalRecordId")
                         .HasColumnType("uuid");
 
+                    b.Property<bool>("IsPerTooth")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("Note")
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");
@@ -495,6 +546,9 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<string>("ToothNumbers")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<decimal?>("UnitCost")
+                        .HasColumnType("decimal(18,3)");
 
                     b.HasKey("Id");
 
@@ -744,6 +798,9 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                     b.Property<decimal>("TotalVat")
                         .HasColumnType("decimal(18,3)");
+
+                    b.Property<Guid?>("TreatmentPlanId")
+                        .HasColumnType("uuid");
 
                     b.Property<string>("TtnIdentifier")
                         .HasMaxLength(100)
@@ -1389,7 +1446,7 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<decimal?>("DefaultCost")
-                        .HasColumnType("decimal(18,2)");
+                        .HasColumnType("decimal(18,3)");
 
                     b.Property<int>("DefaultDurationMinutes")
                         .HasColumnType("integer");
@@ -1600,6 +1657,40 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.HasIndex("ClinicId");
 
                     b.ToTable("StockItems", (string)null);
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.StockMovement", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ClinicId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Quantity")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<int>("ResultingStock")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("StockItemId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Type")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StockItemId", "CreatedAt");
+
+                    b.ToTable("StockMovements", (string)null);
                 });
 
             modelBuilder.Entity("ClinicManagement.Domain.Entities.ToothState", b =>

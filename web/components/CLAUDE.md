@@ -1,50 +1,105 @@
 # web/components/ — Feature Components & UI Primitives
 
-Feature/screen components for the clinic frontend. `components/ui/` holds shadcn/ui primitives. All feature components are client components.
+Feature/screen components for the clinic frontend; `components/ui/` holds shadcn/ui primitives. All feature components are client components. Most fetch through `lib/api/*`, surface errors via `sonner`/`lib/errors`, and subscribe to `useClinicRealtime` for live refresh. Money is French/Tunisian via `lib/format` (`formatDT`, `formatDateFr`).
 
-## Feature Components
+## Chrome & navigation
 
 | File | What it renders / does |
 |------|------------------------|
-| `dashboard-sidebar.tsx` | Left nav (Dashboard, Appointments, Patients, Procedure Types, Records, Documents, Files, Stock, Settings). Adds an admin-only **Users** entry in local mode (`mode==='local' && role==='admin'`). Collapsible via `useSidebar()`; persists collapse state. |
-| `dashboard-header.tsx` | Top bar with user avatar/menu + logout, via the unified `useSession()` (not Auth0 `useUser` directly). Local mode adds a **Change password** menu item; **Settings** navigates to `/settings`. Hosts `<ConnectivityIndicator/>` (Local only) and the **notification bell + `<NotificationPanel/>`** — the bell shows the unread count (`99+` cap) from `useNotifications()`; clicking a row deep-links to the appointment/stock target (via a `clinic:deeplink` `CustomEvent` so same-route navigations still fire) and marks it read. |
-| `connectivity-indicator.tsx` | **Local mode only** (Phase 3). 3-state badge in the header driven by `useConnectivity()`: server-unreachable ("Serveur injoignable") vs internet-unreachable vs online. Renders nothing in Cloud. |
-| `clinic-guard.tsx` | Route gate. Uses `useClinicAccess`; renders children only if user belongs to a clinic, else `unauthorized-page` / redirect. Wraps every protected page. |
-| `unauthorized-page.tsx` | "Access Restricted" screen shown when user has no clinic. |
-| `stats-card.tsx` | Small KPI card (title, value, icon, description, `default`/`urgent` variant). Used on dashboard. |
-| `appointment-list.tsx` | Dashboard appointment list — API-wired via `useAppointments` (today's appointments). |
-| `notification-panel.tsx` | The in-app notification feed popover opened by the header bell: 50 newest rows (category icon, title, message, relative French timestamp), unread styling, empty ("Aucune notification") / loading / non-blocking error states, "mark all read". Deep-links a row to its record. Driven by `useNotifications()`. |
-| `appointment-calendar.tsx` | Day/week calendar grid (24h hourly slots); renders appointments, handles slot/appointment clicks. Core of `/appointments`. Phase 3: a shared `renderSyncControls(appointment)` helper adds a "non synchronisé" badge + per-card "Push to Google" in both week/day views (gated on `useConnectivity().internetReachable`; hidden on synced/cancelled/completed and very-short cards); push success calls `onChanged` so the page refetches and the badge clears. |
-| `create-appointment-dialog.tsx` | Dialog to create an appointment (patient, procedure type, doctor, date/time, duration). |
-| `edit-appointment-dialog.tsx` | Dialog to edit/cancel/delete an appointment (with confirm AlertDialog). |
-| `patients-table.tsx` | Patients list table; filters by `searchQuery` and `showFlaggedOnly`; fetches via `patientsApi`. |
-| `edit-patient-dialog.tsx` | Create/edit patient dialog (demographics, address, insurance, medical/family history). |
-| `patient-record-modal.tsx` | Patient dental-record entry modal (interactive tooth chart). |
-| `patient-summary-modal.tsx` | Read-only patient summary (info + dental records + a read-only `record-tooth-chart` of worked teeth). Used on `/records`. |
-| `patient-files-manager.tsx` | Per-patient folder/file browser: list, create folder, upload, download, delete (`patientFilesApi`); destructive deletes use `ui/alert-dialog`. |
-| `procedure-types-table.tsx` | Procedure types CRUD table with delete confirm. |
-| `procedure-type-form-modal.tsx` | Create/edit procedure type (name, duration, cost, color, description). |
-| `stock-table.tsx` | Inventory table with delete confirm — API-wired via `stockApi` (list/delete). Listens for the `clinic:deeplink` event to scroll-to + highlight a low-stock notification's target row. |
-| `stock-item-form-modal.tsx` | Create/edit stock item modal — local state only. |
-| `clinic-settings.tsx` | Clinic profile + doctors management (name, address, logo upload, add/remove doctors) via `clinicsApi`. Mounts `<BackupSettings/>` (Phase 5) only in Local mode for admins. |
-| `backup-settings.tsx` | **Local, admin-only** (Phase 5 / US-8). "Sauvegarde" card: optional destination folder + "Sauvegarder maintenant" → `backupApi.backupNow`; toasts success (path + human-readable size) or the failure reason, and shows the last-backup path/size. Guards `setState` against unmount (a backup can be long-running). |
-| `setup-wizard.tsx` | First-run clinic creation wizard (FR; Tunisian governorates). Calls `clinicsApi.create`; in local mode also collects the admin account (full name, email, password) → `/auth/setup`. |
-| `join-wizard.tsx` | Join-clinic-by-code wizard (role, specialty). Calls `clinicsApi.join`; in local mode collects account fields (name/email/password) and self-registers via `clinicsApi.register` → `/auth/register`. |
-| `user-management.tsx` | **Local, admin-only** (`/users`): users table (status + must-change badge + last login) with reset-password (temp shown once in a dialog) and deactivate/reactivate, each behind a confirm dialog; clinic-code display + Regenerate. Own row's Deactivate disabled (mirrors backend self-deactivation guard). |
-| `change-password-form.tsx` | **Local** (`/change-password`): current/temp + new + confirm; posts to `/bff/auth/change-password` (clears the forced-change cookie on success). |
-| `document-editor-content.tsx` | Editor for medical documents (ordonnance, lettre de liaison, etc.); generates/exports PDF via `medicalDocumentsApi`. Rendered by `/documents/[type]`. |
-| `ai-chat.tsx` | Floating AI assistant widget (mounted globally in `layout.tsx`, inside the session/connectivity providers). Calls `aiChatApi.chat`. Phase 3: consumes `useConnectivity()` — disables mic/textarea/send + shows a "connexion internet requise" banner when offline, and maps `ApiError.status===0` (mid-request drop) to a retryable "connexion perdue" toast; auto re-enables when internet returns. |
+| `dashboard-sidebar.tsx` | Left nav: Tableau de bord, Rendez-vous, Patients, Types de procédures, Dossiers médicaux, Documents, Factures, Créances, Plans/Devis, Fichiers, Stock, Relances, Salle d'attente, Laboratoire, Caisse, Mon profil, Paramètres. Any-admin adds **Nomenclature CNAM / Médicaments / Actes dentaires**; local-admin adds **Utilisateurs**. Footer shows the clinic's working-hours summary (`summarizeWorkingHours`); header brand = clinic name or `PRODUCT_NAME`. Collapsible via `useSidebar()`. |
+| `dashboard-header.tsx` | Top bar: live patient **search** (debounced `patientsApi.list` → navigate), `<ConnectivityIndicator/>` (Local), notification **bell + `<NotificationPanel/>`** (`useNotifications`, `99+` cap, deep-links + mark-read), user menu via `useSession()` (logout; local adds "Changer le mot de passe"). Mounts `<PostVisitReviewPopup/>`. |
+| `connectivity-indicator.tsx` | **Local only**. 3-state header badge (server-unreachable / no-internet / online) from `useConnectivity()`; renders nothing in Cloud. |
+| `clinic-guard.tsx` | Route gate via `useClinicAccess`/`useAuthToken`: loading → children if member → `unauthorized-page` if not → a distinct retry screen on transient errors → redirect to `/auth/login` if unauthenticated. Skips setup/join/login. Wraps protected pages. |
+| `unauthorized-page.tsx` | "Accès restreint" screen when the user has no clinic. |
+| `stats-card.tsx` | Presentational KPI card (title/value/icon/description, `default`/`urgent`, loading skeleton). |
+
+## Notifications
+
+| File | What it renders / does |
+|------|------------------------|
+| `notification-panel.tsx` | Presentational feed popover (props-driven): 50 newest rows with category icon, title, message, relative French time (`n.createdAt`), unread styling, empty/loading/error states, "Tout marquer comme lu", row deep-link. |
+| `post-visit-review-popup.tsx` | Modal prompting staff to record a finished visit. Polls `notificationsApi.pendingReviews` (60s) + realtime; "Ajouter le dossier médical" → `/documents?appointmentId=`; "Plus tard" snoozes client-side (localStorage). Mounted once in the header. |
+
+## Appointments
+
+| File | What it renders / does |
+|------|------------------------|
+| `appointment-list.tsx` | Dashboard "Rendez-vous du jour" — API-wired via `useAppointments`; hides Cancelled/NoShow. |
+| `appointment-calendar.tsx` | Day/week/**month** calendar (24h slots); optional `doctorId` filter + show-cancelled/completed toggles. Per-card "non synchronisé" badge + "Push to Google" gated on `useConnectivity().internetReachable`; push → `googleCalendarApi.syncAppointment`, `onChanged` refetch. |
+| `create-appointment-dialog.tsx` | Create RDV (patient, procedure or custom, doctor, date/time, duration). Advisory `useAppointmentOverlap` warning; phone validation; can link a treatment-plan step (`presetPlan*`). |
+| `edit-appointment-dialog.tsx` | Edit/cancel/complete an RDV (confirm AlertDialog); overlap warning. |
+
+## Patients, records & odontogram
+
+| File | What it renders / does |
+|------|------------------------|
+| `patients-table.tsx` | Patients list (`patientsApi`) with debounced search + flag filter + out-of-order guard; opens `EditPatientDialog` / `PatientSummaryModal`. |
+| `edit-patient-dialog.tsx` | Create/edit patient (demographics, address, insurance, CNAM identity, flags, medical/family history); Tunisian phone validation. |
+| `patient-record-modal.tsx` | Dental-record entry: multi-act (procedure/cost/teeth/resulting condition/surfaces/note), interactive `RecordToothChart`, optional plan-item link. |
+| `patient-summary-modal.tsx` | Read-only patient summary (info + records + a read-only `RecordToothChart` of worked teeth). Opened from the patients table. |
+| `odontogram.tsx` | Interactive per-tooth chart (`odontogramApi`): chart/remove diagnoses, view all recorded states per tooth, "Créer un plan depuis l'odontogramme" seeds; realtime (Patients). |
+| `record-tooth-chart.tsx` | Presentational FDI tooth-chart SVG (paint map passed in); shared by the record + summary modals. |
+| `odontogram-conditions.ts` | Shared `ToothCondition` metadata: labels, colors/box classes, surface labels, `conditionStyle`/`parseSurfaces`/`serializeSurfaces`. |
+| `tooth-multiselect.tsx` | FDI tooth-picker popover; exports `ADULT_FDI`/`CHILD_FDI`. |
+| `patient-files-manager.tsx` | Per-patient folder/file browser (`patientFilesApi`): list, create folder, upload, download, delete (destructive via `alert-dialog`). |
+
+## Billing — factures / créances / plans
+
+| File | What it renders / does |
+|------|------------------------|
+| `factures/invoices-table.tsx` | Invoices (« notes d'honoraires ») — `invoicesApi`, realtime (Invoices): create/edit draft, issue, record payment, cancel, delete, PDF, and TTN El Fatoora submit + artifact downloads (gated/queued when offline). |
+| `factures/invoice-form-modal.tsx` | Draft create/edit with per-line CNAM/DCH act picker (fills designation + default fee, drives the reimbursable split). |
+| `factures/payment-modal.tsx` | Record an invoice payment (method/amount/date) + "Télécharger le reçu". |
+| `factures/invoice-labels.ts` | French labels + badge classes for invoice status, payment method, and e-invoice status. |
+| `creances/receivables-table.tsx` | Clinic-wide « Créances » (`billingApi.getReceivables`); row → patient detail; total-due header. |
+| `treatment-plans/treatment-plans-table.tsx` | Plans/devis — `treatmentPlansApi`, realtime (TreatmentPlans): create/edit/accept/cancel/delete, devis PDF, and a "manage" dialog (mark items done, record installments + receipts, "Planifier" a step via `CreateAppointmentDialog`). |
+| `treatment-plans/treatment-plan-form-modal.tsx` | Draft plan editor: act lines (dental-act picker + `ToothMultiSelect`), installment schedule; accepts odontogram seeds. |
+| `treatment-plans/installment-payment-modal.tsx` | Record an installment (échéance) payment + receipt. |
+| `treatment-plans/treatment-plan-labels.ts` | French labels + badge classes for plan/item status. |
+
+## Catalogs (admin) & documents
+
+| File | What it renders / does |
+|------|------------------------|
+| `cnam-nomenclature-table.tsx` / `cnam-entry-form-modal.tsx` / `cnam-letter-values-card.tsx` | Admin CNAM nomenclature catalog + valeurs de la lettre clé (`cnamNomenclatureApi`; `includeInactive`, confirm-provisional-data, in-place refetch via `reloadToken`). |
+| `medication-catalog-table.tsx` / `medication-form-modal.tsx` | Admin medication catalog (`medicationsApi`; backs the ordonnance picker). |
+| `dental-acts-table.tsx` / `dental-act-form-modal.tsx` | Admin dental-act catalog (`dentalActsApi`; backs the treatment-plan/invoice act picker). |
+| `document-editor-content.tsx` | Medical-document editor (certificat médical with CNOMDT mention, ordonnance with medication picker + CNAM reimbursement estimate, lettre de liaison, etc.); PDF via `medicalDocumentsApi`, Word export via `docx`. Rendered by `/documents/[type]`. |
+| `documents/honoraires-launcher.tsx` | "Note d'honoraires" flow: pick a patient → open `InvoiceFormModal` (draft) prefilled with the patient's un-invoiced dental records (numbering/TVA/El Fatoora happen later at issue). |
+
+## Profile, settings & admin
+
+| File | What it renders / does |
+|------|------------------------|
+| `mon-profil-content.tsx` | Logged-in practitioner's document identity (CNOMDT ordre number + cachet image upload/preview) via `doctorsApi`. |
+| `clinic-settings.tsx` | Clinic profile + doctors + billing (matricule/TVA/timbre) + El Fatoora + working hours (`clinicsApi`, realtime Clinics). Mounts `<ReminderSettings/>` for admins and `<BackupSettings/>` for local admins. |
+| `reminder-settings.tsx` | **Admin**. SMS/WhatsApp reminder settings (tri-state channel toggles, gateway/Graph URLs, lead times, message body, masked secrets), per-channel `effectiveStatus` badge, WhatsApp Embedded-Signup connect/disconnect (Cloud), recent delivery-status rows. |
+| `backup-settings.tsx` | **Local, admin**. "Sauvegarde" card → `backupApi.backupNow`; reports path + size or failure; guards setState against unmount. |
+| `user-management.tsx` | **Local, admin** (`/users`): users table (status/must-change/last-login) with reset-password (temp shown once), deactivate/reactivate (self-guarded), clinic-code display + Regenerate; realtime (Users). |
+| `change-password-form.tsx` | **Local** (`/change-password`): current + new + confirm → `/bff/auth/change-password`; 8-char min; forced vs voluntary. |
+
+## Stock, onboarding & AI
+
+| File | What it renders / does |
+|------|------------------------|
+| `stock-table.tsx` | Inventory (`stockApi`) with search/category/low-stock filters + delete confirm; scroll-to/highlight a deep-linked low-stock row (`clinic:deeplink`). |
+| `stock-item-form-modal.tsx` | Create/edit stock item via `stockApi`. |
+| `procedure-types-table.tsx` / `procedure-type-form-modal.tsx` | Procedure-types CRUD (`procedureTypesApi`) + "seed defaults"; form has color, duration, cost, resulting condition. |
+| `setup-wizard.tsx` | First-run clinic creation (FR; Tunisian governorates; `clinicsApi.create`); local mode also collects the admin account → `/auth/setup`. |
+| `join-wizard.tsx` | Join-by-code (role, specialty; `clinicsApi.join`); local mode self-registers via `clinicsApi.register` → `/auth/register`. |
+| `ai-chat.tsx` | Floating AI assistant (mounted globally). Calls `aiChatApi.chat`; consumes `useConnectivity()` to disable + banner offline and map `ApiError.status===0` to a retryable toast. |
 
 ## components/ui/ — shadcn/ui primitives
 
-Standard shadcn/ui (new-york style) wrappers over Radix UI + CVA + `cn()`. Do not document individually; treat as the design-system layer. Present:
+Standard shadcn/ui (new-york) wrappers over Radix + CVA + `cn()`. Treat as the design-system layer:
 
 `alert-dialog`, `avatar`, `badge`, `button`, `calendar`, `card`, `checkbox`, `command`, `dialog`, `dropdown-menu`, `input`, `label`, `popover`, `select`, `separator`, `switch`, `table`, `tabs`, `textarea`, `tooltip`.
 
-Add new primitives with the shadcn CLI (config in `web/components.json`, base color neutral, CSS vars enabled, icons = lucide).
+Add new primitives with the shadcn CLI (`web/components.json`, base color neutral, CSS vars, lucide icons).
 
 ## Conventions
 
-- Dialogs/modals are controlled (`open` + `onOpenChange` props) and report success via callbacks so parent pages bump a `refreshKey` to refetch.
-- Components fetch through `lib/api/*` modules and surface errors with `sonner` `toast`.
-- Confirm-destructive flows use `ui/alert-dialog`.
+- Dialogs/modals are controlled (`open` + `onOpenChange`) and report success via callbacks; parent tables reload via a bumped `reloadKey`/`reloadToken` **and** `useClinicRealtime`.
+- Components fetch through `lib/api/*`, format money/dates via `lib/format`, and surface errors via `lib/errors`/`sonner`.
+- Confirm-destructive flows use `ui/alert-dialog`. Blob downloads use `lib/download`.
+- Admin-gated surfaces read `useSession().user.role === 'admin'`; local-only surfaces also check `mode === 'local'`.

@@ -68,9 +68,20 @@ public class GetPatientBillingSummaryQueryHandler
                 .Where(i => i.Status != InvoiceStatus.Draft && i.Status != InvoiceStatus.Cancelled)
                 .ToList();
 
-            // Treatment plans — exclude cancelled.
+            // Plans already billed into an issued invoice (devis→facture bridge) are represented by that
+            // invoice — count the invoice, not the plan, so the same acts aren't counted twice.
+            var billedPlanIds = invoices
+                .Where(i => i.TreatmentPlanId.HasValue)
+                .Select(i => i.TreatmentPlanId!.Value)
+                .ToHashSet();
+
+            // Treatment plans — count only committed plans (Accepted/InProgress/Completed; a Draft devis is
+            // an unaccepted quote, not debt), and skip any already billed to an invoice above.
             var plans = (await _planRepository.GetFilteredAsync(clinicId, patientId: request.PatientId, cancellationToken: cancellationToken))
-                .Where(p => p.Status != TreatmentPlanStatus.Cancelled)
+                .Where(p => (p.Status == TreatmentPlanStatus.Accepted
+                             || p.Status == TreatmentPlanStatus.InProgress
+                             || p.Status == TreatmentPlanStatus.Completed)
+                            && !billedPlanIds.Contains(p.Id))
                 .ToList();
 
             var invoiceOutstanding = InvoiceCalculator.RoundMoney(invoices.Sum(i => i.Outstanding));

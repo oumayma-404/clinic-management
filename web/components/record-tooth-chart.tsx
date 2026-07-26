@@ -16,17 +16,21 @@ const CHILD_TEETH = {
   lowerLeft: [71, 72, 73, 74, 75],
 }
 
-// How a tooth should paint on the chart (computed by the parent from the acts).
+// How a tooth should paint on the chart (computed by the parent from the acts + the patient's odontogram).
 export interface ToothPaint {
-  /** In the currently-focused act → strong highlight + selection ring. */
-  focused: boolean
-  /** Condition fill hex, or null (no resulting condition → neutral). */
+  /** Currently selected on the chart → strong highlight + selection ring. */
+  selected: boolean
+  /** Condition fill hex from this session's acts, or null (no resulting condition → neutral). */
   color: string | null
-  /** Number of acts this tooth appears in (for the multi-indicator). */
+  /** Number of acts this tooth appears in this session (for the multi-indicator). */
   count: number
+  /** Condition fill hex already on record for this tooth before this session (prior state), if any. */
+  existingColor?: string | null
+  /** True when the prior state is a charted diagnosis (« à traiter ») rather than a completed treatment. */
+  existingIsDiagnosis?: boolean
 }
 
-// Neutral "selected" fill for a focused tooth with no chosen condition yet.
+// Neutral "selected" fill for a selected tooth with no chosen condition yet.
 const SELECTED_NEUTRAL = "#cbd5e1"
 
 type ToothKind = "incisor" | "canine" | "premolar" | "molar"
@@ -67,7 +71,23 @@ function toothKind(num: number): ToothKind {
   return "molar"
 }
 
-function ToothGlyph({ kind, fill, muted, selected }: { kind: ToothKind; fill: string | null; muted: boolean; selected: boolean }) {
+function ToothGlyph({
+  kind,
+  fill,
+  muted,
+  selected,
+  outline,
+  dashedOutline,
+}: {
+  kind: ToothKind
+  fill: string | null
+  muted: boolean
+  selected: boolean
+  /** Stroke colour for the prior recorded state (drawn as the tooth outline), or null for the default. */
+  outline?: string | null
+  /** Dash the outline when the prior state is a charted diagnosis (not yet treated). */
+  dashedOutline?: boolean
+}) {
   const shape = TOOTH_SHAPES[kind]
   return (
     <svg
@@ -79,9 +99,16 @@ function ToothGlyph({ kind, fill, muted, selected }: { kind: ToothKind; fill: st
     >
       <path
         d={shape.d}
-        strokeWidth={2}
-        style={fill ? { fill } : undefined}
-        className={cn(fill ? "" : "fill-white dark:fill-gray-100", selected ? "stroke-primary" : "stroke-gray-400")}
+        strokeWidth={outline ? 3 : 2}
+        strokeDasharray={outline && dashedOutline ? "5 4" : undefined}
+        style={{
+          ...(fill ? { fill } : {}),
+          ...(outline && !selected ? { stroke: outline } : {}),
+        }}
+        className={cn(
+          fill ? "" : "fill-white dark:fill-gray-100",
+          selected ? "stroke-primary" : outline ? "" : "stroke-gray-400",
+        )}
       />
     </svg>
   )
@@ -99,10 +126,11 @@ export function RecordToothChart({ isAdult, paint, onToggleTooth, disabled }: Re
 
   const renderTooth = (num: number) => {
     const p = paint.get(num)
-    const focused = p?.focused ?? false
-    const inAct = !!p
-    const fill = focused ? (p?.color ?? SELECTED_NEUTRAL) : (p?.color ?? null)
-    const muted = inAct && !focused
+    const selected = p?.selected ?? false
+    const worked = (p?.count ?? 0) > 0
+    const fill = selected ? (p?.color ?? SELECTED_NEUTRAL) : (p?.color ?? null)
+    // Worked-but-unselected teeth recede so the current selection reads first.
+    const muted = worked && !selected
     return (
       <button
         key={num}
@@ -112,15 +140,22 @@ export function RecordToothChart({ isAdult, paint, onToggleTooth, disabled }: Re
         title={`Dent ${num}`}
         className="group flex flex-col items-center focus:outline-none disabled:cursor-not-allowed"
       >
-        <span className={cn("relative rounded-md p-0.5 transition-all group-hover:scale-105", focused && "ring-2 ring-primary")}>
-          <ToothGlyph kind={toothKind(num)} fill={fill} muted={muted} selected={focused} />
+        <span className={cn("relative rounded-md p-0.5 transition-all group-hover:scale-105", selected && "ring-2 ring-primary")}>
+          <ToothGlyph
+            kind={toothKind(num)}
+            fill={fill}
+            muted={muted}
+            selected={selected}
+            outline={p?.existingColor ?? null}
+            dashedOutline={p?.existingIsDiagnosis}
+          />
           {p && p.count > 1 && (
             <span className="absolute -right-1 -top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-primary text-[8px] font-semibold text-primary-foreground">
               {p.count}
             </span>
           )}
         </span>
-        <span className={cn("mt-0.5 text-[9px] font-medium", focused ? "text-primary" : "text-muted-foreground")}>
+        <span className={cn("mt-0.5 text-[9px] font-medium", selected ? "text-primary" : "text-muted-foreground")}>
           {num}
         </span>
       </button>

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react"
 import { RecordToothChart, type ToothPaint } from "./record-tooth-chart"
+import { isAdultTooth } from "@/components/tooth-multiselect"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -25,83 +26,30 @@ const WORKED_TOOTH_COLOR = "#60a5fa"
 export function PatientSummaryModal({ open, onOpenChange, patient, dentalRecords }: PatientSummaryModalProps) {
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set())
 
-  // Collect all teeth that have been worked on from all dental records
-  // Separate by adult vs child teeth
-  const adultWorkedTeeth = useMemo(() => {
-    const teethMap = new Map<string, { worked: boolean; procedures: Array<{ type: string; notes: string; date: string }> }>()
-    
-    dentalRecords
-      .filter(record => record.isAdultTeeth)
-      .forEach((record) => {
-        record.toothNumbers.forEach((toothNum) => {
-          const toothId = String(toothNum)
-          if (!teethMap.has(toothId)) {
-            teethMap.set(toothId, {
-              worked: true,
-              procedures: []
-            })
-          }
-          const tooth = teethMap.get(toothId)!
-          tooth.procedures.push({
-            type: record.procedureType,
-            notes: record.notes && record.notes.length > 0 ? record.notes.join("; ") : "",
-            date: record.interventionDate
-          })
-        })
-      })
-    
-    return Array.from(teethMap.entries()).map(([id, data]) => ({
-      id,
-      ...data
-    }))
-  }, [dentalRecords])
-
-  const childWorkedTeeth = useMemo(() => {
-    const teethMap = new Map<string, { worked: boolean; procedures: Array<{ type: string; notes: string; date: string }> }>()
-    
-    dentalRecords
-      .filter(record => !record.isAdultTeeth)
-      .forEach((record) => {
-        record.toothNumbers.forEach((toothNum) => {
-          const toothId = String(toothNum)
-          if (!teethMap.has(toothId)) {
-            teethMap.set(toothId, {
-              worked: true,
-              procedures: []
-            })
-          }
-          const tooth = teethMap.get(toothId)!
-          tooth.procedures.push({
-            type: record.procedureType,
-            notes: record.notes && record.notes.length > 0 ? record.notes.join("; ") : "",
-            date: record.interventionDate
-          })
-        })
-      })
-    
-    return Array.from(teethMap.entries()).map(([id, data]) => ({
-      id,
-      ...data
-    }))
-  }, [dentalRecords])
-
   // Read-only paint maps for the record tooth chart: each worked tooth is highlighted with a fixed "worked"
-  // fill + the number of procedures it appears in (the per-procedure detail lives in the table below).
-  const adultToothPaint = useMemo(() => {
-    const m = new Map<number, ToothPaint>()
-    for (const t of adultWorkedTeeth) {
-      m.set(Number(t.id), { focused: false, color: WORKED_TOOTH_COLOR, count: t.procedures.length })
+  // fill + the number of records it appears in (the per-procedure detail lives in the table below).
+  // Teeth are split by the TOOTH's own dentition (FDI range), not by the record's `isAdultTeeth` flag — one
+  // session can chart a permanent and a deciduous tooth together, and flag-based filtering dropped half of it.
+  const { adultToothPaint, childToothPaint } = useMemo(() => {
+    const counts = new Map<number, number>()
+    for (const record of dentalRecords) {
+      for (const toothNum of record.toothNumbers) {
+        counts.set(toothNum, (counts.get(toothNum) ?? 0) + 1)
+      }
     }
-    return m
-  }, [adultWorkedTeeth])
 
-  const childToothPaint = useMemo(() => {
-    const m = new Map<number, ToothPaint>()
-    for (const t of childWorkedTeeth) {
-      m.set(Number(t.id), { focused: false, color: WORKED_TOOTH_COLOR, count: t.procedures.length })
+    const adult = new Map<number, ToothPaint>()
+    const child = new Map<number, ToothPaint>()
+    for (const [tooth, count] of counts) {
+      const paint: ToothPaint = { selected: false, color: WORKED_TOOTH_COLOR, count }
+      if (isAdultTooth(tooth)) {
+        adult.set(tooth, paint)
+      } else {
+        child.set(tooth, paint)
+      }
     }
-    return m
-  }, [childWorkedTeeth])
+    return { adultToothPaint: adult, childToothPaint: child }
+  }, [dentalRecords])
 
   if (!patient) return null
 
@@ -236,7 +184,7 @@ export function PatientSummaryModal({ open, onOpenChange, patient, dentalRecords
             </CardHeader>
             <CardContent className="space-y-6">
               {/* Adult Teeth Chart */}
-              {adultWorkedTeeth.length > 0 && (
+              {adultToothPaint.size > 0 && (
                 <div>
                   <h3 className="text-sm font-medium mb-3">Dents adultes</h3>
                   <RecordToothChart isAdult={true} paint={adultToothPaint} onToggleTooth={() => {}} disabled />
@@ -244,14 +192,14 @@ export function PatientSummaryModal({ open, onOpenChange, patient, dentalRecords
               )}
 
               {/* Child Teeth Chart */}
-              {childWorkedTeeth.length > 0 && (
+              {childToothPaint.size > 0 && (
                 <div>
                   <h3 className="text-sm font-medium mb-3">Dents de lait</h3>
                   <RecordToothChart isAdult={false} paint={childToothPaint} onToggleTooth={() => {}} disabled />
                 </div>
               )}
 
-              {adultWorkedTeeth.length === 0 && childWorkedTeeth.length === 0 && (
+              {adultToothPaint.size === 0 && childToothPaint.size === 0 && (
                 <p className="text-center text-muted-foreground py-8">Aucune dent traitée pour le moment</p>
               )}
             </CardContent>

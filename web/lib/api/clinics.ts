@@ -97,6 +97,7 @@ export interface CreateClinicRequest {
     phone?: string;
     email?: string;
   }>; // Legacy: additional doctors (not the creator)
+  workingHoursJson?: string; // Optional onboarding working hours (finding #16)
 }
 
 export interface JoinClinicRequest {
@@ -134,6 +135,7 @@ export const clinicsApi = {
       formData.append('generateCode', data.generateCode?.toString() || 'true');
       formData.append('role', data.role);
       if (data.logoFile) formData.append('logo', data.logoFile);
+      if (data.workingHoursJson) formData.append('workingHoursJson', data.workingHoursJson);
       if (data.doctorInfo) {
         formData.append('doctorInfoJson', JSON.stringify(data.doctorInfo));
       }
@@ -166,6 +168,7 @@ export const clinicsApi = {
     // When set, the first admin is also the cabinet practitioner: a linked Doctor is created so their
     // document identity (cachet / CNOMDT ordre) and "Mon profil" work.
     doctorInfo?: DoctorPersonalInfo;
+    workingHoursJson?: string; // Optional onboarding working hours (finding #16)
   }): Promise<ClinicDto> => {
     const result = await apiPost<Result<ClinicDto>>('/auth/setup', data, null);
     if (!result.isSuccess || !result.value) {

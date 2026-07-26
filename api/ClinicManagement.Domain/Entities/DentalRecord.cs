@@ -66,8 +66,13 @@ public class DentalRecord : Entity<Guid>
         CreatedAt = DateTime.UtcNow;
     }
 
-    /// <summary>Replace all acts, then recompute the derived cost / procedure summary / flat tooth list.</summary>
-    public void SetActs(IEnumerable<(Guid? procedureTypeId, string procedureName, decimal cost, IReadOnlyList<int> toothNumbers, ToothCondition? resultingCondition, string? surfaces, string? note)> acts)
+    /// <summary>
+    /// Replace all acts, then recompute the derived cost / procedure summary / flat tooth list.
+    /// NOTE: every act is rebuilt with a fresh id, so <see cref="DentalRecordAct.Id"/> is NOT stable across
+    /// updates — nothing may hold a foreign key to it. Downstream links target the record instead
+    /// (e.g. <c>InvoiceLine.DentalRecordId</c>, <c>TreatmentPlanItem.LinkedDentalRecordId</c>).
+    /// </summary>
+    public void SetActs(IEnumerable<DentalRecordActInput> acts)
     {
         _acts.Clear();
         _teeth.Clear();
@@ -75,11 +80,9 @@ public class DentalRecord : Entity<Guid>
 
         foreach (var a in acts)
         {
-            _acts.Add(new DentalRecordAct(
-                Guid.NewGuid(), Id, a.procedureName, a.cost, a.toothNumbers,
-                a.procedureTypeId, a.resultingCondition, a.surfaces, a.note));
+            _acts.Add(new DentalRecordAct(Guid.NewGuid(), Id, a));
 
-            foreach (var tooth in a.toothNumbers)
+            foreach (var tooth in a.ToothNumbers ?? Array.Empty<int>())
             {
                 if (teethSeen.Add(tooth))
                     _teeth.Add(new DentalRecordTooth(Guid.NewGuid(), Id, tooth));

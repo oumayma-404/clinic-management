@@ -662,6 +662,13 @@ public class PdfGenerationService : IPdfGenerationService
                                                     var isPlural = int.TryParse(medDuration, out var days) && days > 1;
                                                     medText += $" pendant {medDuration} jour{(isPlural ? "s" : "")}";
                                                 }
+                                                // Print the active ingredient(s) / DCI when captured (finding #12).
+                                                if (med.Dci != null && med.Dci.Count > 0)
+                                                {
+                                                    var dciText = string.Join(", ", med.Dci.Where(d => !string.IsNullOrWhiteSpace(d)));
+                                                    if (!string.IsNullOrWhiteSpace(dciText))
+                                                        medText += $" (DCI : {dciText})";
+                                                }
                                                 column.Item().PaddingBottom(4).Text(medText).FontSize(11).FontFamily("Helvetica");
                                             }
                                         }
@@ -826,5 +833,9 @@ public class PdfGenerationService : IPdfGenerationService
         
         [System.Text.Json.Serialization.JsonPropertyName("duration")]
         public string Duration { get; set; } = string.Empty;
+
+        // Active ingredient(s) / DCI captured by the medication picker (finding #12) — now printed.
+        [System.Text.Json.Serialization.JsonPropertyName("dci")]
+        public List<string>? Dci { get; set; }
     }
 }

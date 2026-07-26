@@ -13,7 +13,7 @@ import { procedureTypesApi } from "@/lib/api/procedure-types"
 import type { ToothStateDto, ProcedureTypeDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import { formatDateFr } from "@/lib/format"
-import { CONDITION_ORDER, conditionStyle } from "@/components/odontogram-conditions"
+import { CONDITION_ORDER, conditionStyle, SURFACE_LABELS, serializeSurfaces } from "@/components/odontogram-conditions"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 
@@ -240,7 +240,17 @@ function ToothCell({ toothNum, entries, patientId, onChanged }: ToothCellProps) 
   const [open, setOpen] = useState(false)
   const [condition, setCondition] = useState(DIAGNOSIS_CONDITIONS[0])
   const [note, setNote] = useState("")
+  const [surfaces, setSurfaces] = useState<Set<string>>(new Set())
   const [saving, setSaving] = useState(false)
+
+  const toggleSurface = (code: string) => {
+    setSurfaces((prev) => {
+      const next = new Set(prev)
+      if (next.has(code)) next.delete(code)
+      else next.add(code)
+      return next
+    })
+  }
 
   const latest = entries[0]
   const style = conditionStyle(latest?.condition ?? "Sain")
@@ -252,10 +262,12 @@ function ToothCell({ toothNum, entries, patientId, onChanged }: ToothCellProps) 
       await odontogramApi.diagnose(patientId, {
         toothNumber: toothNum,
         condition,
+        surfaces: serializeSurfaces(surfaces) || null,
         note: note.trim() || null,
       })
       toast.success(`Diagnostic ajouté (dent ${toothNum})`)
       setNote("")
+      setSurfaces(new Set())
       setOpen(false)
       onChanged()
     } catch (err) {
@@ -381,6 +393,22 @@ function ToothCell({ toothNum, entries, patientId, onChanged }: ToothCellProps) 
               ))}
             </SelectContent>
           </Select>
+          {/* Surfaces (MODVL) — optional, finding #19 */}
+          <div className="flex flex-wrap gap-1">
+            {Object.entries(SURFACE_LABELS).map(([code, label]) => (
+              <Button
+                key={code}
+                type="button"
+                variant={surfaces.has(code) ? "default" : "outline"}
+                size="sm"
+                className="h-7 px-2 text-xs"
+                title={label}
+                onClick={() => toggleSurface(code)}
+              >
+                {code}
+              </Button>
+            ))}
+          </div>
           <Textarea
             value={note}
             onChange={(e) => setNote(e.target.value)}

@@ -129,6 +129,15 @@ public class TreatmentPlan : AggregateRoot<Guid>
         Number = number.Trim();
         AcceptedDate = DateTime.UtcNow;
         Status = TreatmentPlanStatus.Accepted;
+
+        // Ensure the accepted plan is payable: a devis with no échéancier gets a single lump-sum installment
+        // for the full planned total, due at acceptance — otherwise Outstanding (derived from installments)
+        // would be stuck at the total forever with no way to record a payment.
+        if (_installments.Count == 0 && TotalPlanned > 0m)
+        {
+            _installments.Add(new Installment(Guid.NewGuid(), Id, AcceptedDate.Value, TotalPlanned));
+        }
+
         Touch();
     }
 

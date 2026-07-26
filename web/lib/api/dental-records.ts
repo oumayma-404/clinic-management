@@ -12,6 +12,8 @@ export interface CreateDentalRecordRequest {
   // Optional: mark a scheduled treatment-plan step "réalisé" and link it to this record.
   treatmentPlanId?: string | null;
   treatmentPlanItemId?: string | null;
+  // Optional: the appointment this record documents — completes it + dismisses its post-visit prompt.
+  appointmentId?: string | null;
 }
 
 export const dentalRecordsApi = {

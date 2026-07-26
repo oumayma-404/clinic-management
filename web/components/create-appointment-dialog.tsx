@@ -300,13 +300,15 @@ export function CreateAppointmentDialog({
     return patient ? `${patient.firstName} ${patient.lastName}` : ""
   }, [patients, selectedPatientId])
 
-  // Advisory overlap warning (AC-3): non-blocking, always visible while the dialog is open.
-  const overlapWarning = useAppointmentOverlap({
+  // Overlap detection: a same-practitioner clash blocks Save (mirrors the server guard); an
+  // other-practitioner overlap stays an advisory amber hint.
+  const { warning: overlapWarning, blocking: overlapBlocking } = useAppointmentOverlap({
     enabled: open,
     date,
     startHour,
     startMinute,
     durationMinutes: calculatedDuration,
+    doctorId: selectedDoctorId || undefined,
   })
 
   // Build the appointment start Date from the current date + start time, or null if no date.
@@ -853,9 +855,17 @@ export function CreateAppointmentDialog({
               )}
             </div>
 
-            {/* Overlap warning (AC-3): non-blocking amber text naming the conflicting appointment. */}
+            {/* Overlap warning: red + blocking for a same-practitioner clash, amber advisory otherwise. */}
             {overlapWarning && (
-              <p className="text-sm text-amber-600 dark:text-amber-400">⚠ {overlapWarning}</p>
+              <p
+                className={
+                  overlapBlocking
+                    ? "text-sm text-red-600 dark:text-red-400"
+                    : "text-sm text-amber-600 dark:text-amber-400"
+                }
+              >
+                ⚠ {overlapWarning}
+              </p>
             )}
           </div>
 
@@ -1066,7 +1076,7 @@ export function CreateAppointmentDialog({
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
               Cancel
             </Button>
-            <Button type="submit" disabled={loading}>
+            <Button type="submit" disabled={loading || overlapBlocking}>
               {loading ? "Création…" : "Créer le rendez-vous"}
             </Button>
           </DialogFooter>

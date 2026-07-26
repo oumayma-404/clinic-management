@@ -3,8 +3,8 @@ using ClinicManagement.Domain.Common;
 namespace ClinicManagement.Domain.Entities;
 
 /// <summary>
-/// A drug in the global medication catalog — DB-backed, <b>global</b> reference data (no <c>ClinicId</c>;
-/// excluded from the clinic query filter, shared across every clinic). Mirrors the CNAM nomenclature
+/// A drug in the per-clinic medication catalog — DB-backed, <b>per-clinic</b> reference data (has
+/// <c>ClinicId</c> and a clinic query filter; every clinic is seeded the same defaults, then edits stay private). Mirrors the CNAM nomenclature
 /// catalog pattern. A doctor picks an entry to fill the ordonnance medication line consistently
 /// (structured selection instead of free text). Entries are seeded <b>provisionally</b> ("à vérifier")
 /// until an admin confirms them; nothing is blocked while the flag is set. Create/update/deactivate/confirm

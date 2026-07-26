@@ -31,6 +31,7 @@ public static class Extensions
         services.AddScoped<IAppointmentRepository, AppointmentRepository>();
         services.AddScoped<INotificationRepository, NotificationRepository>();
         services.AddScoped<IStockItemRepository, StockItemRepository>();
+        services.AddScoped<IStockMovementRepository, StockMovementRepository>();
         services.AddScoped<IProcedureTypeRepository, ProcedureTypeRepository>();
         services.AddScoped<IDentalRecordRepository, DentalRecordRepository>();
         services.AddScoped<IPatientFolderRepository, PatientFolderRepository>();
@@ -41,6 +42,7 @@ public static class Extensions
         services.AddScoped<IDoctorRepository, DoctorRepository>();
         services.AddScoped<IStaffNotificationRepository, StaffNotificationRepository>();
         services.AddScoped<IInvoiceRepository, InvoiceRepository>();
+        services.AddScoped<ICreditNoteRepository, CreditNoteRepository>();
         services.AddScoped<IClinicReminderSettingsRepository, ClinicReminderSettingsRepository>();
         services.AddScoped<ICnamCatalogRepository, CnamCatalogRepository>();
         services.AddScoped<IMedicationCatalogRepository, MedicationCatalogRepository>();
@@ -184,6 +186,7 @@ public static class Extensions
         // Per-clinic reference-catalog seeder (feature cloud-security-and-tenant-isolation, #5): clones the
         // shared default CNAM/medication/dental-act catalogs into each clinic on creation + a startup backfill.
         services.AddScoped<IClinicCatalogSeeder, ClinicCatalogSeeder>();
+        services.AddScoped<IClinicAdminBackfill, ClinicAdminBackfill>();
 
         // Google Calendar refresh tokens are now stored PER CLINIC on the Clinic entity (feature
         // cloud-security-and-tenant-isolation, #4) — the former global file/singleton token store

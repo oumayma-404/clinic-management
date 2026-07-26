@@ -23,6 +23,9 @@ public class UpdatePatientCommand : IRequest<Result<PatientDto>>
     public CnamInfoDto? CnamInfo { get; set; }
     public string? MedicalHistory { get; set; }
     public string? Allergies { get; set; }
+    // Emergency contact (finding #11). null (omitted) = leave unchanged; a present value (even empty) sets/clears.
+    public string? EmergencyContactName { get; set; }
+    public string? EmergencyContactPhone { get; set; }
 
     // "Signaler ce patient" toggle + note. null = leave the flag state unchanged (backward-compatible with
     // callers that don't send it); true = ensure an active flag; false = clear any active flag.
@@ -153,6 +156,18 @@ public class UpdatePatientCommandHandler : IRequestHandler<UpdatePatientCommand,
                 var medicalHistory = request.MedicalHistory ?? patient.MedicalHistory;
                 var allergies = request.Allergies ?? patient.Allergies;
                 patient.UpdateMedicalHistory(medicalHistory, allergies);
+            }
+
+            // Emergency contact (finding #11): a present block (either field non-null) sets or clears both;
+            // an omitted block (both null) leaves the stored value unchanged.
+            if (request.EmergencyContactName != null || request.EmergencyContactPhone != null)
+            {
+                var emergencyPhone = string.IsNullOrWhiteSpace(request.EmergencyContactPhone)
+                    ? null
+                    : new PhoneNumber(request.EmergencyContactPhone);
+                patient.UpdateEmergencyContact(
+                    string.IsNullOrWhiteSpace(request.EmergencyContactName) ? null : request.EmergencyContactName.Trim(),
+                    emergencyPhone);
             }
 
             // Patient flag ("Signaler ce patient"): a single active HighPriority flag carries the toggle

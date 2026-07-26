@@ -104,6 +104,20 @@ public class InvoicesController : ApiControllerBase
         return CreatedAtAction(nameof(GetInvoice), new { id = result.Value!.Id }, result.Value);
     }
 
+    /// <summary>Create a draft invoice from an accepted treatment plan (devis→facture bridge).</summary>
+    [HttpPost("from-plan/{planId:guid}")]
+    public async Task<ActionResult<InvoiceDto>> CreateInvoiceFromPlan(Guid planId, CancellationToken cancellationToken = default)
+    {
+        var result = await _mediator.Send(new CreateInvoiceFromTreatmentPlanCommand { TreatmentPlanId = planId }, cancellationToken);
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+
+        return CreatedAtAction(nameof(GetInvoice), new { id = result.Value!.Id }, result.Value);
+    }
+
     /// <summary>Update a draft invoice (lines / patient).</summary>
     [HttpPut("{id}")]
     public async Task<ActionResult<InvoiceDto>> UpdateInvoice(Guid id, [FromBody] UpdateInvoiceCommand command, CancellationToken cancellationToken = default)
@@ -154,6 +168,22 @@ public class InvoicesController : ApiControllerBase
     public async Task<ActionResult<InvoiceDto>> CancelInvoice(Guid id, [FromBody] CancelInvoiceCommand command, CancellationToken cancellationToken = default)
     {
         command.Id = id;
+        var result = await _mediator.Send(command, cancellationToken);
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+
+        return Ok(result.Value);
+    }
+
+    /// <summary>Establish an avoir (credit note) against a (partially) paid invoice (admin/doctor only).</summary>
+    [HttpPost("{id}/avoir")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    public async Task<ActionResult<CreditNoteDto>> CreateCreditNote(Guid id, [FromBody] CreateCreditNoteCommand command, CancellationToken cancellationToken = default)
+    {
+        command.InvoiceId = id;
         var result = await _mediator.Send(command, cancellationToken);
 
         if (result.IsFailure)

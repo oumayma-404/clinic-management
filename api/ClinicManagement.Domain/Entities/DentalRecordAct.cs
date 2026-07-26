@@ -15,7 +15,21 @@ public class DentalRecordAct : Entity<Guid>
     public Guid DentalRecordId { get; private set; }
     public Guid? ProcedureTypeId { get; private set; }
     public string ProcedureName { get; private set; } = string.Empty;
+    /// <summary>The act's total fee — the authoritative billed amount. Always supplied by the caller.</summary>
     public decimal Cost { get; private set; }
+    /// <summary>
+    /// The per-unit price <see cref="Cost"/> was built from, kept as provenance so the editor can reopen the
+    /// act with its pricing intent intact and the invoice bridge can bill it as quantity × unit price.
+    /// Null for a legacy row or an act whose unit price was never captured.
+    /// </summary>
+    public decimal? UnitCost { get; private set; }
+    /// <summary>
+    /// True when <see cref="Cost"/> represents <see cref="UnitCost"/> × treated teeth (composite, extraction,
+    /// couronne…); false when it is a flat session fee (détartrage, panoramique, prothèse, orthodontie).
+    /// Always false for an act with no teeth. <see cref="Cost"/> is never recomputed from these two — the
+    /// caller owns the arithmetic, and these record how it was reached.
+    /// </summary>
+    public bool IsPerTooth { get; private set; }
 
     private readonly List<int> _toothNumbers = new();
     public IReadOnlyList<int> ToothNumbers => _toothNumbers.AsReadOnly();
@@ -28,41 +42,40 @@ public class DentalRecordAct : Entity<Guid>
 
     private DentalRecordAct() { } // For EF Core
 
-    public DentalRecordAct(
-        Guid id,
-        Guid dentalRecordId,
-        string procedureName,
-        decimal cost,
-        IReadOnlyList<int> toothNumbers,
-        Guid? procedureTypeId = null,
-        ToothCondition? resultingCondition = null,
-        string? surfaces = null,
-        string? note = null)
+    public DentalRecordAct(Guid id, Guid dentalRecordId, DentalRecordActInput input)
     {
-        if (string.IsNullOrWhiteSpace(procedureName))
-            throw new ArgumentException("Le nom de l'acte est requis.", nameof(procedureName));
-        if (cost < 0)
-            throw new ArgumentException("Le coût de l'acte ne peut pas être négatif.", nameof(cost));
+        if (input == null)
+            throw new ArgumentNullException(nameof(input));
+        if (string.IsNullOrWhiteSpace(input.ProcedureName))
+            throw new ArgumentException("Le nom de l'acte est requis.", nameof(input));
+        if (input.Cost < 0)
+            throw new ArgumentException("Le coût de l'acte ne peut pas être négatif.", nameof(input));
+        if (input.UnitCost < 0)
+            throw new ArgumentException("Le prix unitaire de l'acte ne peut pas être négatif.", nameof(input));
 
         Id = id;
         DentalRecordId = dentalRecordId;
-        ProcedureName = procedureName.Trim();
-        Cost = InvoiceCalculator.RoundMoney(cost);
-        ProcedureTypeId = procedureTypeId;
-        ResultingCondition = resultingCondition == ToothCondition.Sain ? null : resultingCondition;
-        Surfaces = NormalizeSurfaces(surfaces);
-        Note = string.IsNullOrWhiteSpace(note) ? null : note.Trim();
+        ProcedureName = input.ProcedureName.Trim();
+        Cost = InvoiceCalculator.RoundMoney(input.Cost);
+        UnitCost = input.UnitCost.HasValue ? InvoiceCalculator.RoundMoney(input.UnitCost.Value) : null;
+        ProcedureTypeId = input.ProcedureTypeId;
+        ResultingCondition = input.ResultingCondition == ToothCondition.Sain ? null : input.ResultingCondition;
+        Surfaces = NormalizeSurfaces(input.Surfaces);
+        Note = string.IsNullOrWhiteSpace(input.Note) ? null : input.Note.Trim();
         CreatedAt = DateTime.UtcNow;
 
-        if (toothNumbers != null)
+        if (input.ToothNumbers != null)
         {
-            foreach (var tooth in toothNumbers.Distinct())
+            foreach (var tooth in input.ToothNumbers.Distinct())
             {
                 if (!FdiTooth.IsValid(tooth))
-                    throw new ArgumentException($"Numéro de dent invalide : {tooth}.", nameof(toothNumbers));
+                    throw new ArgumentException($"Numéro de dent invalide : {tooth}.", nameof(input));
                 _toothNumbers.Add(tooth);
             }
         }
+
+        // A mouth-level act (no teeth) can only be a flat fee — there is nothing to multiply.
+        IsPerTooth = input.IsPerTooth && _toothNumbers.Count > 0;
     }
 
     private static string? NormalizeSurfaces(string? surfaces)
@@ -79,3 +92,19 @@ public class DentalRecordAct : Entity<Guid>
         return normalized;
     }
 }
+
+/// <summary>
+/// One act requested when (re)building a <see cref="DentalRecord"/>'s act list — a parameter object rather
+/// than a positional tuple, because the nine correlated fields (incl. the per-tooth pricing provenance) are
+/// unreadable inline. Validated by the <see cref="DentalRecordAct"/> constructor it feeds.
+/// </summary>
+public sealed record DentalRecordActInput(
+    Guid? ProcedureTypeId,
+    string ProcedureName,
+    decimal Cost,
+    decimal? UnitCost,
+    bool IsPerTooth,
+    IReadOnlyList<int> ToothNumbers,
+    ToothCondition? ResultingCondition,
+    string? Surfaces,
+    string? Note);

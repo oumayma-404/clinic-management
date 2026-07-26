@@ -1,0 +1,28 @@
+// The 24 Tunisian governorates — shared by the onboarding wizard and the patient form so the
+// "Gouvernorat" field is a proper dropdown everywhere (finding #17), not free text.
+export const TUNISIAN_GOVERNORATES = [
+  "Tunis",
+  "Ariana",
+  "Ben Arous",
+  "Manouba",
+  "Nabeul",
+  "Zaghouan",
+  "Bizerte",
+  "Béja",
+  "Jendouba",
+  "Kef",
+  "Siliana",
+  "Sousse",
+  "Monastir",
+  "Mahdia",
+  "Sfax",
+  "Kairouan",
+  "Kasserine",
+  "Sidi Bouzid",
+  "Gabès",
+  "Medenine",
+  "Tataouine",
+  "Gafsa",
+  "Tozeur",
+  "Kebili",
+] as const

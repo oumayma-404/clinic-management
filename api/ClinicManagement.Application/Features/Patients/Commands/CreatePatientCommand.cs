@@ -22,6 +22,8 @@ public class CreatePatientCommand : IRequest<Result<PatientDto>>
     public AddressDto? Address { get; set; }
     public InsuranceInfoDto? InsuranceInfo { get; set; }
     public CnamInfoDto? CnamInfo { get; set; }
+    public string? EmergencyContactName { get; set; }
+    public string? EmergencyContactPhone { get; set; }
     public List<MedicalHistoryEntryDto>? MedicalHistoryEntries { get; set; }
     public List<FamilyHistoryEntryDto>? FamilyHistoryEntries { get; set; }
 
@@ -164,6 +166,17 @@ public class CreatePatientCommandHandler : IRequestHandler<CreatePatientCommand,
             // Optional CNAM identity (ToDomain returns null for an omitted/empty block).
             patient.UpdateCnamInfo(request.CnamInfo.ToDomain());
 
+            // Optional emergency contact (finding #11): name + a Tunisian phone. An empty block clears both.
+            if (!string.IsNullOrWhiteSpace(request.EmergencyContactName) || !string.IsNullOrWhiteSpace(request.EmergencyContactPhone))
+            {
+                var emergencyPhone = string.IsNullOrWhiteSpace(request.EmergencyContactPhone)
+                    ? null
+                    : new PhoneNumber(request.EmergencyContactPhone);
+                patient.UpdateEmergencyContact(
+                    string.IsNullOrWhiteSpace(request.EmergencyContactName) ? null : request.EmergencyContactName.Trim(),
+                    emergencyPhone);
+            }
+
             // Optional "Signaler ce patient" flag at creation.
             if (request.IsFlagged == true)
             {
@@ -230,6 +243,8 @@ public class CreatePatientCommandHandler : IRequestHandler<CreatePatientCommand,
                 PhoneNumber = patient.PhoneNumber.Value,
                 MedicalHistory = patient.MedicalHistory,
                 Allergies = patient.Allergies,
+                EmergencyContactName = patient.EmergencyContactName,
+                EmergencyContactPhone = patient.EmergencyContactPhone?.Value,
                 CreatedAt = patient.CreatedAt
             };
 

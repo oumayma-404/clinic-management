@@ -129,6 +129,9 @@ export default function PatientDetailsPage() {
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [recordModalOpen, setRecordModalOpen] = useState(false)
   const [editingRecord, setEditingRecord] = useState<DentalRecordDto | null>(null)
+  // Appointment carried by the post-visit "record the visit" deep-link, threaded into the record modal so
+  // saving the dental record closes that appointment's post-visit prompt (findings #4 + #10).
+  const [reviewAppointmentId, setReviewAppointmentId] = useState<string | null>(null)
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set())
   // Dental records already tied to a non-cancelled invoice (guards against double-invoicing).
   const [invoicedDentalRecordIds, setInvoicedDentalRecordIds] = useState<Set<string>>(new Set())
@@ -258,6 +261,20 @@ export default function PatientDetailsPage() {
       .then(setMedicalDocuments)
       .catch(() => setMedicalDocuments([]))
   }, [patientId, refreshKey])
+
+  // Deep-link from the post-visit "record the visit" bell (?addRecord=1&appointmentId=…): open the
+  // add-record modal (finding #4) and thread the appointment id so saving closes the prompt (finding #10).
+  // Uses window.location.search + history.replaceState (no useSearchParams) so a refresh doesn't reopen it,
+  // matching the appointments page's deep-link pattern.
+  useEffect(() => {
+    const query = new URLSearchParams(window.location.search)
+    if (query.get("addRecord") === "1") {
+      setReviewAppointmentId(query.get("appointmentId"))
+      setEditingRecord(null)
+      setRecordModalOpen(true)
+      window.history.replaceState({}, "", `/patients/${patientId}`)
+    }
+  }, [patientId])
 
   // Reload files when folder changes
   useEffect(() => {
@@ -975,7 +992,15 @@ export default function PatientDetailsPage() {
                                     variant="ghost"
                                     size="sm"
                                     className="gap-1"
-                                    onClick={() => router.push(`/documents/${doc.documentType}?id=${doc.id}`)}
+                                    onClick={() =>
+                                      router.push(
+                                        // The "honoraires" document type is retired (PDF now rejects it) —
+                                        // route legacy rows to the Factures module instead of the dead editor (#13).
+                                        doc.documentType === "honoraires"
+                                          ? "/factures"
+                                          : `/documents/${doc.documentType}?id=${doc.id}`,
+                                      )
+                                    }
                                     title="Ouvrir le document"
                                   >
                                     <Eye className="h-4 w-4" />
@@ -1521,6 +1546,7 @@ export default function PatientDetailsPage() {
           setRecordModalOpen(open)
           if (!open) {
             setEditingRecord(null)
+            setReviewAppointmentId(null)
           }
         }}
         patientName={patientName}
@@ -1529,6 +1555,7 @@ export default function PatientDetailsPage() {
         isInvoiced={editingRecord ? invoicedDentalRecordIds.has(editingRecord.id) : false}
         patient={patient}
         planItems={openPlanItems}
+        appointmentId={editingRecord ? null : reviewAppointmentId}
         onSuccess={handleEditSuccess}
       />
 
@@ -1554,11 +1581,18 @@ export default function PatientDetailsPage() {
         presetLines={
           billingRecord
             ? billingRecord.acts && billingRecord.acts.length > 0
-              ? billingRecord.acts.map((act) => ({
-                  designation: act.procedureName,
-                  quantity: 1,
-                  unitPriceHt: act.cost,
-                }))
+              ? billingRecord.acts.map((act) => {
+                  const teeth = act.toothNumbers ?? []
+                  const designation =
+                    teeth.length > 0 ? `${act.procedureName} (dents ${teeth.join(", ")})` : act.procedureName
+                  // A per-tooth act bills as quantity × unit price, so the note d'honoraires shows what the
+                  // total covers. A flat fee (or a legacy act with no captured unit price) stays one line.
+                  const unit = act.unitCost
+                  if (act.isPerTooth && teeth.length > 0 && unit != null) {
+                    return { designation, quantity: teeth.length, unitPriceHt: unit }
+                  }
+                  return { designation, quantity: 1, unitPriceHt: act.cost }
+                })
               : [{ designation: billingRecord.procedureType, quantity: 1, unitPriceHt: billingRecord.cost }]
             : undefined
         }

@@ -14,6 +14,19 @@ export function formatDT(amount: number | null | undefined): string {
   return `${formatted} DT`;
 }
 
+/**
+ * Round a dinar amount to the millime (3 decimals), away from zero — mirroring the backend's single rounding
+ * authority (`InvoiceCalculator.RoundMoney`, `decimal(18,3)`). Apply it to any client-side money arithmetic
+ * before displaying or sending a total, so float noise (110.001 × 3 = 330.00299999…) never surfaces.
+ */
+export function roundMillimes(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  const scaled = value * 1000;
+  // Math.round breaks midpoints toward +∞, so negate to keep negatives away-from-zero too.
+  const rounded = scaled < 0 ? -Math.round(-scaled) : Math.round(scaled);
+  return rounded / 1000;
+}
+
 /** Format an ISO date string as a French short date (e.g. "17 juil. 2026"). Returns "—" when unparseable. */
 export function formatDateFr(iso?: string | null): string {
   if (!iso) return "—";

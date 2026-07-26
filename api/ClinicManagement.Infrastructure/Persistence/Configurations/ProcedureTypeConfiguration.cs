@@ -31,8 +31,10 @@ public class ProcedureTypeConfiguration : IEntityTypeConfiguration<ProcedureType
         builder.Property(pt => pt.DefaultDurationMinutes)
             .IsRequired();
 
+        // Millimes (3 decimals) — the catalog price seeds a dental act's unit cost, so it must carry the
+        // same precision as the act it prefills.
         builder.Property(pt => pt.DefaultCost)
-            .HasColumnType("decimal(18,2)");
+            .HasColumnType("decimal(18,3)");
 
         // Configure ColorHex as value object
         builder.OwnsOne(pt => pt.Color, colorBuilder =>

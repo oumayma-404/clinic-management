@@ -7,6 +7,8 @@ import {
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Textarea } from "@/components/ui/textarea"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog"
@@ -84,6 +86,10 @@ export function InvoicesTable({
   const [deleteTarget, setDeleteTarget] = useState<InvoiceDto | null>(null)
   const [cancelTarget, setCancelTarget] = useState<InvoiceDto | null>(null)
   const [cancelReason, setCancelReason] = useState("")
+  // Avoir (credit note) modal state (finding #8).
+  const [avoirTarget, setAvoirTarget] = useState<InvoiceDto | null>(null)
+  const [avoirAmount, setAvoirAmount] = useState("")
+  const [avoirReason, setAvoirReason] = useState("")
 
   const load = useCallback(async () => {
     try {
@@ -107,6 +113,36 @@ export function InvoicesTable({
   const afterMutation = () => {
     load()
     onChanged?.()
+  }
+
+  const openAvoir = (invoice: InvoiceDto) => {
+    setAvoirTarget(invoice)
+    setAvoirAmount("")
+    setAvoirReason("")
+  }
+
+  const confirmAvoir = async () => {
+    if (!avoirTarget) return
+    const amount = Number.parseFloat(avoirAmount)
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toast.error("Le montant de l'avoir doit être supérieur à 0.")
+      return
+    }
+    if (!avoirReason.trim()) {
+      toast.error("Le motif de l'avoir est requis.")
+      return
+    }
+    setBusyId(avoirTarget.id)
+    try {
+      await invoicesApi.createAvoir(avoirTarget.id, { amount, reason: avoirReason.trim() })
+      toast.success("Avoir établi")
+      setAvoirTarget(null)
+      afterMutation()
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Échec de l'établissement de l'avoir.")
+    } finally {
+      setBusyId(null)
+    }
   }
 
   const handleIssue = async (invoice: InvoiceDto) => {
@@ -296,7 +332,9 @@ export function InvoicesTable({
                 const isBusy = busyId === invoice.id
                 const isDraft = invoice.status === "Draft"
                 const isPayable = invoice.status === "Issued" || invoice.status === "PartiallyPaid"
-                const isCancellable = isPayable || invoice.status === "Paid"
+                // A note with recorded payments can't be voided (would erase collected cash) — only an
+                // issued, not-yet-paid note is cancellable; corrections go through an avoir (finding #8).
+                const isCancellable = invoice.status === "Issued" && invoice.amountCollected <= 0
                 return (
                   <TableRow key={invoice.id}>
                     <TableCell className="font-medium">{invoice.number ?? "—"}</TableCell>
@@ -345,6 +383,11 @@ export function InvoicesTable({
                         {isPayable && (
                           <Button variant="ghost" size="icon" title="Enregistrer un paiement" onClick={() => setPaymentTarget(invoice)} disabled={isBusy}>
                             <CreditCard className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {(invoice.status === "Paid" || invoice.status === "PartiallyPaid") && invoice.amountCollected > 0 && (
+                          <Button variant="ghost" size="icon" title="Établir un avoir" onClick={() => openAvoir(invoice)} disabled={isBusy}>
+                            <ReceiptText className="h-4 w-4" />
                           </Button>
                         )}
                         {!isDraft && eInvoicingEnabled && invoice.canSubmitToElFatoora && (
@@ -457,6 +500,49 @@ export function InvoicesTable({
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               Confirmer l'annulation
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!avoirTarget} onOpenChange={(open) => { if (!open) setAvoirTarget(null) }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Établir un avoir</DialogTitle>
+            <DialogDescription>
+              {avoirTarget?.number ? `Facture ${avoirTarget.number}` : "Facture"} — encaissé {avoirTarget ? formatDT(avoirTarget.amountCollected) : ""}. L'avoir crédite tout ou partie du montant encaissé.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="avoirAmount">Montant (DT)</Label>
+              <Input
+                id="avoirAmount"
+                type="number"
+                min="0"
+                step="0.001"
+                value={avoirAmount}
+                onChange={(e) => setAvoirAmount(e.target.value)}
+                placeholder="0,000"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="avoirReason">Motif</Label>
+              <Textarea
+                id="avoirReason"
+                value={avoirReason}
+                onChange={(e) => setAvoirReason(e.target.value)}
+                placeholder="Motif de l'avoir"
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setAvoirTarget(null)} disabled={busyId === avoirTarget?.id}>
+              Retour
+            </Button>
+            <Button onClick={confirmAvoir} disabled={busyId === avoirTarget?.id}>
+              Établir l'avoir
             </Button>
           </DialogFooter>
         </DialogContent>

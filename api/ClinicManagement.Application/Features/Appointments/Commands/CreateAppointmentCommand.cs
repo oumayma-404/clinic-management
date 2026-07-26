@@ -3,6 +3,7 @@ using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Domain.Entities;
+using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 
 namespace ClinicManagement.Application.Features.Appointments.Commands;
@@ -144,6 +145,27 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
             }
 
             var duration = TimeSpan.FromMinutes(request.DurationMinutes);
+
+            // Hard double-booking guard: reject an overlapping, still-active appointment for the SAME
+            // practitioner in this clinic. Only enforced when a doctor is assigned — patient-less/no-doctor
+            // "busy slots" don't clash. Mirrors the conflict logic in CreateRecurringSeriesCommand.
+            if (request.DoctorId.HasValue)
+            {
+                var newStart = NormalizeUtc(request.AppointmentDateTime);
+                var windowStart = newStart.AddDays(-1);
+                var windowEnd = newStart + duration;
+                var sameDoctor = await _appointmentRepository.GetByClinicIdAsync(
+                    clinicId, windowStart, windowEnd, request.DoctorId, cancellationToken);
+                var collides = sameDoctor.Any(e =>
+                    e.Status != AppointmentStatus.Cancelled &&
+                    e.Status != AppointmentStatus.NoShow &&
+                    Overlaps(e.AppointmentDateTime, e.Duration, newStart, duration));
+                if (collides)
+                {
+                    return Result<AppointmentDto>.Failure("Ce créneau est déjà réservé pour ce praticien.");
+                }
+            }
+
             var appointment = new Appointment(
                 Guid.NewGuid(),
                 clinicId,
@@ -218,4 +240,14 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
             return Result<AppointmentDto>.Failure($"Error creating appointment: {ex.Message}");
         }
     }
+
+    private static bool Overlaps(DateTime aStart, TimeSpan aDuration, DateTime bStart, TimeSpan bDuration) =>
+        aStart < bStart + bDuration && bStart < aStart + aDuration;
+
+    private static DateTime NormalizeUtc(DateTime dateTime) => dateTime.Kind switch
+    {
+        DateTimeKind.Utc => dateTime,
+        DateTimeKind.Local => dateTime.ToUniversalTime(),
+        _ => DateTime.SpecifyKind(dateTime, DateTimeKind.Utc)
+    };
 }

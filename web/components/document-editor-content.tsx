@@ -280,7 +280,7 @@ function ProcedureItem({
                         </div>
                         {p.defaultCost && (
                           <span className="text-xs text-muted-foreground">
-                            {p.defaultCost.toFixed(2)} €
+                            {p.defaultCost.toFixed(3)} DT
                           </span>
                         )}
                       </div>
@@ -312,7 +312,7 @@ function ProcedureItem({
           </Popover>
         </div>
         <div className="flex flex-col gap-2 min-w-0">
-          <Label className="text-xs text-muted-foreground h-4">Coût (€)</Label>
+          <Label className="text-xs text-muted-foreground h-4">Coût (DT)</Label>
           <Input
             type="number"
             step="0.01"

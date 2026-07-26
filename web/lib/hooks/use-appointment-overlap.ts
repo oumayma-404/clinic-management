@@ -11,17 +11,27 @@ interface OverlapOptions {
   startHour: string;
   startMinute: string;
   durationMinutes: number;
+  /** Practitioner being booked — a clash with the SAME doctor is a hard (blocking) conflict. */
+  doctorId?: string;
   /** Edit: exclude the appointment being edited from the overlap check. */
   excludeAppointmentId?: string;
 }
 
+export interface OverlapResult {
+  /** French warning message naming the first conflict, or null when there is no overlap. */
+  warning: string | null;
+  /** True only for a hard clash with the SAME practitioner — the dialog blocks Save on this. */
+  blocking: boolean;
+}
+
 /**
- * Advisory overlap detection for the appointment dialogs (AC-3). Fetches the selected day's
- * appointments once per day via the existing appointmentsApi and returns a French warning message
- * naming the first conflicting appointment, or null when there is no overlap.
+ * Overlap detection for the appointment dialogs. Fetches the selected day's appointments once per day
+ * via the existing appointmentsApi and classifies a conflict as either a hard clash with the same
+ * practitioner (`blocking` — mirrors the server-side double-booking guard) or a soft advisory overlap
+ * with another practitioner (non-blocking amber hint).
  *
- * Non-blocking by design: a fetch failure silently disables the warning (never blocks booking),
- * cancelled appointments are ignored, and busy ("Occupé") slots count as overlaps.
+ * A fetch failure silently disables the warning (never blocks booking); cancelled / no-show
+ * appointments are ignored; busy ("Occupé") slots count as overlaps.
  */
 export function useAppointmentOverlap({
   enabled,
@@ -29,8 +39,9 @@ export function useAppointmentOverlap({
   startHour,
   startMinute,
   durationMinutes,
+  doctorId,
   excludeAppointmentId,
-}: OverlapOptions): string | null {
+}: OverlapOptions): OverlapResult {
   const [dayAppointments, setDayAppointments] = useState<AppointmentDto[]>([]);
 
   const dayKey = date ? format(date, 'yyyy-MM-dd') : undefined;
@@ -59,23 +70,33 @@ export function useAppointmentOverlap({
     // Refetch only when the day (or enabled) changes; time/duration edits recompute below.
   }, [enabled, dayKey]);
 
-  return useMemo(() => {
-    if (!enabled || !date || durationMinutes <= 0) return null;
+  return useMemo<OverlapResult>(() => {
+    if (!enabled || !date || durationMinutes <= 0) return { warning: null, blocking: false };
 
     const start = new Date(date);
     start.setHours(Number.parseInt(startHour), Number.parseInt(startMinute), 0, 0);
     const end = new Date(start.getTime() + durationMinutes * 60000);
 
-    const conflict = dayAppointments.find((apt) => {
+    const conflicts = dayAppointments.filter((apt) => {
       if (apt.id === excludeAppointmentId) return false;
-      if (apt.status.toLowerCase() === 'cancelled') return false;
+      const status = apt.status.toLowerCase();
+      if (status === 'cancelled' || status === 'noshow') return false;
       const aptStart = new Date(apt.appointmentDateTime);
       const aptEnd = new Date(aptStart.getTime() + parseDurationToMinutes(apt.duration) * 60000);
       return start < aptEnd && end > aptStart;
     });
 
-    if (!conflict) return null;
+    if (conflicts.length === 0) return { warning: null, blocking: false };
+
+    // A hard clash is one with the SAME practitioner being booked (other-doctor overlaps stay advisory).
+    const sameDoctor = doctorId ? conflicts.find((c) => c.doctorId && c.doctorId === doctorId) : undefined;
+    const conflict = sameDoctor ?? conflicts[0];
     const label = conflict.patientName || 'Occupé';
-    return `Chevauchement avec « ${label} » à ${format(new Date(conflict.appointmentDateTime), 'HH:mm')}`;
-  }, [enabled, date, startHour, startMinute, durationMinutes, excludeAppointmentId, dayAppointments]);
+    const time = format(new Date(conflict.appointmentDateTime), 'HH:mm');
+
+    if (sameDoctor) {
+      return { warning: `Ce créneau est déjà réservé pour ce praticien : « ${label} » à ${time}`, blocking: true };
+    }
+    return { warning: `Chevauchement avec « ${label} » à ${time}`, blocking: false };
+  }, [enabled, date, startHour, startMinute, durationMinutes, doctorId, excludeAppointmentId, dayAppointments]);
 }

@@ -11,6 +11,15 @@ export const ADULT_FDI = [
 ]
 export const CHILD_FDI = [55, 54, 53, 52, 51, 61, 62, 63, 64, 65, 85, 84, 83, 82, 81, 71, 72, 73, 74, 75]
 
+/**
+ * True for a permanent (adult) FDI tooth, false for a deciduous one — mirrors the backend `FdiTooth.IsAdult`.
+ * The single client-side authority for a tooth's dentition, so a record holding both (mixed dentition) is
+ * always split by the tooth itself, never by the record's `isAdultTeeth` display flag.
+ */
+export function isAdultTooth(toothNumber: number): boolean {
+  return ADULT_FDI.includes(toothNumber)
+}
+
 interface ToothMultiSelectProps {
   value: number[]
   onChange: (teeth: number[]) => void

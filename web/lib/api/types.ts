@@ -273,7 +273,12 @@ export interface DentalRecordActDto {
   id: string;
   procedureTypeId?: string | null;
   procedureName: string;
+  /** The act's total fee (authoritative). */
   cost: number;
+  /** Per-unit price `cost` was built from; null when never captured (records created before per-tooth pricing). */
+  unitCost?: number | null;
+  /** True when `cost` is `unitCost` × treated teeth; false = flat session fee. */
+  isPerTooth: boolean;
   toothNumbers: number[];
   /** ToothCondition name this act results in on the odontogram, or null. */
   resultingCondition?: string | null;
@@ -305,7 +310,12 @@ export interface DentalRecordDto {
 export interface DentalActInput {
   procedureTypeId?: string | null;
   procedureName: string;
+  /** The act's total fee. The server stores it as sent — never recomputed from the unit price. */
   cost: number;
+  /** Optional per-unit price the total was built from (pricing provenance for the editor + invoice). */
+  unitCost?: number | null;
+  /** Whether `cost` is per treated tooth (else a flat session fee). Ignored when the act has no teeth. */
+  isPerTooth: boolean;
   toothNumbers: number[];
   resultingCondition?: string | null;
   surfaces?: string | null;

@@ -463,6 +463,12 @@ try
         // new clinics are seeded on creation; this covers clinics that predate the per-clinic conversion.
         var catalogSeeder = scope.ServiceProvider.GetRequiredService<IClinicCatalogSeeder>();
         await catalogSeeder.SeedAllClinicsAsync();
+
+        // Give existing Cloud clinics an admin (finding: onboarding used to assign only doctor/secretary, so
+        // pre-fix clinics have none). Idempotent — promotes the earliest user only when a clinic has no
+        // active admin. New clinics already get an admin at creation.
+        var adminBackfill = scope.ServiceProvider.GetRequiredService<IClinicAdminBackfill>();
+        await adminBackfill.BackfillAsync();
     }
 
 

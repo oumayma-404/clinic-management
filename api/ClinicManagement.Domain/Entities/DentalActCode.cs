@@ -4,8 +4,8 @@ namespace ClinicManagement.Domain.Entities;
 
 /// <summary>
 /// A Tunisian dental nomenclature act (chapitre <c>DCH</c> of the CNAM "Liste des actes"), DB-backed and
-/// <b>global</b> reference data (no <c>ClinicId</c>; excluded from the clinic query filter, shared across
-/// every clinic). Mirrors <see cref="CnamNomenclatureEntry"/>. Seeded <b>provisionally</b> ("à vérifier")
+/// <b>per-clinic</b> reference data (has <c>ClinicId</c> and a clinic query filter; every clinic is seeded
+/// the same defaults, then edits stay private). Mirrors <see cref="CnamNomenclatureEntry"/>. Seeded <b>provisionally</b> ("à vérifier")
 /// from the official list until an admin confirms it; the per-act numeric <c>Coefficient</c> (cotation)
 /// is optional because it lives in the separate NGAP arrêté, not in the acts list. Create/update/
 /// deactivate/confirm are admin-only (enforced at the controller).

@@ -37,6 +37,8 @@ public class ApplicationDbContext : DbContext
     public DbSet<PatientFlag> PatientFlags { get; set; }
     public DbSet<RecurringAppointment> RecurringAppointments { get; set; }
     public DbSet<StockItem> StockItems { get; set; }
+    // Append-only stock-movement audit log (consume/restock history) — clinic-scoped aggregate root.
+    public DbSet<StockMovement> StockMovements { get; set; }
     public DbSet<ProcedureType> ProcedureTypes { get; set; }
     // Clinical-workflow-depth: caisse expenses, salle-d'attente entries, and dental-lab work orders
     // (all clinic-scoped aggregate roots — added to the global clinic query filter below).
@@ -55,6 +57,8 @@ public class ApplicationDbContext : DbContext
     public DbSet<StaffNotification> StaffNotifications { get; set; }
     public DbSet<NotificationRead> NotificationReads { get; set; }
     public DbSet<Invoice> Invoices { get; set; }
+    // Avoirs (credit notes) — clinic-scoped aggregate root offsetting a paid invoice's collected amount.
+    public DbSet<CreditNote> CreditNotes { get; set; }
     // Treatment plans / devis (clinic-scoped aggregate root; children TreatmentPlanItem/Installment reached via it).
     public DbSet<TreatmentPlan> TreatmentPlans { get; set; }
     public DbSet<ClinicReminderSettings> ClinicReminderSettings { get; set; }
@@ -100,6 +104,10 @@ public class ApplicationDbContext : DbContext
         // Invoice is directly clinic-owned → filtered like the other aggregate roots. Its children
         // (InvoiceLine/Payment) are reached only through the invoice, so they need no filter of their own.
         modelBuilder.Entity<Invoice>().HasQueryFilter(i => !IsClinicScoped || i.ClinicId == ScopedClinicId);
+        // CreditNote (avoir) is directly clinic-owned → filtered like the other aggregate roots.
+        modelBuilder.Entity<CreditNote>().HasQueryFilter(c => !IsClinicScoped || c.ClinicId == ScopedClinicId);
+        // StockMovement is directly clinic-owned → filtered like the other aggregate roots.
+        modelBuilder.Entity<StockMovement>().HasQueryFilter(m => !IsClinicScoped || m.ClinicId == ScopedClinicId);
         // TreatmentPlan is directly clinic-owned → filtered like the other aggregate roots. Its children
         // (TreatmentPlanItem/Installment) are reached only through the plan, so they need no filter of their own.
         modelBuilder.Entity<TreatmentPlan>().HasQueryFilter(p => !IsClinicScoped || p.ClinicId == ScopedClinicId);

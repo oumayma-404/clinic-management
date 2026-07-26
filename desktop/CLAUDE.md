@@ -10,10 +10,11 @@ Thin **WPF + WebView2** client shell for the Local/offline-LAN deployment (Phase
 ## Files
 | File | Role |
 |------|------|
-| `MainWindow.xaml` / `.cs` | The single window. Four mutually-exclusive view states — `WebView` / `Connecting` / `ServerConfig` / `Unreachable` — toggled by visibility. Initializes the WebView2 core against a **per-user** user-data folder (`%LocalAppData%\ClinicManagement\WebView2`) so a `%ProgramFiles%` install works without elevation. `Navigate()` (not `Source=`) is used so Retry/Reload re-attempt. A failed `NavigationCompleted` → the unreachable screen. |
-| `ServerConfig.cs` | `ServerConfig` (Host/Port → `BaseUrl`) + `ServerConfigStore` persisting to `%AppData%\ClinicManagement\server.json` (corrupt/missing → first-run prompt). `ParseAddress` accepts bare host, `host:port`, or a full URL; missing port → 5001. |
+| `MainWindow.xaml` / `.cs` | The single window. Four mutually-exclusive view states — `WebView` / `Connecting` / `ServerConfig` / `Unreachable` — toggled by visibility. A top `Serveur` menu offers **Changer de serveur…** and **Recharger**. Initializes the WebView2 core against a **per-user** user-data folder (`%LocalAppData%\ClinicManagement\WebView2`) so a `%ProgramFiles%` install works without elevation. Uses `Navigate()` (not `Source=`) so Retry/Reload re-attempt. A failed `NavigationCompleted` → the unreachable screen. |
+| `ServerConfig.cs` | `ServerConfig` (Host/Port → `BaseUrl`, HTTPS only) + `ServerConfigStore` persisting to `%AppData%\ClinicManagement\server.json` (corrupt/missing → first-run prompt). `ParseAddress` accepts a bare host, `host:port`, or a full URL; missing port → 5001. |
 | `App.xaml` / `.cs` | Standard WPF entry point. |
+| `ClinicManagement.DesktopShell.csproj` | `WinExe`, `net8.0-windows`, `UseWPF`; single `Microsoft.Web.WebView2` package reference. No RID pinned — `dotnet build` stays framework-dependent for review; the self-contained `win-x64` publish is driven by `packaging/publish-server.ps1`. |
 
 ## Gotchas
-- Runtime requires the **Microsoft Edge WebView2 Runtime** on the target PC (the client installer provisions it, S7); a missing runtime surfaces as the unreachable screen, not a crash.
+- Runtime requires the **Microsoft Edge WebView2 Runtime** on the target PC. The **client installer** (`packaging/client/clinic-client.iss`) bundles an offline standalone installer and runs it silently **only when the runtime is missing** (S7); a still-missing runtime surfaces as the unreachable screen, not a crash.
 - Cannot be built/run in CI — needs Windows + the WebView2 runtime (operator-verified, R-1). It does `dotnet build` clean.

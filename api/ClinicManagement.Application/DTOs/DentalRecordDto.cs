@@ -26,7 +26,12 @@ public class DentalRecordActDto
     public Guid Id { get; set; }
     public Guid? ProcedureTypeId { get; set; }
     public string ProcedureName { get; set; } = string.Empty;
+    /// <summary>The act's total fee (authoritative).</summary>
     public decimal Cost { get; set; }
+    /// <summary>Per-unit price <see cref="Cost"/> was built from; null when never captured (legacy rows).</summary>
+    public decimal? UnitCost { get; set; }
+    /// <summary>True when <see cref="Cost"/> is <see cref="UnitCost"/> × teeth; false = flat fee.</summary>
+    public bool IsPerTooth { get; set; }
     public List<int> ToothNumbers { get; set; } = new();
     public string? ResultingCondition { get; set; }
     public string? Surfaces { get; set; }
@@ -38,7 +43,12 @@ public class DentalActInput
 {
     public Guid? ProcedureTypeId { get; set; }
     public string ProcedureName { get; set; } = string.Empty;
+    /// <summary>The act's total fee. The server stores it as sent — it is never recomputed from the unit price.</summary>
     public decimal Cost { get; set; }
+    /// <summary>Optional per-unit price the total was built from (pricing provenance for the editor + invoice).</summary>
+    public decimal? UnitCost { get; set; }
+    /// <summary>Whether <see cref="Cost"/> is per treated tooth (else a flat session fee). Ignored when no teeth.</summary>
+    public bool IsPerTooth { get; set; }
     public List<int> ToothNumbers { get; set; } = new();
     /// <summary>Resulting odontogram state (ToothCondition name); null/empty/"Sain" = no odontogram entry.</summary>
     public string? ResultingCondition { get; set; }

@@ -80,6 +80,13 @@ public class User : AggregateRoot<string> // Using Auth0 sub as ID (Cloud) or "l
         UpdatedAt = DateTime.UtcNow;
     }
 
+    /// <summary>Promote this user to the clinic "admin" role, preserving email/full name (Cloud admin backfill).</summary>
+    public void PromoteToAdmin()
+    {
+        Role = "admin";
+        UpdatedAt = DateTime.UtcNow;
+    }
+
     /// <summary>True for accounts that authenticate with a local email+password (Local mode).</summary>
     public bool IsLocalAccount() => PasswordHash != null;
 

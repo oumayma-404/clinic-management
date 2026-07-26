@@ -26,6 +26,8 @@ public static class DentalRecordMappingExtensions
                 ProcedureTypeId = a.ProcedureTypeId,
                 ProcedureName = a.ProcedureName,
                 Cost = a.Cost,
+                UnitCost = a.UnitCost,
+                IsPerTooth = a.IsPerTooth,
                 ToothNumbers = a.ToothNumbers.ToList(),
                 ResultingCondition = a.ResultingCondition?.ToString(),
                 Surfaces = a.Surfaces,

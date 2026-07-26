@@ -80,6 +80,8 @@ interface PatientRecordModalProps {
   patient?: PatientDto | null
   /** Open treatment-plan steps the record can complete (marks the step "réalisé" on save). */
   planItems?: PlanItemOption[]
+  /** Optional appointment this record documents — completing it + dismissing its post-visit prompt on save. */
+  appointmentId?: string | null
   onSuccess?: () => void
 }
 
@@ -92,6 +94,7 @@ export function PatientRecordModal({
   isInvoiced = false,
   patient,
   planItems = [],
+  appointmentId,
   onSuccess,
 }: PatientRecordModalProps) {
   const [patientName, setPatientName] = useState(initialPatientName)
@@ -321,6 +324,8 @@ export function PatientRecordModal({
         acts: parsedActs,
         treatmentPlanId: linkedItem?.planId ?? null,
         treatmentPlanItemId: linkedItem?.itemId ?? null,
+        // Only carried on create — links the new record to the appointment it documents (closes the prompt).
+        appointmentId: appointmentId ?? null,
       }
 
       if (record) {
