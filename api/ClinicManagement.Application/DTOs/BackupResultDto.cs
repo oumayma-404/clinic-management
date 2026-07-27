@@ -15,4 +15,12 @@ public class BackupResultDto
 
     /// <summary>When the backup completed (UTC — dates are UTC everywhere in this codebase).</summary>
     public DateTime TimestampUtc { get; set; }
+
+    /// <summary>
+    /// Set when the backup succeeded but could <b>not</b> be access-restricted — a removable or network
+    /// destination, where NTFS permissions cannot be relied on (US-14 / AC-14.3). The backup is valid; the
+    /// copy of the patient records in it is simply readable by anyone who can reach that medium, so the admin
+    /// must be told rather than only the log. <c>null</c> when the destination was locked down normally.
+    /// </summary>
+    public string? Warning { get; set; }
 }

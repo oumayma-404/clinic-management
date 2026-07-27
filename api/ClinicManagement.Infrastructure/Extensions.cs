@@ -162,6 +162,10 @@ public static class Extensions
         // One-click backup (US-8 / FR-G): pg_dump + file-storage copy. Safe to register unconditionally —
         // only exercised by the admin-gated backup endpoint; on Cloud (no bundled pg_dump) a call fails
         // with a clear "pg_dump introuvable" error rather than doing anything.
+        // Directory-permission policy (security-hardening). Stateless, so a singleton. Shared by the Local
+        // `harden-permissions` console verb and the backup service, which must not diverge — a backup that
+        // is not access-restricted hands out an unprotected copy of everything the install protects.
+        services.AddSingleton<DirectoryAclHardener>();
         services.AddScoped<IBackupService, PgDumpBackupService>();
 
         // Per-clinic reference-catalog seeder (feature cloud-security-and-tenant-isolation, #5): clones the

@@ -7,8 +7,8 @@
 
 | Part | Status |
 |---|---|
-| P1 Installer filesystem posture | in progress |
-| P2 Backup output posture | pending |
+| P1 Installer filesystem posture | **done** — committed `43fe6d5` |
+| P2 Backup output posture | **done** — committed |
 | P3 Auth & session | pending |
 | P4 Authorization | pending |
 | P5 Hygiene | pending |
@@ -77,3 +77,27 @@ Untracked paths present at branch point that are **not part of this story** and 
 **Test bug found and fixed during the run:** `Harden_uses_well_known_sids_not_localized_account_names` initially failed because the temp directory lives under `C:\Users\…`, so the target path matched the "no account names" filter. Fixed by scoping the assertion to the ACL arguments (skipping the path element) — the production code was correct; the assertion was measuring the wrong thing.
 
 **Note on the killed process:** a `ClinicManagement.API` (PID 41568) was holding its `bin` DLLs, so the first build failed with `MSB3021`/`MSB3027` file locks (not compile errors). Stopped it and rebuilt clean. The dev API will need restarting.
+
+### 2026-07-27 — Part 2 (backup output posture)
+
+Implemented P2.1–P2.4. `PgDumpBackupService` now hardens the timestamped folder **before** the dump, via P1's `DirectoryAclHardener` — this is the whole of P2's dependency on P1, and it is real rather than nominal.
+
+- New `Infrastructure/Security/BackupProtectionPolicy` — decides whether a destination *can* be protected. Only a local fixed disk qualifies; a USB stick (often FAT32, no ACLs at all) or a network share (the far end's ACL to enforce) gets a French warning instead of a false promise. `Unknown` resolves as unprotectable — warn rather than claim an unverified protection. A UNC path is `Network` by definition (no `DriveInfo` exists for it).
+- Refusing the backup on an unprotectable medium was rejected deliberately: an operator who cannot back up to a USB drive stops backing up.
+- The harden call sits **inside** the existing try, so an ACL failure on a fixed disk reuses the partial-folder cleanup already there — AC-14.4 comes for free rather than as a second cleanup path.
+- `BackupResultDto.Warning` → `BackupNowCommand` (returns the DTO directly, so no mapping change) → `backup.ts` → `backup-settings.tsx`: a distinct amber panel **plus** a longer-lived `toast.warning` instead of the success toast. A warning only in the server log is a warning nobody reads (AC-14.3).
+- `DirectoryAclHardener` registered as a singleton (stateless) in `Extensions.cs`.
+
+**Constructor change handled in lock-step:** `PgDumpBackupService` gained a third ctor parameter, and `PgDumpBackupServiceTests` constructs it directly — updated in the same step, so the test project never stopped compiling.
+
+#### Quality gates — Part 2
+
+| Gate | Result |
+|---|---|
+| Backend build | 0 errors. First attempt failed with `CS0246` (missing `using ClinicManagement.Infrastructure.Security` — `PgDumpBackupService` lives in `Services`); fixed. |
+| Backend tests | **19/19** passing for `PgDumpBackupServiceTests` + `BackupProtectionPolicyTests` (3 pre-existing backup tests still green) |
+| Frontend typecheck | `npx tsc --noEmit` → **0 errors** |
+| Frontend lint | **Cannot run** — ESLint is not installed (`npm run lint` → "'eslint' is not recognized"), and `next.config.ts` sets `eslint.ignoreDuringBuilds: true`. Per the documented fallback, the gate is typecheck + a production build. Not treated as a failure. |
+| Frontend production build | **Succeeded** — all routes compiled |
+
+**Testing note.** The ordering assertion (AC-14.2) is proved indirectly but soundly: the dummy `pg_dump` is a real file (so the existence check passes) but not a real executable, so the dump throws. The hardening is still recorded — which is only possible if it ran *first*. If it ran after the dump it would never be recorded at all.

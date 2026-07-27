@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Infrastructure.Security;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Npgsql;
@@ -34,11 +35,16 @@ public sealed class PgDumpBackupService : IBackupService
 
     private readonly IConfiguration _configuration;
     private readonly ILogger<PgDumpBackupService> _logger;
+    private readonly DirectoryAclHardener _aclHardener;
 
-    public PgDumpBackupService(IConfiguration configuration, ILogger<PgDumpBackupService> logger)
+    public PgDumpBackupService(
+        IConfiguration configuration,
+        ILogger<PgDumpBackupService> logger,
+        DirectoryAclHardener aclHardener)
     {
         _configuration = configuration;
         _logger = logger;
+        _aclHardener = aclHardener;
     }
 
     public async Task<BackupResultDto> CreateBackupAsync(string? destinationFolder, CancellationToken cancellationToken = default)
@@ -95,6 +101,36 @@ public sealed class PgDumpBackupService : IBackupService
         // (Finding 1 — the opposite of the "no silent partial success" intent, AC-8.2/8.3).
         try
         {
+            // --- (0) Restrict the folder BEFORE anything is written into it (US-14 / AC-14.2) ---
+            // A backup is a full dump of every patient record plus a copy of the entire file store, so it
+            // gets the same posture as the live data. Hardening the folder AFTER writing would leave a window
+            // in which the dump sits readable by every local account — which is exactly the exposure the
+            // install-level hardening closes, reopened by one click.
+            //
+            // On a destination whose ACLs cannot be relied on (USB stick, network share) we do not pretend:
+            // the backup proceeds and the admin is told plainly (AC-14.3). An ACL failure on a local fixed
+            // disk, by contrast, throws — and the catch below deletes the partial folder (AC-14.4), so a
+            // backup is never left both incomplete and unprotected.
+            string? warning = null;
+            var driveType = BackupProtectionPolicy.ResolveDriveType(backupFolder);
+
+            if (BackupProtectionPolicy.CanProtect(driveType))
+            {
+                if (_aclHardener.Harden(backupFolder) == AclHardeningOutcome.SkippedNotWindows)
+                {
+                    warning = BackupProtectionPolicy.UnprotectableDestinationWarning;
+                }
+            }
+            else
+            {
+                warning = BackupProtectionPolicy.UnprotectableDestinationWarning;
+                _logger.LogWarning(
+                    "Backup destination {Folder} is on a {DriveType} drive — NTFS permissions cannot be " +
+                    "relied on, so the backup is not access-restricted.",
+                    backupFolder,
+                    driveType);
+            }
+
             // --- (1) Database dump (R-3: DB first) ---
             var dumpFile = Path.Combine(backupFolder, "database.dump");
             await RunPgDumpAsync(pgDumpPath, conn, dumpFile, cancellationToken);
@@ -124,7 +160,8 @@ public sealed class PgDumpBackupService : IBackupService
             {
                 DestinationPath = backupFolder,
                 SizeBytes = sizeBytes,
-                TimestampUtc = timestamp
+                TimestampUtc = timestamp,
+                Warning = warning
             };
         }
         catch
