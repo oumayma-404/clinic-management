@@ -71,6 +71,10 @@ public static class Extensions
         // Local (offline) authentication service. Harmless in Cloud mode (only used by /api/auth/login).
         services.AddScoped<ILocalAuthService, LocalAuthService>();
 
+        // Per-(account, source) failed-login tracking (security-hardening US-4 / AC-4.2). Backed by the
+        // shared IMemoryCache registered above, so lockout state is transient by design — see the class.
+        services.AddScoped<ILoginAttemptTracker, LoginAttemptTracker>();
+
         // Auth0 Management Service — real in Cloud mode, no-op in Local mode (no Auth0 tenant).
         if (LocalAuthConfig.IsLocalMode(configuration))
         {

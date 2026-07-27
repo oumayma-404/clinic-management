@@ -15,7 +15,11 @@ public class LoginCommandHandlerTests
     private readonly Mock<ILocalAuthService> _auth = new();
     private readonly Mock<IUnitOfWork> _uow = new();
 
-    private LoginCommandHandler Handler() => new(_users.Object, _auth.Object, _uow.Object);
+    // Per-source lockout tracker (security-hardening US-4). Default mock: never locked, so the existing
+    // cases exercise the same paths as before; the per-source cases below drive it explicitly.
+    private readonly Mock<ILoginAttemptTracker> _attempts = new();
+
+    private LoginCommandHandler Handler() => new(_users.Object, _auth.Object, _uow.Object, _attempts.Object);
 
     private static User LocalUser(bool mustChangePassword = false) =>
         User.CreateLocalUser(ClinicId, "doctor", "Doc@Clinic.com", "STORED-HASH", "Dr House", mustChangePassword);
@@ -24,6 +28,80 @@ public class LoginCommandHandlerTests
 
     private void SaveSucceeds() =>
         _uow.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
+
+    // ---- Per-source lockout (security-hardening US-4 / AC-4.2) ----
+
+    // [AC-4.2] This source has burned its attempts → refused BEFORE the password is verified, so a
+    // brute-force attempt is actually stopped rather than merely counted.
+    [Fact]
+    public async Task Handle_Should_Refuse_When_This_Source_Is_Locked_Out()
+    {
+        var user = LocalUser();
+        _users.Setup(r => r.GetByEmailAsync("doc@clinic.com", It.IsAny<CancellationToken>())).ReturnsAsync(user);
+        _attempts.Setup(a => a.IsLockedOutForCurrentSource(user.Id)).Returns(true);
+
+        var result = await Handler().Handle(Command(), CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Contains("bloqué", result.Error);
+        // The password must never be checked for a source that is already refused.
+        _auth.Verify(a => a.VerifyPassword(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    // [AC-4.2] A failure is recorded against this source as well as the durable per-account counter, so the
+    // offending machine is the one that gets locked out.
+    [Fact]
+    public async Task Handle_Should_Record_The_Failure_Against_This_Source()
+    {
+        var user = LocalUser();
+        _users.Setup(r => r.GetByEmailAsync("doc@clinic.com", It.IsAny<CancellationToken>())).ReturnsAsync(user);
+        _auth.Setup(a => a.VerifyPassword("STORED-HASH", "s3cret!!")).Returns(PasswordVerificationOutcome.Failed);
+        SaveSucceeds();
+
+        var result = await Handler().Handle(Command(), CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        _attempts.Verify(a => a.RecordFailure(user.Id), Times.Once);
+    }
+
+    // [AC-4.2] A user who simply mistyped should not carry a penalty into their next session.
+    [Fact]
+    public async Task Handle_Should_Clear_This_Source_On_Success()
+    {
+        var user = LocalUser();
+        _users.Setup(r => r.GetByEmailAsync("doc@clinic.com", It.IsAny<CancellationToken>())).ReturnsAsync(user);
+        _auth.Setup(a => a.VerifyPassword("STORED-HASH", "s3cret!!")).Returns(PasswordVerificationOutcome.Success);
+        _auth.Setup(a => a.GenerateToken(user)).Returns(new LocalAuthToken("jwt", DateTime.UtcNow.AddHours(12)));
+        SaveSucceeds();
+
+        var result = await Handler().Handle(Command(), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        _attempts.Verify(a => a.ClearForCurrentSource(user.Id), Times.Once);
+    }
+
+    // [AC-4.2] Both lockout tiers must give the SAME message — the caller must not learn which brake
+    // stopped them, or the per-source design becomes an oracle for "is this account locked elsewhere".
+    [Fact]
+    public async Task Both_Lockout_Tiers_Report_The_Same_Message()
+    {
+        var sourceLocked = LocalUser();
+        _users.Setup(r => r.GetByEmailAsync("doc@clinic.com", It.IsAny<CancellationToken>())).ReturnsAsync(sourceLocked);
+        _attempts.Setup(a => a.IsLockedOutForCurrentSource(sourceLocked.Id)).Returns(true);
+        var perSource = await Handler().Handle(Command(), CancellationToken.None);
+
+        var accountLocked = LocalUser();
+        for (var i = 0; i < User.MaxFailedLoginAttempts; i++) accountLocked.RecordFailedLogin();
+        Assert.True(accountLocked.IsLockedOut());
+
+        var users2 = new Mock<IUserRepository>();
+        users2.Setup(r => r.GetByEmailAsync("doc@clinic.com", It.IsAny<CancellationToken>())).ReturnsAsync(accountLocked);
+        var attempts2 = new Mock<ILoginAttemptTracker>(); // not locked for this source
+        var perAccount = await new LoginCommandHandler(users2.Object, _auth.Object, _uow.Object, attempts2.Object)
+            .Handle(Command(), CancellationToken.None);
+
+        Assert.Equal(perSource.Error, perAccount.Error);
+    }
 
     // [AC-3.1][AC-3.3] Valid credentials → JWT issued, login recorded, MustChangePassword surfaced.
     [Fact]

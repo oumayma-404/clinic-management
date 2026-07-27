@@ -33,6 +33,17 @@ export async function POST(request: NextRequest) {
     const data = await res.json().catch(() => null);
 
     if (!res.ok || !data?.isSuccess || !data?.value?.accessToken) {
+      // A rate-limit refusal is NOT a credential failure — pass it through as 429 with its Retry-After
+      // instead of flattening it to 401, so the UI can tell "wrong password" from "too many attempts"
+      // (security-hardening AC-4.5). Everything else stays 401 so the endpoint never discloses more.
+      if (res.status === 429) {
+        const retryAfter = res.headers.get('retry-after');
+        return NextResponse.json(
+          { error: data?.error || 'Trop de tentatives. Veuillez réessayer plus tard.' },
+          { status: 429, ...(retryAfter ? { headers: { 'Retry-After': retryAfter } } : {}) }
+        );
+      }
+
       return NextResponse.json(
         { error: data?.error || 'Invalid email or password.' },
         { status: 401 }

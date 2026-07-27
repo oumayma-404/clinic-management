@@ -144,6 +144,11 @@ try
             options.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
             options.JsonSerializerOptions.PropertyNameCaseInsensitive = true;
         });
+    // Rate limiting (security-hardening US-4): per-IP on the anonymous auth endpoints, generous per-user
+    // elsewhere, with the connectivity poll / OAuth callback / SignalR hub / proxied Next traffic exempt.
+    // Both auth modes — Cloud is internet-facing and needs it at least as much as a LAN install.
+    builder.Services.AddConfiguredRateLimiter(builder.Configuration);
+
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddSwaggerGen(c =>
     {
@@ -435,6 +440,10 @@ try
     app.UseCors("AllowAll");
     
     // Exception handling middleware (must be before authentication/authorization)
+    // Before authentication: an unauthenticated flood must be refused as cheaply as possible, and the
+    // anonymous auth endpoints (the brute-force surface) are gated on the client address, not on identity.
+    app.UseRateLimiter();
+
     app.UseMiddleware<ExceptionMiddleware>();
     
     app.UseAuthentication();

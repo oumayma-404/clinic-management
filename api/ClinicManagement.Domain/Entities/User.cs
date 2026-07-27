@@ -4,8 +4,19 @@ namespace ClinicManagement.Domain.Entities;
 
 public class User : AggregateRoot<string> // Using Auth0 sub as ID (Cloud) or "local|{guid}" (Local mode)
 {
-    // Number of consecutive failed logins that triggers a temporary lockout (Local mode, AC-3.4).
-    public const int MaxFailedLoginAttempts = 5;
+    // Consecutive failed logins that trigger a temporary lockout (Local mode, AC-3.4).
+    //
+    // This is the DURABLE, CROSS-SOURCE BACKSTOP, not the primary brake. It used to be 5, which made the
+    // account itself the unit of lockout — so anyone who could reach the login endpoint could burn five
+    // attempts against every staff account in turn and keep the whole clinic, admin included, locked out
+    // indefinitely (audit section 2, finding 5). The primary brake is now per (account, source) via
+    // ILoginAttemptTracker at 5 attempts, so a hostile host locks out only itself.
+    //
+    // This counter is therefore raised to a level a single source cannot reach on its own — it exists to stop
+    // a genuinely DISTRIBUTED guessing attack, and to survive the restart that clears the in-memory
+    // per-source counters. Reaching it requires several distinct sources or a long sustained effort, both of
+    // which the per-IP rate limiter also throttles.
+    public const int MaxFailedLoginAttempts = 50;
     // How long an account stays locked after too many failed attempts.
     public static readonly TimeSpan LockoutDuration = TimeSpan.FromMinutes(15);
 

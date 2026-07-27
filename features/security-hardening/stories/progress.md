@@ -9,7 +9,7 @@
 |---|---|
 | P1 Installer filesystem posture | **done** — committed `43fe6d5` |
 | P2 Backup output posture | **done** — committed |
-| P3 Auth & session | in progress — **P3.0 done** (client-IP chain); P3.1–P3.7 pending |
+| P3 Auth & session | in progress — **P3.0–P3.2 done** (client IP, rate limiter, per-source lockout); **P3.3–P3.6 pending** (token model) |
 | P4 Authorization | pending |
 | P5 Hygiene | pending |
 
@@ -132,5 +132,31 @@ Done **before** the rate limiter, deliberately: building the limiter first means
 | New/changed tests | **25/25** (`ClientIpTests` 20, `LocalRequestTests` 5) |
 | Full suite | **854 passed / 8 failed** — the same 8 pre-existing failures as the Part 1 baseline, so the fail-closed change regressed nothing (818 → 854 is this feature's 36 new tests) |
 | Frontend typecheck | deferred to the P3.1 commit — the BFF change is two header lines, and P3.1 touches the same files |
+
+### 2026-07-27 — Part 3, steps 1–2 (rate limiter + per-source lockout)
+
+US-4 is now closed. `ClientIp` has its consumers.
+
+- `API/Startup/RateLimiting` — two limiters of deliberately different shape: per-client-address sliding window on the anonymous auth endpoints (the brute-force surface, `[EnableRateLimiting]` on `login`/`setup`/`register`), and a generous per-user global limiter that exists to bound a runaway loop, not to shape traffic. 429 renders the canonical `{ error }` body with `Retry-After` and a French message that states the delay.
+- **Exemptions are as load-bearing as the limits.** `/api/connectivity` (polled every 15 s *per tab* — a 429 there reads as "offline" and disables AI + Google Calendar), the OAuth callback, `/hub/*`, `/hangfire`, and **everything outside `/api`**. That last one matters: in Local mode Kestrel is the front door for *all* traffic, so a global limiter would throttle the proxied Next pages and their `_next` chunks — one page load fires dozens.
+- `ILoginAttemptTracker` (Application) + `LoginAttemptTracker` (Infrastructure, `IMemoryCache` + `IHttpContextAccessor` + `ClientIp`), keyed `(userId, source)`, sliding 15-min window, 5 attempts. Sliding on purpose: a source that keeps hammering stays locked rather than getting a fresh allowance.
+- `User.MaxFailedLoginAttempts` **5 → 50**. It was the account-only lockout that made the DoS possible; it is now the durable cross-source backstop at a level one source cannot reach alone, and what survives the restart that clears the in-memory counters.
+- Both lockout tiers return the **same** message, so the caller cannot learn which brake stopped them — otherwise the per-source design becomes an oracle for "is this account locked elsewhere".
+
+**Two frontend gaps found while wiring AC-4.5.** `handleResponse` already reads `.error` first, so the French 429 body surfaces automatically — but (a) the BFF flattened **every** API failure to 401, so a rate-limit refusal was indistinguishable from a wrong password; it now passes 429 through with its `Retry-After`; and (b) a 429 whose body is missing or unparseable would have shown "HTTP 429: Too Many Requests" to a clinic, so `client.ts` has a French safety net.
+
+**Constructor change handled in lock-step:** `LoginCommandHandler` gained a fourth parameter; `LoginCommandHandlerTests`' single `Handler()` factory was updated in the same step.
+
+#### Quality gates — Part 3 steps 1–2
+
+| Gate | Result |
+|---|---|
+| Backend build | 0 errors, 0 new warnings |
+| New tests | **37/37** (`LoginAttemptTrackerTests` 10, `RateLimitingTests` 20, `LoginCommandHandlerTests` +4 per-source cases) |
+| Full suite | **888 passed / 8 failed** — the same 8 pre-existing. Raising `MaxFailedLoginAttempts` 5 → 50 regressed nothing, as predicted: existing tests loop *to* the constant rather than hard-coding 5. |
+| Frontend typecheck | 0 errors |
+| Frontend production build | Compiled successfully, 27/27 static pages |
+
+**Not yet verified end-to-end.** The limiter's real behaviour under load (EC-6: a whole clinic behind one NAT address at 08:00) needs a running stack; the unit tests pin the policy shape and the exemptions, not the thresholds in practice. Defaults are deliberately loose (auth 30 per 5 min, API 600 per min) and config-tunable per AC-4.6.
 
 **Testing note.** The ordering assertion (AC-14.2) is proved indirectly but soundly: the dummy `pg_dump` is a real file (so the existence check passes) but not a real executable, so the dump throws. The hardening is still recorded — which is only possible if it ran *first*. If it ran after the dump it would never be recorded at all.

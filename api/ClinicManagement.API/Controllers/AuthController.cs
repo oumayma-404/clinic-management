@@ -7,6 +7,8 @@ using ClinicManagement.Application.Features.Auth.Commands;
 using ClinicManagement.Application.Features.Clinics.Commands;
 using ClinicManagement.API.Models;
 using ClinicManagement.Infrastructure.Auth;
+using ClinicManagement.API.Startup;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace ClinicManagement.API.Controllers;
 
@@ -44,6 +46,8 @@ public class AuthController : ApiControllerBase
     /// Local-mode login: email + password → signed JWT. Returns 401 on any failure.
     /// </summary>
     [AllowAnonymous]
+    // Per-client-address limit: this is the brute-force surface (US-4 / AC-4.1).
+    [EnableRateLimiting(RateLimiting.AnonymousAuthPolicy)]
     [HttpPost("login")]
     public async Task<IActionResult> Login([FromBody] LoginRequest request)
     {
@@ -75,6 +79,7 @@ public class AuthController : ApiControllerBase
     /// exists — AC-1.2a. Does not exist in Cloud mode.
     /// </summary>
     [AllowAnonymous]
+    [EnableRateLimiting(RateLimiting.AnonymousAuthPolicy)]
     [HttpPost("setup")]
     public async Task<IActionResult> Setup([FromBody] SetupRequest request)
     {
@@ -119,6 +124,7 @@ public class AuthController : ApiControllerBase
     /// exist in Cloud mode. Admin is never self-assignable (enforced in the handler).
     /// </summary>
     [AllowAnonymous]
+    [EnableRateLimiting(RateLimiting.AnonymousAuthPolicy)]
     [HttpPost("register")]
     public async Task<IActionResult> Register([FromBody] RegisterRequest request)
     {

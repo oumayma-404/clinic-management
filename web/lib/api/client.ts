@@ -40,6 +40,18 @@ async function handleResponse<T>(response: Response): Promise<T> {
     } catch {
       // If response is not JSON, use status text
     }
+
+    // Rate-limit refusals carry a French `{ error }` body from the API, so the branch above normally
+    // surfaces it. This is the safety net for a 429 whose body is missing or unparseable (e.g. refused by
+    // an intermediary): "HTTP 429: Too Many Requests" is not something to show a clinic
+    // (security-hardening AC-4.5).
+    if (response.status === 429 && errorMessage.startsWith('HTTP 429')) {
+      const retryAfter = Number(response.headers.get('retry-after'));
+      errorMessage = Number.isFinite(retryAfter) && retryAfter > 0
+        ? `Trop de tentatives. Veuillez réessayer dans ${Math.ceil(retryAfter / 60)} minute(s).`
+        : 'Trop de tentatives. Veuillez réessayer dans quelques minutes.';
+    }
+
     throw new ApiError(response.status, errorMessage);
   }
 
