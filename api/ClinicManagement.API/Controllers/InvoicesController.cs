@@ -163,6 +163,37 @@ public class InvoicesController : ApiControllerBase
     }
 
     /// <summary>Cancel an issued invoice (admin/doctor only).</summary>
+    /// <summary>
+    /// Void a recorded payment — "this was never received". The row is kept and marked with a motif, the actor
+    /// and the moment; the collected total is recomputed and the status walks back. Not reversible: to correct
+    /// a correction, record the right payment again.
+    ///
+    /// <para>
+    /// AdminOrDoctor, like every operation that alters an issued financial document. A void is a correction,
+    /// not a refund — money actually returned to the patient is an avoir.
+    /// </para>
+    /// </summary>
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [HttpPost("{id}/payments/{paymentId}/void")]
+    public async Task<ActionResult<InvoiceDto>> VoidPayment(
+        Guid id,
+        Guid paymentId,
+        [FromBody] VoidPaymentCommand command,
+        CancellationToken cancellationToken)
+    {
+        command.InvoiceId = id;
+        command.PaymentId = paymentId;
+
+        var result = await _mediator.Send(command, cancellationToken);
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+
+        return Ok(result.Value);
+    }
+
     [HttpPost("{id}/cancel")]
     [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
     public async Task<ActionResult<InvoiceDto>> CancelInvoice(Guid id, [FromBody] CancelInvoiceCommand command, CancellationToken cancellationToken = default)

@@ -192,22 +192,112 @@ public class Invoice : AggregateRoot<Guid>
     /// Record a payment. Allowed only on an issued/partially-paid invoice. An overpayment (collected
     /// beyond the TTC) is refused; reaching the TTC exactly moves the invoice to Paid.
     /// </summary>
-    public void RecordPayment(decimal amount, PaymentMethod method, DateTime paidOn)
+    public void RecordPayment(
+        decimal amount,
+        PaymentMethod method,
+        DateTime paidOn,
+        Guid? sourceInstallmentPaymentId = null)
     {
         if (Status != InvoiceStatus.Issued && Status != InvoiceStatus.PartiallyPaid)
             throw new InvalidOperationException("Un paiement ne peut être enregistré que sur une facture émise.");
 
-        if (amount <= 0)
-            throw new ArgumentException("Le montant du paiement doit être supérieur à 0.", nameof(amount));
+        // Round to the millime first: an amount below half a millime would otherwise be accepted here and
+        // stored as 0,000 by the decimal(18,3) column — a zero-amount payment row that counts for nothing but
+        // blocks cancellation forever.
+        var rounded = InvoiceCalculator.RoundMoney(amount);
+        if (rounded <= 0)
+            throw new ArgumentException("Le montant du paiement doit être d'au moins 1 millime.", nameof(amount));
 
-        if (AmountCollected + amount > TotalTtc)
+        if (InvoiceCalculator.RoundMoney(AmountCollected + rounded) > TotalTtc)
             throw new InvalidOperationException("Le paiement dépasse le montant restant dû.");
 
-        _payments.Add(new Payment(Guid.NewGuid(), Id, amount, method, paidOn));
-        AmountCollected += amount;
-        Status = AmountCollected >= TotalTtc ? InvoiceStatus.Paid : InvoiceStatus.PartiallyPaid;
+        _payments.Add(new Payment(Guid.NewGuid(), Id, rounded, method, paidOn, sourceInstallmentPaymentId));
+        RecomputeCollected();
         Touch();
     }
+
+    /// <summary>
+    /// Void a recorded payment — "this was never received". The row is kept and marked, never deleted, so the
+    /// correction leaves a trail; <see cref="AmountCollected"/> is recomputed and the status walks back
+    /// (Paid → PartiallyPaid → Issued).
+    /// </summary>
+    /// <param name="creditedTotal">
+    /// Σ of the non-cancelled avoirs already issued against this invoice. Passed in by the handler because the
+    /// aggregate has no repository access. Collected cash may not fall below money the clinic has already
+    /// refunded on paper, or the same dinar leaves the caisse twice — once as the avoir, once as the void.
+    /// </param>
+    /// <remarks>A void is a correction, not a refund. Money actually returned is a <see cref="CreditNote"/>.</remarks>
+    public void VoidPayment(
+        Guid paymentId,
+        string reason,
+        decimal creditedTotal,
+        string? actorUserId = null,
+        string? actorName = null)
+    {
+        if (Status == InvoiceStatus.Cancelled)
+            throw new InvalidOperationException("La facture est annulée : ses paiements ne peuvent plus être modifiés.");
+
+        var payment = _payments.FirstOrDefault(p => p.Id == paymentId)
+            ?? throw new InvalidOperationException("Paiement introuvable sur cette facture.");
+
+        if (payment.IsVoided)
+            throw new InvalidOperationException("Ce paiement est déjà annulé.");
+
+        if (string.IsNullOrWhiteSpace(reason))
+            throw new ArgumentException("Le motif d'annulation du paiement est requis.", nameof(reason));
+
+        var remaining = InvoiceCalculator.RoundMoney(AmountCollected - payment.Amount);
+        if (remaining < InvoiceCalculator.RoundMoney(creditedTotal))
+            throw new InvalidOperationException(
+                "Le montant encaissé ne peut pas descendre en dessous des avoirs déjà établis sur cette facture.");
+
+        payment.Void(reason, actorUserId, actorName);
+        RecomputeCollected();
+        Touch();
+    }
+
+    /// <summary>
+    /// Derive <see cref="AmountCollected"/> and the payment status from the live (non-voided) payment rows.
+    ///
+    /// <para>
+    /// Deliberately a recompute rather than an increment/decrement. <c>AmountCollected</c> is a stored column
+    /// while the caisse sums the payment rows, and nothing has ever reconciled the two — so any historical
+    /// drift is invisible in the app. Recomputing makes the arithmetic unfalsifiable, and the payments are
+    /// always loaded with the invoice anyway.
+    /// </para>
+    /// </summary>
+    private void RecomputeCollected()
+    {
+        AmountCollected = InvoiceCalculator.RoundMoney(_payments.Where(p => !p.IsVoided).Sum(p => p.Amount));
+
+        // A cancelled invoice keeps its status; otherwise it follows the money.
+        if (Status == InvoiceStatus.Cancelled || Status == InvoiceStatus.Draft)
+        {
+            return;
+        }
+
+        Status = AmountCollected <= 0m
+            ? InvoiceStatus.Issued
+            : AmountCollected >= TotalTtc
+                ? InvoiceStatus.Paid
+                : InvoiceStatus.PartiallyPaid;
+    }
+
+    /// <summary>
+    /// True when this invoice may be cancelled: issued, not already cancelled, carrying no <b>live</b> payment,
+    /// and not registered with El Fatoora.
+    /// </summary>
+    public bool CanCancel =>
+        Status != InvoiceStatus.Draft
+        && Status != InvoiceStatus.Cancelled
+        && !_payments.Any(p => !p.IsVoided)
+        && EInvoiceStatus != EInvoiceStatus.Valid
+        && EInvoiceStatus != EInvoiceStatus.Submitted
+        && EInvoiceStatus != EInvoiceStatus.Validating;
+
+    /// <summary>True when an avoir may be established: the invoice is issued and has collected money to credit.</summary>
+    public bool CanCreateCreditNote =>
+        Status != InvoiceStatus.Draft && Status != InvoiceStatus.Cancelled && AmountCollected > 0m;
 
     /// <summary>
     /// Cancel an issued invoice (motif required). The number, lines and frozen totals are kept; no
@@ -221,10 +311,17 @@ public class Invoice : AggregateRoot<Guid>
         if (Status == InvoiceStatus.Cancelled)
             throw new InvalidOperationException("La facture est déjà annulée.");
 
-        // A note with recorded payments must not be silently voided — that would erase collected cash from
-        // the caisse with no trail. Corrections go through an avoir (credit note).
-        if (_payments.Count > 0)
+        // A note with LIVE payments must not be silently voided — that would erase collected cash from the
+        // caisse with no trail. Corrections go through an avoir. Voided payments do not count: a note whose
+        // only payments were data-entry errors was never really paid, so cancelling it is legitimate.
+        if (_payments.Any(p => !p.IsVoided))
             throw new InvalidOperationException("Une facture avec des paiements enregistrés ne peut pas être annulée. Établissez un avoir.");
+
+        // Cancelling locally an invoice that TTN has already registered would put the clinic's books and the
+        // national e-invoice registry permanently out of step, with no trace on either side.
+        if (EInvoiceStatus is EInvoiceStatus.Valid or EInvoiceStatus.Submitted or EInvoiceStatus.Validating)
+            throw new InvalidOperationException(
+                "Cette facture est déclarée à El Fatoora et ne peut plus être annulée. Établissez un avoir.");
 
         if (string.IsNullOrWhiteSpace(reason))
             throw new ArgumentException("Le motif d'annulation est requis.", nameof(reason));

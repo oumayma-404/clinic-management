@@ -71,6 +71,16 @@ export const invoicesApi = {
   recordPayment: async (id: string, data: RecordPaymentRequest): Promise<InvoiceDto> =>
     apiPost<InvoiceDto>(`/invoices/${id}/payments`, data),
 
+  /**
+   * Void a recorded payment — "this was never received". The row is kept and marked with a motif, the actor
+   * and the moment; the collected total is recomputed and the invoice status walks back. Not reversible: to
+   * correct a correction, record the right payment again. AdminOrDoctor only.
+   *
+   * A void is a correction, not a refund — money actually returned to the patient is an avoir.
+   */
+  voidPayment: async (id: string, paymentId: string, reason: string): Promise<InvoiceDto> =>
+    apiPost<InvoiceDto>(`/invoices/${id}/payments/${paymentId}/void`, { reason }),
+
   cancel: async (id: string, reason: string): Promise<InvoiceDto> =>
     apiPost<InvoiceDto>(`/invoices/${id}/cancel`, { reason }),
 

@@ -18,8 +18,8 @@
 | — | Scaffold (stories, progress) | complete | `42e8ecf` | yes |
 | A | Réconciliation report | complete | `c712f06` | yes |
 | B | Patient delete blocks + archive | complete | `4b4a805` | yes |
-| C | Appointment update stops wiping the act | complete | | |
-| D | Void a payment + invoice detail modal | pending | | |
+| C | Appointment update stops wiping the act | complete | `f5d915e` | yes |
+| D | Void a payment + invoice detail modal | complete | | |
 | E | Installment ledger + plan void + receipts | pending | | |
 | F | Devis→facture carry-over | pending | | |
 | G | Avoirs readable + PDF + netting | pending | | |
@@ -154,6 +154,45 @@ why the fix had to live on the command, not on a request DTO.
 | The invalid-status refusal was added as an early return rather than restructuring the `switch` | Trivial | Smallest possible diff; the existing nesting and every case are untouched. |
 | `UNASSIGNED_DOCTOR = "__unassigned__"` sentinel in the edit dialog | Trivial | Radix `Select` cannot hold `value=""`. Mirrors the `"all"` sentinel already used on the appointments page. |
 | Test colour changed from `#2563EB` to `#4F83CC` | Trivial | `ColorHex` validates against a curated palette and rejected the first value. Caught by the test run, not shipped. |
+
+## Part D — notes
+
+**Quality gate:** backend build 0 errors, 0 warnings in changed files; `tsc --noEmit` clean; `npm run build`
+compiles clean, 27/27 pages. 34 tests pass — 18 new plus the existing `InvoiceEntityTests` and
+`MoneyReadConsistencyTests`, which the `Cancel` guard change could have broken and did not.
+
+**Migration:** `20260727175009_AddPaymentVoid` — six columns on `Payments` plus a partial index
+`(InvoiceId, PaidOn) WHERE NOT IsVoided`, so the filtered cash read stays cheap as voids accumulate.
+
+### Design points worth keeping in mind
+
+- **`AmountCollected` is recomputed, never decremented.** It is a stored column while the caisse sums the
+  payment rows, and nothing has ever reconciled the two — a decrement would entrench any existing drift.
+  Recomputing from the live rows makes the arithmetic unfalsifiable, and the payments are always loaded with
+  the invoice anyway.
+- **The read-side half is the one that matters.** `GetCollectedBetweenAsync` now filters `!IsVoided`. Without
+  it the caisse, dashboard and revenue KPI would over-report by the voided amount **forever** — the write side
+  alone would have been worse than not shipping.
+- **The void is retroactive to the original payment date**, so the day the money was recorded self-corrects.
+  A void says the money was never received; booking a reversal on the void date would invent a cash movement
+  that never happened.
+- **`CanCancel` / `CanCreateAvoir` moved to the server.** The frontend re-derived both from
+  `status + amountCollected`, which is precisely how it would now offer « Annuler » on an invoice the API
+  refuses: after a full void the status is `Issued` and collected is `0`, but the voided rows are still there.
+- **A fully-voided invoice becomes cancellable again** (the guard counts *live* payments). Without that
+  change, keeping voided rows would have made such an invoice permanently un-cancellable — and a bridged plan
+  whose invoice cannot be cancelled can never be amended or re-billed either.
+- **`Cancel` now refuses a TTN-registered invoice.** Cancelling locally what the national registry still holds
+  would put the clinic's books and El Fatoora permanently out of step with no trace on either side.
+
+### Auto-approved deviations
+
+| Deviation | Classification | Reason |
+|-----------|----------------|--------|
+| Part D got its **own** migration rather than folding the `Payments` columns into Part E's M3, as the plan said | Trivial | Each part stays independently deployable, which is the entire point of the part structure. The plan's actual ordering constraint — table-creating migration before the concurrency one — still holds: M3 (the `InstallmentPayments` table) lands in Part E and the xmin migration is last. |
+| Extracted `PaymentDateRules` instead of inlining the date guard | Trivial | The identical rule is needed by the installment payment (Part E) and the avoir's `RefundedOn` (Part G). One implementation beats three. |
+| `SourceInstallmentPaymentId` landed now, though nothing populates it until Part F | Trivial | A nullable soft-link column with no FK, so it carries no dependency on the not-yet-existing `InstallmentPayment`. Adding it now avoids a second `Payments` migration in Part F. |
+| Added `canReverseFinancials` in a new `lib/auth/can.ts` | Trivial | Every existing client-side gate compares against `"admin"` alone, so **a doctor — the primary user — was denied by all of them**. Shared so the four reversal actions stop disagreeing with each other. |
 
 ## Significant deviations
 

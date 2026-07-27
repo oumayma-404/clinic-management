@@ -29,6 +29,7 @@ import { useConnectivity } from "@/lib/connectivity/connectivity"
 import { useClinicAccess } from "@/lib/hooks/use-clinic-access"
 import { InvoiceFormModal } from "./invoice-form-modal"
 import { PaymentModal } from "./payment-modal"
+import { InvoiceDetailModal } from "./invoice-detail-modal"
 import { invoiceStatusLabel, eInvoiceStatusLabel, eInvoiceStatusBadgeClass } from "./invoice-labels"
 
 interface InvoicesTableProps {
@@ -84,6 +85,9 @@ export function InvoicesTable({
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState<InvoiceDto | null>(null)
   const [paymentTarget, setPaymentTarget] = useState<InvoiceDto | null>(null)
+  // The invoice detail modal — the app's first invoice detail surface, and the only place a specific
+  // payment can be voided.
+  const [detailInvoiceId, setDetailInvoiceId] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<InvoiceDto | null>(null)
   const [cancelTarget, setCancelTarget] = useState<InvoiceDto | null>(null)
   const [cancelReason, setCancelReason] = useState("")
@@ -333,14 +337,27 @@ export function InvoicesTable({
                 const isBusy = busyId === invoice.id
                 const isDraft = invoice.status === "Draft"
                 const isPayable = invoice.status === "Issued" || invoice.status === "PartiallyPaid"
-                // A note with recorded payments can't be voided (would erase collected cash) — only an
-                // issued, not-yet-paid note is cancellable; corrections go through an avoir (finding #8).
-                const isCancellable = invoice.status === "Issued" && invoice.amountCollected <= 0
+                // Both gates now come from the SERVER. Re-deriving them here from status + amountCollected is
+                // what produced an enabled « Annuler » the API refuses: after a full void the status is Issued
+                // and collected is 0, but the voided payment rows are still there — and a TTN-registered
+                // invoice can never be cancelled regardless of either value.
+                const isCancellable = invoice.canCancel
+                const canCreateAvoir = invoice.canCreateAvoir
                 return (
                   <TableRow key={invoice.id}>
                     <TableCell className="font-medium">
                       <div className="flex items-center gap-2">
-                        <span>{invoice.number ?? "—"}</span>
+                        {/* The number is the detail affordance. It was inert text, and the row already
+                            carries up to eight icon buttons — a ninth would not have been readable. This
+                            also gives draft rows (« — ») a target. */}
+                        <button
+                          type="button"
+                          className="underline-offset-2 hover:underline"
+                          title="Voir le détail"
+                          onClick={(e) => { e.stopPropagation(); setDetailInvoiceId(invoice.id) }}
+                        >
+                          {invoice.number ?? "—"}
+                        </button>
                         {/* A devis-born note is otherwise indistinguishable here from a standalone one, and
                             the devis→facture link was write-only until now. Mirrors the plans table's
                             « Facturé — N° » badge, closing the loop from both ends. */}
@@ -403,7 +420,7 @@ export function InvoicesTable({
                             <CreditCard className="h-4 w-4" />
                           </Button>
                         )}
-                        {(invoice.status === "Paid" || invoice.status === "PartiallyPaid") && invoice.amountCollected > 0 && (
+                        {canCreateAvoir && (
                           <Button variant="ghost" size="icon" title="Établir un avoir" onClick={() => openAvoir(invoice)} disabled={isBusy}>
                             <ReceiptText className="h-4 w-4" />
                           </Button>
@@ -469,6 +486,13 @@ export function InvoicesTable({
         onOpenChange={(open) => !open && setPaymentTarget(null)}
         invoice={paymentTarget}
         onSuccess={afterMutation}
+      />
+
+      <InvoiceDetailModal
+        open={!!detailInvoiceId}
+        onOpenChange={(open) => !open && setDetailInvoiceId(null)}
+        invoiceId={detailInvoiceId}
+        onChanged={afterMutation}
       />
 
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>

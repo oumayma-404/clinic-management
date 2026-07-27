@@ -88,10 +88,14 @@ public class InvoiceRepository : IInvoiceRepository
 
     public async Task<decimal> GetCollectedBetweenAsync(Guid clinicId, DateTime from, DateTime to, CancellationToken cancellationToken = default)
     {
+        // Voided payments were never really received, so they leave the cash reads entirely — and they leave
+        // them on the day the money was recorded, not the day the void happened. A void is a correction: the
+        // original day self-corrects to what the clinic actually took. Without this filter the caisse, the
+        // dashboard and the revenue KPI would over-report by the voided amount forever.
         return await _context.Invoices
             .Where(i => i.ClinicId == clinicId && i.Status != InvoiceStatus.Cancelled)
             .SelectMany(i => i.Payments)
-            .Where(p => p.PaidOn >= from && p.PaidOn <= to)
+            .Where(p => !p.IsVoided && p.PaidOn >= from && p.PaidOn <= to)
             .SumAsync(p => (decimal?)p.Amount, cancellationToken) ?? 0m;
     }
 

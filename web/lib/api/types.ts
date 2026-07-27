@@ -88,6 +88,18 @@ export interface PaymentDto {
   /** Cash | Cheque | Card | Transfer */
   method: string;
   paidOn: string;
+  createdAt: string;
+  /**
+   * A voided payment was never really received. The row is kept and shown struck through with its motif, so
+   * the correction leaves a trail rather than silently disappearing. Voided payments are excluded from every
+   * cash read server-side.
+   */
+  isVoided: boolean;
+  voidedAt?: string | null;
+  voidReason?: string | null;
+  voidedByName?: string | null;
+  /** Set when this payment was carried onto the invoice from a treatment-plan installment. */
+  sourceInstallmentPaymentId?: string | null;
 }
 
 export interface InvoiceDto {
@@ -122,6 +134,13 @@ export interface InvoiceDto {
   eInvoiceLastError?: string | null;
   eInvoiceAttemptCount: number;
   canSubmitToElFatoora: boolean;
+  /**
+   * Server-computed. Do NOT re-derive these from status + amountCollected: that is exactly how the table
+   * ended up offering « Annuler » on invoices the API refuses — after a full void the status is Issued and
+   * collected is 0, but the voided payment rows are still there.
+   */
+  canCancel: boolean;
+  canCreateAvoir: boolean;
   hasSignedXml: boolean;
   hasTtnReceipt: boolean;
   lines: InvoiceLineDto[];

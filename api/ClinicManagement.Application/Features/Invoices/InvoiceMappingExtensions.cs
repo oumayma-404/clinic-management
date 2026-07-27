@@ -50,14 +50,25 @@ public static class InvoiceMappingExtensions
                 CodeActe = l.CodeActe
             })
             .ToList(),
+        CanCancel = invoice.CanCancel,
+        CanCreateAvoir = invoice.CanCreateCreditNote,
+        // CreatedAt is the tiebreaker: two payments on the same day are common, and the detail modal needs a
+        // deterministic order to diff against.
         Payments = invoice.Payments
             .OrderBy(p => p.PaidOn)
+            .ThenBy(p => p.CreatedAt)
             .Select(p => new PaymentDto
             {
                 Id = p.Id,
                 Amount = p.Amount,
                 Method = p.Method.ToString(),
-                PaidOn = p.PaidOn
+                PaidOn = p.PaidOn,
+                CreatedAt = p.CreatedAt,
+                IsVoided = p.IsVoided,
+                VoidedAt = p.VoidedAt,
+                VoidReason = p.VoidReason,
+                VoidedByName = p.VoidedByName,
+                SourceInstallmentPaymentId = p.SourceInstallmentPaymentId
             })
             .ToList()
     };

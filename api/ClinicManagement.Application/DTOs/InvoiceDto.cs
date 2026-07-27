@@ -36,6 +36,16 @@ public class InvoiceDto
     public string? EInvoiceLastError { get; set; }
     public int EInvoiceAttemptCount { get; set; }
     public bool CanSubmitToElFatoora { get; set; }
+
+    /// <summary>
+    /// Server-computed. The frontend used to re-derive this from status + amountCollected, which is exactly
+    /// how it ended up offering « Annuler » on invoices the API refuses — after a full void the status is
+    /// Issued and collected is 0, but the voided payment rows are still there.
+    /// </summary>
+    public bool CanCancel { get; set; }
+
+    /// <summary>Server-computed, for the same reason as <see cref="CanCancel"/>.</summary>
+    public bool CanCreateAvoir { get; set; }
     public bool HasSignedXml { get; set; }
     public bool HasTtnReceipt { get; set; }
 
@@ -63,6 +73,19 @@ public class PaymentDto
     public decimal Amount { get; set; }
     public string Method { get; set; } = string.Empty;
     public DateTime PaidOn { get; set; }
+    public DateTime CreatedAt { get; set; }
+
+    /// <summary>
+    /// A voided payment is one that was never really received. The row is kept and shown struck through with
+    /// its motif, so the correction leaves a trail rather than silently disappearing.
+    /// </summary>
+    public bool IsVoided { get; set; }
+    public DateTime? VoidedAt { get; set; }
+    public string? VoidReason { get; set; }
+    public string? VoidedByName { get; set; }
+
+    /// <summary>Set when this payment was carried onto the invoice from a treatment-plan installment.</summary>
+    public Guid? SourceInstallmentPaymentId { get; set; }
 }
 
 /// <summary>Aggregate revenue for the Recettes view: invoiced / collected / outstanding (TND).</summary>
