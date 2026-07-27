@@ -26,7 +26,7 @@
 | H | Patient contact optional | complete | `a7e8fb8` | yes |
 | I | Conflict detection — backend | complete | `9a726a6` | yes |
 | J | Conflict detection — frontend | complete | `9a726a6` | yes |
-| K | Documentation | complete | | |
+| K | Documentation | complete | `9bbd8bc` | yes |
 
 ## Working tree note (start of session)
 
