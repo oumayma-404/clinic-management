@@ -11,7 +11,9 @@
 | P2 Backup output posture | **done** — committed |
 | P3 Auth & session | **done** — US-4 and US-5 closed (client IP, rate limiter, per-source lockout, token revocation, R-4, short lifetime + silent renewal) |
 | P4 Authorization | in progress — **P4.1–P4.4, P4.6, AC-9.3 done; P4.5 partial** (procedure types + recall settings gated; clinic doctors/billing controls still open) |
-| P5 Hygiene | pending |
+| P5 Hygiene | not started — **but its blocker is cleared** (see the `DoctorCachetTests` triage below) |
+
+> **Suite baseline is now 4 failures, not 8.** Four of the eight pre-existing failures were a stale test fixture and are fixed. Use **4** as the reference point from here — and still judge against repeated runs, because the PDF-render tests remain order-sensitive.
 
 ## Working tree note (start of session, 2026-07-27)
 
@@ -309,6 +311,22 @@ Also fixed a stray untranslated label while in there — "Add Procedure Type" �
 |---|---|
 | Frontend typecheck | 0 errors |
 | Frontend production build | Compiled successfully, 27/27 static pages |
+
+### Triage of the pre-existing failures (P5 blocker cleared)
+
+Done **before** P5.2 touches `UpdateDoctorProfileCommand`, exactly because that refactor would otherwise have been blamed for these.
+
+**`DoctorCachetTests` ×4 — FIXED, and it was a stale fixture, not a bug.** The image fixture was `new byte[] { 1, 2, 3 }`. The cachet upload verifies **magic bytes** (a declared content type is trivially spoofable), so three arbitrary bytes are rejected and the handler returns a failure — surfacing as `Assert.True(result.IsSuccess)` with no hint of the cause. The validation was added at some point and the fixture was never updated. **The production code was correct throughout.** Fixture now starts with the real PNG signature; a PNG signature satisfies both declared types because the handler asks "is this a valid PNG or JPEG", not "does the signature match the declared type". All 6 cachet tests pass.
+
+This is precisely the trap flagged earlier: had P5.2 extracted `FileContentValidation` from this code first, four red tests would have looked like the refactor's fault.
+
+**`DocumentTypeAndFilenameTests.Create_With_Supported_Type_Passes_The_Type_Guard` — diagnosed, not fixed.** The test asserts the handler proceeds past the honoraires type guard *to the patient lookup*, but `GetByIdAsync` is called 0 times. The handler now resolves the **clinic** before the patient lookup, and the test's resolver mock is unconfigured, so it bails earlier. The test's premise — an internal ordering — is stale rather than the behaviour being wrong. Fix is to configure the clinic resolver in that file's `CreateHandler` so the flow reaches the lookup again, preserving what the test is actually for (proving the type guard let a supported type through). Left for whoever picks up P5.
+
+**`ReminderSchedulerTests` ×3 — untouched.** Pure-Moq, unrelated to this feature, not time-dependent (dates are `UtcNow`-relative). Not diagnosed further.
+
+| Gate | Result |
+|---|---|
+| Full suite | **917 passed / 4 failed**, twice — down from 8 |
 
 **Still open in P4** (do not assume US-6–US-9 are closed):
 
