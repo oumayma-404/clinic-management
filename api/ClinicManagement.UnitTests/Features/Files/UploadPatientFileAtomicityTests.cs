@@ -47,7 +47,10 @@ public class UploadPatientFileAtomicityTests
         FileName = "scan.pdf",
         ContentType = "application/pdf",
         FileSize = 4,
-        FileStream = new MemoryStream(new byte[] { 1, 2, 3, 4 }),
+        // Must start with the real %PDF- signature to match the declared type: patient-file upload now
+        // verifies magic bytes, because a Content-Type header is trivially spoofable (US-11 / AC-11.2).
+        // Four arbitrary bytes were fine before that validation existed.
+        FileStream = new MemoryStream(new byte[] { 0x25, 0x50, 0x44, 0x46, 0x2D, 0x31, 0x2E, 0x34 }),
     };
 
     private void PatientFound()

@@ -17,15 +17,18 @@ public class DeactivateMedicationCommand : IRequest<Result>
 public class DeactivateMedicationCommandHandler : IRequestHandler<DeactivateMedicationCommand, Result>
 {
     private readonly IMedicationCatalogRepository _repository;
+    private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<DeactivateMedicationCommandHandler> _logger;
 
     public DeactivateMedicationCommandHandler(
         IMedicationCatalogRepository repository,
+        ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
         ILogger<DeactivateMedicationCommandHandler> logger)
     {
         _repository = repository;
+        _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
         _logger = logger;
     }
@@ -34,8 +37,17 @@ public class DeactivateMedicationCommandHandler : IRequestHandler<DeactivateMedi
     {
         try
         {
+            // Authoritative tenant guard: resolve the caller's clinic from the DB rather than relying on the
+            // EF global query filter, which is FAIL-OPEN — a token minted without a clinic_id claim leaves it
+            // inactive, and this row could then be reached by id from another clinic (audit § 2, finding 10).
+            var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
+            if (clinicResult.IsFailure)
+            {
+                return Result.Failure(clinicResult.Error ?? "Cabinet introuvable.");
+            }
+
             var medication = await _repository.GetByIdAsync(request.Id, cancellationToken);
-            if (medication is null)
+            if (medication is null || medication.ClinicId != clinicResult.Value)
             {
                 return Result.Failure("Médicament introuvable.");
             }

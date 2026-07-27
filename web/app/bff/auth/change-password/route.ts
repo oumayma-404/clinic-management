@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { SESSION_COOKIE, MUST_CHANGE_COOKIE } from '@/lib/auth/local-auth';
+import { forwardedForHeader } from '@/lib/auth/forwarded-for';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -31,6 +32,9 @@ export async function POST(request: NextRequest) {
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
+        // Same loopback-hop problem as local-login: forward the browser's address rather than this
+        // handler's, which is always the front door. Done here too so the two BFF routes cannot diverge.
+        ...forwardedForHeader(request),
       },
       body: JSON.stringify({
         currentPassword: body.currentPassword ?? '',

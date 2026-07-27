@@ -21,16 +21,19 @@ public class SetDoctorWorkingHoursCommand : IRequest<Result<List<WorkingDayDto>>
 public class SetDoctorWorkingHoursCommandHandler : IRequestHandler<SetDoctorWorkingHoursCommand, Result<List<WorkingDayDto>>>
 {
     private readonly IDoctorRepository _doctorRepository;
-    private readonly ICurrentClinicResolver _clinicResolver;
+    private readonly IClinicContext _clinicContext;
+    private readonly IUserRepository _userRepository;
     private readonly IUnitOfWork _unitOfWork;
 
     public SetDoctorWorkingHoursCommandHandler(
         IDoctorRepository doctorRepository,
-        ICurrentClinicResolver clinicResolver,
+        IClinicContext clinicContext,
+        IUserRepository userRepository,
         IUnitOfWork unitOfWork)
     {
         _doctorRepository = doctorRepository;
-        _clinicResolver = clinicResolver;
+        _clinicContext = clinicContext;
+        _userRepository = userRepository;
         _unitOfWork = unitOfWork;
     }
 
@@ -38,13 +41,26 @@ public class SetDoctorWorkingHoursCommandHandler : IRequestHandler<SetDoctorWork
     {
         try
         {
-            var clinic = await _clinicResolver.GetClinicIdAsync(cancellationToken);
-            if (clinic.IsFailure)
-                return Result<List<WorkingDayDto>>.Failure(clinic.Error ?? "Cabinet introuvable.");
+            var userId = _clinicContext.GetUserId();
+            if (string.IsNullOrEmpty(userId))
+                return Result<List<WorkingDayDto>>.Failure("Session invalide, veuillez vous reconnecter.");
+
+            var user = await _userRepository.GetByAuth0SubAsync(userId, cancellationToken);
+            if (user == null)
+                return Result<List<WorkingDayDto>>.Failure("Utilisateur introuvable.");
 
             var doctor = await _doctorRepository.GetByIdAsync(request.DoctorId, cancellationToken);
-            if (doctor == null || doctor.ClinicId != clinic.Value)
+            // Cross-clinic (or missing) targets read as "not found" — no existence disclosure.
+            if (doctor == null || doctor.ClinicId != user.ClinicId)
                 return Result<List<WorkingDayDto>>.Failure("Praticien introuvable.");
+
+            // Own-or-admin, checked BEFORE any mutation. Previously this verified same-clinic only, so any
+            // staff member — including another doctor or a secretary — could rewrite a practitioner's
+            // availability and have patients booked outside it (audit § 2, finding 9). Copied from the sibling
+            // UpdateDoctorProfileCommand, which already got this right.
+            var isOwnRecord = doctor.UserId != null && doctor.UserId == user.Id;
+            if (!user.IsAdmin() && !isOwnRecord)
+                return Result<List<WorkingDayDto>>.Failure("Vous ne pouvez modifier que votre propre profil.");
 
             // Validate/canonicalize the incoming payload the same way the clinic-wide hours are stored.
             var json = request.WorkingHours is { Count: > 0 }

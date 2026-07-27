@@ -26,6 +26,7 @@ import { BellRing, CheckCircle2, Clock, Loader2, Send, Settings } from "lucide-r
 import { recallsApi } from "@/lib/api/recalls"
 import { ApiError } from "@/lib/api/client"
 import type { RecallDto, RecallSettingsDto } from "@/lib/api/types"
+import { useSession } from "@/lib/auth/session"
 
 // fr-TN-style short date; falls back to a placeholder for null/undefined ISO strings.
 function formatDate(iso: string | null | undefined, fallback = "—"): string {
@@ -131,6 +132,9 @@ function RecallSettingsDialog({
 }
 
 export default function RecallsPage() {
+  const { user } = useSession()
+  const isAdmin = user?.role === "admin"
+
   const [recalls, setRecalls] = useState<RecallDto[]>([])
   const [settings, setSettings] = useState<RecallSettingsDto | null>(null)
   const [loading, setLoading] = useState(true)
@@ -218,7 +222,10 @@ export default function RecallsPage() {
                   </p>
                 </div>
 
-                <RecallSettingsDialog settings={settings} onSaved={setSettings} />
+                {/* The recall interval is clinic-wide configuration and became admin-only
+                    (security-hardening AC-7.3). The recall LIST and the per-patient actions below stay
+                    available to all staff — those are day-to-day work. */}
+                {isAdmin && <RecallSettingsDialog settings={settings} onSaved={setSettings} />}
               </div>
 
               {/* Recalls Table */}

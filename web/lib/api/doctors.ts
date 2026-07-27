@@ -1,4 +1,4 @@
-import { apiGet, apiPut, apiPutFormData } from './client';
+import { apiGet, apiPut, apiPutFormData, getAccessToken } from './client';
 import type { DoctorProfileDto } from './types';
 
 /** One day of a practitioner's working hours (same shape as the clinic-wide hours). */
@@ -10,19 +10,6 @@ export interface WorkingDay {
 }
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
-
-async function getAccessToken(): Promise<string | null> {
-  try {
-    const response = await fetch('/bff/auth/token', { credentials: 'include' });
-    if (response.ok) {
-      const data = await response.json();
-      return data.accessToken || null;
-    }
-  } catch {
-    // Token endpoint unavailable
-  }
-  return null;
-}
 
 export interface UpdateMyDoctorProfileInput {
   ordreNumberCnomdt?: string;

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { SESSION_COOKIE, MUST_CHANGE_COOKIE } from '@/lib/auth/local-auth';
+import { forwardedForHeader } from '@/lib/auth/forwarded-for';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -22,20 +23,40 @@ export async function POST(request: NextRequest) {
   try {
     const res = await fetch(`${API_INTERNAL_URL}/auth/login`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...forwardedForHeader(request),
+      },
       body: JSON.stringify({ email: body.email ?? '', password: body.password ?? '' }),
     });
 
     const data = await res.json().catch(() => null);
 
     if (!res.ok || !data?.isSuccess || !data?.value?.accessToken) {
+      // A rate-limit refusal is NOT a credential failure — pass it through as 429 with its Retry-After
+      // instead of flattening it to 401, so the UI can tell "wrong password" from "too many attempts"
+      // (security-hardening AC-4.5). Everything else stays 401 so the endpoint never discloses more.
+      if (res.status === 429) {
+        const retryAfter = res.headers.get('retry-after');
+        return NextResponse.json(
+          { error: data?.error || 'Trop de tentatives. Veuillez réessayer plus tard.' },
+          { status: 429, ...(retryAfter ? { headers: { 'Retry-After': retryAfter } } : {}) }
+        );
+      }
+
       return NextResponse.json(
         { error: data?.error || 'Invalid email or password.' },
         { status: 401 }
       );
     }
 
-    const { accessToken, expiresAt, mustChangePassword } = data.value;
+    // Store the REFRESH token in the cookie, never the access token (security-hardening AC-5.5). The API
+    // rejects the refresh audience as a bearer token, so the cookie no longer carries a working API
+    // credential — it can only be exchanged, and the exchange re-checks live account state. Older builds
+    // stored the access token here, which is why the cookie value is still a decodable JWT: /bff/auth/session
+    // reads its claims for the header identity (AC-5.12).
+    const { refreshToken, accessToken, expiresAt, mustChangePassword } = data.value;
+    const sessionCredential = refreshToken || accessToken;
     const mustChange = Boolean(mustChangePassword);
     // The browser now reaches the app over the HTTPS front door (Phase 5 S3), but this handler runs on
     // the Node server that sits behind it on a plain-HTTP loopback hop — so `request.nextUrl.protocol`
@@ -49,7 +70,7 @@ export async function POST(request: NextRequest) {
       : request.nextUrl.protocol === 'https:';
     const expires = expiresAt ? new Date(expiresAt) : undefined;
     const response = NextResponse.json({ mustChangePassword: mustChange });
-    response.cookies.set(SESSION_COOKIE, accessToken, {
+    response.cookies.set(SESSION_COOKIE, sessionCredential, {
       httpOnly: true,
       secure,
       sameSite: 'lax',

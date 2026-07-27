@@ -58,7 +58,7 @@ public class DoctorsController : ApiControllerBase
         // Security (FR-3.1): the cachet is a user-uploaded blob served from the app origin. Prevent MIME
         // sniffing and force a download disposition so it can never be interpreted as an inline document
         // (defence-in-depth on top of the upload-time PNG/JPEG allow-list + magic-byte check).
-        Response.Headers["X-Content-Type-Options"] = "nosniff";
+        // (Global SecurityHeadersMiddleware now sets nosniff on every response — AC-12.9.)
         return File(result.Value!.FileStream, result.Value.ContentType, $"cachet-{id}");
     }
 

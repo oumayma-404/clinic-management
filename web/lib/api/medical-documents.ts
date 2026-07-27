@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiPut, apiDelete, apiPostFormData, apiPutFormData } from './client';
+import { apiGet, apiPost, apiPut, apiDelete, apiPostFormData, apiPutFormData, getAccessToken } from './client';
 import type { MedicalDocumentDto } from './types';
 
 export interface CreateMedicalDocumentRequest {
@@ -102,16 +102,7 @@ export const medicalDocumentsApi = {
     content: Record<string, string>;
   }): Promise<Blob> => {
     const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
-    const token = await (async () => {
-      try {
-        const response = await fetch('/bff/auth/token', { credentials: 'include' });
-        if (response.ok) {
-          const data = await response.json();
-          return data.accessToken || null;
-        }
-      } catch {}
-      return null;
-    })();
+    const token = await getAccessToken();
 
     const headers: HeadersInit = { 'Content-Type': 'application/json' };
     if (token) {

@@ -1,4 +1,5 @@
 using MediatR;
+using Microsoft.Extensions.Logging;
 using Microsoft.EntityFrameworkCore;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Common.Exceptions;
@@ -26,15 +27,18 @@ public class DeletePatientCommandHandler : IRequestHandler<DeletePatientCommand,
     private readonly IPatientRepository _patientRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly ILogger<DeletePatientCommandHandler> _logger;
 
     public DeletePatientCommandHandler(
         IPatientRepository patientRepository,
         ICurrentClinicResolver clinicResolver,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        ILogger<DeletePatientCommandHandler> logger)
     {
         _patientRepository = patientRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
+        _logger = logger;
     }
 
     public async Task<Result> Handle(DeletePatientCommand request, CancellationToken cancellationToken)
@@ -78,7 +82,9 @@ public class DeletePatientCommandHandler : IRequestHandler<DeletePatientCommand,
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result.Failure($"Erreur lors de la suppression du patient : {ex.Message}");
+            // AC-13.2: the detail goes to the log; the caller only ever sees French guidance.
+            _logger.LogError(ex, "Unhandled failure deleting patient");
+            return Result.Failure("Erreur lors de la suppression du patient. Veuillez réessayer.");
         }
     }
 }

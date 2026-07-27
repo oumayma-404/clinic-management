@@ -5,6 +5,11 @@ export interface BackupResultDto {
   destinationPath: string;
   sizeBytes: number;
   timestampUtc: string;
+  // Set when the backup succeeded but could NOT be access-restricted — a removable or network destination,
+  // where NTFS permissions cannot be relied on (security-hardening US-14 / AC-14.3). The backup is valid;
+  // the copy of the patient records in it is simply readable by anyone who can reach that medium, so this
+  // must be shown to the admin, not only logged.
+  warning?: string | null;
 }
 
 export const backupApi = {

@@ -235,8 +235,13 @@ Installs to `C:\Program Files\Clinic Management\` and, in one pass:
    **`ClinicManagementWeb`** (Node via NSSM) services. **Dependency order: DB → Web → API.** The Node web
    server listens **HTTP on `localhost:3000` only**; **Kestrel is the sole LAN-facing endpoint**
    (**HTTPS `5001`**) and reverse-proxies non-`/api` routes to Node.
-5. Opens **only** TCP `5001` on the LAN firewall (`3000` and the API's plain-HTTP `5000` stay loopback-only).
-6. Starts the services and **exports the generated CA** (`api\.local\ca.crt`) to
+5. **Secures the data directories** — before the services start, the installer runs
+   `api\ClinicManagement.API.exe harden-permissions` over `api\.local`, `api\Files`, `api\logs` and `pgdata`:
+   ACL inheritance is broken and access is reserved to the service account, `LocalSystem` and
+   `Administrators`, with any grant to `BUILTIN\Users` or `Everyone` removed recursively. See
+   *Permissions & data at rest* below.
+6. Opens **only** TCP `5001` on the LAN firewall (`3000` and the API's plain-HTTP `5000` stay loopback-only).
+7. Starts the services and **exports the generated CA** (`api\.local\ca.crt`) to
    `%ProgramData%\ClinicManagement\ca.crt` for the client installer.
 
 First-run setup is served **localhost-only** (AC-1.2a, enforced by the API) — open `https://localhost:5001`
@@ -267,8 +272,62 @@ The server installer is safe to re-run over an existing install **without wiping
     fails loud instead of guessing.
 
 > Back up `{app}\api\.local\db-credentials` (or the whole `{app}\api\.local` folder — it also holds the
-> signing key, HTTPS cert, CA, and Google refresh token) alongside your database backups. It is gitignored
-> and generated on the target — losing it while keeping `pgdata` blocks a clean reinstall.
+> signing key, HTTPS cert, CA, and the Data Protection key ring) alongside your database backups. It is
+> gitignored and generated on the target — losing it while keeping `pgdata` blocks a clean reinstall.
+>
+> **The credentials file is now encrypted and machine-bound.** Back up the **whole `.local` folder**, not
+> just `db-credentials` — the file is decryptable only with that machine's Data Protection key ring, which
+> also lives in `.local`. A copy of the file alone, on a different machine, is unreadable (that is the point).
+
+## Permissions & data at rest
+
+Closes the four P0 findings in § 2 of `CODEBASE_AUDIT_2026-07.md`. Before this release every local Windows
+account on the clinic PC could read the entire patient database, every uploaded radiograph, the logs, and the
+whole `.local/` trust store — the JWT signing key (enough to forge an admin token for any clinic), the HTTPS
+server key, the Data Protection key ring, and the e-invoice signing certificate.
+
+### What the installer now does
+
+| Path | Posture after install |
+|---|---|
+| `{app}\pgdata` | Inheritance broken; `LocalSystem` / `NetworkService` / `Administrators` only. The Full Control that `BUILTIN\Users` needs so de-privileged `initdb` can run is granted **only for that step** and revoked immediately after — on the failure path too, so an aborted install never leaves the cluster readable. |
+| `{app}\api\.local` | Same, and applied **before** the generated passwords are written into it, so plaintext is never readable even momentarily. |
+| `{app}\api\Files` | Same — patient radiographs, scans and referrals. |
+| `{app}\api\logs` | Same — Serilog output can carry patient names and appointment detail. |
+| `{app}\api\.local\db-credentials` | Encrypted at rest, machine-scoped, via the same Data Protection key ring the API uses. Never readable from a copy taken off the machine. |
+| `{app}\initdb.log` | Deleted once the install succeeds (it sits in the install root, which stays readable). |
+
+Any permission or encryption step that cannot be applied **aborts the install with a French message**. A
+completed install never silently leaves patient data readable.
+
+Re-running the installer re-asserts all of the above, so an install created by an **earlier** installer
+version is remediated on upgrade — which is how most existing clinics will receive this fix. A plaintext
+`db-credentials` left by an older installer is migrated to the encrypted form on that first reinstall.
+
+### Known residual limit
+
+`{app}\api\appsettings.Production.json` still contains the `clinic_user` password in readable form inside the
+connection string. Kestrel and the DbContext need it at boot, before any decryption service exists, so it is
+protected by the directory ACL only. An attacker who reaches **Administrator** on the clinic PC can read it.
+The `postgres` superuser password is **not** exposed there — only in the encrypted `db-credentials`.
+
+### Mise hors service (decommissioning a clinic PC)
+
+Uninstalling **deliberately keeps** the data: it removes the program files and services but leaves `pgdata`,
+`api\.local`, `api\Files`, `api\logs` and `appsettings.Production.json` in place (an uninstall that deleted
+the patient database would be catastrophic). The tightened ACLs survive, so the retained data stays
+protected — but it is still there.
+
+Before a clinic PC is **resold, sent for repair, or otherwise leaves the clinic**:
+
+1. Take a backup (in-app « Sauvegarder ») and **verify it restores** on another machine.
+2. Securely erase — not just delete — `{app}\pgdata`, `{app}\api\.local`, `{app}\api\Files`,
+   `{app}\api\logs`, and `{app}\api\appsettings.Production.json`.
+3. Remove the clinic CA from every client machine (the client uninstaller does this via
+   `certutil -delstore Root "Clinic Management Local CA"`).
+
+Skipping step 2 hands over every patient record, every radiograph, the JWT signing key and both database
+passwords with the hardware.
 
 ### Ports
 
@@ -324,6 +383,38 @@ Run on a real build machine + target PC(s). Each item maps to a spec acceptance 
 - [ ] **FR-F5** — Stop the DB service and start the API → a clear operator message (Event Log / `api/logs/`), not a bare stack trace; a port already in use → a distinct message naming the port.
 - [ ] **FR-B6** — `"C:\Program Files\Clinic Management\api\ClinicManagement.API.exe" reset-admin-password` recovers the admin when run from an arbitrary directory (e.g. `C:\`).
 - [ ] Firewall shows **only** `5001` inbound; `3000` / `5000` / `5432` are not reachable from the LAN.
+
+### Permissions & data at rest (security-hardening Part 1 — audit § 2 findings 1–4)
+
+**Not CI-runnable (R-1).** Needs a Windows build machine, and a **second, non-administrator local account**
+to prove denial from. Run the whole list twice: once on a **fresh** install, once on an **upgrade over a
+previous install** (that second pass is the one most existing clinics will take).
+
+- [ ] **AC-1.1 / AC-2.1–2.3** — `icacls "<path>"` for `{app}\pgdata`, `{app}\api\.local`, `{app}\api\Files`
+      and `{app}\api\logs` lists **no** `BUILTIN\Users` (`Utilisateurs`) and no `Everyone` (`Tout le monde`)
+      entry. Only `SYSTEM`, `Administrateurs` and `NETWORK SERVICE` appear.
+- [ ] **AC-2.4** — Signed in as the **non-admin** account: opening `{app}\api\.local\signing-key`, any file
+      under `{app}\api\Files`, and any file under `{app}\api\logs` is **denied**.
+- [ ] **AC-1.2 / AC-1.5** — The install completed (so de-privileged `initdb` ran), PostgreSQL starts, and the
+      API connects. Login works and a patient file uploads and downloads.
+- [ ] **AC-2.6** — **After** install: upload a patient file and let the API write a log line, then re-run
+      `icacls` on the new blob and the current log file. Both inherit the tightened ACL — no `Users`.
+- [ ] **AC-3.1** — `type "{app}\api\.local\db-credentials"` shows the `CMDPAPI1` marker followed by
+      ciphertext, **not** two readable passwords.
+- [ ] **AC-3.1 (machine-bound)** — Copy `db-credentials` to another machine and run
+      `ClinicManagement.API.exe read-credentials --out out.txt` there → it **fails** with the French
+      restore-from-backup message. Delete `out.txt` afterwards.
+- [ ] **AC-3.2** — Re-run the installer over the existing install → it reuses the credentials, the DB still
+      authenticates, and the data is intact.
+- [ ] **AC-3.3** — On a machine installed with the **previous** installer (plaintext `db-credentials`),
+      re-running this installer migrates the file to the `CMDPAPI1` form and still connects.
+- [ ] **AC-1.7** — Force `initdb` to fail (e.g. leave a stray non-cluster file in an empty `pgdata`), let the
+      install abort, then `icacls "{app}\pgdata"` → **no** `Users` grant left behind.
+- [ ] **AC-2.8** — `{app}\initdb.log` is gone after a successful install.
+- [ ] **AC-1.4 / AC-2.9 (fail loud)** — Make a hardening step fail (e.g. hold an exclusive handle on a file
+      under `pgdata`) → the installer shows a French error and **aborts**; it does not report success.
+- [ ] **Mise hors service** — The decommissioning procedure above is understood and the five paths are on the
+      operator's erase list.
 
 ### Client installer (S7)
 

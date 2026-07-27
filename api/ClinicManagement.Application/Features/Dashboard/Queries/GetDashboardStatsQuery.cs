@@ -1,4 +1,5 @@
 using MediatR;
+using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Common.Exceptions;
@@ -36,6 +37,7 @@ public class GetDashboardStatsQueryHandler : IRequestHandler<GetDashboardStatsQu
     private readonly ITreatmentPlanRepository _planRepository;
     private readonly ICreditNoteRepository _creditNoteRepository;
     private readonly IClinicContext _clinicContext;
+    private readonly ILogger<GetDashboardStatsQueryHandler> _logger;
 
     public GetDashboardStatsQueryHandler(
         IAppointmentRepository appointmentRepository,
@@ -44,7 +46,8 @@ public class GetDashboardStatsQueryHandler : IRequestHandler<GetDashboardStatsQu
         IInvoiceRepository invoiceRepository,
         ITreatmentPlanRepository planRepository,
         ICreditNoteRepository creditNoteRepository,
-        IClinicContext clinicContext)
+        IClinicContext clinicContext,
+        ILogger<GetDashboardStatsQueryHandler> logger)
     {
         _appointmentRepository = appointmentRepository;
         _patientRepository = patientRepository;
@@ -53,6 +56,7 @@ public class GetDashboardStatsQueryHandler : IRequestHandler<GetDashboardStatsQu
         _planRepository = planRepository;
         _creditNoteRepository = creditNoteRepository;
         _clinicContext = clinicContext;
+        _logger = logger;
     }
 
     public async Task<Result<DashboardStatsDto>> Handle(GetDashboardStatsQuery request, CancellationToken cancellationToken)
@@ -137,7 +141,9 @@ public class GetDashboardStatsQueryHandler : IRequestHandler<GetDashboardStatsQu
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<DashboardStatsDto>.Failure($"Error retrieving dashboard stats: {ex.Message}");
+            // AC-13.2: the detail goes to the log; the caller only ever sees French guidance.
+            _logger.LogError(ex, "Unhandled failure building dashboard stats");
+            return Result<DashboardStatsDto>.Failure("Erreur lors du chargement du tableau de bord. Veuillez réessayer.");
         }
     }
 

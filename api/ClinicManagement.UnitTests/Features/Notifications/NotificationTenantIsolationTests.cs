@@ -3,6 +3,7 @@ using ClinicManagement.Application.Features.Notifications.Commands;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Xunit;
 
@@ -29,7 +30,7 @@ public class NotificationTenantIsolationTests
         var repo = new Mock<IStaffNotificationRepository>();
         var uow = new Mock<IUnitOfWork>();
         uow.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
-        return (new MarkNotificationReadCommandHandler(repo.Object, users.Object, ctx.Object, uow.Object), repo, uow, user);
+        return (new MarkNotificationReadCommandHandler(repo.Object, users.Object, ctx.Object, uow.Object, NullLogger<MarkNotificationReadCommandHandler>.Instance), repo, uow, user);
     }
 
     private static StaffNotification NotificationInClinic(Guid clinicId) =>

@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using MediatR;
+using ClinicManagement.Application.Common.Authorization;
 using ClinicManagement.Application.Features.ProcedureTypes.Commands;
 using ClinicManagement.Application.Features.ProcedureTypes.Queries;
 using ClinicManagement.Domain.ValueObjects;
@@ -58,6 +59,10 @@ public class ProcedureTypesController : ApiControllerBase
     /// <summary>
     /// Create a new procedure type
     /// </summary>
+    // Catalog WRITES are admin-only, matching the CNAM nomenclature, dental-act and medication catalogs —
+    // this one was simply missed (audit § 2, finding 8). Procedure-type prices feed straight into what a
+    // patient is charged. Reads stay open to all staff.
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
     [HttpPost]
     public async Task<ActionResult<Application.DTOs.ProcedureTypeDto>> CreateProcedureType([FromBody] CreateProcedureTypeCommand command)
     {
@@ -74,6 +79,7 @@ public class ProcedureTypesController : ApiControllerBase
     /// <summary>
     /// Update a procedure type
     /// </summary>
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
     [HttpPut("{id}")]
     public async Task<ActionResult<Application.DTOs.ProcedureTypeDto>> UpdateProcedureType(Guid id, [FromBody] UpdateProcedureTypeCommand command)
     {
@@ -91,6 +97,7 @@ public class ProcedureTypesController : ApiControllerBase
     /// <summary>
     /// Delete (soft delete) a procedure type
     /// </summary>
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
     [HttpDelete("{id}")]
     public async Task<IActionResult> DeleteProcedureType(Guid id)
     {
@@ -109,6 +116,7 @@ public class ProcedureTypesController : ApiControllerBase
     /// Backfill the clinic's procedure menu with the common Tunisian dental procedures (idempotent —
     /// skips any whose name already exists). Returns the number added.
     /// </summary>
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
     [HttpPost("initialize-defaults")]
     public async Task<IActionResult> InitializeDefaults()
     {

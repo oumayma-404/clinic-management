@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
@@ -89,14 +90,49 @@ public class UploadPatientFileCommandHandler : IRequestHandler<UploadPatientFile
                 }
             }
 
+            // US-11 / AC-11.1–11.5: validate BEFORE anything is written, so a refused upload leaves no blob
+            // and no row — no orphan cleanup required. Previously ANY client-declared content type was
+            // accepted, with no allow-list, no signature check and no size cap, and the declared type was
+            // then echoed back on download from the app's own origin (audit § 2, finding 12).
+            var contentType = FileContentValidation.Normalize(
+                request.ContentType, FileContentValidation.PatientFileTypes);
+            if (contentType is null)
+            {
+                return Result<PatientFileDto>.Failure(FileContentValidation.UnsupportedPatientFileMessage);
+            }
+
+            // Buffer under a hard cap so an oversized upload cannot be used to exhaust memory, and so the
+            // leading bytes can be inspected — a Content-Type header is trivially spoofable.
+            using var buffer = new MemoryStream();
+            await request.FileStream.CopyToAsync(buffer, cancellationToken);
+
+            if (buffer.Length == 0)
+            {
+                return Result<PatientFileDto>.Failure(FileContentValidation.EmptyFileMessage);
+            }
+
+            if (buffer.Length > FileContentValidation.MaxPatientFileBytes)
+            {
+                return Result<PatientFileDto>.Failure(
+                    FileContentValidation.TooLargeMessage(FileContentValidation.MaxPatientFileBytes));
+            }
+
+            if (!FileContentValidation.MatchesSignature(contentType, buffer.ToArray()))
+            {
+                return Result<PatientFileDto>.Failure(FileContentValidation.SignatureMismatchMessage);
+            }
+
             // Store the blob first, then persist the record. If the DB save fails we must remove
             // the just-stored blob so no orphan remains (FR-C3).
-            var storageKey = await _fileStorage.UploadAsync(request.FileStream, request.ContentType, cancellationToken);
+            buffer.Position = 0;
+            var storageKey = await _fileStorage.UploadAsync(buffer, contentType, cancellationToken);
 
             try
             {
-                // Determine file type from content type
-                var fileType = DetermineFileType(request.ContentType);
+                // Persist the VALIDATED type and the ACTUAL byte count, never the client's claims — the stored
+                // type is what the download endpoint serves back (AC-11.6), and a client-supplied FileSize
+                // could disagree with what was written.
+                var fileType = DetermineFileType(contentType);
 
                 // Create file entity
                 var file = new PatientFile(
@@ -104,8 +140,8 @@ public class UploadPatientFileCommandHandler : IRequestHandler<UploadPatientFile
                     request.PatientId,
                     request.FileName,
                     storageKey,
-                    request.ContentType,
-                    request.FileSize,
+                    contentType,
+                    buffer.Length,
                     fileType,
                     request.FolderId,
                     request.Description,

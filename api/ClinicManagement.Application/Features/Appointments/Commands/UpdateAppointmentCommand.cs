@@ -530,7 +530,9 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<AppointmentDto>.Failure($"Error updating appointment: {ex.Message}");
+            // AC-13.2: the detail moves to the log; the caller gets French guidance, never exception text.
+            _logger.LogError(ex, "Unhandled failure updating appointment {AppointmentId}", request.Id);
+            return Result<AppointmentDto>.Failure("Erreur lors de la modification du rendez-vous. Veuillez réessayer.");
         }
     }
 

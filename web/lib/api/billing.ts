@@ -1,20 +1,7 @@
-import { apiGet } from './client';
+import { apiGet, getAccessToken } from './client';
 import type { PatientBillingSummaryDto, ReceivableDto } from './types';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
-
-async function getAccessToken(): Promise<string | null> {
-  try {
-    const response = await fetch('/bff/auth/token', { credentials: 'include' });
-    if (response.ok) {
-      const data = await response.json();
-      return data.accessToken || null;
-    }
-  } catch {
-    // Token endpoint unavailable
-  }
-  return null;
-}
 
 export const billingApi = {
   /** The unified per-patient balance + CNAM split. */

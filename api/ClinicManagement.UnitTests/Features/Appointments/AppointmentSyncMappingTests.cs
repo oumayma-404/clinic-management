@@ -120,7 +120,7 @@ public class AppointmentSyncMappingTests
             new Mock<IUnitOfWork>().Object,
             new Mock<INotificationGenerator>().Object,
             new Mock<IReminderScheduler>().Object,
-            new Mock<IAppointmentGoogleSyncDispatcher>().Object);
+            new Mock<IAppointmentGoogleSyncDispatcher>().Object, NullLogger<CreateAppointmentCommandHandler>.Instance);
 
         var result = await handler.Handle(
             new CreateAppointmentCommand { AppointmentDateTime = DateTime.UtcNow.AddDays(1), DurationMinutes = 30 },

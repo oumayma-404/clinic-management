@@ -133,7 +133,7 @@ public class MedicationCrudTests
         _repo.Setup(r => r.GetByIdAsync(med.Id, It.IsAny<CancellationToken>())).ReturnsAsync(med);
         _repo.Setup(r => r.BrandExistsAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>())).ReturnsAsync(false);
 
-        var handler = new UpdateMedicationCommandHandler(_repo.Object, _uow.Object, NullLogger<UpdateMedicationCommandHandler>.Instance);
+        var handler = new UpdateMedicationCommandHandler(_repo.Object, _clinicResolver.Object, _uow.Object, NullLogger<UpdateMedicationCommandHandler>.Instance);
         var result = await handler.Handle(new UpdateMedicationCommand
         {
             Id = med.Id, BrandName = "Augmentin", Form = "Sachet", Strength = "500 mg/62,5 mg",
@@ -152,7 +152,7 @@ public class MedicationCrudTests
     {
         _repo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync((Medication?)null);
 
-        var handler = new UpdateMedicationCommandHandler(_repo.Object, _uow.Object, NullLogger<UpdateMedicationCommandHandler>.Instance);
+        var handler = new UpdateMedicationCommandHandler(_repo.Object, _clinicResolver.Object, _uow.Object, NullLogger<UpdateMedicationCommandHandler>.Instance);
         var result = await handler.Handle(new UpdateMedicationCommand
         {
             Id = Guid.NewGuid(), BrandName = "X", Form = "Y", Strength = "Z", Dcis = new List<string> { "M" },
@@ -169,7 +169,7 @@ public class MedicationCrudTests
         _repo.Setup(r => r.GetByIdAsync(med.Id, It.IsAny<CancellationToken>())).ReturnsAsync(med);
         _repo.Setup(r => r.BrandExistsAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>())).ReturnsAsync(true);
 
-        var handler = new UpdateMedicationCommandHandler(_repo.Object, _uow.Object, NullLogger<UpdateMedicationCommandHandler>.Instance);
+        var handler = new UpdateMedicationCommandHandler(_repo.Object, _clinicResolver.Object, _uow.Object, NullLogger<UpdateMedicationCommandHandler>.Instance);
         var result = await handler.Handle(new UpdateMedicationCommand
         {
             Id = med.Id, BrandName = "Efferalgan", Form = "Comprimé", Strength = "1000 mg", Dcis = new List<string> { "Paracétamol" },
@@ -186,7 +186,7 @@ public class MedicationCrudTests
         Assert.True(med.IsActive);
         _repo.Setup(r => r.GetByIdAsync(med.Id, It.IsAny<CancellationToken>())).ReturnsAsync(med);
 
-        var handler = new DeactivateMedicationCommandHandler(_repo.Object, _uow.Object, NullLogger<DeactivateMedicationCommandHandler>.Instance);
+        var handler = new DeactivateMedicationCommandHandler(_repo.Object, _clinicResolver.Object, _uow.Object, NullLogger<DeactivateMedicationCommandHandler>.Instance);
         var result = await handler.Handle(new DeactivateMedicationCommand { Id = med.Id }, CancellationToken.None);
 
         Assert.True(result.IsSuccess);
@@ -199,7 +199,7 @@ public class MedicationCrudTests
     {
         _repo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync((Medication?)null);
 
-        var handler = new DeactivateMedicationCommandHandler(_repo.Object, _uow.Object, NullLogger<DeactivateMedicationCommandHandler>.Instance);
+        var handler = new DeactivateMedicationCommandHandler(_repo.Object, _clinicResolver.Object, _uow.Object, NullLogger<DeactivateMedicationCommandHandler>.Instance);
         var result = await handler.Handle(new DeactivateMedicationCommand { Id = Guid.NewGuid() }, CancellationToken.None);
 
         Assert.True(result.IsFailure);
@@ -213,7 +213,7 @@ public class MedicationCrudTests
         Assert.True(med.IsProvisional);
         _repo.Setup(r => r.GetAllAsync(true, It.IsAny<CancellationToken>())).ReturnsAsync(new[] { med });
 
-        var handler = new ConfirmMedicationDataCommandHandler(_repo.Object, _uow.Object, NullLogger<ConfirmMedicationDataCommandHandler>.Instance);
+        var handler = new ConfirmMedicationDataCommandHandler(_repo.Object, _clinicResolver.Object, _uow.Object, NullLogger<ConfirmMedicationDataCommandHandler>.Instance);
         var result = await handler.Handle(new ConfirmMedicationDataCommand(), CancellationToken.None);
 
         Assert.True(result.IsSuccess);

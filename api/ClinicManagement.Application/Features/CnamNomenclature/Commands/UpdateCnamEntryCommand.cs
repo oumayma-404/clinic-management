@@ -23,15 +23,18 @@ public class UpdateCnamEntryCommand : IRequest<Result<CnamNomenclatureEntryDto>>
 public class UpdateCnamEntryCommandHandler : IRequestHandler<UpdateCnamEntryCommand, Result<CnamNomenclatureEntryDto>>
 {
     private readonly ICnamCatalogRepository _repository;
+    private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<UpdateCnamEntryCommandHandler> _logger;
 
     public UpdateCnamEntryCommandHandler(
         ICnamCatalogRepository repository,
+        ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
         ILogger<UpdateCnamEntryCommandHandler> logger)
     {
         _repository = repository;
+        _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
         _logger = logger;
     }
@@ -40,8 +43,17 @@ public class UpdateCnamEntryCommandHandler : IRequestHandler<UpdateCnamEntryComm
     {
         try
         {
+            // Authoritative tenant guard: resolve the caller's clinic from the DB rather than relying on the
+            // EF global query filter, which is FAIL-OPEN — a token minted without a clinic_id claim leaves it
+            // inactive, and this row could then be reached by id from another clinic (audit § 2, finding 10).
+            var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
+            if (clinicResult.IsFailure)
+            {
+                return Result<CnamNomenclatureEntryDto>.Failure(clinicResult.Error ?? "Cabinet introuvable.");
+            }
+
             var entry = await _repository.GetByIdAsync(request.Id, cancellationToken);
-            if (entry is null)
+            if (entry is null || entry.ClinicId != clinicResult.Value)
             {
                 return Result<CnamNomenclatureEntryDto>.Failure("Acte introuvable.");
             }

@@ -18,20 +18,19 @@ namespace ClinicManagement.UnitTests.Features.Documents;
 /// </summary>
 public class DocumentTypeAndFilenameTests
 {
-    private static readonly Guid ClinicId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
-
     /// <summary>
-    /// A resolver that answers with a real clinic. Left unconfigured, it returned null and the handler's
-    /// tenant guard — which now runs BEFORE the patient lookup — threw into the catch-all, so
-    /// Create_With_Supported_Type_Passes_The_Type_Guard failed on its "the lookup happened" assertion while
-    /// still seeing the failure Result it expected. The test was checking the right thing for the wrong reason.
+    /// A clinic resolver that actually resolves. An unconfigured mock returns a default <c>Result</c>, so the
+    /// handler short-circuits at the clinic check — which sits BEFORE the patient lookup — and
+    /// <c>Create_With_Supported_Type_Passes_The_Type_Guard</c> then fails on an assertion about the lookup
+    /// never happening. The test's premise (the type guard lets a supported type through, and execution
+    /// proceeds to the patient lookup) is still correct; it just predates the handler becoming clinic-scoped.
     /// </summary>
-    private static Mock<ICurrentClinicResolver> ResolverFor(Guid clinicId)
+    private static ICurrentClinicResolver ResolvingClinic()
     {
         var resolver = new Mock<ICurrentClinicResolver>();
         resolver.Setup(r => r.GetClinicIdAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Result<Guid>.Success(clinicId));
-        return resolver;
+            .ReturnsAsync(Result<Guid>.Success(Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")));
+        return resolver.Object;
     }
 
     private static CreateMedicalDocumentCommandHandler CreateHandler(Mock<IPatientRepository>? patients = null) =>
@@ -42,7 +41,7 @@ public class DocumentTypeAndFilenameTests
             new Mock<IPatientFileRepository>().Object,
             new Mock<IFileStorage>().Object,
             new Mock<IAppointmentRepository>().Object,
-            ResolverFor(ClinicId).Object,
+            ResolvingClinic(),
             new Mock<IClinicContext>().Object,
             new Mock<IDoctorRepository>().Object,
             new Mock<IClinicRepository>().Object,

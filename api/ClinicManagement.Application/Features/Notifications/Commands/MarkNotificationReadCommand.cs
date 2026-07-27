@@ -1,5 +1,6 @@
 using MediatR;
 using ClinicManagement.Application.Common.Exceptions;
+using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Domain.Entities;
@@ -22,17 +23,20 @@ public class MarkNotificationReadCommandHandler : IRequestHandler<MarkNotificati
     private readonly IUserRepository _userRepository;
     private readonly IClinicContext _clinicContext;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly ILogger<MarkNotificationReadCommandHandler> _logger;
 
     public MarkNotificationReadCommandHandler(
         IStaffNotificationRepository notifications,
         IUserRepository userRepository,
         IClinicContext clinicContext,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        ILogger<MarkNotificationReadCommandHandler> logger)
     {
         _notifications = notifications;
         _userRepository = userRepository;
         _clinicContext = clinicContext;
         _unitOfWork = unitOfWork;
+        _logger = logger;
     }
 
     public async Task<Result> Handle(MarkNotificationReadCommand request, CancellationToken cancellationToken)
@@ -69,7 +73,9 @@ public class MarkNotificationReadCommandHandler : IRequestHandler<MarkNotificati
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result.Failure($"Error marking notification read: {ex.Message}");
+            // AC-13.2: the detail goes to the log; the caller only ever sees French guidance.
+            _logger.LogError(ex, "Unhandled failure marking notification read");
+            return Result.Failure("Erreur lors de la mise à jour de la notification.");
         }
     }
 }

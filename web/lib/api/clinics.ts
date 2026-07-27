@@ -1,23 +1,7 @@
-import { apiGet, apiPost, apiPostFormData, apiPut, apiPutFormData } from './client';
+import { apiGet, apiPost, apiPostFormData, apiPut, apiPutFormData, getAccessToken } from './client';
 import type { WorkingDay } from '@/lib/working-hours';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
-
-// Get Auth0 access token from client-side
-async function getAccessToken(): Promise<string | null> {
-  try {
-    const response = await fetch('/bff/auth/token', {
-      credentials: 'include',
-    });
-    if (response.ok) {
-      const data = await response.json();
-      return data.accessToken || null;
-    }
-  } catch {
-    // Token endpoint not available or error
-  }
-  return null;
-}
 
 export interface DoctorDto {
   id?: string;

@@ -15,15 +15,18 @@ public class ConfirmDentalActsCommand : IRequest<Result>
 public class ConfirmDentalActsCommandHandler : IRequestHandler<ConfirmDentalActsCommand, Result>
 {
     private readonly IDentalActCodeRepository _repository;
+    private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<ConfirmDentalActsCommandHandler> _logger;
 
     public ConfirmDentalActsCommandHandler(
         IDentalActCodeRepository repository,
+        ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
         ILogger<ConfirmDentalActsCommandHandler> logger)
     {
         _repository = repository;
+        _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
         _logger = logger;
     }
@@ -32,8 +35,18 @@ public class ConfirmDentalActsCommandHandler : IRequestHandler<ConfirmDentalActs
     {
         try
         {
+            // Authoritative tenant guard on a BULK write. There is no id to check here — the repository read
+            // goes through the fail-open EF query filter, so with no clinic_id claim in scope this loop would
+            // confirm EVERY clinic's provisional rows in one call (audit § 2, finding 10). Filtering the
+            // returned set is the equivalent of the single-row check the Update/Deactivate commands do.
+            var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
+            if (clinicResult.IsFailure)
+            {
+                return Result.Failure(clinicResult.Error ?? "Cabinet introuvable.");
+            }
+
             var provisional = await _repository.GetProvisionalAsync(cancellationToken);
-            foreach (var act in provisional)
+            foreach (var act in provisional.Where(a => a.ClinicId == clinicResult.Value))
             {
                 act.Confirm();
                 await _repository.UpdateAsync(act, cancellationToken);

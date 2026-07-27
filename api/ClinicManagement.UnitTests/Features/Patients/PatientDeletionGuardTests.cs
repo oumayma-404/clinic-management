@@ -6,6 +6,7 @@ using ClinicManagement.Application.Features.Patients.Queries;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Domain.ValueObjects;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 
 namespace ClinicManagement.UnitTests.Features.Patients;
@@ -29,7 +30,8 @@ public class PatientDeletionGuardTests
     private readonly Mock<IUnitOfWork> _uow = new();
 
     private DeletePatientCommandHandler CreateDeleteHandler() =>
-        new(_patients.Object, _clinicResolver.Object, _uow.Object);
+        new(_patients.Object, _clinicResolver.Object, _uow.Object,
+            NullLogger<DeletePatientCommandHandler>.Instance);
 
     private ArchivePatientCommandHandler CreateArchiveHandler() =>
         new(_patients.Object, _clinicResolver.Object, _uow.Object);

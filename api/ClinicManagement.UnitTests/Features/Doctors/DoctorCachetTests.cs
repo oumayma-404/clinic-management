@@ -50,13 +50,20 @@ public class DoctorCachetTests
     private void SaveSucceeds() =>
         _uow.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
 
-    // A REAL PNG signature. These fixtures used to hand over three arbitrary bytes, which was fine until the
-    // handler grew a magic-byte check (a Content-Type header is trivially spoofable, and the cachet is served
-    // back inline at the app origin). Every cachet test then failed on "n'est pas une image valide" — the
-    // guard was working and the fixture was lying.
-    private static readonly byte[] PngSignature = { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A };
-
-    private static MemoryStream Image() => new(PngSignature);
+    /// <summary>
+    /// A byte sequence that starts with the real <b>PNG</b> signature.
+    ///
+    /// This used to be <c>{ 1, 2, 3 }</c>, which stopped working once the cachet upload began verifying magic
+    /// bytes — a declared content type is trivially spoofable, so the handler checks the bytes actually start
+    /// with a PNG or JPEG signature before trusting it. The fixture was never updated, leaving four tests red
+    /// on an assertion (<c>result.IsSuccess</c>) that gave no hint of the cause. The production code was
+    /// correct throughout; only the fixture was stale.
+    ///
+    /// A PNG signature satisfies the check for both declared types, because the handler asks "is this a valid
+    /// PNG or JPEG", not "does the signature match the declared type".
+    /// </summary>
+    private static MemoryStream Image() =>
+        new(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D });
 
     // [CACHET-1] An admin can set another doctor's ordre number + cachet.
     [Fact]

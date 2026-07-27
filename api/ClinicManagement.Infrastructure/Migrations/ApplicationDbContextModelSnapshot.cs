@@ -2504,45 +2504,7 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.OwnsOne("ClinicManagement.Domain.ValueObjects.PhoneNumber", "EmergencyContactPhone", b1 =>
-                        {
-                            b1.Property<Guid>("PatientId")
-                                .HasColumnType("uuid");
-
-                            b1.Property<string>("Value")
-                                .IsRequired()
-                                .HasMaxLength(20)
-                                .HasColumnType("character varying(20)")
-                                .HasColumnName("EmergencyContactPhone");
-
-                            b1.HasKey("PatientId");
-
-                            b1.ToTable("Patients");
-
-                            b1.WithOwner()
-                                .HasForeignKey("PatientId");
-                        });
-
-                    b.OwnsOne("ClinicManagement.Domain.ValueObjects.PhoneNumber", "PhoneNumber", b1 =>
-                        {
-                            b1.Property<Guid>("PatientId")
-                                .HasColumnType("uuid");
-
-                            b1.Property<string>("Value")
-                                .IsRequired()
-                                .HasMaxLength(20)
-                                .HasColumnType("character varying(20)")
-                                .HasColumnName("PhoneNumber");
-
-                            b1.HasKey("PatientId");
-
-                            b1.ToTable("Patients");
-
-                            b1.WithOwner()
-                                .HasForeignKey("PatientId");
-                        });
-
-                    b.OwnsOne("ClinicManagement.Domain.ValueObjects.Address", "Address", b1 =>
+                    b.OwnsOne("ClinicManagement.Domain.Entities.Patient.Address#ClinicManagement.Domain.ValueObjects.Address", "Address", b1 =>
                         {
                             b1.Property<Guid>("PatientId")
                                 .HasColumnType("uuid");
@@ -2578,13 +2540,13 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                             b1.HasKey("PatientId");
 
-                            b1.ToTable("Patients");
+                            b1.ToTable("Patients", (string)null);
 
                             b1.WithOwner()
                                 .HasForeignKey("PatientId");
                         });
 
-                    b.OwnsOne("ClinicManagement.Domain.ValueObjects.CnamInfo", "CnamInfo", b1 =>
+                    b.OwnsOne("ClinicManagement.Domain.Entities.Patient.CnamInfo#ClinicManagement.Domain.ValueObjects.CnamInfo", "CnamInfo", b1 =>
                         {
                             b1.Property<Guid>("PatientId")
                                 .HasColumnType("uuid");
@@ -2631,13 +2593,13 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                             b1.HasKey("PatientId");
 
-                            b1.ToTable("Patients");
+                            b1.ToTable("Patients", (string)null);
 
                             b1.WithOwner()
                                 .HasForeignKey("PatientId");
                         });
 
-                    b.OwnsOne("ClinicManagement.Domain.ValueObjects.Email", "Email", b1 =>
+                    b.OwnsOne("ClinicManagement.Domain.Entities.Patient.Email#ClinicManagement.Domain.ValueObjects.Email", "Email", b1 =>
                         {
                             b1.Property<Guid>("PatientId")
                                 .HasColumnType("uuid");
@@ -2650,13 +2612,32 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                             b1.HasKey("PatientId");
 
-                            b1.ToTable("Patients");
+                            b1.ToTable("Patients", (string)null);
 
                             b1.WithOwner()
                                 .HasForeignKey("PatientId");
                         });
 
-                    b.OwnsOne("ClinicManagement.Domain.ValueObjects.InsuranceInfo", "InsuranceInfo", b1 =>
+                    b.OwnsOne("ClinicManagement.Domain.Entities.Patient.EmergencyContactPhone#ClinicManagement.Domain.ValueObjects.PhoneNumber", "EmergencyContactPhone", b1 =>
+                        {
+                            b1.Property<Guid>("PatientId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<string>("Value")
+                                .IsRequired()
+                                .HasMaxLength(20)
+                                .HasColumnType("character varying(20)")
+                                .HasColumnName("EmergencyContactPhone");
+
+                            b1.HasKey("PatientId");
+
+                            b1.ToTable("Patients", (string)null);
+
+                            b1.WithOwner()
+                                .HasForeignKey("PatientId");
+                        });
+
+                    b.OwnsOne("ClinicManagement.Domain.Entities.Patient.InsuranceInfo#ClinicManagement.Domain.ValueObjects.InsuranceInfo", "InsuranceInfo", b1 =>
                         {
                             b1.Property<Guid>("PatientId")
                                 .HasColumnType("uuid");
@@ -2684,7 +2665,26 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                             b1.HasKey("PatientId");
 
-                            b1.ToTable("Patients");
+                            b1.ToTable("Patients", (string)null);
+
+                            b1.WithOwner()
+                                .HasForeignKey("PatientId");
+                        });
+
+                    b.OwnsOne("ClinicManagement.Domain.Entities.Patient.PhoneNumber#ClinicManagement.Domain.ValueObjects.PhoneNumber", "PhoneNumber", b1 =>
+                        {
+                            b1.Property<Guid>("PatientId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<string>("Value")
+                                .IsRequired()
+                                .HasMaxLength(20)
+                                .HasColumnType("character varying(20)")
+                                .HasColumnName("PhoneNumber");
+
+                            b1.HasKey("PatientId");
+
+                            b1.ToTable("Patients", (string)null);
 
                             b1.WithOwner()
                                 .HasForeignKey("PatientId");
@@ -2785,7 +2785,7 @@ namespace ClinicManagement.Infrastructure.Migrations
 
             modelBuilder.Entity("ClinicManagement.Domain.Entities.ProcedureType", b =>
                 {
-                    b.OwnsOne("ClinicManagement.Domain.ValueObjects.ColorHex", "Color", b1 =>
+                    b.OwnsOne("ClinicManagement.Domain.Entities.ProcedureType.Color#ClinicManagement.Domain.ValueObjects.ColorHex", "Color", b1 =>
                         {
                             b1.Property<Guid>("ProcedureTypeId")
                                 .HasColumnType("uuid");
@@ -2798,7 +2798,7 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                             b1.HasKey("ProcedureTypeId");
 
-                            b1.ToTable("ProcedureTypes");
+                            b1.ToTable("ProcedureTypes", (string)null);
 
                             b1.WithOwner()
                                 .HasForeignKey("ProcedureTypeId");
