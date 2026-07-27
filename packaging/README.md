@@ -108,8 +108,69 @@ There is **no in-app restore**. To restore a backup onto a server PC:
    base folder (`FileStorage:BasePath`, under the install directory), overwriting existing files.
 4. **Start the Clinic Management API service.**
 
-Concurrent edits from two client PCs are last-write-wins (documented v1 behavior); restore over a quiet
-system for a consistent result.
+Restore over a quiet system for a consistent result.
+
+*(Concurrent edits from two client PCs are **no longer** last-write-wins — see « Money reconciliation » below.
+Each record now carries a concurrency token, and the second person to save gets a French « rechargez » message
+instead of silently discarding the first person's work.)*
+
+---
+
+## Money reconciliation (`reconcile-money`)
+
+A read-only, per-clinic report that cross-checks every money figure the app stores against the rows it is
+derived from. **It never mutates anything.** Run it before and after any upgrade that carries a data
+migration, and diff the two.
+
+```powershell
+"C:\Program Files\Clinic Management\api\ClinicManagement.API.exe" reconcile-money
+```
+
+or from a source checkout:
+
+```bash
+dotnet run --project ClinicManagement.API -- reconcile-money
+```
+
+Output goes to stdout **and** to a timestamped file next to the backup folder, so the before/after pair can be
+diffed. Exit codes: **0** everything agrees · **1** the report could not run (no database, bad connection
+string) · **2** drift was found. `2` is not an emergency — it is a list of rows for a human to look at.
+
+What it checks, per clinic:
+
+| Check | Why it exists |
+|---|---|
+| `invoice-ledgers-agree` | Σ non-voided `Payment.Amount` vs the stored `Invoice.AmountCollected` |
+| `installment-ledger-agrees` | Σ `InstallmentPayment.Amount` vs the stored `Installment.AmountPaid` |
+| `plan-schedule-balances` | Per plan: Σ `Installment.Amount` vs `TotalPlanned` — an invariant plan amendments can break |
+| `monthly-attribution-unchanged` | 24 months of « encaissé » computed the **old way and the new way**. This is the line that proves the installment-ledger migration moved no closed month. |
+| `bridge-carry-over-complete` | Bridged invoices still carrying un-transferred plan money |
+| `credit-notes-within-collected` | Invoices credited for more than was ever collected |
+| `one-bridge-invoice-per-plan` | Duplicate non-cancelled bridge invoices for one devis |
+| `contact-sentinels` | The four retired placeholder literals, plus a separate **near-miss** count (e.g. `no-email@example.com`) for manual review — those are deliberately *not* auto-cleaned |
+| `no-orphaned-rows` | Invoices and treatment plans whose `PatientId` matches no patient (neither has an FK), plus orphaned tooth states and notifications |
+
+> **Local mode only.** The verb is intercepted before the web host boots, alongside `reset-admin-password` and
+> `provision-cert`, so it runs on a stopped app.
+
+---
+
+## Upgrading across the `data-and-money-integrity` release
+
+That release carries **five migrations**, and the last one is order-sensitive.
+
+1. **Back up first** (Settings → Sauvegarde, or `pg_dump` by hand). The last migration is **lossy by design**
+   and its `Down()` is deliberately empty — rollback means restoring this backup.
+2. **Capture a baseline**: run `reconcile-money` and keep the output file.
+3. **Upgrade and start the service.** Migrations apply automatically. Note that in Local mode they run *after*
+   Kestrel is already serving, so there is a brief window where the app is up and the data is mid-migration;
+   this is why the null-safe code ships ahead of the blanking `UPDATE` and not with it.
+4. **Run `reconcile-money` again and diff.** Expect:
+   - all four **sentinel counts at zero** (the near-miss count may be non-zero — review those by hand);
+   - `monthly-attribution-unchanged` reporting **no closed month moved**;
+   - `installment-ledger-agrees` clean, i.e. the ledger backfill matched every stored `AmountPaid`.
+5. Anything else in the diff is a pre-existing inconsistency the report has simply made visible for the first
+   time. It is a work list, not a failed upgrade.
 
 ---
 

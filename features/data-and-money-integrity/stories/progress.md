@@ -9,7 +9,7 @@
 
 | # | Story | Status |
 |---|-------|--------|
-| 1 | Correct the eight data-loss and money defects, end to end | in progress |
+| 1 | Correct the eight data-loss and money defects, end to end | **complete** |
 
 ## Part status
 
@@ -24,9 +24,9 @@
 | F | Devis→facture carry-over | complete | `c182571` | yes |
 | G | Avoirs readable + PDF + netting | complete | `f19ed35` | yes |
 | H | Patient contact optional | complete | `a7e8fb8` | yes |
-| I | Conflict detection — backend | pending | | |
-| J | Conflict detection — frontend | pending | | |
-| K | Documentation | pending | | |
+| I | Conflict detection — backend | complete | `9a726a6` | yes |
+| J | Conflict detection — frontend | complete | `9a726a6` | yes |
+| K | Documentation | complete | | |
 
 ## Working tree note (start of session)
 
@@ -206,6 +206,80 @@ had drifted behind it.
 **zero** for all four sentinel counts; the near-miss count is informational and may be non-zero — those are
 matched by exact value on purpose, since a real patient could plausibly own something like
 `no-email@example.com` and guessing at one is worse than leaving it for review.
+
+## Parts I & J — notes  *(committed together: the 409 is useless without a UI that acts on it)*
+
+**Quality gate:** backend build 0 errors / no new warnings; **938 tests, all passing**; `tsc --noEmit` clean;
+`npm run build` clean. 217 files changed.
+
+### The plan's "no migration" claim was wrong, and silently dangerous
+
+Step 1 said: generate a probe migration, confirm `Up()` is empty, delete it. It is **not** empty. EF's differ
+emits **38 × `AddColumn<uint>("xmin", type: "xid")`** — and PostgreSQL rejects that outright
+(*column name "xmin" conflicts with a system column name*), so shipping it as generated would have failed the
+first migrate of **every** deployment.
+
+Npgsql's own `UseXminAsConcurrencyToken()` is not the fix either: obsolete in 8.0, and it adds a *shadow* xmin
+property, which leaves our CLR `Version` mapped as an ordinary `bigint` column called `Version` — 76 spurious
+operations instead of 38, and a token bound to nothing.
+
+Resolution: map `Version` → `xmin` explicitly, and commit `AddConcurrencyToken` with a **deliberately empty
+`Up()`**. The file is kept for its **model snapshot** — without it, the next unrelated `migrations add` silently
+absorbs all 38 operations into a migration that *does* run.
+
+### Two ways this feature could have looked present while being inert
+
+1. **Checking the wrong version.** The handler re-reads the row microseconds before saving, so its token always
+   matches. Without `SetExpectedVersion` round-tripping the version the *user* holds, every conflict passes.
+2. **Swallowing the conflict.** Every handler ends in `catch (Exception ex) { return Result.Failure("Erreur…") }`.
+   A 409 through that arrives as a 200-with-error-text the UI cannot distinguish from a real fault.
+
+Both are pinned by `ConcurrencyConflictTests`.
+
+### The catch-filter sweep was discriminating, not blanket
+
+152 catch blocks gained `when (ex is not ConflictException)` — but **only those that `return Result`**. A catch
+that merely logs is a best-effort post-commit side effect (notifications, reminders, Google sync); the core
+operation has already committed there, and turning a conflict into a 409 would be a lie. The discriminator is
+mechanical and re-runnable.
+
+### `0` means "not supplied", deliberately
+
+Several writers legitimately hold no user-supplied version: the AI action dispatcher, the Google→App calendar
+sync, the reminder and e-invoice jobs. Real rows never carry an `xmin` of 0, so treating it as "skip the check"
+keeps them working. AC-60 says the token is "required on the mutating command" — it is *present* on all six, and
+the six UI paths always send it; making it mandatory server-side would have broken the internal writers for no
+gain, since they are not two people editing a form.
+
+### Findings the concurrency work turned up
+
+- **14 repositories** called `Update()` on a possibly-detached entity. Harmless before; with a token, an entity
+  that was never loaded reads `Version = 0`, producing `WHERE xmin = 0`, zero matched rows, and a 409 for a
+  conflict that never happened. `ClinicRepository` mattered as much as `AppointmentRepository` — Clinic is one
+  of the six round-tripped aggregates.
+- **`EInvoiceService`** would have swallowed a conflict as "retry later" *after* the TTN exchange, losing the
+  identifier and QR payload that existed only in memory and leaving the invoice `Queued` — so the outbox would
+  re-submit a document TTN had already accepted. It now reloads and re-applies (`Invoice.CopyEInvoiceStateFrom`,
+  a whole-block copy: those ten fields are one state machine and merging two snapshots yields a state neither
+  side reached).
+- **Three money screens had no realtime subscription at all** — la caisse, « Créances » and the dashboard, i.e.
+  exactly the ones read while a colleague is changing the numbers. The server has always broadcast `expenses`
+  (derived from the namespace) and **no client listened**; the key was missing from `RealtimeResource`.
+- **Every modal's hydration effect** depended on the whole object prop, so a peer's refetch produced a new
+  identity, re-ran the effect, and reset fields mid-edit. Re-keyed to `[open, x?.id]`.
+- The patient page's invoices tab never passed `onChanged`, so recording a payment left « Solde patient » stale.
+
+## Part K — notes
+
+Six documents updated: the root `CLAUDE.md`, the Domain / Application / UnitTests guides, `packaging/README.md`,
+and `CODEBASE_AUDIT_2026-07.md` (§1 ticked, each item annotated with what actually shipped, plus a table of the
+13 adjacent defects closed alongside).
+
+`packaging/README.md` gained the two operator-facing pieces this feature created: the `reconcile-money` verb
+(what each of the nine checks means, exit codes, where the output lands) and an **upgrade runbook** for the
+five-migration batch — back up first, capture a baseline, upgrade, diff, and what the diff should say. The
+existing note that concurrent edits are "last-write-wins (documented v1 behavior)" is now false and was
+corrected rather than left to mislead.
 
 ### Auto-approved deviations
 
@@ -457,6 +531,9 @@ carry-over.
 | Repaired three pre-existing broken test fixtures (7 tests) beyond Part H's file list | Trivial — tests only, no production change | Two were in the blast radius (I changed `ReminderScheduler`'s constructor); leaving a red suite makes every future gate unreadable. Each was a stale fixture, not a defect. |
 | Added `A_Spoofed_Content_Type_Is_Rejected_Before_Storage` | Trivial | The magic-byte guard had no coverage — the broken fixture was accidentally tripping it, so its failure read as noise. |
 | `ReminderScheduler` gained an `IPatientRepository` dependency | Trivial — additive constructor parameter | Gating at enqueue needs the patient's phone; the scheduler previously never loaded the patient. |
+| The catch-filter sweep covered 152 blocks, not the ~40 the plan estimated | Trivial — mechanical, and the discriminator is stricter than the estimate | Filtering only catches that `return Result` is safer than hand-picking "handlers that can conflict", and self-maintaining. |
+| Added `Invoice.CopyEInvoiceStateFrom` | Trivial — new method, no behaviour change to existing callers | The plan said "reload and reapply" without saying how; the ten e-invoice fields are one state machine, so a whole-block copy is the only correct shape. |
+| Added `RealtimeResource.Expenses` | Trivial | The server already broadcast the key; the frontend map was simply missing it. |
 
 ## Significant deviations
 

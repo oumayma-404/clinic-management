@@ -19,7 +19,7 @@
 
 | # | Category | 🔴 | 🟠 | 🟡 | 🟢 | Total |
 |---|---|:--:|:--:|:--:|:--:|:--:|
-| 1 | [Data loss & money correctness](#1-data-loss--money-correctness) | 6 | 2 | — | — | **8** |
+| 1 | [Data loss & money correctness](#1-data-loss--money-correctness) | 6 | 2 | — | — | **8 ✅ all closed** |
 | 2 | [Security](#2-security) | 5 | 4 | 3 | — | **12** |
 | 3 | [Silent no-ops — the UI lies](#3-silent-no-ops--the-ui-lies) | — | 4 | — | — | **4** |
 | 4 | [Timezone — Tunisia is UTC+1](#4-timezone--tunisia-is-utc1) | 1 | 1 | — | — | **2** |
@@ -37,38 +37,93 @@
 
 > The eight items here either destroy records or produce a wrong number on a document a patient pays against.
 
-- [ ] 🔴 **Deleting a patient hard-deletes their entire appointment history.**
+> ✅ **All eight closed** by `features/data-and-money-integrity` (branch
+> `feature/data-and-money-integrity`), delivered as one story in eleven ordered parts, five migrations.
+> Each item below carries a short note on what actually shipped — several turned out to be narrower or
+> wider than the audit's reading. Adjacent defects found while fixing them are listed after the section.
+
+- [x] 🔴 **Deleting a patient hard-deletes their entire appointment history.**
   Two EF configurations declare the same relationship with opposite delete behavior. `AppointmentConfiguration` says `SetNull` (comment: "busy slots"), `PatientConfiguration` says `Cascade` — and `PatientConfiguration` wins under `ApplyConfigurationsFromAssembly`. The model snapshot confirms `Cascade` is what shipped, and `DeletePatientCommand` is live and reachable from the UI.
   `Infrastructure/Persistence/Configurations/PatientConfiguration.cs:125` · `AppointmentConfiguration.cs:72` · snapshot `Migrations/ApplicationDbContextModelSnapshot.cs:1977`
   → *Direction:* delete the duplicate `HasMany(p => p.Appointments)` block from `PatientConfiguration`.
+  ✅ **Done** — plus the deeper problem: deleting is now *refused* when anything is attached, with the real
+  counts named, and **archiving** (`Patient.IsArchived`) is the escape hatch, because blocking with no
+  alternative would have made the delete button decorative. Migration
+  `20260727145139_FixPatientAppointmentDeleteBehaviorAndAddArchive`.
 
-- [ ] 🔴 **Any partial `PUT /api/appointments/{id}` silently wipes the procedure type, snapshot duration and colour.**
+- [x] 🔴 **Any partial `PUT /api/appointments/{id}` silently wipes the procedure type, snapshot duration and colour.**
   An omitted `procedureTypeId` binds to `null`, `null != appointment.ProcedureTypeId` evaluates true, and the handler calls `SetProcedureType(null, null, null)`. The tri-state guard that was written for `treatmentPlanItemId` was never applied to this field. The cancel button in the edit dialog posts `{status:"cancelled"}` on its own — so cancelling an appointment also erases its act.
   `Application/Features/Appointments/Commands/UpdateAppointmentCommand.cs:198` · caller `web/components/edit-appointment-dialog.tsx:326`
+  ✅ **Done** — the tri-state was generalized to `ProcedureTypeId`, `DoctorId`, `Notes` and `DoctorName`, so
+  clearing the notes box and unassigning a practitioner work for the first time (`SetDoctorId(null)` existed
+  and was unreachable). Two silent swallows in the same handler — an unparseable status and a non-positive
+  duration, both returning 200 — now fail explicitly.
 
-- [ ] 🔴 **Devis→facture re-bills money the patient already paid.**
+- [x] 🔴 **Devis→facture re-bills money the patient already paid.**
   The bridge seeds invoice lines at full `PlannedCost` with `AmountCollected` starting at 0, and `GetPatientBillingSummaryQuery` then drops the plan from the balance entirely once billed. A 1 000 DT plan with 600 DT already collected on its échéancier shows 1 000 DT owing (plus TVA + timbre) the moment the invoice is issued.
   `Application/Features/Invoices/Commands/CreateInvoiceFromTreatmentPlanCommand.cs:102` · de-dup at `Application/Features/Billing/Queries/GetPatientBillingSummaryQuery.cs:79`
+  ✅ **Done** — issuing a bridge invoice now **carries the plan's collected payments across**, and the read-side
+  de-dup was extended from outstanding to cash. The de-dup and the carry-over had to land together: either
+  alone double-counts or erases real receipts.
 
-- [ ] 🔴 **A recorded payment can never be corrected.**
+- [x] 🔴 **A recorded payment can never be corrected.**
   `Invoice` exposes `RecordPayment` but no void/remove/reverse. A treatment-plan installment payment has no avoir path at all. A mistyped amount is permanent with zero correction route.
   `Domain/Entities/Invoice.cs:195` · `Domain/Entities/TreatmentPlan.cs:243`
+  ✅ **Done** — payments are voidable on both tracks (motif, actor and moment recorded; the row is kept and
+  struck through, never deleted). The installment side needed an **event-sourced ledger**
+  (`InstallmentPayment`) first, since a single cumulative `AmountPaid` has nothing to void. A reprinted
+  receipt for a voided payment carries a « REÇU ANNULÉ » stamp.
 
-- [ ] 🔴 **Avoirs are write-only — once issued you can never see one again.**
+- [x] 🔴 **Avoirs are write-only — once issued you can never see one again.**
   `CreateCreditNoteCommand` is the only code in the solution that touches `CreditNote`. There is no query, no list, no PDF, and no field on `InvoiceDto`. The clinic cannot retrieve the avoir's number, motif or amount, cannot hand it to the patient, and cannot tell that an invoice already has one.
   `Application/DTOs/InvoiceDto.cs:3` · endpoint `API/Controllers/InvoicesController.cs:182`
+  ✅ **Done** — read paths, a list endpoint, a real avoir PDF, and `creditedTotal` on the invoice row. The
+  worse defect underneath: `GetInvoiceRevenueQuery` has two branches and **only the windowed one netted
+  avoirs**, so the « Total encaissé » that `/factures` loads by default disagreed with la caisse.
 
-- [ ] 🔴 **Zero optimistic concurrency anywhere in the solution.**
+- [x] 🔴 **Zero optimistic concurrency anywhere in the solution.**
   No `RowVersion`, no `IsConcurrencyToken`, no `DbUpdateConcurrencyException` in Domain, Application or Infrastructure. Two concurrent `POST /invoices/{id}/payments` both pass the over-payment guard and both insert a `Payment` row, while `AmountCollected` keeps only the last writer's value — `Outstanding` then disagrees permanently with the sum of payment rows. Same last-write-wins on patients, plans and invoices.
   `Domain/Entities/Invoice.cs:203` · `Application/Features/Patients/Commands/UpdatePatientCommand.cs:200`
+  ✅ **Done** — PostgreSQL `xmin` mapped onto `Entity<T>.Version` covers all 38 entities with no schema
+  change; conflicts surface as HTTP 409 with a French message the UI acts on. ⚠️ The migration is **not**
+  empty as first assumed: EF emits 38 × `AddColumn("xmin")`, which PostgreSQL rejects outright, so
+  `AddConcurrencyToken` ships with an empty `Up()` and a populated snapshot.
 
-- [ ] 🟠 **Installment revenue is booked into the wrong month.**
+- [x] 🟠 **Installment revenue is booked into the wrong month.**
   The repository sums the *cumulative* `AmountPaid` filtered on `LastPaidOn`. An échéance paid 400 DT on 5 Jan and 600 DT on 3 Feb reports **0 DT** in January's caisse/dashboard and **1 000 DT** in February's.
   `Infrastructure/Repositories/TreatmentPlanRepository.cs:98`
+  ✅ **Done** — the same `InstallmentPayment` ledger that made voiding possible also dates each payment
+  individually, so a closed month stops changing retroactively. Backfilled in
+  `20260727181433_AddInstallmentPaymentLedger`.
 
-- [ ] 🟠 **Every patient without contact details shares one fake identity.**
+- [x] 🟠 **Every patient without contact details shares one fake identity.**
   The owned `Email`/`PhoneNumber` value-object columns are `IsRequired()`, so the create handler substitutes the literals `noemail@example.com` and `0000000000`. This poisons every email/phone-based lookup, dedupe and reminder path with a shared sentinel.
   `Application/Features/Patients/Commands/CreatePatientCommand.cs:101` · `Infrastructure/Persistence/Configurations/PatientConfiguration.cs:39`
+  ✅ **Done** — columns nullable, **both** sentinel sources removed (the audit found one; the Google-Calendar
+  patient auto-creator was a second, writing `unknown@example.com` / `000-000-0000`), existing literals
+  blanked. Ordering was a hard requirement: all eleven `.Value` dereferences became null-safe *before* the
+  blanking `UPDATE`, since in Local mode migrations run after Kestrel is already serving.
+
+### Adjacent defects closed with §1
+
+Found while fixing the eight, and fixed in the same feature rather than logged for later:
+
+| Defect | Where |
+|---|---|
+| « Total encaissé » ignored avoirs in the branch `/factures` actually loads | `GetInvoiceRevenueQuery` |
+| The dashboard's monthly-collected KPI never netted avoirs, so it disagreed with la caisse over the same window | `GetDashboardStatsQuery` |
+| `SendRecallCommand` marked a phone-less patient « contacted » and snoozed them 30 days after sending nothing | `Features/Recall` |
+| An avoir's payment method was silently dropped to null when unparseable | `CreateCreditNoteCommand` |
+| `RefundedOn` / `PaidOn` accepted `0001-01-01` and future dates — invisible in every cash window, forever | new `PaymentDateRules` |
+| The avoir status gate was a hand-maintained whitelist that could disagree with the `canCreateAvoir` the UI is given | `CreateCreditNoteCommand` |
+| An invoice with a TTN-registered e-invoice could still be cancelled | `Invoice.Cancel` |
+| 14 repositories called `Update()` on a possibly-detached entity — a guaranteed spurious 409 once a token existed | `Infrastructure/Repositories` |
+| `EInvoiceService` would have lost a TTN validation on conflict and re-submitted an accepted invoice | `EInvoiceService` |
+| La caisse, « Créances » and the dashboard had **no** realtime subscription; the server had always broadcast `expenses` and nothing listened | `web/app/caisse`, `receivables-table`, `web/app/page.tsx` |
+| Every modal's hydration effect re-ran on a peer's refetch and reset fields mid-edit | 7 modals |
+| An empty-body 403 rendered as « HTTP 403: Forbidden » | `web/lib/api/client.ts` |
+| Three test fixtures had drifted behind the code and were failing for stale reasons — one of them hiding the cachet magic-byte guard entirely | `ReminderSchedulerTests`, `DoctorCachetTests`, `DocumentTypeAndFilenameTests` |
+
 
 ---
 

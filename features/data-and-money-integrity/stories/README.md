@@ -7,7 +7,7 @@
 
 | # | Story | Status |
 |---|-------|--------|
-| 1 | [Correct the eight data-loss and money defects, end to end](./story-1-data-and-money-integrity.md) | in progress |
+| 1 | [Correct the eight data-loss and money defects, end to end](./story-1-data-and-money-integrity.md) | **complete** |
 
 One story by explicit user decision (plan **R-1**). It is delivered as **eleven ordered parts**; each is a vertical
 increment ending at a clean build gate, and each is committed and pushed on completion.
@@ -22,11 +22,11 @@ increment ending at a clean build gate, and each is committed and pushed on comp
 | D | Void a payment + invoice detail modal | AddPaymentVoid | **complete** |
 | E | Installment ledger + plan void + receipts | M3 | **complete** |
 | F | Devis→facture carry-over | — | **complete** |
-| G | Avoirs readable + PDF + netting | — | pending |
-| H | Patient contact optional | M4 | pending |
-| I | Conflict detection — backend | M5 | pending |
-| J | Conflict detection — frontend | — | pending |
-| K | Documentation | — | pending |
+| G | Avoirs readable + PDF + netting | — | **complete** |
+| H | Patient contact optional | M4 | **complete** |
+| I | Conflict detection — backend | M5 (snapshot-only) | **complete** |
+| J | Conflict detection — frontend | — | **complete** |
+| K | Documentation | — | **complete** |
 
 ## Ordering constraints (from the plan — do not reorder)
 
@@ -35,6 +35,11 @@ increment ending at a clean build gate, and each is committed and pushed on comp
 2. **Part H's null-safe code deploys before Part H's blanking migration.** In Local mode migrations run *after*
    Kestrel is serving, so blanking first takes patient search down for the clinic.
 3. **Do not stop mid-part in D, E, F or H** — the money model is briefly half-migrated inside each.
+
+> **Closed.** All eleven parts landed; 938 backend tests pass, `tsc` and `npm run build` are clean. One
+> deviation from the plan is worth carrying forward: **M5 is not the empty no-op the plan assumed**. EF emits
+> 38 × `AddColumn("xmin")`, which PostgreSQL rejects, so `AddConcurrencyToken` ships with a hand-emptied `Up()`
+> and is kept purely for its model snapshot.
 
 ## Base-ref note
 
