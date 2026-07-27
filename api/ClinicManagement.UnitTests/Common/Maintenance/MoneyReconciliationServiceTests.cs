@@ -29,7 +29,8 @@ public class MoneyReconciliationServiceTests
         IReadOnlyList<MonthlyCollectedFact>? monthly = null,
         IReadOnlyList<ContactValueFact>? contacts = null,
         IReadOnlyList<OverCreditedInvoiceFact>? overCredited = null,
-        IReadOnlyList<DuplicateBridgeFact>? duplicateBridges = null) =>
+        IReadOnlyList<DuplicateBridgeFact>? duplicateBridges = null,
+        IReadOnlyList<UntransferredBridgeFact>? untransferredBridges = null) =>
         new(ClinicId,
             "Cabinet Test",
             paymentRowSum,
@@ -41,7 +42,8 @@ public class MoneyReconciliationServiceTests
             monthly ?? Array.Empty<MonthlyCollectedFact>(),
             contacts ?? new[] { new ContactValueFact("sonia@example.tn", "20123456") },
             overCredited ?? Array.Empty<OverCreditedInvoiceFact>(),
-            duplicateBridges ?? Array.Empty<DuplicateBridgeFact>());
+            duplicateBridges ?? Array.Empty<DuplicateBridgeFact>(),
+            untransferredBridges ?? Array.Empty<UntransferredBridgeFact>());
 
     private void Arrange(ClinicMoneyFacts clinic, OrphanFacts? orphans = null) =>
         _reader
@@ -288,6 +290,25 @@ public class MoneyReconciliationServiceTests
 
         Assert.Equal(MoneyReconciliationSeverity.Info, Finding(report, "monthly-attribution-unchanged").Severity);
         Assert.False(report.HasDrift);
+    }
+
+    // [AC-36] Bridge invoices issued before the carry-over existed still re-bill a deposit the patient paid.
+    // They are REPORTED, never repaired — numbered documents, some filed with El Fatoora.
+    [Fact]
+    public async Task An_Untransferred_Bridge_Is_Reported_As_Drift()
+    {
+        Arrange(CleanClinic(untransferredBridges: new[]
+        {
+            new UntransferredBridgeFact(InvoiceId, "2026-0031", "2026-0007", CollectedOnPlan: 600m)
+        }));
+
+        var report = await CreateService().RunAsync();
+
+        var finding = Finding(report, "bridge-carry-over-complete");
+        Assert.Equal(MoneyReconciliationSeverity.Drift, finding.Severity);
+        Assert.Contains("2026-0031", finding.Detail);
+        Assert.Contains("600", finding.Detail);
+        Assert.Contains("manuellement", finding.Detail);
     }
 
     // [AC-74] The report reads once and mutates nothing — there is no write seam on it at all.

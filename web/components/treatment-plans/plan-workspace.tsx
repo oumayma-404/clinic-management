@@ -204,9 +204,19 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                         await invoicesApi.createFromPlan(plan.id)
                         router.push("/factures")
                       },
-                      "Facture brouillon créée depuis le devis",
+                      // The carry-over happens at ISSUE, not at draft creation (a draft invoice cannot hold
+                      // payments), so the draft will show the full amount owing. Say so, or the dentist sees a
+                      // full-price invoice for a patient who has already paid half and assumes it is wrong.
+                      plan.amountPaid > 0
+                        ? `Facture brouillon créée — ${formatDT(plan.amountPaid)} déjà encaissé sera reporté à l'émission`
+                        : "Facture brouillon créée depuis le devis",
                       "Échec de la facturation du devis.",
                     )
+                  }
+                  title={
+                    plan.amountPaid > 0
+                      ? `${formatDT(plan.amountPaid)} déjà encaissé sur ce devis sera reporté sur la facture à son émission`
+                      : undefined
                   }
                 >
                   <ReceiptText className="h-4 w-4" />

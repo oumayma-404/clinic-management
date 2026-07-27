@@ -153,8 +153,14 @@ export function InvoicesTable({
   const handleIssue = async (invoice: InvoiceDto) => {
     setBusyId(invoice.id)
     try {
-      await invoicesApi.issue(invoice.id)
-      toast.success("Facture émise")
+      const issued = await invoicesApi.issue(invoice.id)
+      // A devis-born invoice carries its plan's already-collected money across at issue. Naming the amount
+      // explains why the note is not showing its full total as owing.
+      toast.success(
+        issued.amountCollected > 0
+          ? `Facture émise — ${formatDT(issued.amountCollected)} reporté depuis le devis`
+          : "Facture émise",
+      )
       afterMutation()
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Échec de l'émission.")
@@ -169,8 +175,14 @@ export function InvoicesTable({
     setBusyId(invoice.id)
     try {
       const issued = await invoicesApi.issue(invoice.id)
-      toast.success("Facture émise")
+      toast.success(
+        issued.amountCollected > 0
+          ? `Facture émise — ${formatDT(issued.amountCollected)} reporté depuis le devis`
+          : "Facture émise",
+      )
       afterMutation()
+      // Prefilled from the POST-carry-over invoice, so the modal offers the real remaining balance. Using the
+      // pre-issue snapshot here would ask the dentist to collect the full amount a second time.
       setPaymentTarget(issued)
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Échec de l'émission.")

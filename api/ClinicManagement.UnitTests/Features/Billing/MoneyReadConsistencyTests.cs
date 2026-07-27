@@ -127,7 +127,8 @@ public class MoneyReadConsistencyTests
         _invoices.Setup(r => r.GetCollectedBetweenAsync(
             ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>())).ReturnsAsync(0m);
         _plans.Setup(r => r.GetInstallmentCollectedBetweenAsync(
-            ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>())).ReturnsAsync(0m);
+            ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(),
+            It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>())).ReturnsAsync(0m);
 
         // Mirrors TreatmentPlanRepository.GetInstallmentOutstandingByPatientAsync: committed plans only,
         // minus whatever the caller passes as already-billed.

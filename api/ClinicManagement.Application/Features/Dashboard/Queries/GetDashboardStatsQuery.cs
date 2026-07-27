@@ -90,11 +90,17 @@ public class GetDashboardStatsQueryHandler : IRequestHandler<GetDashboardStatsQu
 
             var monthStart = request.MonthStart ?? new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
             var monthEnd = request.MonthEnd ?? monthStart.AddMonths(1).AddTicks(-1);
+            // A plan bridged into a real invoice is counted through that invoice on BOTH the cash and the
+            // outstanding side now — the bridge carries its collected money across at issue, so counting the
+            // plan as well would double it.
+            var billedPlanIds = PlanBillingRules.BilledPlanIds(
+                await _invoiceRepository.GetTreatmentPlanLinksAsync(clinicId, cancellationToken));
+
             // Encaissé ce mois-ci = invoice payments + treatment-plan installment collections (both tracks).
             var invoiceCollected = await _invoiceRepository.GetCollectedBetweenAsync(
                 clinicId, monthStart, monthEnd, cancellationToken);
             var installmentCollected = await _planRepository.GetInstallmentCollectedBetweenAsync(
-                clinicId, monthStart, monthEnd, cancellationToken);
+                clinicId, monthStart, monthEnd, billedPlanIds, cancellationToken);
             var monthlyRevenueCollected = InvoiceCalculator.RoundMoney(invoiceCollected + installmentCollected);
 
             // En attente de recouvrement = clinic-wide outstanding across both tracks. A plan bridged into a
@@ -102,8 +108,6 @@ public class GetDashboardStatsQueryHandler : IRequestHandler<GetDashboardStatsQu
             // « Solde patient » and « Créances » apply), so the KPI can't overstate what patients owe.
             var invoiceOutstanding = (await _invoiceRepository.GetOutstandingByPatientAsync(clinicId, cancellationToken))
                 .Sum(r => r.Outstanding);
-            var billedPlanIds = PlanBillingRules.BilledPlanIds(
-                await _invoiceRepository.GetTreatmentPlanLinksAsync(clinicId, cancellationToken));
             var installmentOutstanding = (await _planRepository.GetInstallmentOutstandingByPatientAsync(clinicId, now, billedPlanIds, cancellationToken))
                 .Sum(r => r.Outstanding);
             var totalOutstanding = InvoiceCalculator.RoundMoney(invoiceOutstanding + installmentOutstanding);

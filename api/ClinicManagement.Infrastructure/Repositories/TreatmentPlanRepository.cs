@@ -86,13 +86,27 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
         return max;
     }
 
-    public async Task<decimal> GetInstallmentCollectedBetweenAsync(Guid clinicId, DateTime from, DateTime to, CancellationToken cancellationToken = default)
+    public async Task<decimal> GetInstallmentCollectedBetweenAsync(
+        Guid clinicId,
+        DateTime from,
+        DateTime to,
+        IReadOnlyCollection<Guid> excludedPlanIds,
+        CancellationToken cancellationToken = default)
     {
         // Committed plans only (PlanBillingRules): a Draft devis's hand-built échéancier is not clinic money
-        // and a cancelled plan is void. No billed-plan exclusion here on purpose — this is cash received, and
-        // the devis→facture bridge copies no payment onto the invoice, so excluding a bridged plan would
-        // delete real receipts from the caisse rather than de-duplicate them.
+        // and a cancelled plan is void.
+        //
+        // Bridged plans ARE excluded here — and that is a deliberate reversal of the previous rule. It used to
+        // say the opposite, because the bridge copied no payment onto the invoice, so excluding a bridged plan
+        // would have deleted real receipts from the caisse. The bridge now carries that money onto the invoice
+        // at issue, so those receipts live on the invoice track and counting them here too would double them.
+        // This is the condition DEV-5 of treatment-plan-workspace anticipated: "if the carry-over fix ever
+        // lands, a de-dup on the collected side becomes necessary AT THAT MOMENT".
+        //
+        // The exclusion is purely read-side and self-correcting: a Draft bridge does not exclude (the money is
+        // still only on the plan), and cancelling the bridge hands the plan straight back.
         var debtStatuses = PlanBillingRules.DebtBearingPlanStatuses;
+        var excluded = excludedPlanIds as ICollection<Guid> ?? excludedPlanIds.ToList();
 
         // Summed from the payment LEDGER, each row on its own date. This used to key the whole cumulative
         // AmountPaid off the single LastPaidOn, so an échéance paid 400 DT in January and 600 in February
@@ -103,7 +117,9 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
         // Still rooted at the clinic-filtered TreatmentPlans set and reached by SelectMany: that traversal IS
         // the tenant scoping for a grandchild that has no ClinicId and no DbSet of its own.
         return await _context.TreatmentPlans
-            .Where(p => p.ClinicId == clinicId && debtStatuses.Contains(p.Status))
+            .Where(p => p.ClinicId == clinicId
+                        && debtStatuses.Contains(p.Status)
+                        && !excluded.Contains(p.Id))
             .SelectMany(p => p.Installments)
             .SelectMany(i => i.Payments)
             .Where(p => !p.IsVoided && p.PaidOn >= from && p.PaidOn <= to)

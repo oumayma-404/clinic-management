@@ -35,7 +35,8 @@ public sealed record ClinicMoneyFacts(
     IReadOnlyList<MonthlyCollectedFact> MonthlyCollected,
     IReadOnlyList<ContactValueFact> ContactValues,
     IReadOnlyList<OverCreditedInvoiceFact> OverCreditedInvoices,
-    IReadOnlyList<DuplicateBridgeFact> DuplicateBridges);
+    IReadOnlyList<DuplicateBridgeFact> DuplicateBridges,
+    IReadOnlyList<UntransferredBridgeFact> UntransferredBridges);
 
 /// <summary>One debt-bearing plan's planned total against the sum of its échéancier.</summary>
 public sealed record PlanScheduleFact(Guid PlanId, string? Number, decimal TotalPlanned, decimal InstallmentSum);
@@ -62,6 +63,19 @@ public sealed record ContactValueFact(string? Email, string? Phone);
 
 /// <summary>An invoice credited by more avoirs than it ever collected.</summary>
 public sealed record OverCreditedInvoiceFact(Guid InvoiceId, string? Number, decimal AmountCollected, decimal Credited);
+
+/// <summary>
+/// A bridge invoice issued BEFORE the carry-over existed, so the money collected on its devis was never moved
+/// onto it — the patient is still being re-billed for a deposit they already paid.
+///
+/// Reported, never repaired: these are numbered documents and some are filed with El Fatoora, so the
+/// correction belongs to a human with the clinic's context (an avoir, or a payment recorded by hand).
+/// </summary>
+public sealed record UntransferredBridgeFact(
+    Guid InvoiceId,
+    string? InvoiceNumber,
+    string? PlanNumber,
+    decimal CollectedOnPlan);
 
 /// <summary>A treatment plan represented by more than one non-cancelled invoice.</summary>
 public sealed record DuplicateBridgeFact(Guid TreatmentPlanId, string? PlanNumber, int NonCancelledInvoiceCount);

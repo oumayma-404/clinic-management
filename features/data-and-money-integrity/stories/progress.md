@@ -20,8 +20,8 @@
 | B | Patient delete blocks + archive | complete | `4b4a805` | yes |
 | C | Appointment update stops wiping the act | complete | `f5d915e` | yes |
 | D | Void a payment + invoice detail modal | complete | `d451c14` | yes |
-| E | Installment ledger + plan void + receipts | complete | | |
-| F | Devis→facture carry-over | pending | | |
+| E | Installment ledger + plan void + receipts | complete | `0fcc796` | yes |
+| F | Devis→facture carry-over | complete | | |
 | G | Avoirs readable + PDF + netting | pending | | |
 | H | Patient contact optional | pending | | |
 | I | Conflict detection — backend | pending | | |
@@ -260,6 +260,62 @@ The traversal stays rooted at the clinic-filtered `TreatmentPlans` set and reach
 | `RecordInstallmentPayment` now returns the created `InstallmentPayment` | Trivial | The caller needs the new row's id to offer its receipt. Previously it returned void and the modal could only reference the échéance. |
 | Added `Installments.DueDate` index in this migration | Trivial | « Créances » pulls every open installment per clinic and there was no date index at all; the plan lists it under M3 anyway. |
 | `Installment.ResyncFromLedger()` (internal) | Trivial | Lets the verification pass rebuild the denormalizations from EF-loaded rows, which bypass the domain methods. Internal, no public surface. |
+
+## Part F — notes
+
+**Quality gate:** backend 0 errors, 0 warnings in changed files; `tsc` clean; `npm run build` 27/27.
+**885 pass / 8 fail** — the same verified baseline, no new failures.
+
+### The de-dup turned out to need no write at all
+
+The plan expected this part to make the codebase's **first two-aggregate transactional write** ("mark the
+installment payments carried + record the invoice payments"), and flagged it as risk **R-8**.
+
+It doesn't need one. De-duplication is entirely **read-side**: `GetInstallmentCollectedBetweenAsync` now
+excludes bridged plans, so nothing has to be written to the plan. That makes the carry-over a single-aggregate
+write, removes the transaction, and **eliminates R-8**.
+
+It is also self-correcting, which the write-side version would not have been:
+
+| Bridge state | Plan track | Invoice track |
+|---|---|---|
+| No bridge | counts | — |
+| Draft bridge | counts (nothing carried yet) | no payments |
+| Issued bridge | excluded | carries the payments |
+| Cancelled bridge | counts again | excluded (`Status != Cancelled`) |
+
+Counted exactly once in every state, with no compensating write to get wrong.
+
+`SourceInstallmentPaymentId` is kept as provenance — it is what lets the report identify pre-existing bridges
+and lets the detail modal explain where a payment came from.
+
+### Three load-bearing comments inverted together
+
+`PlanBillingRules`, `GetCaisseSummaryQuery` and `TreatmentPlanRepository` all stated the *opposite* rule —
+that de-dup deliberately does **not** apply to collected cash, *because the bridge copies no payment onto the
+invoice*. That premise is exactly what this part changes, so all three now say so and cite DEV-5 of
+`treatment-plan-workspace`, which predicted this: *"if the carry-over fix ever lands, a de-dup on the collected
+side becomes necessary at that moment."*
+
+### Refuse, never clamp
+
+If the plan collected more than the invoice bills (acts cut back after a deposit, or VAT settings changed),
+issuing is **refused before any payment is recorded**. Letting `Invoice.RecordPayment` throw its over-payment
+guard mid-loop would strand a numbered invoice that can then be neither issued nor rebuilt.
+
+### Two of my own tests failed first, and the code was right
+
+`Issuing_Carries_The_Collected_Deposit_Onto_The_Invoice` expected `Outstanding == 400`; it was `401.000`. The
+default clinic enables a **1,000 DT timbre fiscal**, so TTC is 1001. The assertions now read against
+`invoice.TotalTtc` instead of literals — hard-coding 400 was asserting the clinic's billing config, not the
+carry-over.
+
+### Auto-approved deviations
+
+| Deviation | Classification | Reason |
+|-----------|----------------|--------|
+| No transaction, no plan mutation (plan called for a two-aggregate transactional write) | Trivial — strictly less risk | Read-side de-dup makes the write single-aggregate. Removes R-8 and is self-correcting on cancel. |
+| `excludedPlanIds` made **required** on the collected query | Trivial | Mirrors the outstanding query, which is required for exactly this reason: a cash read must not be able to silently skip the de-dup. |
 
 ## Significant deviations
 

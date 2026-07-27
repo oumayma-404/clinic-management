@@ -52,7 +52,7 @@ public class GetDashboardStatsQueryHandlerTests
             .Setup(r => r.GetTreatmentPlanLinksAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<(Guid TreatmentPlanId, Guid InvoiceId, string? Number, InvoiceStatus Status)>());
         _planRepository
-            .Setup(r => r.GetInstallmentCollectedBetweenAsync(It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .Setup(r => r.GetInstallmentCollectedBetweenAsync(It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(0m);
         _planRepository
             .Setup(r => r.GetInstallmentOutstandingByPatientAsync(It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))

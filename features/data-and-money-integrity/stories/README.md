@@ -21,7 +21,7 @@ increment ending at a clean build gate, and each is committed and pushed on comp
 | C | Appointment update stops wiping the act | — | **complete** |
 | D | Void a payment + invoice detail modal | AddPaymentVoid | **complete** |
 | E | Installment ledger + plan void + receipts | M3 | **complete** |
-| F | Devis→facture carry-over | — | pending |
+| F | Devis→facture carry-over | — | **complete** |
 | G | Avoirs readable + PDF + netting | — | pending |
 | H | Patient contact optional | M4 | pending |
 | I | Conflict detection — backend | M5 | pending |

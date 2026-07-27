@@ -36,7 +36,19 @@ public interface ITreatmentPlanRepository
     /// receipts from the caisse instead of de-duplicating them.
     /// </para>
     /// </summary>
-    Task<decimal> GetInstallmentCollectedBetweenAsync(Guid clinicId, DateTime from, DateTime to, CancellationToken cancellationToken = default);
+    /// <param name="excludedPlanIds">
+    /// Plans already represented by a non-cancelled bridge invoice. <b>Required</b>, exactly like the
+    /// outstanding query's — so a cash read cannot silently skip the de-duplication.
+    ///
+    /// Since the devis→facture bridge now carries collected installment money onto the invoice at issue, a
+    /// bridged plan's receipts live on the invoice track; counting them here as well would double the caisse.
+    /// </param>
+    Task<decimal> GetInstallmentCollectedBetweenAsync(
+        Guid clinicId,
+        DateTime from,
+        DateTime to,
+        IReadOnlyCollection<Guid> excludedPlanIds,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Outstanding installment balance per patient (Σ amount − paid over not-fully-paid installments) plus

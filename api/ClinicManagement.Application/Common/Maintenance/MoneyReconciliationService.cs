@@ -85,6 +85,7 @@ public class MoneyReconciliationService
             findings.AddRange(CheckContactSentinels(clinic));
             findings.AddRange(CheckCreditNotes(clinic));
             findings.AddRange(CheckBridges(clinic));
+            findings.AddRange(CheckUntransferredBridges(clinic));
             findings.AddRange(CheckMonthlyAttribution(clinic));
             findings.AddRange(CheckInstallmentLedgerAgrees(clinic));
 
@@ -247,6 +248,36 @@ public class MoneyReconciliationService
                 "one-bridge-invoice-per-plan",
                 $"Devis {bridge.PlanNumber ?? bridge.TreatmentPlanId.ToString()[..8]} is billed by "
                 + $"{bridge.NonCancelledInvoiceCount} non-cancelled invoices",
+                MoneyReconciliationSeverity.Drift);
+        }
+    }
+
+    /// <summary>
+    /// Bridge invoices issued before the carry-over existed. Their devis collected money that was never moved
+    /// onto the invoice, so the patient is still being re-billed for a deposit they already paid.
+    ///
+    /// Reported, never repaired — these are numbered documents, some filed with El Fatoora, so the correction
+    /// belongs to a human with the clinic's context (an avoir, or a payment recorded by hand).
+    /// </summary>
+    private static IEnumerable<MoneyReconciliationFinding> CheckUntransferredBridges(ClinicMoneyFacts clinic)
+    {
+        if (clinic.UntransferredBridges.Count == 0)
+        {
+            yield return new MoneyReconciliationFinding(
+                clinic.ClinicName, "bridge-carry-over-complete",
+                "No bridge invoice is missing its devis's collected money",
+                MoneyReconciliationSeverity.Info);
+            yield break;
+        }
+
+        foreach (var bridge in clinic.UntransferredBridges)
+        {
+            yield return new MoneyReconciliationFinding(
+                clinic.ClinicName,
+                "bridge-carry-over-complete",
+                $"Facture {bridge.InvoiceNumber ?? bridge.InvoiceId.ToString()[..8]} "
+                + $"(devis {bridge.PlanNumber ?? "?"}) : {Money(bridge.CollectedOnPlan)} encaissé sur le devis "
+                + "n'a jamais été reporté — le patient est refacturé de ce montant. À corriger manuellement.",
                 MoneyReconciliationSeverity.Drift);
         }
     }

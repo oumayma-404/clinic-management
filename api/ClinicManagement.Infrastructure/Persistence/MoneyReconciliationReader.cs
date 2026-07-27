@@ -82,6 +82,7 @@ public class MoneyReconciliationReader : IMoneyReconciliationReader
             .SelectMany(p => p.Installments.SelectMany(i => i.Payments.Select(pay => new
             {
                 p.ClinicId,
+                PlanId = p.Id,
                 pay.Amount,
                 pay.PaidOn,
                 pay.IsVoided
@@ -108,6 +109,17 @@ public class MoneyReconciliationReader : IMoneyReconciliationReader
             Notifications: await _context.Notifications
                 .CountAsync(n => n.PatientId != null && !_context.Patients.Any(p => p.Id == n.PatientId), cancellationToken));
 
+        // Invoices that already hold at least one carried-over payment.
+        var carriedInvoiceIds = (await _context.Invoices
+            .AsNoTracking()
+            .Where(i => i.Status != InvoiceStatus.Cancelled)
+            .SelectMany(i => i.Payments
+                .Where(p => p.SourceInstallmentPaymentId != null)
+                .Select(p => i.Id))
+            .Distinct()
+            .ToListAsync(cancellationToken))
+            .ToHashSet();
+
         var creditedByInvoice = creditNotes
             .GroupBy(c => c.InvoiceId)
             .ToDictionary(g => g.Key, g => g.Sum(c => c.Amount));
@@ -118,6 +130,7 @@ public class MoneyReconciliationReader : IMoneyReconciliationReader
             var clinicPayments = payments.Where(p => p.ClinicId == clinic.Id).ToList();
             var clinicInstallments = installments.Where(i => i.ClinicId == clinic.Id).ToList();
             var clinicLedger = ledger.Where(l => l.ClinicId == clinic.Id && !l.IsVoided).ToList();
+            var clinicCarriedInvoiceIds = carriedInvoiceIds;
 
             var planSchedules = plans
                 .Where(p => p.ClinicId == clinic.Id)
@@ -145,6 +158,27 @@ public class MoneyReconciliationReader : IMoneyReconciliationReader
                     g.Count()))
                 .ToList();
 
+            // Bridge invoices whose devis had collected money that was never carried across. A carried payment
+            // records SourceInstallmentPaymentId, so an invoice with none while its plan holds live payments
+            // predates the carry-over.
+            var untransferred = clinicInvoices
+                .Where(i => i.TreatmentPlanId != null)
+                .Select(i => new
+                {
+                    Invoice = i,
+                    CollectedOnPlan = ledger
+                        .Where(l => !l.IsVoided && l.PlanId == i.TreatmentPlanId!.Value)
+                        .Sum(l => l.Amount),
+                    HasCarried = clinicCarriedInvoiceIds.Contains(i.Id)
+                })
+                .Where(x => x.CollectedOnPlan > 0m && !x.HasCarried)
+                .Select(x => new UntransferredBridgeFact(
+                    x.Invoice.Id,
+                    x.Invoice.Number,
+                    plans.FirstOrDefault(p => p.Id == x.Invoice.TreatmentPlanId!.Value)?.Number,
+                    x.CollectedOnPlan))
+                .ToList();
+
             return new ClinicMoneyFacts(
                 clinic.Id,
                 clinic.Name,
@@ -170,7 +204,8 @@ public class MoneyReconciliationReader : IMoneyReconciliationReader
                     .Select(c => new ContactValueFact(c.Email, c.Phone))
                     .ToList(),
                 OverCreditedInvoices: overCredited,
-                DuplicateBridges: duplicateBridges);
+                DuplicateBridges: duplicateBridges,
+                UntransferredBridges: untransferred);
         }).ToList();
 
         return new MoneyReconciliationFacts(perClinic, orphans);
