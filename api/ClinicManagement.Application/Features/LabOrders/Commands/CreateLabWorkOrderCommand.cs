@@ -1,4 +1,5 @@
 using MediatR;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -80,7 +81,7 @@ public class CreateLabWorkOrderCommandHandler : IRequestHandler<CreateLabWorkOrd
         {
             return Result<LabWorkOrderDto>.Failure(ex.Message);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             return Result<LabWorkOrderDto>.Failure($"Erreur lors de la création du bon de laboratoire : {ex.Message}");
         }

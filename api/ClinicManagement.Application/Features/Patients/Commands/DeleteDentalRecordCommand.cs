@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Domain.Repositories;
 
@@ -67,7 +68,7 @@ public class DeleteDentalRecordCommandHandler : IRequestHandler<DeleteDentalReco
 
             return Result<bool>.Success(true);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             // AC-13.2: the detail goes to the log; the caller only ever sees French guidance.
             _logger.LogError(ex, "Unhandled failure deleting dental record");

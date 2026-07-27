@@ -163,6 +163,37 @@ public class InvoicesController : ApiControllerBase
     }
 
     /// <summary>Cancel an issued invoice (admin/doctor only).</summary>
+    /// <summary>
+    /// Void a recorded payment — "this was never received". The row is kept and marked with a motif, the actor
+    /// and the moment; the collected total is recomputed and the status walks back. Not reversible: to correct
+    /// a correction, record the right payment again.
+    ///
+    /// <para>
+    /// AdminOrDoctor, like every operation that alters an issued financial document. A void is a correction,
+    /// not a refund — money actually returned to the patient is an avoir.
+    /// </para>
+    /// </summary>
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [HttpPost("{id}/payments/{paymentId}/void")]
+    public async Task<ActionResult<InvoiceDto>> VoidPayment(
+        Guid id,
+        Guid paymentId,
+        [FromBody] VoidPaymentCommand command,
+        CancellationToken cancellationToken)
+    {
+        command.InvoiceId = id;
+        command.PaymentId = paymentId;
+
+        var result = await _mediator.Send(command, cancellationToken);
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+
+        return Ok(result.Value);
+    }
+
     [HttpPost("{id}/cancel")]
     [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
     public async Task<ActionResult<InvoiceDto>> CancelInvoice(Guid id, [FromBody] CancelInvoiceCommand command, CancellationToken cancellationToken = default)
@@ -192,6 +223,37 @@ public class InvoicesController : ApiControllerBase
         }
 
         return Ok(result.Value);
+    }
+
+    /// <summary>
+    /// The avoirs established against this invoice, newest first. Readable by anyone who can see the
+    /// invoice — establishing one is admin/doctor, reading one is not a financial action.
+    /// </summary>
+    [HttpGet("{id}/avoirs")]
+    public async Task<ActionResult<List<CreditNoteDto>>> GetCreditNotes(Guid id, CancellationToken cancellationToken = default)
+    {
+        var result = await _mediator.Send(new GetInvoiceCreditNotesQuery { InvoiceId = id }, cancellationToken);
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+
+        return Ok(result.Value);
+    }
+
+    /// <summary>Download an avoir's PDF — the patient's proof of the refund.</summary>
+    [HttpGet("avoirs/{creditNoteId}/pdf")]
+    public async Task<IActionResult> GetCreditNotePdf(Guid creditNoteId, CancellationToken cancellationToken = default)
+    {
+        var result = await _mediator.Send(new GetCreditNotePdfQuery { Id = creditNoteId }, cancellationToken);
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+
+        return File(result.Value!.Content, "application/pdf", result.Value.FileName);
     }
 
     /// <summary>

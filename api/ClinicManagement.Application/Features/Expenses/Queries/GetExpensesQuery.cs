@@ -1,4 +1,5 @@
 using MediatR;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -36,7 +37,7 @@ public class GetExpensesQueryHandler : IRequestHandler<GetExpensesQuery, Result<
             var expenses = await _expenseRepository.GetByClinicIdAsync(clinic.Value, request.From, request.To, cancellationToken);
             return Result<IEnumerable<ExpenseDto>>.Success(expenses.Select(e => e.ToDto()));
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             return Result<IEnumerable<ExpenseDto>>.Failure($"Erreur lors de la récupération des dépenses : {ex.Message}");
         }

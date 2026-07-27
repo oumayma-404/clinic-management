@@ -33,9 +33,13 @@ public class AppointmentSyncMappingTests
             doctorName: "Dr Test",
             notes: null,
             recurringAppointmentId: null,
-            procedureTypeId: null,
-            procedureDurationMinutes: null,
-            procedureColorHex: null);
+            // The fixture carries a booked act on purpose. The bare `new UpdateAppointmentCommand { Id }`
+            // below used to pass only because this was null — with an act present, the pre-tri-state handler
+            // nulled it (an omitted procedureTypeId bound to null and read as "different from current"), so
+            // this test was pinning the data-loss defect rather than the mapping it claims to cover.
+            procedureTypeId: Guid.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"),
+            procedureDurationMinutes: 45,
+            procedureColorHex: "#4F83CC");
 
         if (googleEventId is not null)
         {
@@ -159,6 +163,10 @@ public class AppointmentSyncMappingTests
 
         Assert.True(result.IsSuccess);
         Assert.Equal(expected, result.Value!.IsSyncedToGoogle);
+
+        // A bare update sends no procedureTypeId, so the booked act must survive it untouched.
+        Assert.Equal(Guid.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"), appointment.ProcedureTypeId);
+        Assert.Equal(45, appointment.ProcedureDurationMinutes);
     }
 
     /// <summary>

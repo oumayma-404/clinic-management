@@ -1,4 +1,5 @@
 using MediatR;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Domain.Repositories;
@@ -57,7 +58,7 @@ public class ConfirmMedicationDataCommandHandler : IRequestHandler<ConfirmMedica
             _logger.LogInformation("Confirmed medication catalog (cleared provisional flags)");
             return Result.Success();
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error confirming medication catalog");
             return Result.Failure("Erreur lors de la confirmation du catalogue des médicaments.");

@@ -3,6 +3,8 @@
 import type React from "react"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
+import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
+import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { format, parseISO } from "date-fns"
 import { fr } from "date-fns/locale"
 import { toast } from "sonner"
@@ -117,6 +119,14 @@ export default function CaissePage() {
   useEffect(() => {
     loadData()
   }, [loadData])
+
+  // La caisse had no realtime subscription at all — the one screen whose whole job is "what is in the
+  // drawer right now" sat stale while a colleague recorded payments next door. Every money source it sums
+  // is watched, because any of them moves the total.
+  useClinicRealtime(
+    [RealtimeResource.Invoices, RealtimeResource.TreatmentPlans, RealtimeResource.Expenses],
+    loadData,
+  )
 
   const dayLabel = useMemo(
     () => format(new Date(`${selectedDay}T00:00:00`), "EEEE d MMMM yyyy", { locale: fr }),

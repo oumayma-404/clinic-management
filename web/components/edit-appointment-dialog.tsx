@@ -21,6 +21,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
+import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -38,6 +39,12 @@ import type { AppointmentDto, ProcedureTypeDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import { useDoctors } from "@/lib/hooks/use-doctors"
 import { useAppointmentOverlap } from "@/lib/hooks/use-appointment-overlap"
+
+/**
+ * Sentinel for "no practitioner" in the Radix Select, which cannot hold an empty-string value. Mapped to `""`
+ * in state and sent to the API as an explicit `null`, which unassigns the practitioner.
+ */
+const UNASSIGNED_DOCTOR = "__unassigned__"
 
 interface EditAppointmentDialogProps {
   open: boolean
@@ -145,7 +152,10 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
     }
   }, [selectedProcedureTypeId, procedureTypes])
 
-  // Populate form when appointment changes
+  // Populate the form once per opening — keyed on the appointment's ID, not the object. The calendar
+  // refetches on every realtime `appointments` event and hands down a fresh object each time; depending
+  // on it meant a peer booking an unrelated slot reset this form under the user's hands.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (appointment && open) {
       setPatientName(appointment.patientName)
@@ -202,7 +212,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
         setNotes("")
       }
     }
-  }, [appointment, open])
+  }, [appointment?.id, open])
 
   // Reset form when dialog closes
   useEffect(() => {
@@ -266,14 +276,20 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
         appointmentNotes = `Type: ${appointmentType}`
       }
 
-      // Update appointment via API
+      // Update appointment via API.
+      // Every nullable field here is tri-state on the server: omitting a key leaves the field untouched, an
+      // explicit null clears it. So these must send `null`, not `undefined` — `JSON.stringify` drops undefined
+      // keys entirely, which is why emptying the notes box or unassigning the practitioner used to be a
+      // silent no-op.
       await appointmentsApi.update(appointment.id, {
         appointmentDateTime: appointmentDateTime.toISOString(),
         durationMinutes: calculatedDuration,
-        doctorId: selectedDoctorId || undefined,
-        notes: appointmentNotes || undefined,
+        doctorId: selectedDoctorId || null,
+        notes: appointmentNotes || null,
         status: status,
         procedureTypeId: selectedProcedureTypeId || null,
+        // The version this form was hydrated from.
+        version: appointment.version,
       })
 
       onSuccess?.()
@@ -325,6 +341,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
     try {
       await appointmentsApi.update(appointment.id, {
         status: "cancelled",
+        version: appointment.version,
       })
 
       setShowCancelDialog(false)
@@ -371,11 +388,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
           </DialogHeader>
 
           <form onSubmit={handleUpdate} className="space-y-6 mt-4">
-            {error && (
-              <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-800 dark:bg-red-950 dark:border-red-800 dark:text-red-200">
-                {error}
-              </div>
-            )}
+            <FormErrorBanner message={error} />
 
             {/* Patient Section */}
             <div className="space-y-4 p-4 rounded-lg border bg-muted/30">
@@ -585,14 +598,19 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                     Médecin
                   </Label>
                   <Select
-                    value={selectedDoctorId}
-                    onValueChange={setSelectedDoctorId}
+                    value={selectedDoctorId || UNASSIGNED_DOCTOR}
+                    onValueChange={(value) =>
+                      setSelectedDoctorId(value === UNASSIGNED_DOCTOR ? "" : value)
+                    }
                     disabled={loadingDoctors || loading}
                   >
                     <SelectTrigger className="h-10 w-full" id="doctor">
                       <SelectValue placeholder={loadingDoctors ? "Chargement des médecins…" : doctors.length === 0 ? "Aucun médecin trouvé" : "Choisir un médecin…"} />
                     </SelectTrigger>
                     <SelectContent className="max-h-[200px]">
+                      {/* Unassigning is now a real operation server-side (an explicit null clears DoctorId),
+                          so it needs an option. Radix Select cannot hold value="" — hence the sentinel. */}
+                      <SelectItem value={UNASSIGNED_DOCTOR}>Aucun praticien</SelectItem>
                       {doctors.length === 0 && !loadingDoctors ? (
                         <div className="px-2 py-1.5 text-sm text-muted-foreground">Aucun médecin disponible</div>
                       ) : (

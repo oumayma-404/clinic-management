@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -16,17 +17,20 @@ public class GetInvoiceQueryHandler : IRequestHandler<GetInvoiceQuery, Result<In
 {
     private readonly IInvoiceRepository _invoiceRepository;
     private readonly IPatientRepository _patientRepository;
+    private readonly ICreditNoteRepository _creditNoteRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly ILogger<GetInvoiceQueryHandler> _logger;
 
     public GetInvoiceQueryHandler(
         IInvoiceRepository invoiceRepository,
         IPatientRepository patientRepository,
+        ICreditNoteRepository creditNoteRepository,
         ICurrentClinicResolver clinicResolver,
         ILogger<GetInvoiceQueryHandler> logger)
     {
         _invoiceRepository = invoiceRepository;
         _patientRepository = patientRepository;
+        _creditNoteRepository = creditNoteRepository;
         _clinicResolver = clinicResolver;
         _logger = logger;
     }
@@ -49,9 +53,13 @@ public class GetInvoiceQueryHandler : IRequestHandler<GetInvoiceQuery, Result<In
             }
 
             var patient = await _patientRepository.GetByIdAsync(invoice.PatientId, cancellationToken);
-            return Result<InvoiceDto>.Success(invoice.ToDto(patient?.GetFullName()));
+            // The detail modal is the one place an avoir is readable, so this read — and only this one —
+            // carries the avoirs themselves rather than just their total.
+            var creditNotes = await _creditNoteRepository.GetByInvoiceIdAsync(invoice.Id, cancellationToken);
+
+            return Result<InvoiceDto>.Success(invoice.ToDto(patient?.GetFullName(), creditNotes));
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error retrieving invoice {InvoiceId}", request.Id);
             return Result<InvoiceDto>.Failure("Erreur lors de la récupération de la facture.");

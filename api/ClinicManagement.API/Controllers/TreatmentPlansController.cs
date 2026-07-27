@@ -155,15 +155,52 @@ public class TreatmentPlansController : ApiControllerBase
         return File(result.Value!.Content, "application/pdf", result.Value.FileName);
     }
 
-    /// <summary>Download the receipt (reçu) PDF for an installment payment. 404 if the plan/installment is not found or unpaid.</summary>
-    [HttpGet("{id:guid}/installments/{installmentId:guid}/receipt-pdf")]
-    public async Task<IActionResult> GetInstallmentReceiptPdf(Guid id, Guid installmentId)
+    /// <summary>
+    /// Download the receipt (reçu) PDF for one installment payment. The payment id is required: an échéance
+    /// can hold several payments, and the receipt used to print the cumulative total instead of the money
+    /// actually handed over. A voided payment still renders, over-stamped « REÇU ANNULÉ ».
+    /// </summary>
+    [HttpGet("{id:guid}/installments/{installmentId:guid}/payments/{paymentId:guid}/receipt-pdf")]
+    public async Task<IActionResult> GetInstallmentReceiptPdf(Guid id, Guid installmentId, Guid paymentId)
     {
-        var result = await _mediator.Send(new GetInstallmentReceiptPdfQuery { PlanId = id, InstallmentId = installmentId });
+        var result = await _mediator.Send(new GetInstallmentReceiptPdfQuery
+        {
+            PlanId = id,
+            InstallmentId = installmentId,
+            PaymentId = paymentId,
+        });
         if (result.IsFailure)
         {
             return HandleFailure(result);
         }
         return File(result.Value!.Content, "application/pdf", result.Value.FileName);
+    }
+
+    /// <summary>
+    /// Void a payment recorded against an échéance — "this was never received". The ledger row is kept and
+    /// marked; the installment's totals are re-derived. The plan's status is NOT walked back: it tracks
+    /// clinical progress, not payment.
+    ///
+    /// <para>AdminOrDoctor — it alters what a patient has paid on a numbered document.</para>
+    /// </summary>
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [HttpPost("{id:guid}/installments/{installmentId:guid}/payments/{paymentId:guid}/void")]
+    public async Task<ActionResult<TreatmentPlanDto>> VoidInstallmentPayment(
+        Guid id,
+        Guid installmentId,
+        Guid paymentId,
+        [FromBody] VoidInstallmentPaymentCommand command,
+        CancellationToken cancellationToken)
+    {
+        command.PlanId = id;
+        command.InstallmentId = installmentId;
+        command.PaymentId = paymentId;
+
+        var result = await _mediator.Send(command, cancellationToken);
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+        return Ok(result.Value);
     }
 }

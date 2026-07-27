@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -48,6 +49,15 @@ public class RecordPaymentCommandHandler : IRequestHandler<RecordPaymentCommand,
                 return Result<InvoiceDto>.Failure("Mode de paiement invalide.");
             }
 
+            // PaidOn is a non-nullable DateTime with no validation anywhere, so a client that omits the key
+            // posts 0001-01-01. That payment increments the collected total but is invisible in every cash
+            // window forever — a permanent, silent divergence between the two ledgers.
+            var paymentDateError = PaymentDateRules.Validate(request.PaidOn, "La date du paiement");
+            if (paymentDateError is not null)
+            {
+                return Result<InvoiceDto>.Failure(paymentDateError);
+            }
+
             var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
             if (clinicResult.IsFailure)
             {
@@ -77,7 +87,7 @@ public class RecordPaymentCommandHandler : IRequestHandler<RecordPaymentCommand,
         {
             return Result<InvoiceDto>.Failure(ex.Message);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error recording payment for invoice {InvoiceId}", request.InvoiceId);
             return Result<InvoiceDto>.Failure("Erreur lors de l'enregistrement du paiement.");

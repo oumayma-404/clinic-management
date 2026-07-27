@@ -1,4 +1,5 @@
 using MediatR;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -49,7 +50,7 @@ public class GetRecurringSeriesQueryHandler : IRequestHandler<GetRecurringSeries
 
             return Result<IEnumerable<RecurringAppointmentDto>>.Success(dtos);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             return Result<IEnumerable<RecurringAppointmentDto>>.Failure($"Erreur lors de la récupération des séries : {ex.Message}");
         }

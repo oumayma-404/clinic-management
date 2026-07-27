@@ -10,8 +10,14 @@ public class Patient : AggregateRoot<Guid>
     public string LastName { get; private set; }
     public DateTime DateOfBirth { get; private set; }
     public string Gender { get; private set; }
-    public Email Email { get; private set; }
-    public PhoneNumber PhoneNumber { get; private set; }
+    /// <summary>
+    /// Optional. A walk-in with no e-mail is an ordinary patient, not a data-quality problem — the app used to
+    /// require both and manufactured <c>noemail@example.com</c> / <c>0000000000</c> to satisfy itself, which
+    /// made "has no contact details" indistinguishable from "we have a real address on file".
+    /// <see cref="EmergencyContactPhone"/> below is the shape this now follows.
+    /// </summary>
+    public Email? Email { get; private set; }
+    public PhoneNumber? PhoneNumber { get; private set; }
     public Address? Address { get; private set; }
     public InsuranceInfo? InsuranceInfo { get; private set; }
     public CnamInfo? CnamInfo { get; private set; }
@@ -26,6 +32,16 @@ public class Patient : AggregateRoot<Guid>
     public DateTime? RecallSnoozedUntil { get; private set; }
     public string? RecallReason { get; private set; }
     public DateTime? LastRecallContactedAt { get; private set; }
+
+    // Archiving (data-and-money-integrity, AC-7..AC-9). Deleting a patient is refused whenever any clinical or
+    // financial record is attached — which would otherwise leave no way at all to remove a duplicate or a
+    // test entry, since this app has no merge and no soft delete. Archiving is that escape hatch: the patient
+    // disappears from lists, search, recall and every picker, keeps every record, and is fully reversible.
+    // Deliberately NOT a global query filter — no status flag in this codebase uses one, and an archived
+    // patient must stay reachable by direct URL.
+    public bool IsArchived { get; private set; }
+    public DateTime? ArchivedAt { get; private set; }
+    public string? ArchiveReason { get; private set; }
 
     public DateTime CreatedAt { get; private set; }
     public DateTime? UpdatedAt { get; private set; }
@@ -56,8 +72,8 @@ public class Patient : AggregateRoot<Guid>
         string lastName,
         DateTime dateOfBirth,
         string gender,
-        Email email,
-        PhoneNumber phoneNumber,
+        Email? email = null,
+        PhoneNumber? phoneNumber = null,
         Address? address = null,
         InsuranceInfo? insuranceInfo = null)
     {
@@ -67,8 +83,8 @@ public class Patient : AggregateRoot<Guid>
         LastName = lastName ?? throw new ArgumentNullException(nameof(lastName));
         DateOfBirth = dateOfBirth;
         Gender = gender ?? throw new ArgumentNullException(nameof(gender));
-        Email = email ?? throw new ArgumentNullException(nameof(email));
-        PhoneNumber = phoneNumber ?? throw new ArgumentNullException(nameof(phoneNumber));
+        Email = email;
+        PhoneNumber = phoneNumber;
         Address = address;
         InsuranceInfo = insuranceInfo;
         CreatedAt = DateTime.UtcNow;
@@ -79,8 +95,8 @@ public class Patient : AggregateRoot<Guid>
         string lastName,
         DateTime dateOfBirth,
         string gender,
-        Email email,
-        PhoneNumber phoneNumber,
+        Email? email,
+        PhoneNumber? phoneNumber,
         Address? address = null)
     {
         FirstName = firstName;
@@ -113,10 +129,64 @@ public class Patient : AggregateRoot<Guid>
         UpdatedAt = DateTime.UtcNow;
     }
 
+    /// <summary>
+    /// Set the patient's own contact details, each independently clearable.
+    ///
+    /// <para>
+    /// Separate from <see cref="UpdatePersonalInfo"/> deliberately. There the two contact fields sit positionally
+    /// among six, so a caller wanting to clear only the e-mail would have to re-send name, birth date, gender and
+    /// address — and any of those being stale would silently overwrite. Tri-state needs a method that touches
+    /// nothing else. Same shape as <see cref="UpdateEmergencyContact"/>.
+    /// </para>
+    /// </summary>
+    public void UpdateContact(Email? email, PhoneNumber? phoneNumber)
+    {
+        Email = email;
+        PhoneNumber = phoneNumber;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
     public void UpdateEmergencyContact(string? name, PhoneNumber? phone)
     {
         EmergencyContactName = name;
         EmergencyContactPhone = phone;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Archive the patient: hidden from lists, search, recall and every picker, but nothing is destroyed and it
+    /// is fully reversible. Idempotent — re-archiving an archived patient keeps the original stamp and reason,
+    /// so a double-click never rewrites when the decision was actually taken.
+    /// </summary>
+    /// <remarks>
+    /// The "no outstanding balance, no future appointment" guard lives in the handler, not here: a
+    /// <see cref="Patient"/> holds no invoices or treatment plans, exactly as the billed-plan block sits in the
+    /// amend handler rather than on <c>TreatmentPlan</c>.
+    /// </remarks>
+    public void Archive(string? reason = null)
+    {
+        if (IsArchived)
+        {
+            return;
+        }
+
+        IsArchived = true;
+        ArchivedAt = DateTime.UtcNow;
+        ArchiveReason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>Restore an archived patient everywhere. Idempotent, and clears the archive stamp and reason.</summary>
+    public void Unarchive()
+    {
+        if (!IsArchived)
+        {
+            return;
+        }
+
+        IsArchived = false;
+        ArchivedAt = null;
+        ArchiveReason = null;
         UpdatedAt = DateTime.UtcNow;
     }
 

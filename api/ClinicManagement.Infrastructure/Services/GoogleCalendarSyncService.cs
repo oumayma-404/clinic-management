@@ -594,7 +594,10 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
             patientName = System.Text.RegularExpressions.Regex.Replace(patientName.Trim(), @"\s+", " ");
 
             // Try to find existing patient by name (more flexible matching) — scoped to THIS clinic only (#4).
-            var patients = await _patientRepository.GetByClinicIdAsync(clinicId, cancellationToken);
+            // includeArchived: matching must see archived patients. Hiding them here would not protect anything —
+            // the very next line auto-creates a placeholder patient, so excluding them would silently produce a
+            // DUPLICATE record for someone the clinic already has.
+            var patients = await _patientRepository.GetByClinicIdAsync(clinicId, includeArchived: true, cancellationToken);
             
             // Try exact match first (case-insensitive)
             var patient = patients.FirstOrDefault(p => 
@@ -659,15 +662,16 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                     dateOfBirth = DateTime.SpecifyKind(dateOfBirth, DateTimeKind.Utc);
                 }
                 
+                // No contact details: a patient conjured from a calendar event title genuinely has none.
+                // This was the second, undocumented sentinel source — unknown@example.com / 000-000-0000 —
+                // and unlike the create form nobody ever saw the form that "filled it in".
                 var newPatient = new Patient(
                     Guid.NewGuid(),
                     clinicId,
                     firstName,
                     lastName,
                     dateOfBirth,
-                    "Unknown", // Default gender
-                    new Email("unknown@example.com"), // Default email
-                    new PhoneNumber("000-000-0000")); // Default phone
+                    "Unknown"); // Default gender
 
                 await _patientRepository.AddAsync(newPatient, cancellationToken);
                 await _unitOfWork.SaveChangesAsync(cancellationToken);

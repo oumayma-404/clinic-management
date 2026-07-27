@@ -129,6 +129,42 @@ public class ApplicationDbContext : DbContext
         // RecurringAppointment gained a ClinicId (clinical-workflow-depth) → clinic-scoped like the others.
         modelBuilder.Entity<RecurringAppointment>().HasQueryFilter(r => !IsClinicScoped || r.ClinicId == ScopedClinicId);
 
+        // Optimistic concurrency for every entity, with no schema change: map Entity<T>.Version onto
+        // PostgreSQL's xmin system column. EF then appends it to the WHERE of each UPDATE/DELETE, so a row a
+        // peer changed since we read it matches nothing and throws DbUpdateConcurrencyException — which
+        // UnitOfWork translates into a ConflictException → HTTP 409.
+        //
+        // Three exclusions, each load-bearing:
+        //  * ToList() first — modelBuilder.Entity(clrType) can ADD entity types, and mutating the collection
+        //    being enumerated throws.
+        //  * Owned types and shared-CLR-type entities are skipped. An owned type has no row of its own, and
+        //    PhoneNumber is owned TWICE by Patient (PhoneNumber + EmergencyContactPhone), so it arrives as a
+        //    shared-CLR-type entity that must not be configured by CLR type at all.
+        //  * Anything not deriving from Entity<> is skipped — NotificationRead is a plain composite-key class
+        //    and has no Version property to map.
+        foreach (var entityType in modelBuilder.Model.GetEntityTypes().ToList())
+        {
+            if (entityType.IsOwned() || entityType.HasSharedClrType)
+            {
+                continue;
+            }
+
+            if (!DerivesFromEntity(entityType.ClrType))
+            {
+                continue;
+            }
+
+            // Deliberately NOT Npgsql's UseXminAsConcurrencyToken(): it is obsolete in 8.0 and, worse, it adds
+            // a SHADOW xmin property — leaving our CLR Version property to be mapped as an ordinary bigint
+            // column called "Version". Mapping Version onto xmin explicitly is what actually binds the two.
+            modelBuilder.Entity(entityType.ClrType)
+                .Property<uint>(nameof(Domain.Common.Entity<int>.Version))
+                .HasColumnName("xmin")
+                .HasColumnType("xid")
+                .ValueGeneratedOnAddOrUpdate()
+                .IsConcurrencyToken();
+        }
+
         // Apply a value converter for all DateTime and DateTime? properties to ensure UTC
         // This is required for PostgreSQL which only accepts UTC DateTime values
         // We apply this after configurations to ensure it works with all entities
@@ -156,6 +192,23 @@ public class ApplicationDbContext : DbContext
         }
 
         base.OnModelCreating(modelBuilder);
+    }
+
+    /// <summary>
+    /// Walks the base chain looking for the open generic <c>Entity&lt;&gt;</c>. Checking for the property by
+    /// name would also match anything that merely happens to have one.
+    /// </summary>
+    private static bool DerivesFromEntity(Type? clrType)
+    {
+        for (var type = clrType; type != null; type = type.BaseType)
+        {
+            if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Domain.Common.Entity<>))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static DateTime ConvertToUtc(DateTime dateTime)

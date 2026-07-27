@@ -1,6 +1,7 @@
 using MediatR;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Domain.Repositories;
 
@@ -68,7 +69,7 @@ public class ListUsersQueryHandler : IRequestHandler<ListUsersQuery, Result<IEnu
 
             return Result<IEnumerable<ClinicUserDto>>.Success(dtos);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             return Result<IEnumerable<ClinicUserDto>>.Failure($"Error retrieving users: {ex.Message}");
         }

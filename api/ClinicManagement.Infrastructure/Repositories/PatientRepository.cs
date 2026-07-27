@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using ClinicManagement.Domain.Entities;
+using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
+using ClinicManagement.Domain.Services;
 using ClinicManagement.Infrastructure.Persistence;
 
 namespace ClinicManagement.Infrastructure.Repositories;
@@ -40,12 +42,75 @@ public class PatientRepository : IPatientRepository
             .ToListAsync(cancellationToken);
     }
 
-    public async Task<IEnumerable<Patient>> GetByClinicIdAsync(Guid clinicId, CancellationToken cancellationToken = default)
+    public async Task<IEnumerable<Patient>> GetByClinicIdAsync(
+        Guid clinicId,
+        bool includeArchived = false,
+        CancellationToken cancellationToken = default)
     {
-        return await _context.Patients
+        var query = _context.Patients
             .Include(p => p.Flags.Where(f => f.IsActive))
-            .Where(p => p.ClinicId == clinicId)
-            .ToListAsync(cancellationToken);
+            .Where(p => p.ClinicId == clinicId);
+
+        if (!includeArchived)
+        {
+            query = query.Where(p => !p.IsArchived);
+        }
+
+        return await query.ToListAsync(cancellationToken);
+    }
+
+    public async Task<PatientLinkedDataCounts> GetLinkedDataCountsAsync(
+        Guid patientId,
+        CancellationToken cancellationToken = default)
+    {
+        // Cancelled invoices, cancelled appointments and voided payments all still count: they are fiscal and
+        // clinical records, and deleting the patient they belong to would orphan them just the same.
+        return new PatientLinkedDataCounts(
+            Appointments: await _context.Appointments.CountAsync(a => a.PatientId == patientId, cancellationToken),
+            Invoices: await _context.Invoices.CountAsync(i => i.PatientId == patientId, cancellationToken),
+            TreatmentPlans: await _context.TreatmentPlans.CountAsync(t => t.PatientId == patientId, cancellationToken),
+            DentalRecords: await _context.DentalRecords.CountAsync(d => d.PatientId == patientId, cancellationToken),
+            ToothStates: await _context.ToothStates.CountAsync(t => t.PatientId == patientId, cancellationToken),
+            MedicalDocuments: await _context.MedicalDocuments.CountAsync(m => m.PatientId == patientId, cancellationToken),
+            Files: await _context.PatientFiles.CountAsync(f => f.PatientId == patientId, cancellationToken),
+            Folders: await _context.PatientFolders.CountAsync(f => f.PatientId == patientId, cancellationToken),
+            Flags: await _context.PatientFlags.CountAsync(f => f.PatientId == patientId, cancellationToken),
+            RecurringAppointments: await _context.RecurringAppointments.CountAsync(r => r.PatientId == patientId, cancellationToken),
+            MedicalHistoryEntries: await _context.PatientMedicalHistories.CountAsync(h => h.PatientId == patientId, cancellationToken),
+            FamilyHistoryEntries: await _context.PatientFamilyHistories.CountAsync(h => h.PatientId == patientId, cancellationToken),
+            LabOrders: await _context.LabWorkOrders.CountAsync(l => l.PatientId == patientId, cancellationToken),
+            WaitingListEntries: await _context.WaitingListEntries.CountAsync(w => w.PatientId == patientId, cancellationToken),
+            Notifications: await _context.Notifications.CountAsync(n => n.PatientId == patientId, cancellationToken));
+    }
+
+    public async Task<PatientArchiveBlockers> GetArchiveBlockersAsync(
+        Guid patientId,
+        DateTime asOfUtc,
+        CancellationToken cancellationToken = default)
+    {
+        // Outstanding is read the same way « Créances » reads it, so a patient who looks settled there is
+        // archivable and one who does not, is not.
+        var invoiceOutstanding = await _context.Invoices
+            .Where(i => i.PatientId == patientId
+                        && i.Status != InvoiceStatus.Draft
+                        && i.Status != InvoiceStatus.Cancelled
+                        && i.TotalTtc > i.AmountCollected)
+            .SumAsync(i => (decimal?)(i.TotalTtc - i.AmountCollected), cancellationToken) ?? 0m;
+
+        var debtBearing = PlanBillingRules.DebtBearingPlanStatuses.ToArray();
+        var installmentOutstanding = await _context.TreatmentPlans
+            .Where(p => p.PatientId == patientId && debtBearing.Contains(p.Status))
+            .SelectMany(p => p.Installments)
+            .Where(i => i.Amount > i.AmountPaid)
+            .SumAsync(i => (decimal?)(i.Amount - i.AmountPaid), cancellationToken) ?? 0m;
+
+        var futureAppointments = await _context.Appointments
+            .CountAsync(a => a.PatientId == patientId
+                             && a.AppointmentDateTime > asOfUtc
+                             && a.Status != AppointmentStatus.Cancelled,
+                cancellationToken);
+
+        return new PatientArchiveBlockers(invoiceOutstanding, installmentOutstanding, futureAppointments);
     }
 
     public async Task<int> CountByClinicIdAsync(Guid clinicId, CancellationToken cancellationToken = default)

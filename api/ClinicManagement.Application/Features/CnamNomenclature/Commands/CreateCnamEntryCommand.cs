@@ -1,4 +1,5 @@
 using MediatR;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -83,7 +84,7 @@ public class CreateCnamEntryCommandHandler : IRequestHandler<CreateCnamEntryComm
             _logger.LogInformation("Created CNAM catalog entry {Id} ({Code})", entry.Id, entry.CodeActe);
             return Result<CnamNomenclatureEntryDto>.Success(CnamEntryMapper.ToDto(entry));
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error creating CNAM catalog entry");
             return Result<CnamNomenclatureEntryDto>.Failure("Erreur lors de la création de l'acte.");

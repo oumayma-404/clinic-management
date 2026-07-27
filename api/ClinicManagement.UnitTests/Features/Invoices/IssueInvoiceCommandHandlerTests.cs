@@ -32,8 +32,10 @@ public class IssueInvoiceCommandHandlerTests
         return invoice;
     }
 
+    private readonly Mock<ITreatmentPlanRepository> _plans = new();
+
     private IssueInvoiceCommandHandler CreateHandler() => new(
-        _invoices.Object, _clinics.Object, _patients.Object, _clinicResolver.Object, _uow.Object,
+        _invoices.Object, _clinics.Object, _patients.Object, _plans.Object, _clinicResolver.Object, _uow.Object,
         NullLogger<IssueInvoiceCommandHandler>.Instance);
 
     private void Arrange(Invoice invoice)

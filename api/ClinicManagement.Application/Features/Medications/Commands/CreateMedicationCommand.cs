@@ -1,4 +1,5 @@
 using MediatR;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -89,7 +90,7 @@ public class CreateMedicationCommandHandler : IRequestHandler<CreateMedicationCo
             _logger.LogInformation("Created medication catalog entry {Id} ({Brand})", medication.Id, medication.BrandName);
             return Result<MedicationDto>.Success(MedicationMapper.ToDto(medication));
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error creating medication catalog entry");
             return Result<MedicationDto>.Failure("Erreur lors de la création du médicament.");

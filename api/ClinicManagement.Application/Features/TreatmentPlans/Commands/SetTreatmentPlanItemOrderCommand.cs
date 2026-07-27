@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -76,7 +77,7 @@ public class SetTreatmentPlanItemOrderCommandHandler
         {
             return Result<TreatmentPlanDto>.Failure(ex.Message);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error reordering the acts of plan {PlanId}", request.Id);
             return Result<TreatmentPlanDto>.Failure("Erreur lors du réordonnancement des actes.");

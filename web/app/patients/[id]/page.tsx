@@ -137,6 +137,7 @@ export default function PatientDetailsPage() {
   // Dental records already tied to a non-cancelled invoice (guards against double-invoicing).
   const [invoicedDentalRecordIds, setInvoicedDentalRecordIds] = useState<Set<string>>(new Set())
   const [billingSummary, setBillingSummary] = useState<PatientBillingSummaryDto | null>(null)
+  const [unarchiving, setUnarchiving] = useState(false)
   // The dental record being invoiced (drives the pre-filled invoice modal); null = closed.
   const [billingRecord, setBillingRecord] = useState<DentalRecordDto | null>(null)
   const [previewFile, setPreviewFile] = useState<PatientFileDto | null>(null)
@@ -586,6 +587,42 @@ export default function PatientDetailsPage() {
               </CardContent>
             </Card>
 
+            {/* An archived patient is hidden from every list and search but still reachable by direct URL —
+                which makes this page the only place that can say so. */}
+            {patient?.isArchived && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium text-amber-900 dark:text-amber-200">
+                      Ce patient est archivé
+                      {patient.archivedAt ? ` depuis le ${formatDateFr(patient.archivedAt)}` : ""}.
+                    </p>
+                    <p className="text-sm text-amber-800 dark:text-amber-300">
+                      Il n&apos;apparaît plus dans les listes, la recherche, les relances ni les sélecteurs de
+                      patient. Aucune donnée n&apos;a été supprimée.
+                      {patient.archiveReason ? ` Motif : ${patient.archiveReason}` : ""}
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={unarchiving}
+                    onClick={async () => {
+                      try {
+                        setUnarchiving(true)
+                        const restored = await patientsApi.unarchive(patient.id)
+                        setPatient(restored)
+                      } finally {
+                        setUnarchiving(false)
+                      }
+                    }}
+                  >
+                    {unarchiving ? "Restauration…" : "Restaurer"}
+                  </Button>
+                </div>
+              </div>
+            )}
+
             {/* Unified per-patient balance (« Solde patient ») across invoices + treatment-plan installments. */}
             {billingSummary && (
               <Card>
@@ -625,6 +662,17 @@ export default function PatientDetailsPage() {
                     <div>
                       <p className="text-xs text-muted-foreground">Reste à charge patient</p>
                       <p className="text-lg font-medium">{formatDT(billingSummary.patientOutOfPocket)}</p>
+                      {/* An avoir returns the cash AND cancels the fee, so it leaves the balance at zero.
+                          Without this line a refunded patient is indistinguishable from one who never had
+                          anything to settle. */}
+                      {billingSummary.creditedTotal > 0 && (
+                        <>
+                          <p className="mt-1 text-xs text-muted-foreground">Remboursé (avoirs)</p>
+                          <p className="text-lg font-medium text-blue-700 dark:text-blue-400">
+                            −{formatDT(billingSummary.creditedTotal)}
+                          </p>
+                        </>
+                      )}
                     </div>
                   </div>
                 </CardContent>
@@ -1388,7 +1436,14 @@ export default function PatientDetailsPage() {
                     <CardDescription>Notes d'honoraires du patient — création, émission, paiement et PDF.</CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <InvoicesTable patientId={patientId} patientName={patientName} showPatientColumn={false} />
+                    {/* onChanged was missing: recording a payment here left « Solde patient » and the plan
+                        card above showing the pre-payment figures until a manual refresh. */}
+                    <InvoicesTable
+                      patientId={patientId}
+                      patientName={patientName}
+                      showPatientColumn={false}
+                      onChanged={() => setRefreshKey((k) => k + 1)}
+                    />
                   </CardContent>
                 </Card>
               </TabsContent>
@@ -1441,6 +1496,13 @@ export default function PatientDetailsPage() {
                   <div>
                     <p className="text-xs font-medium text-muted-foreground">Téléphone</p>
                     <p className="text-sm text-foreground">{patient.phoneNumber || "Non renseigné"}</p>
+                    {/* The blank alone reads as "nobody typed it in yet". What matters is that this patient
+                        is silently excluded from every automated contact. */}
+                    {!patient.phoneNumber && (
+                      <p className="text-xs text-amber-700 dark:text-amber-400">
+                        Ni rappel ni relance ne peuvent lui être envoyés.
+                      </p>
+                    )}
                   </div>
                   <Separator />
                   <div>

@@ -1,5 +1,6 @@
 using MediatR;
 using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Domain.Repositories;
 
@@ -50,7 +51,7 @@ public class DeletePatientFamilyHistoryCommandHandler : IRequestHandler<DeletePa
 
             return Result.Success();
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             return Result.Failure($"Error deleting family history entry: {ex.Message}");
         }

@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common.Exceptions;
 using MediatR;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -59,7 +60,7 @@ public class GetCnamNomenclatureQueryHandler
 
             return Result<IEnumerable<CnamNomenclatureEntryDto>>.Success(entries.ToList());
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error retrieving CNAM nomenclature");
             return Result<IEnumerable<CnamNomenclatureEntryDto>>.Failure(

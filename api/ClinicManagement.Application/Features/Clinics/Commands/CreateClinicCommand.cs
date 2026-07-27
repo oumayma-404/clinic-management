@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Features.ProcedureTypes;
 using ClinicManagement.Domain.Entities;
@@ -267,12 +268,13 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
                 Email = clinic.Email,
                 Code = clinic.Code,
                 LogoUrl = clinic.LogoUrl,
-                CreatedAt = clinic.CreatedAt
+                CreatedAt = clinic.CreatedAt,
+                Version = clinic.Version,
             };
 
             return Result<ClinicDto>.Success(dto);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             // The detail belongs in the log, never in the response: this used to surface raw infrastructure
             // text to the operator (e.g. `42P01: relation "Users" does not exist`) on the setup screen.
@@ -382,7 +384,8 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
             Email = clinic.Email,
             Code = clinic.Code,
             LogoUrl = clinic.LogoUrl,
-            CreatedAt = clinic.CreatedAt
+            CreatedAt = clinic.CreatedAt,
+            Version = clinic.Version,
         });
     }
 

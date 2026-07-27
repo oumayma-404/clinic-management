@@ -54,4 +54,66 @@ public class CreditNoteRepository : ICreditNoteRepository
         await _context.CreditNotes.AddAsync(creditNote, cancellationToken);
         return creditNote;
     }
+
+    public async Task<IReadOnlyList<CreditNote>> GetByInvoiceIdAsync(
+        Guid invoiceId,
+        CancellationToken cancellationToken = default)
+    {
+        return await _context.CreditNotes
+            .AsNoTracking()
+            .Where(c => c.InvoiceId == invoiceId)
+            .OrderByDescending(c => c.RefundedOn)
+            .ThenByDescending(c => c.CreatedAt)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<CreditNote?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        return await _context.CreditNotes.FirstOrDefaultAsync(c => c.Id == id, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<CreditNote>> GetByClinicIdAsync(
+        Guid clinicId,
+        DateTime? from = null,
+        DateTime? to = null,
+        CancellationToken cancellationToken = default)
+    {
+        var query = _context.CreditNotes
+            .AsNoTracking()
+            .Where(c => c.ClinicId == clinicId);
+
+        if (from.HasValue)
+        {
+            query = query.Where(c => c.RefundedOn >= from.Value);
+        }
+
+        if (to.HasValue)
+        {
+            query = query.Where(c => c.RefundedOn <= to.Value);
+        }
+
+        return await query
+            .OrderByDescending(c => c.RefundedOn)
+            .ThenByDescending(c => c.CreatedAt)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyDictionary<Guid, decimal>> GetTotalsForInvoicesAsync(
+        IReadOnlyCollection<Guid> invoiceIds,
+        CancellationToken cancellationToken = default)
+    {
+        if (invoiceIds.Count == 0)
+        {
+            return new Dictionary<Guid, decimal>();
+        }
+
+        var rows = await _context.CreditNotes
+            .AsNoTracking()
+            .Where(c => invoiceIds.Contains(c.InvoiceId))
+            .GroupBy(c => c.InvoiceId)
+            .Select(g => new { InvoiceId = g.Key, Total = g.Sum(c => c.Amount) })
+            .ToListAsync(cancellationToken);
+
+        return rows.ToDictionary(r => r.InvoiceId, r => r.Total);
+    }
 }

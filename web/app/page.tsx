@@ -9,10 +9,24 @@ import { AppointmentList } from "@/components/appointment-list"
 import { Calendar, CalendarDays, Users, Clock, AlertCircle, Wallet, HandCoins } from "lucide-react"
 import { ClinicGuard } from "@/components/clinic-guard"
 import { useDashboardStats } from "@/lib/hooks/use-dashboard-stats"
+import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
+import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { formatDT } from "@/lib/format"
 
 export default function DashboardPage() {
-  const { stats, loading, error } = useDashboardStats()
+  const { stats, loading, error, refetch } = useDashboardStats()
+
+  // The dashboard KPIs are money and appointment counts, and it subscribed to nothing — so the first screen
+  // everyone looks at was also the most reliably out of date.
+  useClinicRealtime(
+    [
+      RealtimeResource.Appointments,
+      RealtimeResource.Patients,
+      RealtimeResource.Invoices,
+      RealtimeResource.TreatmentPlans,
+    ],
+    refetch,
+  )
 
   useEffect(() => {
     if (error) {

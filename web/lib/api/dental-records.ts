@@ -25,7 +25,11 @@ export const dentalRecordsApi = {
     return apiPost<DentalRecordDto>(`/patients/${patientId}/dental-records`, data);
   },
 
-  update: async (patientId: string, id: string, data: CreateDentalRecordRequest): Promise<DentalRecordDto> => {
+  update: async (
+    patientId: string,
+    id: string,
+    data: CreateDentalRecordRequest & { version?: number },
+  ): Promise<DentalRecordDto> => {
     return apiPut<DentalRecordDto>(`/patients/${patientId}/dental-records/${id}`, data);
   },
 

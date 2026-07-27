@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common.Exceptions;
 using MediatR;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -51,7 +52,7 @@ public class GetMedicationsQueryHandler
 
             return Result<IEnumerable<MedicationDto>>.Success(medications.ToList());
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error retrieving medication catalog");
             return Result<IEnumerable<MedicationDto>>.Failure(

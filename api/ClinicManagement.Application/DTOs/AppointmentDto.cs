@@ -20,6 +20,13 @@ public class AppointmentDto
     public DateTime CreatedAt { get; set; }
 
     /// <summary>
+    /// Optimistic-concurrency token (PostgreSQL <c>xmin</c>). Send it back on the matching update command so
+    /// the save is checked against the copy the user actually edited; a peer's change in between then yields
+    /// a 409 instead of a silent overwrite.
+    /// </summary>
+    public uint Version { get; set; }
+
+    /// <summary>
     /// True when this appointment is reflected in Google Calendar (derived from
     /// <c>GoogleCalendarEventId != null</c>). Drives the "non synchronisé" badge + manual push in
     /// Local offline UX (US-3). Additive — Cloud consumers ignore it.

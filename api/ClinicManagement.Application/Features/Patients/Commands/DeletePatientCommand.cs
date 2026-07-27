@@ -2,12 +2,21 @@ using MediatR;
 using Microsoft.Extensions.Logging;
 using Microsoft.EntityFrameworkCore;
 using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Domain.Repositories;
 
 namespace ClinicManagement.Application.Features.Patients.Commands;
 
-/// <summary>Delete a patient (finding #15). Tenant-checked; a clear French message if related records block it.</summary>
+/// <summary>
+/// Delete a patient. Refused whenever anything at all is attached — the message names what actually blocks it,
+/// and archiving is offered instead.
+///
+/// This used to rely on catching <see cref="DbUpdateException"/>, which was a lie twice over: appointments,
+/// tooth states, dental records and files <b>cascaded away</b> rather than blocking, and invoices and treatment
+/// plans have no foreign key at all so nothing ever raised for them — they were silently orphaned. The check is
+/// now an explicit count taken before the delete.
+/// </summary>
 public class DeletePatientCommand : IRequest<Result>
 {
     public Guid Id { get; set; }
@@ -49,6 +58,15 @@ public class DeletePatientCommandHandler : IRequestHandler<DeletePatientCommand,
                 return Result.Failure("Patient introuvable.");
             }
 
+            var counts = await _patientRepository.GetLinkedDataCountsAsync(patient.Id, cancellationToken);
+            if (counts.Any)
+            {
+                return Result.Failure(
+                    $"Impossible de supprimer {patient.GetFullName()} : "
+                    + $"{PatientDeletionBlockers.Describe(counts)} y sont rattachés. "
+                    + "Archivez le patient pour le retirer des listes sans rien supprimer.");
+            }
+
             await _patientRepository.DeleteAsync(patient.Id, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -56,11 +74,13 @@ public class DeletePatientCommandHandler : IRequestHandler<DeletePatientCommand,
         }
         catch (DbUpdateException)
         {
-            // A related record (facture, rendez-vous, dossier…) with a restricting FK blocks the delete —
-            // surface a clear French message instead of a raw 500.
-            return Result.Failure("Impossible de supprimer ce patient : des données liées (factures, rendez-vous, dossiers) existent.");
+            // Defence in depth. The pre-check above should have caught everything, so reaching here means a row
+            // was attached between the count and the delete — a race, not the normal path.
+            return Result.Failure(
+                "Impossible de supprimer ce patient : des données lui ont été rattachées entre-temps. "
+                + "Réessayez.");
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             // AC-13.2: the detail goes to the log; the caller only ever sees French guidance.
             _logger.LogError(ex, "Unhandled failure deleting patient");

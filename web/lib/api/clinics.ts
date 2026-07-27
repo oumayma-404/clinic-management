@@ -57,6 +57,11 @@ export interface ClinicDto {
   // Working hours (AC-7). Null/absent = no saved hours (the UI falls back to a default).
   workingHours?: WorkingDay[] | null;
   createdAt: string;
+  /**
+   * Optimistic-concurrency token. Sent back as a FORM field on update (this endpoint is multipart because
+   * of the logo), so a peer's settings change during editing is a 409 rather than a silent overwrite.
+   */
+  version: number;
 }
 
 export interface DoctorPersonalInfo {
@@ -220,9 +225,17 @@ export const clinicsApi = {
     ttnEnvironment?: string;
     // Working hours serialized as a JSON array (AC-7). Omit to leave the stored hours unchanged.
     workingHoursJson?: string;
+    /**
+     * Concurrency token. Travels as a FORM field, not JSON — this endpoint is multipart because it carries
+     * the clinic logo. Omit to skip the check.
+     */
+    version?: number;
   }): Promise<ClinicDto> => {
     const formData = new FormData();
     formData.append('name', data.name);
+    // The concurrency token. Blank on the very first save from a screen that never read one — the server
+    // treats 0/absent as "no check", which keeps every non-form writer working.
+    if (data.version !== undefined) formData.append('version', String(data.version));
     if (data.address) formData.append('address', data.address);
     // Send city even when blank so an admin can clear it (backend: null=keep, ""=clear).
     if (data.city !== undefined) formData.append('city', data.city);

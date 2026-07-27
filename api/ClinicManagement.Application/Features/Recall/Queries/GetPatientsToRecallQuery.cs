@@ -1,4 +1,5 @@
 using MediatR;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -49,7 +50,10 @@ public class GetPatientsToRecallQueryHandler : IRequestHandler<GetPatientsToReca
             var intervalMonths = clinic?.RecallIntervalMonths ?? 6;
 
             var now = DateTime.UtcNow;
-            var patients = await _patientRepository.GetByClinicIdAsync(clinicId, cancellationToken);
+            // Archived patients are excluded: relancing someone the clinic has archived is exactly what
+            // archiving is meant to stop.
+            var patients = await _patientRepository.GetByClinicIdAsync(
+                clinicId, cancellationToken: cancellationToken);
             var appointments = await _appointmentRepository.GetByClinicIdAsync(clinicId, cancellationToken: cancellationToken);
 
             var apptsByPatient = appointments
@@ -100,7 +104,7 @@ public class GetPatientsToRecallQueryHandler : IRequestHandler<GetPatientsToReca
             var sorted = recalls.OrderByDescending(r => r.DaysOverdue).ThenBy(r => r.PatientName).ToList();
             return Result<IEnumerable<RecallDto>>.Success(sorted);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             return Result<IEnumerable<RecallDto>>.Failure($"Erreur lors du calcul des patients à relancer : {ex.Message}");
         }

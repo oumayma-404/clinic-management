@@ -1,5 +1,6 @@
 using MediatR;
 using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using Microsoft.Extensions.Logging;
 using HuggingFaceAIMessage = ClinicManagement.Application.Common.Interfaces.HuggingFaceAIMessage;
@@ -76,7 +77,7 @@ public class ChatCommandHandler : IRequestHandler<ChatCommand, Result<ChatRespon
                 } : null
             });
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error processing AI chat request");
             return Result<ChatResponse>.Failure($"Error processing chat: {ex.Message}");

@@ -1,12 +1,21 @@
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Domain.Entities;
+using ClinicManagement.Domain.Enums;
 
 namespace ClinicManagement.Application.Features.Invoices;
 
 /// <summary>Maps <see cref="Invoice"/> aggregates to their DTOs.</summary>
 public static class InvoiceMappingExtensions
 {
-    public static InvoiceDto ToDto(this Invoice invoice, string? patientName = null) => new()
+    /// <param name="creditNotes">
+    /// The avoirs established against this invoice. They live in their own aggregate with only a soft
+    /// <c>InvoiceId</c> back-link, so the caller has to read them and hand them in — passing null yields a
+    /// credited total of 0, which is correct for a caller that genuinely has no avoirs to show.
+    /// </param>
+    public static InvoiceDto ToDto(
+        this Invoice invoice,
+        string? patientName = null,
+        IReadOnlyCollection<CreditNote>? creditNotes = null) => new()
     {
         Id = invoice.Id,
         PatientId = invoice.PatientId,
@@ -27,6 +36,7 @@ public static class InvoiceMappingExtensions
         AmountCollected = invoice.AmountCollected,
         Outstanding = invoice.Outstanding,
         CreatedAt = invoice.CreatedAt,
+        Version = invoice.Version,
         UpdatedAt = invoice.UpdatedAt,
         EInvoiceStatus = invoice.EInvoiceStatus.ToString(),
         TtnIdentifier = invoice.TtnIdentifier,
@@ -50,15 +60,52 @@ public static class InvoiceMappingExtensions
                 CodeActe = l.CodeActe
             })
             .ToList(),
+        CanCancel = invoice.CanCancel,
+        CanCreateAvoir = invoice.CanCreateCreditNote,
+        CreditedTotal = creditNotes?.Sum(c => c.Amount) ?? 0m,
+        CreditNotes = creditNotes?.Select(c => c.ToDto(invoice)).ToList() ?? new List<CreditNoteDto>(),
+        // CreatedAt is the tiebreaker: two payments on the same day are common, and the detail modal needs a
+        // deterministic order to diff against.
         Payments = invoice.Payments
             .OrderBy(p => p.PaidOn)
+            .ThenBy(p => p.CreatedAt)
             .Select(p => new PaymentDto
             {
                 Id = p.Id,
                 Amount = p.Amount,
                 Method = p.Method.ToString(),
-                PaidOn = p.PaidOn
+                PaidOn = p.PaidOn,
+                CreatedAt = p.CreatedAt,
+                IsVoided = p.IsVoided,
+                VoidedAt = p.VoidedAt,
+                VoidReason = p.VoidReason,
+                VoidedByName = p.VoidedByName,
+                SourceInstallmentPaymentId = p.SourceInstallmentPaymentId
             })
             .ToList()
     };
+
+    /// <summary>
+    /// Maps an avoir to its DTO. Takes the corrected invoice so the TTN warning can be carried to the UI —
+    /// the avoir itself has no e-invoicing state, and never will: only the invoice is transmitted.
+    /// </summary>
+    public static CreditNoteDto ToDto(this CreditNote creditNote, Invoice? correctedInvoice = null) => new()
+    {
+        Id = creditNote.Id,
+        InvoiceId = creditNote.InvoiceId,
+        Number = creditNote.Number,
+        IssueDate = creditNote.IssueDate,
+        Amount = creditNote.Amount,
+        Reason = creditNote.Reason,
+        Method = creditNote.Method?.ToString(),
+        RefundedOn = creditNote.RefundedOn,
+        CorrectedInvoiceIsTtnRegistered = correctedInvoice is not null && IsTtnRegistered(correctedInvoice)
+    };
+
+    /// <summary>
+    /// An invoice is "registered with TTN" once it has been accepted or is in flight — the states where the
+    /// declared figure no longer matches what the clinic actually keeps after an avoir.
+    /// </summary>
+    public static bool IsTtnRegistered(Invoice invoice) =>
+        invoice.EInvoiceStatus is EInvoiceStatus.Submitted or EInvoiceStatus.Validating or EInvoiceStatus.Valid;
 }

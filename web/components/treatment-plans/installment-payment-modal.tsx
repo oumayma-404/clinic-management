@@ -1,8 +1,11 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import type React from "react"
+
+import { useState, useEffect, useRef } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
+import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -22,12 +25,31 @@ interface InstallmentPaymentModalProps {
   onSuccess?: () => void
 }
 
+/**
+ * Upgrade the message when the same edit conflicts twice running. The first 409 means "someone saved before
+ * you"; the second means "someone is editing this right now", and telling the user to reload again would be
+ * repeating advice that has already failed.
+ */
+function conflictMessage(err: unknown, fallback: string, consecutive: React.MutableRefObject<number>): string {
+  if (err instanceof ApiError && err.status === 409) {
+    consecutive.current += 1
+    if (consecutive.current > 1) {
+      return "L'enregistrement a encore été modifié pendant votre saisie. Quelqu'un travaille probablement "
+        + "dessus en même temps — coordonnez-vous avant de réessayer."
+    }
+    return err.message || fallback
+  }
+  consecutive.current = 0
+  return err instanceof ApiError ? err.message : fallback
+}
+
 export function InstallmentPaymentModal({ open, onOpenChange, planId, installment, onSuccess }: InstallmentPaymentModalProps) {
   const [amount, setAmount] = useState("")
   const [method, setMethod] = useState<string>("Cash")
   const [paidOn, setPaidOn] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const conflictStreak = useRef(0)
 
   useEffect(() => {
     if (!open || !installment) return
@@ -56,26 +78,34 @@ export function InstallmentPaymentModal({ open, onOpenChange, planId, installmen
     try {
       const currentPlanId = planId
       const currentInstallmentId = installment.id
-      await treatmentPlansApi.recordInstallmentPayment(currentPlanId, currentInstallmentId, {
+      const priorPaymentIds = new Set((installment.payments ?? []).map((p) => p.id))
+
+      const updated = await treatmentPlansApi.recordInstallmentPayment(currentPlanId, currentInstallmentId, {
         amount: parsedAmount,
         method,
         paidOn: new Date(paidOn).toISOString(),
       })
-      toast.success("Paiement enregistré", {
+
+      // The receipt is per-PAYMENT now, so find the row we just created rather than the échéance total —
+      // that is the whole point: a second partial payment used to reprint a receipt for the running sum.
+      const refreshed = updated.installments.find((i) => i.id === currentInstallmentId)
+      const newPayment = refreshed?.payments.find((p) => !priorPaymentIds.has(p.id))
+
+      toast.success("Paiement enregistré", newPayment ? {
         action: {
           label: "Télécharger le reçu",
           onClick: () => {
             treatmentPlansApi
-              .downloadInstallmentReceipt(currentPlanId, currentInstallmentId)
-              .then((blob) => downloadBlob(blob, `recu-echeance-${currentInstallmentId.slice(0, 8)}.pdf`))
+              .downloadInstallmentReceipt(currentPlanId, currentInstallmentId, newPayment.id)
+              .then((blob) => downloadBlob(blob, `recu-echeance-${newPayment.id.slice(0, 8)}.pdf`))
               .catch((e) => toast.error(e instanceof Error ? e.message : "Échec du téléchargement du reçu."))
           },
         },
-      })
+      } : undefined)
       onSuccess?.()
       onOpenChange(false)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Échec de l'enregistrement du paiement.")
+      setError(conflictMessage(err, "Échec de l'enregistrement du paiement.", conflictStreak))
     } finally {
       setLoading(false)
     }
@@ -93,11 +123,7 @@ export function InstallmentPaymentModal({ open, onOpenChange, planId, installmen
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {error && (
-            <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-800 dark:bg-red-950 dark:border-red-900 dark:text-red-200">
-              {error}
-            </div>
-          )}
+          <FormErrorBanner message={error} />
 
           <div className="space-y-1.5">
             <Label htmlFor="amount">

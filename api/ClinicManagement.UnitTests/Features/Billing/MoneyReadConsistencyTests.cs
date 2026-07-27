@@ -40,6 +40,19 @@ public class MoneyReadConsistencyTests
     private readonly Mock<ICurrentClinicResolver> _clinicResolver = new();
     private readonly Mock<IClinicContext> _clinicContext = new();
 
+    // No avoirs in these fixtures. Stated explicitly rather than left to Moq's default, because the
+    // batch read returns a dictionary the handlers immediately enumerate.
+    private readonly Mock<ICreditNoteRepository> _creditNotes = NoCreditNotes();
+
+    private static Mock<ICreditNoteRepository> NoCreditNotes()
+    {
+        var mock = new Mock<ICreditNoteRepository>();
+        mock.Setup(r => r.GetTotalsForInvoicesAsync(
+                It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<Guid, decimal>());
+        return mock;
+    }
+
     private static Patient PatientFixture() => new(
         PatientId, ClinicId, "Jean", "Dupont", new DateTime(1990, 1, 1, 0, 0, 0, DateTimeKind.Utc), "M",
         new Email("jean.dupont@example.com"), new PhoneNumber("+21620123456"));
@@ -127,7 +140,8 @@ public class MoneyReadConsistencyTests
         _invoices.Setup(r => r.GetCollectedBetweenAsync(
             ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>())).ReturnsAsync(0m);
         _plans.Setup(r => r.GetInstallmentCollectedBetweenAsync(
-            ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>())).ReturnsAsync(0m);
+            ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(),
+            It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>())).ReturnsAsync(0m);
 
         // Mirrors TreatmentPlanRepository.GetInstallmentOutstandingByPatientAsync: committed plans only,
         // minus whatever the caller passes as already-billed.
@@ -160,8 +174,8 @@ public class MoneyReadConsistencyTests
     private async Task<decimal> SoldePatientAsync()
     {
         var handler = new GetPatientBillingSummaryQueryHandler(
-            _invoices.Object, _plans.Object, _patients.Object, _cnam.Object, _clinicResolver.Object,
-            NullLogger<GetPatientBillingSummaryQueryHandler>.Instance);
+            _invoices.Object, _plans.Object, _patients.Object, _creditNotes.Object, _cnam.Object,
+            _clinicResolver.Object, NullLogger<GetPatientBillingSummaryQueryHandler>.Instance);
         var result = await handler.Handle(
             new GetPatientBillingSummaryQuery { PatientId = PatientId }, CancellationToken.None);
         Assert.True(result.IsSuccess);
@@ -182,7 +196,8 @@ public class MoneyReadConsistencyTests
     {
         var handler = new GetDashboardStatsQueryHandler(
             _appointments.Object, _patients.Object, _users.Object, _invoices.Object, _plans.Object,
-            _clinicContext.Object, NullLogger<GetDashboardStatsQueryHandler>.Instance);
+            _creditNotes.Object, _clinicContext.Object,
+            NullLogger<GetDashboardStatsQueryHandler>.Instance);
         var result = await handler.Handle(new GetDashboardStatsQuery(), CancellationToken.None);
         Assert.True(result.IsSuccess);
         return result.Value!.TotalOutstanding;

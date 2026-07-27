@@ -16,10 +16,22 @@ namespace ClinicManagement.Domain.Services;
 /// invoice. It is counted once, through the invoice, and never a second time through the plan.</item>
 /// </list>
 ///
-/// Both rules apply to <b>outstanding</b> balances (what a patient still owes). They deliberately do
-/// <b>not</b> apply to collected cash: an installment payment and an invoice payment are two distinct
-/// receipts, and the devis→facture bridge copies no payment onto the invoice, so suppressing a bridged
-/// plan's collections would erase real money from the caisse rather than de-duplicate it.
+/// Both rules apply to <b>outstanding</b> balances (what a patient still owes) <b>and, since the carry-over
+/// landed, to collected cash as well</b>.
+///
+/// <para>
+/// This is a deliberate reversal. The rule used to exclude cash explicitly, and correctly so: an installment
+/// payment and an invoice payment were two distinct receipts, and the devis→facture bridge copied no payment
+/// onto the invoice — so suppressing a bridged plan's collections would have erased real money from the caisse
+/// rather than de-duplicated it. The bridge now carries that money across when the invoice is issued, so the
+/// receipts live on the invoice track and counting the plan too would double them. This is exactly the
+/// condition DEV-5 of <c>treatment-plan-workspace</c> anticipated.
+/// </para>
+/// <para>
+/// The exclusion is read-side only and self-correcting: a <c>Draft</c> bridge does not exclude (the money is
+/// still only on the plan, and nothing has been carried yet), and cancelling the bridge hands the plan
+/// straight back to both reads.
+/// </para>
 /// </summary>
 public static class PlanBillingRules
 {

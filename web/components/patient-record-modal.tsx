@@ -13,6 +13,8 @@ import { dentalRecordsApi } from "@/lib/api/dental-records"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
 import { odontogramApi } from "@/lib/api/odontogram"
 import { showErrorToast } from "@/lib/errors"
+import { FormErrorBanner } from "@/components/ui/form-error-banner"
+import { useConflict } from "@/lib/hooks/use-conflict"
 import { toast } from "sonner"
 import type {
   ProcedureTypeDto,
@@ -104,6 +106,8 @@ export function PatientRecordModal({
   const [linkedPlanItemId, setLinkedPlanItemId] = useState<string>(NO_PLAN_ITEM)
   const [openSections, setOpenSections] = useState({ details: false, acts: false, notes: false })
   const [loading, setLoading] = useState(false)
+  // A save conflict stays in the form; everything else keeps the existing toast.
+  const conflict = useConflict()
 
   const { acts, selection, draft, hasDraft, draftTotal, grandTotal, editingAct, editingKey, dispatch } =
     useSessionActs(record)
@@ -387,7 +391,7 @@ export function PatientRecordModal({
       }
 
       if (record) {
-        await dentalRecordsApi.update(patientId, record.id, recordData)
+        await dentalRecordsApi.update(patientId, record.id, { ...recordData, version: record.version })
         toast.success("Fiche dentaire mise à jour")
       } else {
         await dentalRecordsApi.create(patientId, recordData)
@@ -396,7 +400,11 @@ export function PatientRecordModal({
       onSuccess?.()
       onOpenChange(false)
     } catch (err) {
-      showErrorToast(err, "Erreur lors de l'enregistrement de la fiche.")
+      // A conflict is not a transient blip — a colleague saved this fiche while it was open — so it stays
+      // in the form rather than flashing past in a toast.
+      if (!conflict.capture(err, "Erreur lors de l'enregistrement de la fiche.")) {
+        showErrorToast(err, "Erreur lors de l'enregistrement de la fiche.")
+      }
     } finally {
       setLoading(false)
     }
@@ -452,6 +460,8 @@ export function PatientRecordModal({
                 : "Indiquez l'acte réalisé, puis les dents concernées."}
           </DialogDescription>
         </DialogHeader>
+
+        <FormErrorBanner message={conflict.error} />
 
         {/* Point-of-care medical alerts — surfaced before treatment (safety). */}
         {hasAlerts && (

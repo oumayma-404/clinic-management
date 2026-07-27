@@ -15,6 +15,13 @@ public class TreatmentPlanDto
     public decimal AmountPaid { get; set; }
     public decimal Outstanding { get; set; }
     public DateTime CreatedAt { get; set; }
+
+    /// <summary>
+    /// Optimistic-concurrency token (PostgreSQL <c>xmin</c>). Send it back on the matching update command so
+    /// the save is checked against the copy the user actually edited; a peer's change in between then yields
+    /// a 409 instead of a silent overwrite.
+    /// </summary>
+    public uint Version { get; set; }
     public DateTime? UpdatedAt { get; set; }
 
     /// <summary>
@@ -87,11 +94,33 @@ public class InstallmentDto
     public Guid Id { get; set; }
     public DateTime DueDate { get; set; }
     public decimal Amount { get; set; }
+
+    /// <summary>Derived from the payment ledger. No longer monotonic — a payment can be voided.</summary>
     public decimal AmountPaid { get; set; }
+
     public decimal Outstanding { get; set; }
     public bool IsPaid { get; set; }
+
+    /// <summary>Derived: the most recent LIVE payment's method/date.</summary>
     public string? LastMethod { get; set; }
     public DateTime? LastPaidOn { get; set; }
+
+    /// <summary>Every payment received against this échéance, each on its own date. Oldest first.</summary>
+    public List<InstallmentPaymentDto> Payments { get; set; } = new();
+}
+
+/// <summary>One payment received against an échéance. Voidable; a voided row is kept and marked.</summary>
+public class InstallmentPaymentDto
+{
+    public Guid Id { get; set; }
+    public decimal Amount { get; set; }
+    public string Method { get; set; } = string.Empty;
+    public DateTime PaidOn { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public bool IsVoided { get; set; }
+    public DateTime? VoidedAt { get; set; }
+    public string? VoidReason { get; set; }
+    public string? VoidedByName { get; set; }
 }
 
 /// <summary>One requested act line when creating/updating a treatment plan (catalog act or free-text).</summary>

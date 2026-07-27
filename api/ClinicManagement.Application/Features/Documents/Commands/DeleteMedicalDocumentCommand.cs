@@ -1,5 +1,6 @@
 using MediatR;
 using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Domain.Repositories;
 using Microsoft.Extensions.Logging;
@@ -93,7 +94,7 @@ public class DeleteMedicalDocumentCommandHandler : IRequestHandler<DeleteMedical
 
             return Result<bool>.Success(true);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             return Result<bool>.Failure($"Error deleting medical document: {ex.Message}");
         }

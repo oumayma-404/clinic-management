@@ -14,5 +14,11 @@ public interface IPdfGenerationService
 
     /// <summary>Render a patient payment receipt (reçu) to PDF — amounts in TND.</summary>
     Task<byte[]> GenerateReceiptPdfAsync(ReceiptPdfData receiptData, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Render an avoir (credit note) to PDF — the patient's proof that money was credited back against a
+    /// named invoice. Amounts in TND.
+    /// </summary>
+    Task<byte[]> GenerateAvoirPdfAsync(AvoirPdfData avoirData, CancellationToken cancellationToken = default);
 }
 

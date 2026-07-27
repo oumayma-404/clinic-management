@@ -1,5 +1,7 @@
+using System.Text.Json.Serialization;
 using MediatR;
 using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Domain.Entities;
@@ -11,13 +13,49 @@ namespace ClinicManagement.Application.Features.Patients.Commands;
 
 public class UpdatePatientCommand : IRequest<Result<PatientDto>>
 {
+    /// <summary>
+    /// The <c>Version</c> the client read. Round-tripped so the save is validated against the copy the user
+    /// actually edited rather than the one the handler just loaded. Omit (0) to skip the check — the seam
+    /// server-internal writers use; see <c>IUnitOfWork.SetExpectedVersion</c>.
+    /// </summary>
+    public uint Version { get; set; }
+
     public Guid Id { get; set; }
     public string? FirstName { get; set; }
     public string? LastName { get; set; }
     public DateTime? DateOfBirth { get; set; }
     public string? Gender { get; set; }
-    public string? Email { get; set; }
-    public string? PhoneNumber { get; set; }
+    /// <summary>
+    /// Tri-state, same mechanism as <c>UpdateAppointmentCommand</c>: omit the key to leave the value alone,
+    /// send an explicit <c>null</c> (or an empty string) to clear it, send a value to set it.
+    ///
+    /// <para>
+    /// Plain nullability is not enough. The old handler read "blank ⇒ keep the existing value", so once a
+    /// patient had an e-mail on file there was no request that could remove it — making the columns nullable
+    /// alone would have left clearing a silent no-op. System.Text.Json only invokes a setter for a key that is
+    /// physically present in the payload, which is what makes the distinction observable.
+    /// </para>
+    /// </summary>
+    public string? Email
+    {
+        get => _email;
+        set { _email = value; EmailSpecified = true; }
+    }
+    private string? _email;
+
+    [JsonIgnore]
+    public bool EmailSpecified { get; private set; }
+
+    /// <inheritdoc cref="Email"/>
+    public string? PhoneNumber
+    {
+        get => _phoneNumber;
+        set { _phoneNumber = value; PhoneNumberSpecified = true; }
+    }
+    private string? _phoneNumber;
+
+    [JsonIgnore]
+    public bool PhoneNumberSpecified { get; private set; }
     public AddressDto? Address { get; set; }
     public InsuranceInfoDto? InsuranceInfo { get; set; }
     public CnamInfoDto? CnamInfo { get; set; }
@@ -84,9 +122,11 @@ public class UpdatePatientCommandHandler : IRequestHandler<UpdatePatientCommand,
                     "Numéro de téléphone invalide. Utilisez un numéro tunisien à 8 chiffres (ou +216…).");
             }
 
-            // Update personal info if any fields are provided
-            if (request.FirstName != null || request.LastName != null || request.DateOfBirth.HasValue || 
-                request.Gender != null || request.Email != null || request.PhoneNumber != null || request.Address != null)
+            // Update personal info if any fields are provided. Contact is deliberately NOT in this condition
+            // any more — it has its own tri-state block below, and routing it through UpdatePersonalInfo (six
+            // positional parameters) would rewrite name, birth date, gender and address on every contact edit.
+            if (request.FirstName != null || request.LastName != null || request.DateOfBirth.HasValue ||
+                request.Gender != null || request.Address != null)
             {
                 var firstName = request.FirstName ?? patient.FirstName;
                 var lastName = request.LastName ?? patient.LastName;
@@ -102,12 +142,6 @@ public class UpdatePatientCommandHandler : IRequestHandler<UpdatePatientCommand,
                 }
 
                 var gender = request.Gender ?? patient.Gender;
-                var email = !string.IsNullOrWhiteSpace(request.Email) 
-                    ? new Email(request.Email) 
-                    : patient.Email;
-                var phoneNumber = !string.IsNullOrWhiteSpace(request.PhoneNumber) 
-                    ? new PhoneNumber(request.PhoneNumber) 
-                    : patient.PhoneNumber;
 
                 Address? address = null;
                 if (request.Address != null)
@@ -124,7 +158,22 @@ public class UpdatePatientCommandHandler : IRequestHandler<UpdatePatientCommand,
                     address = patient.Address;
                 }
 
-                patient.UpdatePersonalInfo(firstName, lastName, dateOfBirth, gender, email, phoneNumber, address);
+                patient.UpdatePersonalInfo(
+                    firstName, lastName, dateOfBirth, gender, patient.Email, patient.PhoneNumber, address);
+            }
+
+            // Contact, tri-state. Each field is resolved independently: an unspecified one keeps whatever is
+            // stored, a specified-but-blank one clears.
+            if (request.EmailSpecified || request.PhoneNumberSpecified)
+            {
+                var email = request.EmailSpecified
+                    ? (string.IsNullOrWhiteSpace(request.Email) ? null : new Email(request.Email))
+                    : patient.Email;
+                var phoneNumber = request.PhoneNumberSpecified
+                    ? (string.IsNullOrWhiteSpace(request.PhoneNumber) ? null : new PhoneNumber(request.PhoneNumber))
+                    : patient.PhoneNumber;
+
+                patient.UpdateContact(email, phoneNumber);
             }
 
             // Update insurance info. A null/omitted InsuranceInfo clears the stored insurance
@@ -196,6 +245,9 @@ public class UpdatePatientCommandHandler : IRequestHandler<UpdatePatientCommand,
                 }
             }
 
+            // Validate the save against the version the USER was editing, not the one this
+            // handler just loaded — that one always matches and would detect nothing.
+            _unitOfWork.SetExpectedVersion(patient, request.Version);
             await _patientRepository.UpdateAsync(patient, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -208,13 +260,14 @@ public class UpdatePatientCommandHandler : IRequestHandler<UpdatePatientCommand,
                 LastName = patient.LastName,
                 DateOfBirth = patient.DateOfBirth,
                 Gender = patient.Gender,
-                Email = patient.Email.Value,
-                PhoneNumber = patient.PhoneNumber.Value,
+                Email = patient.Email?.Value,
+                PhoneNumber = patient.PhoneNumber?.Value,
                 MedicalHistory = patient.MedicalHistory,
                 Allergies = patient.Allergies,
                 EmergencyContactName = patient.EmergencyContactName,
                 EmergencyContactPhone = patient.EmergencyContactPhone?.Value,
                 CreatedAt = patient.CreatedAt,
+                Version = patient.Version,
                 Address = patient.Address != null ? new AddressDto
                 {
                     Street = patient.Address.Street,
@@ -243,7 +296,7 @@ public class UpdatePatientCommandHandler : IRequestHandler<UpdatePatientCommand,
 
             return Result<PatientDto>.Success(dto);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             return Result<PatientDto>.Failure($"Error updating patient: {ex.Message}");
         }

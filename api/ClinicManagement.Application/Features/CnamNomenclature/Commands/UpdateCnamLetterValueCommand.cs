@@ -1,4 +1,5 @@
 using MediatR;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -68,7 +69,7 @@ public class UpdateCnamLetterValueCommandHandler : IRequestHandler<UpdateCnamLet
             _logger.LogInformation("Updated CNAM letter value {Id} ({Cle})", value.Id, value.LettreCle);
             return Result<CnamLetterValueDto>.Success(CnamEntryMapper.ToDto(value));
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error updating CNAM letter value {Id}", request.Id);
             return Result<CnamLetterValueDto>.Failure("Erreur lors de la mise à jour de la valeur.");

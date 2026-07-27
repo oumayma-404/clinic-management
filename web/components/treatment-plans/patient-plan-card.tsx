@@ -1,5 +1,7 @@
 "use client"
 
+import Link from "next/link"
+
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -71,8 +73,13 @@ export function PatientPlanCard({ plans, onOpen, onChanged }: PatientPlanCardPro
           <Badge variant="secondary" className={planStatusBadgeClass(plan.status)}>
             {planStatusLabel(plan.status)}
           </Badge>
+          {/* The badge named an invoice and went nowhere. It is the natural way back to the money. */}
           {plan.linkedInvoiceNumber && (
-            <Badge variant="outline">Facturé — {plan.linkedInvoiceNumber}</Badge>
+            <Link href={`/factures?search=${encodeURIComponent(plan.linkedInvoiceNumber)}`}>
+              <Badge variant="outline" className="hover:bg-accent">
+                Facturé — {plan.linkedInvoiceNumber}
+              </Badge>
+            </Link>
           )}
         </CardTitle>
       </CardHeader>

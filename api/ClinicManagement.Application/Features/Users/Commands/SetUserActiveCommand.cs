@@ -1,6 +1,7 @@
 using MediatR;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Domain.Repositories;
 
@@ -98,7 +99,7 @@ public class SetUserActiveCommandHandler : IRequestHandler<SetUserActiveCommand,
                 CreatedAt = target.CreatedAt
             });
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             return Result<ClinicUserDto>.Failure($"Error updating user status: {ex.Message}");
         }

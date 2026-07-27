@@ -1,5 +1,6 @@
 using MediatR;
 using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Domain.Enums;
@@ -211,7 +212,7 @@ public class UpdateProcedureTypeCommandHandler : IRequestHandler<UpdateProcedure
 
             return Result<ProcedureTypeDto>.Success(dto);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error updating procedure type {ProcedureTypeId}", request.Id);
             return Result<ProcedureTypeDto>.Failure($"Error updating procedure type: {ex.Message}");

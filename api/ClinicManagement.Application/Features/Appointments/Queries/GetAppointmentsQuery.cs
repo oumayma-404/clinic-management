@@ -1,6 +1,7 @@
 using MediatR;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Domain.Repositories;
 
@@ -74,12 +75,13 @@ public class GetAppointmentsQueryHandler : IRequestHandler<GetAppointmentsQuery,
                 ProcedureColorHex = a.ProcedureColorHex,
                 TreatmentPlanItemId = a.TreatmentPlanItemId,
                 CreatedAt = a.CreatedAt,
+                Version = a.Version,
                 IsSyncedToGoogle = a.GoogleCalendarEventId != null
             });
 
             return Result<IEnumerable<AppointmentDto>>.Success(dtos);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             return Result<IEnumerable<AppointmentDto>>.Failure($"Error retrieving appointments: {ex.Message}");
         }
