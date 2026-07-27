@@ -34,6 +34,16 @@ if (args.Length > 0 && string.Equals(args[0], ProvisionCertCommand.CommandName, 
     return ProvisionCertCommand.Run(args);
 }
 
+// Money reconciliation (Data & Money Integrity, slice H): a read-only, cross-clinic report of every figure a
+// data migration must not move. Runs without starting the web server so it can be used on a stopped app —
+// run it before a migration, keep the output, run it after, and diff. Usage:
+//   ClinicManagement.API.exe reconcile-money [months-of-history]
+// Exit codes: 0 = clean, 1 = could not run, 2 = ran and found drift.
+if (args.Length > 0 && string.Equals(args[0], ReconcileMoneyCommand.CommandName, StringComparison.OrdinalIgnoreCase))
+{
+    return await ReconcileMoneyCommand.RunAsync(args);
+}
+
 // Determine auth mode early (before Serilog is configured) so Local installs can anchor the log file to
 // the install directory (R-6) — a Windows service's CWD is System32, where a relative "logs/" path would
 // scatter or fail. Cloud keeps its prior relative path, byte-for-byte. This early config is also the seam

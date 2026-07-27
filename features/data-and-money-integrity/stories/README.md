@@ -16,7 +16,7 @@ increment ending at a clean build gate, and each is committed and pushed on comp
 
 | Part | Name | Migrations | Status |
 |------|------|-----------|--------|
-| A | Réconciliation report | — | pending |
+| A | Réconciliation report | — | **complete** |
 | B | Patient delete blocks + archive | M1, M2 | pending |
 | C | Appointment update stops wiping the act | — | pending |
 | D | Void a payment + invoice detail modal | — | pending |
