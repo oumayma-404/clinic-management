@@ -16,8 +16,8 @@
 | Part | Name | Status | Commit | Pushed |
 |------|------|--------|--------|--------|
 | — | Scaffold (stories, progress) | complete | `42e8ecf` | yes |
-| A | Réconciliation report | complete | | |
-| B | Patient delete blocks + archive | pending | | |
+| A | Réconciliation report | complete | `c712f06` | yes |
+| B | Patient delete blocks + archive | complete | | |
 | C | Appointment update stops wiping the act | pending | | |
 | D | Void a payment + invoice detail modal | pending | | |
 | E | Installment ledger + plan void + receipts | pending | | |
@@ -97,11 +97,51 @@ But unlike those two, nothing about this report is Local-specific — it only re
 applies migrations at startup**, so a Cloud operator currently has no way to verify a money migration. Say the
 word and the mode guard comes out; it is a three-line change and the report is strictly read-only.
 
+## Part B — notes
+
+**Quality gate:** backend build 0 errors, 0 warnings in changed files; `tsc --noEmit` clean; `npm run build`
+clean. 94 tests pass — 22 new for Part B plus every suite touched by the repository signature change.
+
+**M1 + M2 landed as one migration** (`20260727145139_FixPatientAppointmentDeleteBehaviorAndAddArchive`). The
+plan listed them separately; EF naturally produces one file, and one atomic change is better than two here.
+Verified content: `DropForeignKey` + `AddForeignKey … ReferentialAction.SetNull` on
+`FK_Appointments_Patients_PatientId` (the A1 fix, at the physical-constraint level), the three archive columns
+with `defaultValue: false`, and `IX_Patients_ClinicId` correctly folded into `IX_Patients_ClinicId_IsArchived`.
+
+### The call-site audit the plan asked for — the compiler found all ten
+
+Adding `includeArchived` to `GetByClinicIdAsync` broke every caller, which was the point. Two of them are
+**name lookups, not pickers**, and had to keep seeing archived patients:
+
+| Call site | Decision | Why |
+|---|---|---|
+| `GetPatientsQuery` | exclude | Backs the patients page *and* the header search. |
+| `GetPatientsToRecallQuery` | exclude | Relancing someone the clinic archived is exactly what archiving stops. |
+| `GetInvoicesQuery` | **include** | Resolves names. An archived patient's invoices must still show whose they are. |
+| `GetTreatmentPlansQuery` | **include** | Same, for devis. |
+| `AIActionService` ×5 | exclude | The assistant must not find what the UI's own search hides. |
+| `GoogleCalendarSyncService` | **include** | Critical: the next line **auto-creates a placeholder patient**. Excluding archived here would silently produce a DUPLICATE record for someone the clinic already has. |
+
+### Auto-approved deviations
+
+| Deviation | Classification | Reason |
+|-----------|----------------|--------|
+| Added `Patient.ArchiveReason` (+ column), which the plan's M2 column list omitted | Trivial | The plan itself specifies `Archive(reason)` and the spec's API contract takes `reason?`. Without a column to store it the parameter is inert. |
+| Created `PatientMappingExtensions` and moved the 4 inline Patient→DTO mappings onto it | Trivial — internal, same output | The archive flag has to appear on the list, the detail and both write paths; four hand-maintained copies would have drifted immediately. Matches the co-located-static-helper convention (`InvoiceMappingExtensions`, …) and collapses the biggest single cost in Part I. |
+| `GetLinkedDataCountsAsync` issues 15 `CountAsync` calls rather than one composed query | Trivial | Runs once, on a dialog open. Legible and obviously correct beats a hand-rolled UNION; each count names exactly what it guards. |
+| Junctioned the worktree's `web/node_modules` to the main checkout's | Trivial — tooling only, nothing committed | `package.json` and `package-lock.json` are byte-identical between the two trees, so the dependency graph is the same. Avoids a multi-minute install to run a type check. |
+
 ## Significant deviations
 
 _None yet._
 
 ## Learnings
+
+### A repository signature change is the cheapest possible call-site audit
+Adding `includeArchived` as a *positional* parameter before `CancellationToken` deliberately broke all ten
+callers at compile time. Had it been added last with a default, every call site would have silently kept the old
+behaviour — and the two name-lookup sites (`GetInvoicesQuery`, `GetTreatmentPlansQuery`) plus the Google-sync
+duplicate-creation hazard would have shipped unnoticed. Prefer the breaking shape when the audit *is* the work.
 
 ### The push credential is account-scoped and the gh CLI has the wrong account
 `git push` fails headlessly with `could not read Password`. `gh auth status` reports **`o-benkhalifa`**, which

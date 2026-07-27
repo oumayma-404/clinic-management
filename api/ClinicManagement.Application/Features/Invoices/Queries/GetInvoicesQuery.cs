@@ -61,7 +61,10 @@ public class GetInvoicesQueryHandler : IRequestHandler<GetInvoicesQuery, Result<
                 clinicId, request.From, request.To, request.PatientId, status, cancellationToken);
 
             // One query for patient names, mapped by id (a user's clinic patient set is small).
-            var patients = await _patientRepository.GetByClinicIdAsync(clinicId, cancellationToken);
+            // includeArchived: this resolves NAMES, it is not a picker. An archived patient's invoices must
+            // still show who they belong to.
+            var patients = await _patientRepository.GetByClinicIdAsync(
+                clinicId, includeArchived: true, cancellationToken);
             var names = patients.ToDictionary(p => p.Id, p => p.GetFullName());
 
             var dtos = invoices

@@ -1,5 +1,5 @@
 import { apiGet, apiPost, apiPut, apiDelete } from './client';
-import type { PatientDto } from './types';
+import type { PatientDto, PatientDeletionCheckDto } from './types';
 
 export const patientsApi = {
   list: async (params?: { searchTerm?: string; limit?: number }): Promise<PatientDto[]> => {
@@ -74,6 +74,24 @@ export const patientsApi = {
 
   delete: async (id: string): Promise<void> => {
     return apiDelete<void>(`/patients/${id}`);
+  },
+
+  /**
+   * What blocks this patient's deletion, and whether archiving is available instead. Called when the confirm
+   * dialog opens so the user learns the answer before clicking, not after.
+   */
+  deletionCheck: async (id: string): Promise<PatientDeletionCheckDto> => {
+    return apiGet<PatientDeletionCheckDto>(`/patients/${id}/deletion-check`);
+  },
+
+  /** Hide a patient from lists, search, recall and every picker without destroying anything. Reversible. */
+  archive: async (id: string, reason?: string): Promise<PatientDto> => {
+    return apiPost<PatientDto>(`/patients/${id}/archive`, { reason });
+  },
+
+  /** Restore an archived patient everywhere. */
+  unarchive: async (id: string): Promise<PatientDto> => {
+    return apiPost<PatientDto>(`/patients/${id}/unarchive`, {});
   },
 };
 

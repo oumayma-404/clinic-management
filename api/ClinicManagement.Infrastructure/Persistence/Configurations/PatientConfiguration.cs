@@ -103,6 +103,20 @@ public class PatientConfiguration : IEntityTypeConfiguration<Patient>
 
         builder.Property(p => p.LastRecallContactedAt);
 
+        // Archiving (data-and-money-integrity). HasDefaultValue(false) is what makes the migration emit
+        // NOT NULL DEFAULT false, so the column lands on a populated table without a backfill.
+        builder.Property(p => p.IsArchived)
+            .IsRequired()
+            .HasDefaultValue(false);
+
+        builder.Property(p => p.ArchivedAt);
+
+        builder.Property(p => p.ArchiveReason)
+            .HasMaxLength(500);
+
+        // Every list, search and picker filters on (clinic, archived).
+        builder.HasIndex(p => new { p.ClinicId, p.IsArchived });
+
         builder.Property(p => p.CreatedAt)
             .IsRequired();
 
@@ -119,10 +133,16 @@ public class PatientConfiguration : IEntityTypeConfiguration<Patient>
             .HasForeignKey(f => f.PatientId)
             .OnDelete(DeleteBehavior.Cascade);
 
-        builder.HasMany(p => p.Appointments)
-            .WithOne(a => a.Patient)
-            .HasForeignKey(a => a.PatientId)
-            .OnDelete(DeleteBehavior.Cascade);
+        // NOTE: Patient → Appointments is deliberately NOT configured here.
+        //
+        // It used to be, with OnDelete(Cascade), and because ApplyConfigurationsFromAssembly applies
+        // configurations in alphabetical order by class name, "PatientConfiguration" ran AFTER
+        // "AppointmentConfiguration" and silently overwrote its OnDelete(SetNull) — so deleting a patient
+        // hard-deleted their entire appointment history instead of preserving the slots.
+        //
+        // The relationship is declared exactly once, on the side that documents the intent:
+        // AppointmentConfiguration.HasOne(a => a.Patient) … OnDelete(DeleteBehavior.SetNull).
+        // Do not re-add it here.
     }
 }
 

@@ -142,7 +142,7 @@ public class InvoiceTenantIsolationTests
                 ClinicId, It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<Guid?>(),
                 It.IsAny<InvoiceStatus?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<Invoice>());
-        _patients.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<CancellationToken>()))
+        _patients.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<Patient>());
 
         var handler = new GetInvoicesQueryHandler(

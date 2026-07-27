@@ -594,7 +594,10 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
             patientName = System.Text.RegularExpressions.Regex.Replace(patientName.Trim(), @"\s+", " ");
 
             // Try to find existing patient by name (more flexible matching) — scoped to THIS clinic only (#4).
-            var patients = await _patientRepository.GetByClinicIdAsync(clinicId, cancellationToken);
+            // includeArchived: matching must see archived patients. Hiding them here would not protect anything —
+            // the very next line auto-creates a placeholder patient, so excluding them would silently produce a
+            // DUPLICATE record for someone the clinic already has.
+            var patients = await _patientRepository.GetByClinicIdAsync(clinicId, includeArchived: true, cancellationToken);
             
             // Try exact match first (case-insensitive)
             var patient = patients.FirstOrDefault(p => 

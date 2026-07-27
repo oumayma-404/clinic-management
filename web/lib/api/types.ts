@@ -235,7 +235,36 @@ export interface PatientDto {
     notes?: string;
     isActive: boolean;
   }>;
+  /**
+   * Archived patients are hidden from lists, search, recall and every picker, but keep every record and stay
+   * reachable by direct URL — so a detail page that loads one must be able to say so.
+   */
+  isArchived: boolean;
+  archivedAt?: string | null;
+  archiveReason?: string | null;
   createdAt: string;
+}
+
+/** What blocks a patient's deletion, read when the confirm dialog opens rather than after clicking. */
+export interface PatientDeletionCheckDto {
+  patientId: string;
+  patientName: string;
+  canDelete: boolean;
+  isArchived: boolean;
+  canArchive: boolean;
+  /** French, ready to display. Null when archiving is available. */
+  archiveBlockedReason?: string | null;
+  blockers: PatientDeletionBlockerDto[];
+}
+
+export interface PatientDeletionBlockerDto {
+  /** Stable machine key (e.g. `invoices`) — key off this, never the label. */
+  kind: string;
+  /** French, already pluralised for `count` (e.g. « factures »). */
+  label: string;
+  count: number;
+  /** Patient-detail tab this record kind lives on, so the dialog can link to it. */
+  tab?: string | null;
 }
 
 export interface PatientMedicalHistoryDto {

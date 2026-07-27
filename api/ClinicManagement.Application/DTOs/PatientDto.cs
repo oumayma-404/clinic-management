@@ -18,5 +18,14 @@ public class PatientDto
     public InsuranceInfoDto? InsuranceInfo { get; set; }
     public CnamInfoDto? CnamInfo { get; set; }
     public List<PatientFlagDto> Flags { get; set; } = new();
+
+    /// <summary>
+    /// Archived patients are hidden from lists, search, recall and every picker, but keep every record and stay
+    /// reachable by direct URL — so a detail page that loads one must be able to say so.
+    /// </summary>
+    public bool IsArchived { get; set; }
+    public DateTime? ArchivedAt { get; set; }
+    public string? ArchiveReason { get; set; }
+
     public DateTime CreatedAt { get; set; }
 }

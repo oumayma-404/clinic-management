@@ -5,6 +5,7 @@ using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Patients.Commands;
 using ClinicManagement.Application.Features.Patients.Queries;
 using ClinicManagement.Application.Common.Authorization;
+using ClinicManagement.API.Models;
 
 namespace ClinicManagement.API.Controllers;
 
@@ -90,7 +91,11 @@ public class PatientsController : ApiControllerBase
         return Ok(result.Value);
     }
 
-    /// <summary>Delete a patient. 400 with a clear message if related records block it.</summary>
+    /// <summary>
+    /// Delete a patient. Refused with a message naming what is attached whenever anything is — the pre-check
+    /// counts invoices and treatment plans explicitly, since neither has a foreign key to Patients and no
+    /// database constraint has ever fired for them.
+    /// </summary>
     [HttpDelete("{id}")]
     public async Task<IActionResult> DeletePatient(Guid id)
     {
@@ -102,6 +107,56 @@ public class PatientsController : ApiControllerBase
         }
 
         return NoContent();
+    }
+
+    /// <summary>
+    /// What blocks this patient's deletion, and whether archiving is available instead. Read when the confirm
+    /// dialog opens so the user learns the answer before clicking, not after.
+    /// </summary>
+    [HttpGet("{id}/deletion-check")]
+    public async Task<ActionResult<PatientDeletionCheckDto>> GetDeletionCheck(Guid id)
+    {
+        var result = await _mediator.Send(new GetPatientDeletionCheckQuery { PatientId = id });
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result, StatusCodes.Status404NotFound);
+        }
+
+        return Ok(result.Value);
+    }
+
+    /// <summary>
+    /// Archive a patient — hidden from lists, search, recall and every picker, nothing destroyed, reversible.
+    /// The escape hatch that keeps deletion refusable: this app has no merge and no soft delete, so without it
+    /// a duplicate patient with a single booking could never be removed from the list. Refused when a balance
+    /// is due or a visit is booked.
+    /// </summary>
+    [HttpPost("{id}/archive")]
+    public async Task<ActionResult<PatientDto>> ArchivePatient(Guid id, [FromBody] ArchivePatientRequest? request)
+    {
+        var result = await _mediator.Send(new ArchivePatientCommand { Id = id, Reason = request?.Reason });
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+
+        return Ok(result.Value);
+    }
+
+    /// <summary>Restore an archived patient everywhere.</summary>
+    [HttpPost("{id}/unarchive")]
+    public async Task<ActionResult<PatientDto>> UnarchivePatient(Guid id)
+    {
+        var result = await _mediator.Send(new UnarchivePatientCommand { Id = id });
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+
+        return Ok(result.Value);
     }
 
     /// <summary>

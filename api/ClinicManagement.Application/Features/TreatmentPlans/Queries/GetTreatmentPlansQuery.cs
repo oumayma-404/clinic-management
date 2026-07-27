@@ -67,7 +67,10 @@ public class GetTreatmentPlansQueryHandler : IRequestHandler<GetTreatmentPlansQu
 
             // One query for patient names, mapped by id (a clinic's patient set is small) — mirrors
             // GetInvoicesQuery rather than a GetByIdAsync per distinct patient.
-            var patients = await _patientRepository.GetByClinicIdAsync(clinicId, cancellationToken);
+            // includeArchived: this resolves NAMES, it is not a picker. An archived patient's devis must still
+            // show who they belong to.
+            var patients = await _patientRepository.GetByClinicIdAsync(
+                clinicId, includeArchived: true, cancellationToken);
             var names = patients.ToDictionary(p => p.Id, p => p.GetFullName());
 
             // Derived scheduling + devis→facture read-back for the whole page: two batched queries total,

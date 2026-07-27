@@ -49,7 +49,10 @@ public class GetPatientsToRecallQueryHandler : IRequestHandler<GetPatientsToReca
             var intervalMonths = clinic?.RecallIntervalMonths ?? 6;
 
             var now = DateTime.UtcNow;
-            var patients = await _patientRepository.GetByClinicIdAsync(clinicId, cancellationToken);
+            // Archived patients are excluded: relancing someone the clinic has archived is exactly what
+            // archiving is meant to stop.
+            var patients = await _patientRepository.GetByClinicIdAsync(
+                clinicId, cancellationToken: cancellationToken);
             var appointments = await _appointmentRepository.GetByClinicIdAsync(clinicId, cancellationToken: cancellationToken);
 
             var apptsByPatient = appointments

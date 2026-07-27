@@ -14,7 +14,7 @@ import { Users, Flag, FileText, Folder, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import { patientsApi } from "@/lib/api/patients"
 import { dentalRecordsApi } from "@/lib/api/dental-records"
-import type { PatientDto, DentalRecordDto } from "@/lib/api/types"
+import type { PatientDto, DentalRecordDto, PatientDeletionCheckDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import { EditPatientDialog } from "@/components/edit-patient-dialog"
 import { PatientSummaryModal } from "@/components/patient-summary-modal"
@@ -38,9 +38,33 @@ export function PatientsTable({ searchQuery, showFlaggedOnly }: PatientsTablePro
   const [summaryDentalRecords, setSummaryDentalRecords] = useState<DentalRecordDto[]>([])
   const [patientToDelete, setPatientToDelete] = useState<PatientDto | null>(null)
   const [deleting, setDeleting] = useState(false)
+  // The pre-check runs when the dialog OPENS, so the user learns what blocks the deletion before clicking
+  // rather than after. Null while it is still loading.
+  const [deletionCheck, setDeletionCheck] = useState<PatientDeletionCheckDto | null>(null)
+  const [checkFailed, setCheckFailed] = useState(false)
   // Delete is admin-gated (finding #15) — matches the app's admin-only destructive-action convention.
   const { user } = useSession()
   const isAdmin = user?.role === "admin"
+
+  // Ask the server what blocks this patient as soon as the dialog opens.
+  useEffect(() => {
+    if (!patientToDelete) {
+      setDeletionCheck(null)
+      setCheckFailed(false)
+      return
+    }
+
+    let active = true
+    setCheckFailed(false)
+    patientsApi
+      .deletionCheck(patientToDelete.id)
+      .then((check) => { if (active) setDeletionCheck(check) })
+      // A failed pre-check must not block the action: fall back to letting the user try, and let the
+      // command's own refusal be the authority.
+      .catch(() => { if (active) setCheckFailed(true) })
+
+    return () => { active = false }
+  }, [patientToDelete])
 
   const handleConfirmDelete = async () => {
     if (!patientToDelete) return
@@ -52,6 +76,22 @@ export function PatientsTable({ searchQuery, showFlaggedOnly }: PatientsTablePro
       setPatientToDelete(null)
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Échec de la suppression du patient")
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  const handleArchive = async () => {
+    if (!patientToDelete) return
+    try {
+      setDeleting(true)
+      await patientsApi.archive(patientToDelete.id)
+      // Archived patients leave the list — the list read excludes them.
+      setPatients((prev) => prev.filter((p) => p.id !== patientToDelete.id))
+      toast.success(`Patient « ${patientToDelete.firstName} ${patientToDelete.lastName} » archivé`)
+      setPatientToDelete(null)
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Échec de l'archivage du patient")
     } finally {
       setDeleting(false)
     }
@@ -309,24 +349,78 @@ export function PatientsTable({ searchQuery, showFlaggedOnly }: PatientsTablePro
 
       <AlertDialog open={!!patientToDelete} onOpenChange={(open) => { if (!open) setPatientToDelete(null) }}>
         <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Supprimer ce patient ?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Cela supprimera définitivement{" "}
-              <span className="font-semibold">{patientToDelete?.firstName} {patientToDelete?.lastName}</span>.
-              Si des données liées (factures, rendez-vous, dossiers) existent, la suppression sera refusée.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>Annuler</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(e) => { e.preventDefault(); handleConfirmDelete() }}
-              disabled={deleting}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              {deleting ? "Suppression…" : "Supprimer"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
+          {deletionCheck && !deletionCheck.canDelete ? (
+            // Blocked: say what is attached, and offer archiving instead of leaving a dead end.
+            <>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Suppression impossible</AlertDialogTitle>
+                <AlertDialogDescription>
+                  <span className="font-semibold">{deletionCheck.patientName}</span> ne peut pas être supprimé :
+                  des données lui sont rattachées. Rien n'a été supprimé.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+
+              <ul className="space-y-1 text-sm">
+                {deletionCheck.blockers.map((blocker) => (
+                  <li key={blocker.kind} className="flex items-center gap-2">
+                    <span className="text-muted-foreground">•</span>
+                    {blocker.tab ? (
+                      <button
+                        type="button"
+                        className="underline underline-offset-2 hover:text-foreground"
+                        onClick={() => router.push(`/patients/${deletionCheck.patientId}?tab=${blocker.tab}`)}
+                      >
+                        {blocker.count} {blocker.label}
+                      </button>
+                    ) : (
+                      <span>{blocker.count} {blocker.label}</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+
+              <p className="text-sm text-muted-foreground">
+                {deletionCheck.canArchive
+                  ? "Vous pouvez archiver ce patient : il disparaît des listes et des recherches, sans rien supprimer, et reste restaurable."
+                  : deletionCheck.archiveBlockedReason}
+              </p>
+
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={deleting}>Fermer</AlertDialogCancel>
+                {deletionCheck.canArchive && (
+                  <AlertDialogAction
+                    onClick={(e) => { e.preventDefault(); handleArchive() }}
+                    disabled={deleting}
+                  >
+                    {deleting ? "Archivage…" : "Archiver"}
+                  </AlertDialogAction>
+                )}
+              </AlertDialogFooter>
+            </>
+          ) : (
+            // Deletable, still checking, or the check itself failed — let the command be the authority.
+            <>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Supprimer ce patient ?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Cela supprimera définitivement{" "}
+                  <span className="font-semibold">{patientToDelete?.firstName} {patientToDelete?.lastName}</span>.
+                  {" "}Cette action est irréversible.
+                  {!deletionCheck && !checkFailed && " Vérification des données liées…"}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={deleting}>Annuler</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={(e) => { e.preventDefault(); handleConfirmDelete() }}
+                  disabled={deleting || (!deletionCheck && !checkFailed)}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                >
+                  {deleting ? "Suppression…" : "Supprimer"}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </>
+          )}
         </AlertDialogContent>
       </AlertDialog>
     </Card>
