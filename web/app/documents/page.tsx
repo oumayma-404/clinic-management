@@ -56,8 +56,11 @@ export default function DocumentsPage() {
   const router = useRouter()
   const [honorairesOpen, setHonorairesOpen] = useState(false)
 
-  // A post-visit review deep-links here with ?appointmentId=… so the chosen template's editor can
-  // associate the new record with that visit. Read from the URL at click time (avoids useSearchParams,
+  // Any caller may deep-link here with ?appointmentId=… to have the chosen template's editor associate the
+  // document with that visit; it is forwarded verbatim. (The post-visit review prompt used to be that caller,
+  // but « Ajouter le dossier médical » means the patient's record modal, not a document template — it now
+  // deep-links to /patients/{id}?addRecord=1 like the notification panel does.)
+  // Read from the URL at click time (avoids useSearchParams,
   // which would force this page out of static prerendering — see the notification-center deep-link
   // learning — and avoids a mount-effect race that could drop the id on a very early click).
   const openTemplate = (type: string) => {

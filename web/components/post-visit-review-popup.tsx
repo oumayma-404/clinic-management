@@ -14,6 +14,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { useSession } from "@/lib/auth/session"
 import { notificationsApi } from "@/lib/api/notifications"
+import { appointmentsApi } from "@/lib/api/appointments"
 import type { PendingReviewDto } from "@/lib/api/types"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
@@ -58,6 +59,8 @@ export function PostVisitReviewPopup() {
   const [reviews, setReviews] = useState<PendingReviewDto[]>([])
   const [snoozed, setSnoozed] = useState<SnoozeMap>({})
   const [now, setNow] = useState(0)
+  // True while the appointment's patient is being resolved, so the button can't fire twice.
+  const [resolving, setResolving] = useState(false)
 
   const mountedRef = useRef(true)
   useEffect(() => {
@@ -122,11 +125,32 @@ export function PostVisitReviewPopup() {
     // A review with no appointment can't be fulfilled here (saving a record marks *that* appointment
     // Completed) — don't snooze-and-navigate one that would just return forever. In practice a
     // PostVisitReview is always generated with an appointmentId, so this guard is defensive.
-    if (!active?.appointmentId) return
-    // Snooze so the prompt doesn't reopen over the editor; saving the record removes it entirely.
-    snooze(active.id)
-    router.push(`/documents?appointmentId=${encodeURIComponent(active.appointmentId)}`)
-  }, [active, snooze, router])
+    if (!active?.appointmentId || resolving) return
+    const reviewId = active.id
+    const appointmentId = active.appointmentId
+
+    // Go to the patient's add-record modal, the same destination as the notification-panel row. This used to
+    // push `/documents`, which dropped the user on the template gallery — a different task from the one the
+    // button names, and one that never closes the review.
+    //
+    // PendingReviewDto carries no patientId, so it is resolved from the appointment (mirrors the bell).
+    setResolving(true)
+    void (async () => {
+      try {
+        const appointment = await appointmentsApi.get(appointmentId)
+        const patientId = appointment.patientId
+        // Snooze only once the destination is known to exist. Snoozing first — as this did — would hide the
+        // prompt for an hour on a failed lookup, with the record still unwritten.
+        if (!patientId) return
+        snooze(reviewId)
+        router.push(`/patients/${patientId}?addRecord=1&appointmentId=${encodeURIComponent(appointmentId)}`)
+      } catch {
+        // Keep it pending rather than navigate to a dead page; the poll will offer it again.
+      } finally {
+        setResolving(false)
+      }
+    })()
+  }, [active, resolving, snooze, router])
 
   const handleLater = useCallback(() => {
     if (active) snooze(active.id)
@@ -148,8 +172,8 @@ export function PostVisitReviewPopup() {
           <Button variant="outline" onClick={handleLater}>
             Plus tard
           </Button>
-          <Button onClick={handleAddRecord}>
-            Ajouter le dossier médical
+          <Button onClick={handleAddRecord} disabled={resolving}>
+            {resolving ? "Ouverture…" : "Ajouter le dossier médical"}
           </Button>
         </DialogFooter>
       </DialogContent>
