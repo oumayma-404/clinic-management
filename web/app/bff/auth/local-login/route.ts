@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { SESSION_COOKIE, MUST_CHANGE_COOKIE } from '@/lib/auth/local-auth';
+import { forwardedForHeader } from '@/lib/auth/forwarded-for';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -22,7 +23,10 @@ export async function POST(request: NextRequest) {
   try {
     const res = await fetch(`${API_INTERNAL_URL}/auth/login`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...forwardedForHeader(request),
+      },
       body: JSON.stringify({ email: body.email ?? '', password: body.password ?? '' }),
     });
 

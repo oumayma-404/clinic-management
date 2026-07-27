@@ -9,7 +9,7 @@
 |---|---|
 | P1 Installer filesystem posture | **done** — committed `43fe6d5` |
 | P2 Backup output posture | **done** — committed |
-| P3 Auth & session | pending |
+| P3 Auth & session | in progress — **P3.0 done** (client-IP chain); P3.1–P3.7 pending |
 | P4 Authorization | pending |
 | P5 Hygiene | pending |
 
@@ -99,5 +99,38 @@ Implemented P2.1–P2.4. `PgDumpBackupService` now hardens the timestamped folde
 | Frontend typecheck | `npx tsc --noEmit` → **0 errors** |
 | Frontend lint | **Cannot run** — ESLint is not installed (`npm run lint` → "'eslint' is not recognized"), and `next.config.ts` sets `eslint.ignoreDuringBuilds: true`. Per the documented fallback, the gate is typecheck + a production build. Not treated as a failure. |
 | Frontend production build | **Succeeded** — all routes compiled |
+
+### 2026-07-27 — Part 3, step 0 (the client-IP chain)
+
+Done **before** the rate limiter, deliberately: building the limiter first means building it against a constant, and it would look correct.
+
+- New `Infrastructure/ClientIp` (root namespace, like `LocalRequest`/`CorsOrigins`, so UnitTests can exercise it). Honours `X-Forwarded-For` **only when the immediate peer is loopback** — our own front door/BFF — so a LAN client's own header is never trusted.
+- New `web/lib/auth/forwarded-for.ts`; **both** BFF routes that call the API server-side (`local-login`, `change-password`) now pass the inbound header through. `change-password` was not in the plan's file list but has the identical shape — fixing only one would have left a latent repeat.
+- `LocalRequest.IsLoopback` now **fails closed** on a null peer (was `true`).
+
+#### DEV-2: `UseForwardedHeaders` rejected in favour of a separate resolver
+**Date:** 2026-07-27 · **Story:** 1 (Part 3) · **Category:** Technical
+**Original Plan:** "API `ForwardedHeaders` with `KnownProxies` restricted to loopback".
+**Actual Implementation:** No `UseForwardedHeaders` anywhere. A dedicated `ClientIp.Resolve(HttpContext)` reads the header directly, under the same loopback-peer trust rule.
+**Justification:** `UseForwardedHeaders` **overwrites** `HttpContext.Connection.RemoteIpAddress`, and that is exactly what `LocalRequest.IsLoopback` reads to gate the first-run `setup` endpoint and the Hangfire dashboard. The plan's own third rule — "`IsLoopback` keeps reading the raw peer address, never the forwarded one" — is not satisfiable *while* using the middleware; the two requirements are in tension. Resolving separately honours both: the limiter gets the real client, and the loopback gates stay a property of the actual TCP peer, so a future topology change (a real reverse proxy, a widened `KnownProxies`) cannot silently make them spoofable. Costs a small amount of `X-Forwarded-For` parsing, which is fully unit-tested (13 cases incl. port/bracket forms and garbage).
+**Impact:** None on the plan's outcome; strictly closer to its stated intent. `ClientIp` has **no consumer until P3.1** — the limiter and the tracker are its callers.
+**Approved:** Auto (trivial-scope alternative satisfying the same ACs more completely; logged rather than blocking).
+
+#### DEV-3: `IsLoopback` fail-closed reverses an existing pinned test
+**Date:** 2026-07-27 · **Story:** 1 (Part 3) · **Category:** Technical
+**Original Plan:** "also fix its `null ⇒ true` fail-open default".
+**Actual Implementation:** Done, and `LocalRequestTests.Null_remote_ip_is_loopback` — which asserted `true` — was rewritten as `Null_remote_ip_is_NOT_loopback`.
+**Justification:** Plan-mandated, and the LEARNINGS pitfall "default security gates to deny on missing/ambiguous input" says the same. Verified safe for production: Kestrel over TCP always populates the peer, so a null only occurs in-process/in tests. A null in production would mean an unexpected hosting topology — precisely where assuming "must be local" is wrong. Risk considered: if the peer *were* ever null on a real clinic PC, first-run setup would become unreachable. It cannot be, for TCP.
+**Impact:** One existing test intentionally inverted. Full suite re-run confirms nothing else depended on the permissive behaviour.
+**Approved:** Yes — explicitly in the approved plan.
+
+#### Quality gates — Part 3 step 0
+
+| Gate | Result |
+|---|---|
+| Backend build | 0 errors, 58 warnings (unchanged pre-existing baseline; none in changed files) |
+| New/changed tests | **25/25** (`ClientIpTests` 20, `LocalRequestTests` 5) |
+| Full suite | **854 passed / 8 failed** — the same 8 pre-existing failures as the Part 1 baseline, so the fail-closed change regressed nothing (818 → 854 is this feature's 36 new tests) |
+| Frontend typecheck | deferred to the P3.1 commit — the BFF change is two header lines, and P3.1 touches the same files |
 
 **Testing note.** The ordering assertion (AC-14.2) is proved indirectly but soundly: the dummy `pg_dump` is a real file (so the existence check passes) but not a real executable, so the dump throws. The hardening is still recorded — which is only possible if it ran *first*. If it ran after the dump it would never be recorded at all.
