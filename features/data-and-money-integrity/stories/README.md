@@ -18,7 +18,7 @@ increment ending at a clean build gate, and each is committed and pushed on comp
 |------|------|-----------|--------|
 | A | Réconciliation report | — | **complete** |
 | B | Patient delete blocks + archive | M1+M2 | **complete** |
-| C | Appointment update stops wiping the act | — | pending |
+| C | Appointment update stops wiping the act | — | **complete** |
 | D | Void a payment + invoice detail modal | — | pending |
 | E | Installment ledger + plan void + receipts | M3 | pending |
 | F | Devis→facture carry-over | — | pending |

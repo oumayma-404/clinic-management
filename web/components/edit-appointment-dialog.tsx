@@ -39,6 +39,12 @@ import { ApiError } from "@/lib/api/client"
 import { useDoctors } from "@/lib/hooks/use-doctors"
 import { useAppointmentOverlap } from "@/lib/hooks/use-appointment-overlap"
 
+/**
+ * Sentinel for "no practitioner" in the Radix Select, which cannot hold an empty-string value. Mapped to `""`
+ * in state and sent to the API as an explicit `null`, which unassigns the practitioner.
+ */
+const UNASSIGNED_DOCTOR = "__unassigned__"
+
 interface EditAppointmentDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -266,12 +272,16 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
         appointmentNotes = `Type: ${appointmentType}`
       }
 
-      // Update appointment via API
+      // Update appointment via API.
+      // Every nullable field here is tri-state on the server: omitting a key leaves the field untouched, an
+      // explicit null clears it. So these must send `null`, not `undefined` — `JSON.stringify` drops undefined
+      // keys entirely, which is why emptying the notes box or unassigning the practitioner used to be a
+      // silent no-op.
       await appointmentsApi.update(appointment.id, {
         appointmentDateTime: appointmentDateTime.toISOString(),
         durationMinutes: calculatedDuration,
-        doctorId: selectedDoctorId || undefined,
-        notes: appointmentNotes || undefined,
+        doctorId: selectedDoctorId || null,
+        notes: appointmentNotes || null,
         status: status,
         procedureTypeId: selectedProcedureTypeId || null,
       })
@@ -585,14 +595,19 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                     Médecin
                   </Label>
                   <Select
-                    value={selectedDoctorId}
-                    onValueChange={setSelectedDoctorId}
+                    value={selectedDoctorId || UNASSIGNED_DOCTOR}
+                    onValueChange={(value) =>
+                      setSelectedDoctorId(value === UNASSIGNED_DOCTOR ? "" : value)
+                    }
                     disabled={loadingDoctors || loading}
                   >
                     <SelectTrigger className="h-10 w-full" id="doctor">
                       <SelectValue placeholder={loadingDoctors ? "Chargement des médecins…" : doctors.length === 0 ? "Aucun médecin trouvé" : "Choisir un médecin…"} />
                     </SelectTrigger>
                     <SelectContent className="max-h-[200px]">
+                      {/* Unassigning is now a real operation server-side (an explicit null clears DoctorId),
+                          so it needs an option. Radix Select cannot hold value="" — hence the sentinel. */}
+                      <SelectItem value={UNASSIGNED_DOCTOR}>Aucun praticien</SelectItem>
                       {doctors.length === 0 && !loadingDoctors ? (
                         <div className="px-2 py-1.5 text-sm text-muted-foreground">Aucun médecin disponible</div>
                       ) : (

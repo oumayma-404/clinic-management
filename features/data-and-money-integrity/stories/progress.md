@@ -17,8 +17,8 @@
 |------|------|--------|--------|--------|
 | — | Scaffold (stories, progress) | complete | `42e8ecf` | yes |
 | A | Réconciliation report | complete | `c712f06` | yes |
-| B | Patient delete blocks + archive | complete | | |
-| C | Appointment update stops wiping the act | pending | | |
+| B | Patient delete blocks + archive | complete | `4b4a805` | yes |
+| C | Appointment update stops wiping the act | complete | | |
 | D | Void a payment + invoice detail modal | pending | | |
 | E | Installment ledger + plan void + receipts | pending | | |
 | F | Devis→facture carry-over | pending | | |
@@ -129,7 +129,31 @@ Adding `includeArchived` to `GetByClinicIdAsync` broke every caller, which was t
 | Added `Patient.ArchiveReason` (+ column), which the plan's M2 column list omitted | Trivial | The plan itself specifies `Archive(reason)` and the spec's API contract takes `reason?`. Without a column to store it the parameter is inert. |
 | Created `PatientMappingExtensions` and moved the 4 inline Patient→DTO mappings onto it | Trivial — internal, same output | The archive flag has to appear on the list, the detail and both write paths; four hand-maintained copies would have drifted immediately. Matches the co-located-static-helper convention (`InvoiceMappingExtensions`, …) and collapses the biggest single cost in Part I. |
 | `GetLinkedDataCountsAsync` issues 15 `CountAsync` calls rather than one composed query | Trivial | Runs once, on a dialog open. Legible and obviously correct beats a hand-rolled UNION; each count names exactly what it guards. |
-| Junctioned the worktree's `web/node_modules` to the main checkout's | Trivial — tooling only, nothing committed | `package.json` and `package-lock.json` are byte-identical between the two trees, so the dependency graph is the same. Avoids a multi-minute install to run a type check. |
+| ~~Junctioned the worktree's `web/node_modules`~~ — **reverted in Part C, replaced with a real `npm ci`** | Trivial — tooling only, nothing committed | The junction type-checked fine but broke `npm run build`: `next.config.ts` sets `output: 'standalone'`, and the standalone trace step failed with `EPERM` trying to symlink the junction target. Since packaging ships the standalone output, that is a build artifact that actually matters — so the shortcut was removed and real dependencies installed. |
+
+## Part C — notes
+
+**Quality gate:** backend build 0 errors, 0 warnings in changed files; `tsc --noEmit` clean; `npm run build`
+compiles clean and generates all 27 pages. 57 appointment tests pass.
+
+### The fix was proven to actually catch the bug
+
+Rather than assume the new tests were meaningful, the tri-state guard was **temporarily reverted** and the suite
+re-run: **5 tests went red**, including `AppointmentSyncMappingTests.UpdateAppointment_Maps_IsSyncedToGoogle`,
+which previously passed *only* because its fixture had no procedure type — it was pinning the data-loss defect
+rather than the mapping it claims to cover. The guard was then restored and all 57 pass.
+
+Both wipe triggers are covered: the edit dialog's cancel (`{ status: "cancelled" }` alone) and the AI
+assistant's `cancel_appointment`, which constructs the command directly and bypasses the controller — which is
+why the fix had to live on the command, not on a request DTO.
+
+### Auto-approved deviations
+
+| Deviation | Classification | Reason |
+|-----------|----------------|--------|
+| The invalid-status refusal was added as an early return rather than restructuring the `switch` | Trivial | Smallest possible diff; the existing nesting and every case are untouched. |
+| `UNASSIGNED_DOCTOR = "__unassigned__"` sentinel in the edit dialog | Trivial | Radix `Select` cannot hold `value=""`. Mirrors the `"all"` sentinel already used on the appointments page. |
+| Test colour changed from `#2563EB` to `#4F83CC` | Trivial | `ColorHex` validates against a curated palette and rejected the first value. Caught by the test run, not shipped. |
 
 ## Significant deviations
 
