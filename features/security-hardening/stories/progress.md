@@ -13,7 +13,7 @@
 | P4 Authorization | in progress — **P4.1–P4.4, P4.6, AC-9.3 done; P4.5 partial** (procedure types + recall settings gated; clinic doctors/billing controls still open) |
 | P5 Hygiene | in progress — **P5.1 done** (MinIO fail-loud); remaining **P5.2** upload validation, **P5.3** headers + CSP, **P5.4** exception leaks |
 
-> **Suite baseline is now 4 failures, not 8.** Four of the eight pre-existing failures were a stale test fixture and are fixed. Use **4** as the reference point from here — and still judge against repeated runs, because the PDF-render tests remain order-sensitive.
+> **Suite baseline is now 3 failures, not 8.** Five of the eight pre-existing failures were stale test fixtures/mocks and are fixed. Use **3** as the reference point — and still judge against repeated runs, because the PDF-render tests remain order-sensitive.
 
 ## Working tree note (start of session, 2026-07-27)
 
@@ -329,6 +329,21 @@ US-10 closed. New `Infrastructure/Storage/MinioCredentials` makes the rule a tes
 | Full suite | **940 passed / 4 failed** — the 4 known pre-existing |
 
 **Not verified:** that a real Cloud/Production start actually refuses. The rule is unit-tested and the throw is wired, but no Production boot was attempted here.
+
+### P5.4 is materially bigger than the audit or spec assumed — scoped, not started
+
+Counted before editing: **85** `{ex.Message}` interpolations across `ClinicManagement.Application`, not the 6 the audit names. AC-13.5 anticipated "sweep for others", but the size changes the shape of the work — and **5 of the 6 named handlers have no `ILogger`**, so satisfying AC-13.2 (log the exception at Error) means 5 constructor changes and their test cascades, which this session has already seen blow up twice.
+
+Deliberately **not** started rather than half-applied. Recommended approach when picked up:
+1. Fix the 6 named handlers first (they are the ones with a client-visible 400 body), injecting a logger and updating each cascade in lock-step.
+2. Add the AC-13.6 guard test **before** the sweep, so it enumerates the remaining sites and the number can only go down.
+3. Treat the other ~79 as a bounded follow-up, not a blocker: many are in query handlers whose failures surface as 500s via `ExceptionMiddleware` rather than as the `{ error }` body the finding is about. Confirm that per site rather than assuming it.
+
+### `DocumentTypeAndFilenameTests` — FIXED
+
+The diagnosis from the previous pass was right: `CreateHandler` passed an **unconfigured** `Mock<ICurrentClinicResolver>`, so the handler short-circuited at the clinic check — which sits *before* the patient lookup — and the test failed asserting the lookup had happened. The premise was still correct; it just predated the handler becoming clinic-scoped. A resolver that actually resolves fixes it.
+
+**Suite baseline is now 3 failures** — only the 3 unrelated `ReminderSchedulerTests` remain. It was 8 at branch point.
 
 ### Triage of the pre-existing failures (P5 blocker cleared)
 
