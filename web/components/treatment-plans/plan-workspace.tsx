@@ -19,7 +19,7 @@ import { invoicesApi } from "@/lib/api/invoices"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
 import { ApiError } from "@/lib/api/client"
 import type { InstallmentDto, ProcedureTypeDto, TreatmentPlanDto, TreatmentPlanItemDto } from "@/lib/api/types"
-import { formatDT, formatDateFr } from "@/lib/format"
+import { formatDT, formatDateFr, isBeforeToday } from "@/lib/format"
 import { downloadBlob } from "@/lib/download"
 import { planStatusLabel, planStatusBadgeClass } from "./treatment-plan-labels"
 import { isPlanBilled } from "./plan-next-action"
@@ -370,7 +370,8 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                 </TableHeader>
                 <TableBody>
                   {plan.installments.map((inst) => {
-                    const isOverdue = !inst.isPaid && new Date(inst.dueDate).getTime() < Date.now()
+                    // Late only once the due DAY has passed — an échéance due today still has the day to run.
+                    const isOverdue = !inst.isPaid && isBeforeToday(inst.dueDate)
                     return (
                       <TableRow key={inst.id}>
                         <TableCell>{formatDateFr(inst.dueDate)}</TableCell>

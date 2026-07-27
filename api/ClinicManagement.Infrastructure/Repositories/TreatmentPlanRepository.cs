@@ -129,7 +129,9 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
             .Select(g =>
             {
                 var outstanding = g.Sum(r => r.Amount - r.AmountPaid);
-                var overdueDates = g.Where(r => r.DueDate < asOfUtc).Select(r => r.DueDate).ToList();
+                // Calendar-day comparison (in memory, so .Date is safe): an échéance due TODAY is not late.
+                // Comparing instants against a midnight due date flagged it a full day early.
+                var overdueDates = g.Where(r => r.DueDate.Date < asOfUtc.Date).Select(r => r.DueDate).ToList();
                 DateTime? oldestOverdue = overdueDates.Count > 0 ? overdueDates.Min() : null;
                 return (PatientId: g.Key, Outstanding: outstanding, OldestOverdueDueDate: oldestOverdue);
             })

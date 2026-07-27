@@ -143,7 +143,9 @@ public class MoneyReadConsistencyTests
                     .Select(g => (
                         PatientId: g.Key,
                         Outstanding: g.Sum(x => x.Open),
-                        OldestOverdue: g.Where(x => x.DueDate < asOf).Select(x => (DateTime?)x.DueDate).Min()))
+                        // Calendar-day comparison, mirroring the real repository — an échéance due today is
+                        // not overdue (see InstallmentOverdueBoundaryTests).
+                        OldestOverdue: g.Where(x => x.DueDate.Date < asOf.Date).Select(x => (DateTime?)x.DueDate).Min()))
                     .Where(r => r.Outstanding > 0m)
                     .ToList());
 

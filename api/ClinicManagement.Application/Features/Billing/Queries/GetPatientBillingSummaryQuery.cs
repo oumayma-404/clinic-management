@@ -84,7 +84,10 @@ public class GetPatientBillingSummaryQueryHandler
 
             DateTime? oldestOverdue = plans
                 .SelectMany(p => p.Installments)
-                .Where(i => !i.IsPaid && i.DueDate < now)
+                // Compared by CALENDAR DAY, not instant. Due dates are stored at midnight, so `DueDate < now`
+                // made an échéance overdue from 00:00 on its own due date — a full day early. It is late only
+                // once its day has passed. Matches GetPatientsToRecallQuery, which already truncates.
+                .Where(i => !i.IsPaid && i.DueDate.Date < now.Date)
                 .Select(i => (DateTime?)i.DueDate)
                 .DefaultIfEmpty(null)
                 .Min();

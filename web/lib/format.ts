@@ -27,6 +27,25 @@ export function roundMillimes(value: number): number {
   return rounded / 1000;
 }
 
+/**
+ * True when an ISO date falls strictly before today — i.e. its calendar day has passed.
+ *
+ * Deliberately a CALENDAR-DAY comparison, not an instant one. Due dates are stored at midnight, so comparing
+ * `new Date(iso) < Date.now()` reports a date as past from 00:00 on the day itself — a full day early, which is
+ * how échéances due today were being badged « En retard ». Something due today is not late yet.
+ *
+ * Compares the `YYYY-MM-DD` prefixes as strings, so neither the viewer's timezone nor whether the API
+ * serialises the value with a `Z` can shift which day it lands on.
+ */
+export function isBeforeToday(iso?: string | null): boolean {
+  if (!iso) return false;
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(
+    now.getDate(),
+  ).padStart(2, "0")}`;
+  return iso.slice(0, 10) < today;
+}
+
 /** Format an ISO date string as a French short date (e.g. "17 juil. 2026"). Returns "—" when unparseable. */
 export function formatDateFr(iso?: string | null): string {
   if (!iso) return "—";
