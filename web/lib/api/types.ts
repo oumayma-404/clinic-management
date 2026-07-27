@@ -259,8 +259,10 @@ export interface PatientDto {
   lastName: string;
   dateOfBirth: string;
   gender: string;
-  email: string;
-  phoneNumber: string;
+  /** Null when the patient gave none — never a placeholder address. */
+  email?: string | null;
+  /** Null when the patient gave none. Such a patient receives no reminder and no relance. */
+  phoneNumber?: string | null;
   medicalHistory?: string;
   allergies?: string;
   emergencyContactName?: string;

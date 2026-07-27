@@ -32,11 +32,13 @@ public class PatientConfiguration : IEntityTypeConfiguration<Patient>
             .HasMaxLength(20);
 
         // Value Objects
+        // Both optional, like EmergencyContactPhone below. The columns were NOT NULL, which is what forced
+        // CreatePatientCommand to invent a sentinel address and a ten-zero phone for every patient who simply
+        // did not give one.
         builder.OwnsOne(p => p.Email, email =>
         {
             email.Property(e => e.Value)
                 .HasColumnName("Email")
-                .IsRequired()
                 .HasMaxLength(255);
         });
 
@@ -44,7 +46,6 @@ public class PatientConfiguration : IEntityTypeConfiguration<Patient>
         {
             phone.Property(p => p.Value)
                 .HasColumnName("PhoneNumber")
-                .IsRequired()
                 .HasMaxLength(20);
         });
 

@@ -110,8 +110,8 @@ public class PatientArchiveTests
 
         Assert.Equal("Sonia", patient.FirstName);
         Assert.Equal("Bel Hadj", patient.LastName);
-        Assert.Equal("sonia@example.tn", patient.Email.Value);
-        Assert.Equal("20123456", patient.PhoneNumber.Value);
+        Assert.Equal("sonia@example.tn", patient.Email?.Value);
+        Assert.Equal("20123456", patient.PhoneNumber?.Value);
         Assert.Equal(ClinicId, patient.ClinicId);
     }
 }

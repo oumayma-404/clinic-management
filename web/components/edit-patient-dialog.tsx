@@ -323,10 +323,9 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
       newErrors.birthdate = "La date de naissance est requise"
     }
 
-    if (!phone.trim()) {
-      newErrors.phone = "Numéro de téléphone requis"
-    } else if (!isDeliverablePhone(phone.trim())) {
-      // AC-5: match the reminder engine's rule so a number accepted here can actually receive reminders.
+    // The phone is optional — a walk-in who does not give one is an ordinary patient. A NON-BLANK number is
+    // still held to the reminder engine's rule, so anything accepted here can actually be delivered to.
+    if (phone.trim() && !isDeliverablePhone(phone.trim())) {
       newErrors.phone = PHONE_ERROR_FR
     }
 
@@ -373,8 +372,10 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
           lastName: lastName.trim(),
           gender,
           dateOfBirth: birthdate,
-          phoneNumber: phone.trim(),
-          email: email.trim() || undefined,
+          // Explicit null, not undefined: the command is tri-state, so undefined would be read as
+          // "leave it alone" and clearing the box would silently do nothing.
+          phoneNumber: phone.trim() || null,
+          email: email.trim() || null,
           address: addressObj,
           emergencyContactName: emergencyName.trim(),
           emergencyContactPhone: emergencyPhone.trim(),
@@ -472,8 +473,8 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
           lastName: lastName.trim(),
           dateOfBirth: birthdate || new Date().toISOString(),
           gender: gender || "Unknown",
-          email: email.trim() || "",
-          phoneNumber: phone.trim() || "",
+          email: email.trim() || null,
+          phoneNumber: phone.trim() || null,
           medicalHistory: chronicDiseases.trim() || undefined,
           allergies: allergies.trim() || undefined,
           address: addressObj,
@@ -638,7 +639,8 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                 {/* Phone */}
                 <div className="space-y-2">
                   <Label htmlFor="phone">
-                    Numéro de téléphone <span className="text-destructive">*</span>
+                    Numéro de téléphone{" "}
+                    <span className="text-muted-foreground text-xs">(optionnel)</span>
                   </Label>
                   <Input
                     id="phone"
@@ -650,6 +652,13 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                     className={cn(errors.phone && "border-destructive")}
                   />
                   {errors.phone && <p className="text-sm text-destructive">{errors.phone}</p>}
+                  {/* Optional does not mean consequence-free. Saying it here beats a neutral blank the user
+                      only understands weeks later, when the patient misses an appointment. */}
+                  {!phone.trim() && !errors.phone && (
+                    <p className="text-xs text-muted-foreground">
+                      Sans numéro de téléphone, ce patient ne recevra ni rappel ni relance.
+                    </p>
+                  )}
                 </div>
 
                 {/* Email */}

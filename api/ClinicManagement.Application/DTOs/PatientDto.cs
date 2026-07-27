@@ -8,8 +8,14 @@ public class PatientDto
     public string LastName { get; set; } = string.Empty;
     public DateTime DateOfBirth { get; set; }
     public string Gender { get; set; } = string.Empty;
-    public string Email { get; set; } = string.Empty;
-    public string PhoneNumber { get; set; } = string.Empty;
+    /// <summary>Null when the patient gave none — not an empty string, and never a placeholder address.</summary>
+    public string? Email { get; set; }
+
+    /// <summary>
+    /// Null when the patient gave none. A patient without one receives no reminder and no relance; the UI says
+    /// so rather than rendering a neutral blank.
+    /// </summary>
+    public string? PhoneNumber { get; set; }
     public string? MedicalHistory { get; set; }
     public string? Allergies { get; set; }
     public string? EmergencyContactName { get; set; }

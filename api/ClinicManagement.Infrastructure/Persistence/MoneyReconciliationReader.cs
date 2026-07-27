@@ -91,7 +91,12 @@ public class MoneyReconciliationReader : IMoneyReconciliationReader
 
         var contacts = await _context.Patients
             .AsNoTracking()
-            .Select(p => new { p.ClinicId, Email = p.Email.Value, Phone = p.PhoneNumber.Value })
+            .Select(p => new
+            {
+                p.ClinicId,
+                Email = p.Email == null ? null : p.Email.Value,
+                Phone = p.PhoneNumber == null ? null : p.PhoneNumber.Value,
+            })
             .ToListAsync(cancellationToken);
 
         var creditNotes = await _context.CreditNotes

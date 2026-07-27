@@ -1,7 +1,9 @@
 using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
+using ClinicManagement.Domain.ValueObjects;
 using ClinicManagement.Infrastructure.Services;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -22,6 +24,7 @@ public class ReminderSchedulerTests
     {
         public Mock<INotificationRepository> Notifications { get; } = new();
         public Mock<IClinicRepository> Clinics { get; } = new();
+        public Mock<IPatientRepository> Patients { get; } = new();
         public Mock<IReminderSettingsProvider> SettingsProvider { get; } = new();
         public Mock<IUnitOfWork> Uow { get; } = new();
         public List<Notification> Added { get; } = new();
@@ -42,11 +45,28 @@ public class ReminderSchedulerTests
             Clinics.Setup(r => r.GetByIdAsync(ClinicId, It.IsAny<CancellationToken>()))
                 .ReturnsAsync(new Clinic(ClinicId, "Clinique Test"));
 
-            // The scheduler now resolves the enabled channels through the provider (per-clinic override or
+            // Every patient in these fixtures is reachable unless a test says otherwise — the scheduler now
+            // gates enqueue on a deliverable phone.
+            Patients.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync((Guid id, CancellationToken _) => ReachablePatient(id));
+
+            // The scheduler resolves the enabled channels through the provider (per-clinic override or
             // per-install default). Mirror the configured channels so these enqueue tests stay focused.
+            //
+            // BOTH provider methods are stubbed on purpose. The scheduler reads EnabledChannels off the FULL
+            // ResolveAsync result; stubbing only ResolveEnabledChannelsAsync left ResolveAsync returning null,
+            // which threw inside the class's own swallow-and-log wrapper — so three of these tests failed with
+            // an empty collection and no visible cause.
             SettingsProvider
                 .Setup(p => p.ResolveEnabledChannelsAsync(It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(ParseChannels(channels));
+            SettingsProvider
+                .Setup(p => p.ResolveAsync(It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new ResolvedReminderSettings
+                {
+                    EnabledChannels = ParseChannels(channels),
+                    LeadTimeHours = new[] { 24, 6 },
+                });
         }
 
         private static IReadOnlyList<NotificationType> ParseChannels(string[] channels)
@@ -66,6 +86,18 @@ public class ReminderSchedulerTests
 
             return result;
         }
+
+        /// <summary>This patient cannot be reached — the scheduler must not enqueue anything for them.</summary>
+        public void PatientHasNoPhone(Guid patientId) =>
+            Patients.Setup(r => r.GetByIdAsync(patientId, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new Patient(
+                    patientId, ClinicId, "Sans", "Téléphone",
+                    new DateTime(1990, 1, 1, 0, 0, 0, DateTimeKind.Utc), "M"));
+
+        private static Patient ReachablePatient(Guid patientId) =>
+            new(patientId, ClinicId, "Jean", "Dupont",
+                new DateTime(1990, 1, 1, 0, 0, 0, DateTimeKind.Utc), "M",
+                phoneNumber: new PhoneNumber("+21620123456"));
 
         public void HasExistingReminders(Guid appointmentId, params Notification[] existing) =>
             Notifications.Setup(r => r.GetByAppointmentIdAsync(appointmentId, It.IsAny<CancellationToken>()))
@@ -88,8 +120,8 @@ public class ReminderSchedulerTests
         }
 
         public ReminderScheduler Scheduler() =>
-            new(Notifications.Object, Clinics.Object, SettingsProvider.Object, Uow.Object, Config(),
-                NullLogger<ReminderScheduler>.Instance);
+            new(Notifications.Object, Clinics.Object, Patients.Object, SettingsProvider.Object, Uow.Object,
+                Config(), NullLogger<ReminderScheduler>.Instance);
     }
 
     private static Notification PendingReminder(Guid appointmentId, NotificationType type = NotificationType.SMS) =>
@@ -222,5 +254,35 @@ public class ReminderSchedulerTests
                 ClinicId, Guid.NewGuid(), Guid.NewGuid(), "Jean", DateTime.UtcNow.AddDays(2)));
 
         Assert.Null(exception);
+    }
+
+    // [AC-52] No row is enqueued for a patient who cannot be reached. Gating at enqueue rather than at
+    // dispatch is the point: a queued-then-failed reminder is noise an operator has to triage, repeatedly,
+    // for a patient whose phone number does not exist.
+    [Fact]
+    public async Task Schedule_Enqueues_Nothing_For_A_Patient_Without_A_Phone()
+    {
+        var h = new Harness("Sms", "WhatsApp");
+        var patientId = Guid.NewGuid();
+        h.PatientHasNoPhone(patientId);
+
+        await h.Scheduler().ScheduleForAppointmentAsync(
+            ClinicId, Guid.NewGuid(), patientId, "Sans Téléphone",
+            DateTime.SpecifyKind(DateTime.UtcNow.AddDays(2), DateTimeKind.Utc));
+
+        Assert.Empty(h.Added);
+    }
+
+    // [AC-52] Same gate on the relance path.
+    [Fact]
+    public async Task Recall_Enqueues_Nothing_For_A_Patient_Without_A_Phone()
+    {
+        var h = new Harness("Sms");
+        var patientId = Guid.NewGuid();
+        h.PatientHasNoPhone(patientId);
+
+        await h.Scheduler().ScheduleRecallAsync(ClinicId, patientId, "Sans Téléphone", "contrôle");
+
+        Assert.Empty(h.Added);
     }
 }

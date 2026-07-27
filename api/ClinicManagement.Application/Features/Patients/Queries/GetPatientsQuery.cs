@@ -67,7 +67,9 @@ public class GetPatientsQueryHandler : IRequestHandler<GetPatientsQuery, Result<
                     NormalizeForSearch(p.FirstName).Contains(normalizedTerm) ||
                     NormalizeForSearch(p.LastName).Contains(normalizedTerm) ||
                     NormalizeForSearch($"{p.FirstName} {p.LastName}").Contains(normalizedTerm) ||
-                    NormalizeForSearch(p.PhoneNumber.Value).Contains(normalizedTerm));
+                    // Null-safe: this runs in memory over every patient in the clinic, so a single
+                    // contact-less patient used to take out the whole list AND the header search with a 500.
+                    NormalizeForSearch(p.PhoneNumber?.Value).Contains(normalizedTerm));
             }
 
             // Stable order so a capped result is deterministic.

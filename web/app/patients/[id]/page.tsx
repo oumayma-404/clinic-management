@@ -1489,6 +1489,13 @@ export default function PatientDetailsPage() {
                   <div>
                     <p className="text-xs font-medium text-muted-foreground">Téléphone</p>
                     <p className="text-sm text-foreground">{patient.phoneNumber || "Non renseigné"}</p>
+                    {/* The blank alone reads as "nobody typed it in yet". What matters is that this patient
+                        is silently excluded from every automated contact. */}
+                    {!patient.phoneNumber && (
+                      <p className="text-xs text-amber-700 dark:text-amber-400">
+                        Ni rappel ni relance ne peuvent lui être envoyés.
+                      </p>
+                    )}
                   </div>
                   <Separator />
                   <div>

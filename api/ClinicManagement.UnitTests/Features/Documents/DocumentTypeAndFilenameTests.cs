@@ -1,4 +1,5 @@
 using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Features.Documents;
 using ClinicManagement.Application.Features.Documents.Commands;
 using ClinicManagement.Domain.Repositories;
@@ -17,6 +18,22 @@ namespace ClinicManagement.UnitTests.Features.Documents;
 /// </summary>
 public class DocumentTypeAndFilenameTests
 {
+    private static readonly Guid ClinicId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+
+    /// <summary>
+    /// A resolver that answers with a real clinic. Left unconfigured, it returned null and the handler's
+    /// tenant guard — which now runs BEFORE the patient lookup — threw into the catch-all, so
+    /// Create_With_Supported_Type_Passes_The_Type_Guard failed on its "the lookup happened" assertion while
+    /// still seeing the failure Result it expected. The test was checking the right thing for the wrong reason.
+    /// </summary>
+    private static Mock<ICurrentClinicResolver> ResolverFor(Guid clinicId)
+    {
+        var resolver = new Mock<ICurrentClinicResolver>();
+        resolver.Setup(r => r.GetClinicIdAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result<Guid>.Success(clinicId));
+        return resolver;
+    }
+
     private static CreateMedicalDocumentCommandHandler CreateHandler(Mock<IPatientRepository>? patients = null) =>
         new(
             new Mock<IMedicalDocumentRepository>().Object,
@@ -25,7 +42,7 @@ public class DocumentTypeAndFilenameTests
             new Mock<IPatientFileRepository>().Object,
             new Mock<IFileStorage>().Object,
             new Mock<IAppointmentRepository>().Object,
-            new Mock<ICurrentClinicResolver>().Object,
+            ResolverFor(ClinicId).Object,
             new Mock<IClinicContext>().Object,
             new Mock<IDoctorRepository>().Object,
             new Mock<IClinicRepository>().Object,

@@ -23,7 +23,7 @@
 | E | Installment ledger + plan void + receipts | complete | `0fcc796` | yes |
 | F | Devis→facture carry-over | complete | `c182571` | yes |
 | G | Avoirs readable + PDF + netting | complete | `f19ed35` | yes |
-| H | Patient contact optional | pending | | |
+| H | Patient contact optional | complete | | |
 | I | Conflict detection — backend | pending | | |
 | J | Conflict detection — frontend | pending | | |
 | K | Documentation | pending | | |
@@ -137,6 +137,75 @@ shows « Remboursé (avoirs) » alongside, with the DTO comment stating outright
 Reverted the no-period netting to the old `billable.Sum(i => i.AmountCollected)` and rebuilt: exactly
 `Revenue_Without_A_Period_Nets_Avoirs` went red, 12 of 13 still passing. Restored, re-ran the full suite, back
 to the 8-failure baseline.
+
+## Part H — notes
+
+**Quality gate:** backend build 0 errors, no new warnings; **919 tests, 919 pass — the suite is fully green for
+the first time this feature** (see below); `tsc --noEmit` clean; `npm run build` clean. 10 new tests for Part H,
+plus 1 for a guard the repairs uncovered.
+
+**Migration `20260727194256_MakePatientContactOptional` (M4) is the last of the five.** Ordering inside it is
+also load-bearing: `DROP NOT NULL` on both columns, *then* the two blanking `UPDATE`s. Reversed, the update
+cannot run.
+
+### The ordering constraint, honoured
+
+Every null-safe read shipped in this same commit, ahead of the blanking. That is not a nicety: in Local mode
+migrations run **after** Kestrel is already serving (`DeferredStartupService`), so there is a guaranteed window
+where the running build sees migrated data — and the old `GetPatientsQuery` dereferenced `p.PhoneNumber.Value`
+inside an in-memory `Where` over every patient in the clinic. One blanked row would have 500'd the patient list
+**and** the header search, for the whole clinic, until someone restarted with new code.
+
+### Making the columns nullable *was* the call-site audit
+
+Same technique as Part B's `includeArchived`. Flipping `Email`/`PhoneNumber` to `Email?`/`PhoneNumber?` turned
+every unguarded dereference into a compiler warning, and the compiler found **eleven** — not the ten the plan
+predicted; `MoneyReconciliationReader` projects both in one line, and Part B's mapping consolidation had already
+merged two of the predicted sites into `PatientMappingExtensions`.
+
+### Nullable alone would have left clearing broken
+
+`UpdatePatientCommand` read blank as *"keep the existing value"*, so once a patient had an e-mail on file **no
+request could remove it**. Contact therefore gets the tri-state treatment (backing field + `[JsonIgnore]
+…Specified`, the mechanism from Part C), and a dedicated `Patient.UpdateContact(Email?, PhoneNumber?)`.
+
+The dedicated method matters. `UpdatePersonalInfo` takes contact positionally among six parameters, so clearing
+only the e-mail through it means re-sending name, birth date, gender and address — and any one of those being
+stale silently overwrites. Contact was also removed from that block's trigger condition, so a contact-only edit
+no longer rewrites the address.
+
+### `SendRecallCommand` was lying, and the outbox was collecting proof
+
+It enqueued a relance the patient could never receive, then stamped « contacted » and snoozed them **30 days**
+regardless — so a phone-less patient silently vanished from the relance list for a month and nobody was told to
+call them. It now refuses, does not stamp, does not snooze, and the row's « Envoyer » is disabled with a title
+saying to call and then use « Marquer comme contacté ».
+
+Reminders are gated at **enqueue** rather than at dispatch (`ReminderScheduler.HasDeliverablePhoneAsync`, using
+`PhoneNumber.IsDeliverable` — the same predicate the senders apply, so the two can't disagree). No behaviour
+changes outbound: the ten-zero sentinel never reached a gateway, because `ToE164` already rejected it. What
+changes is that the outbox stops accumulating failures nobody can act on.
+
+### Three stale test fixtures repaired — the "8-failure baseline" is gone
+
+The baseline documented in Part E was **three broken fixtures, not one environmental problem**, and each was
+masking real coverage. All three are now green, so the suite is a real gate again:
+
+| Fixture | Why it failed | What it was hiding |
+|---|---|---|
+| `ReminderSchedulerTests` ×3 | Stubbed `ResolveEnabledChannelsAsync`; the scheduler reads `EnabledChannels` off the **full** `ResolveAsync`, which returned null and threw inside the class's own swallow-and-log wrapper | Every enqueue assertion in the file. Directly in Part H's blast radius — I changed that constructor. |
+| `DoctorCachetTests` ×4 | Fixture uploaded three arbitrary bytes; the handler had since grown a **magic-byte** check (a Content-Type header is spoofable and the cachet is served inline at the app origin) | The magic-byte guard itself had no test. Added one: a `<svg` payload declared as `image/png` is refused before storage. |
+| `DocumentTypeAndFilenameTests` ×1 | Unconfigured `ICurrentClinicResolver`; the tenant guard now runs **before** the patient lookup, so the handler threw into its catch-all | The test still saw the failure `Result` it expected — it was passing its main assertion for the wrong reason. |
+
+None was environmental, and none was a product defect: in all three the production code was right and the test
+had drifted behind it.
+
+### What the report will show
+
+`reconcile-money` cannot be run here (no database in this environment). After the migration it must print
+**zero** for all four sentinel counts; the near-miss count is informational and may be non-zero — those are
+matched by exact value on purpose, since a real patient could plausibly own something like
+`no-email@example.com` and guessing at one is worse than leaving it for review.
 
 ### Auto-approved deviations
 
@@ -385,6 +454,9 @@ carry-over.
 | Added `GetTotalsForInvoicesAsync` (a batch read the plan did not list) | Trivial | The row badge and the no-period revenue branch both need per-invoice credited totals; one grouped query beats an N+1 and a second bespoke sum. |
 | The avoir dialog now sends `refundedOn` + `method` (plan only asked for the TTN warning) | Trivial | The API already accepted both and now validates them; without them the new PDF has no date and no means of refund to print. |
 | Consolidated the credit-note→DTO mapping into `InvoiceMappingExtensions` | Trivial | `CreateCreditNoteCommand` had a private copy; three new call sites would have made four. |
+| Repaired three pre-existing broken test fixtures (7 tests) beyond Part H's file list | Trivial — tests only, no production change | Two were in the blast radius (I changed `ReminderScheduler`'s constructor); leaving a red suite makes every future gate unreadable. Each was a stale fixture, not a defect. |
+| Added `A_Spoofed_Content_Type_Is_Rejected_Before_Storage` | Trivial | The magic-byte guard had no coverage — the broken fixture was accidentally tripping it, so its failure read as noise. |
+| `ReminderScheduler` gained an `IPatientRepository` dependency | Trivial — additive constructor parameter | Gating at enqueue needs the patient's phone; the scheduler previously never loaded the patient. |
 
 ## Significant deviations
 

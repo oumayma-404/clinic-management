@@ -10,8 +10,14 @@ public class Patient : AggregateRoot<Guid>
     public string LastName { get; private set; }
     public DateTime DateOfBirth { get; private set; }
     public string Gender { get; private set; }
-    public Email Email { get; private set; }
-    public PhoneNumber PhoneNumber { get; private set; }
+    /// <summary>
+    /// Optional. A walk-in with no e-mail is an ordinary patient, not a data-quality problem — the app used to
+    /// require both and manufactured <c>noemail@example.com</c> / <c>0000000000</c> to satisfy itself, which
+    /// made "has no contact details" indistinguishable from "we have a real address on file".
+    /// <see cref="EmergencyContactPhone"/> below is the shape this now follows.
+    /// </summary>
+    public Email? Email { get; private set; }
+    public PhoneNumber? PhoneNumber { get; private set; }
     public Address? Address { get; private set; }
     public InsuranceInfo? InsuranceInfo { get; private set; }
     public CnamInfo? CnamInfo { get; private set; }
@@ -66,8 +72,8 @@ public class Patient : AggregateRoot<Guid>
         string lastName,
         DateTime dateOfBirth,
         string gender,
-        Email email,
-        PhoneNumber phoneNumber,
+        Email? email = null,
+        PhoneNumber? phoneNumber = null,
         Address? address = null,
         InsuranceInfo? insuranceInfo = null)
     {
@@ -77,8 +83,8 @@ public class Patient : AggregateRoot<Guid>
         LastName = lastName ?? throw new ArgumentNullException(nameof(lastName));
         DateOfBirth = dateOfBirth;
         Gender = gender ?? throw new ArgumentNullException(nameof(gender));
-        Email = email ?? throw new ArgumentNullException(nameof(email));
-        PhoneNumber = phoneNumber ?? throw new ArgumentNullException(nameof(phoneNumber));
+        Email = email;
+        PhoneNumber = phoneNumber;
         Address = address;
         InsuranceInfo = insuranceInfo;
         CreatedAt = DateTime.UtcNow;
@@ -89,8 +95,8 @@ public class Patient : AggregateRoot<Guid>
         string lastName,
         DateTime dateOfBirth,
         string gender,
-        Email email,
-        PhoneNumber phoneNumber,
+        Email? email,
+        PhoneNumber? phoneNumber,
         Address? address = null)
     {
         FirstName = firstName;
@@ -120,6 +126,23 @@ public class Patient : AggregateRoot<Guid>
     {
         MedicalHistory = medicalHistory;
         Allergies = allergies;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Set the patient's own contact details, each independently clearable.
+    ///
+    /// <para>
+    /// Separate from <see cref="UpdatePersonalInfo"/> deliberately. There the two contact fields sit positionally
+    /// among six, so a caller wanting to clear only the e-mail would have to re-send name, birth date, gender and
+    /// address — and any of those being stale would silently overwrite. Tri-state needs a method that touches
+    /// nothing else. Same shape as <see cref="UpdateEmergencyContact"/>.
+    /// </para>
+    /// </summary>
+    public void UpdateContact(Email? email, PhoneNumber? phoneNumber)
+    {
+        Email = email;
+        PhoneNumber = phoneNumber;
         UpdatedAt = DateTime.UtcNow;
     }
 

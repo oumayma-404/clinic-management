@@ -50,7 +50,13 @@ public class DoctorCachetTests
     private void SaveSucceeds() =>
         _uow.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
 
-    private static MemoryStream Image() => new(new byte[] { 1, 2, 3 });
+    // A REAL PNG signature. These fixtures used to hand over three arbitrary bytes, which was fine until the
+    // handler grew a magic-byte check (a Content-Type header is trivially spoofable, and the cachet is served
+    // back inline at the app origin). Every cachet test then failed on "n'est pas une image valide" — the
+    // guard was working and the fixture was lying.
+    private static readonly byte[] PngSignature = { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A };
+
+    private static MemoryStream Image() => new(PngSignature);
 
     // [CACHET-1] An admin can set another doctor's ordre number + cachet.
     [Fact]
@@ -161,5 +167,29 @@ public class DoctorCachetTests
         Assert.Null(own.CachetStorageKey);
         Assert.Null(own.CachetContentType);
         _storage.Verify(s => s.DeleteAsync("clinic/doctors/x/cachet", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    // [CACHET-6] Bytes that are not actually a PNG/JPEG are refused, whatever the declared Content-Type says.
+    // Nothing reaches storage. This guard shipped without a test — the fixture that would have covered it was
+    // itself sending invalid bytes, so its failure read as noise rather than as coverage.
+    [Fact]
+    public async Task A_Spoofed_Content_Type_Is_Rejected_Before_Storage()
+    {
+        var user = SetUpUser("doctor");
+        var own = DoctorIn(ClinicId, linkedUserId: user.Id);
+        _doctors.Setup(r => r.GetByUserIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(own);
+
+        var result = await Handler().Handle(new UpdateDoctorProfileCommand
+        {
+            DoctorId = null,
+            CachetStream = new MemoryStream(new byte[] { 0x3C, 0x73, 0x76, 0x67 }),   // "<svg"
+            CachetContentType = "image/png"
+        }, CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Null(own.CachetStorageKey);
+        _storage.Verify(
+            s => s.UploadAsync(It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 }

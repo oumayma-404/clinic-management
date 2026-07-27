@@ -20,8 +20,9 @@ export const patientsApi = {
     lastName: string;
     dateOfBirth?: string;
     gender?: string;
-    email?: string;
-    phoneNumber?: string;
+    /** Omit or send null when the patient gave none — the API no longer substitutes a placeholder. */
+    email?: string | null;
+    phoneNumber?: string | null;
     medicalHistory?: string;
     allergies?: string;
     address?: {

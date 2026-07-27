@@ -662,15 +662,16 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                     dateOfBirth = DateTime.SpecifyKind(dateOfBirth, DateTimeKind.Utc);
                 }
                 
+                // No contact details: a patient conjured from a calendar event title genuinely has none.
+                // This was the second, undocumented sentinel source — unknown@example.com / 000-000-0000 —
+                // and unlike the create form nobody ever saw the form that "filled it in".
                 var newPatient = new Patient(
                     Guid.NewGuid(),
                     clinicId,
                     firstName,
                     lastName,
                     dateOfBirth,
-                    "Unknown", // Default gender
-                    new Email("unknown@example.com"), // Default email
-                    new PhoneNumber("000-000-0000")); // Default phone
+                    "Unknown"); // Default gender
 
                 await _patientRepository.AddAsync(newPatient, cancellationToken);
                 await _unitOfWork.SaveChangesAsync(cancellationToken);

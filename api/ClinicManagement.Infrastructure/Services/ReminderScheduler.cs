@@ -3,6 +3,7 @@ using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
+using ClinicManagement.Domain.ValueObjects;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
@@ -27,6 +28,7 @@ public class ReminderScheduler : IReminderScheduler
 
     private readonly INotificationRepository _notifications;
     private readonly IClinicRepository _clinics;
+    private readonly IPatientRepository _patients;
     private readonly IReminderSettingsProvider _settingsProvider;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IConfiguration _configuration;
@@ -35,6 +37,7 @@ public class ReminderScheduler : IReminderScheduler
     public ReminderScheduler(
         INotificationRepository notifications,
         IClinicRepository clinics,
+        IPatientRepository patients,
         IReminderSettingsProvider settingsProvider,
         IUnitOfWork unitOfWork,
         IConfiguration configuration,
@@ -42,6 +45,7 @@ public class ReminderScheduler : IReminderScheduler
     {
         _notifications = notifications;
         _clinics = clinics;
+        _patients = patients;
         _settingsProvider = settingsProvider;
         _unitOfWork = unitOfWork;
         _configuration = configuration;
@@ -79,6 +83,15 @@ public class ReminderScheduler : IReminderScheduler
         CancellationToken cancellationToken = default) =>
         SafelyRecallAsync(patientId, async () =>
         {
+            // Gate at ENQUEUE, not at dispatch. A patient with no deliverable phone can never receive this,
+            // so queuing it only fills the outbox with rows that fail hours later for a reason nobody acts on.
+            if (!await HasDeliverablePhoneAsync(patientId, cancellationToken))
+            {
+                _logger.LogInformation(
+                    "Skipped a recall for patient {PatientId}: no deliverable phone number.", patientId);
+                return;
+            }
+
             // Which channels + custom wording is per-clinic (its toggles/settings, else the install default).
             var settings = await _settingsProvider.ResolveAsync(clinicId, cancellationToken);
             if (settings.EnabledChannels.Count == 0)
@@ -109,6 +122,15 @@ public class ReminderScheduler : IReminderScheduler
         Guid clinicId, Guid appointmentId, Guid patientId, string patientName, DateTime appointmentDateTimeUtc,
         CancellationToken cancellationToken)
     {
+        // Same enqueue-time gate as the recall path: no deliverable phone, no row.
+        if (!await HasDeliverablePhoneAsync(patientId, cancellationToken))
+        {
+            _logger.LogInformation(
+                "Skipped reminders for appointment {AppointmentId}: patient {PatientId} has no deliverable phone number.",
+                appointmentId, patientId);
+            return;
+        }
+
         // AC-4: which channels to enqueue is per-clinic (its toggles where set, else the install default); the
         // full resolve also yields the per-clinic lead-time tiers + custom wording (else the install defaults).
         var settings = await _settingsProvider.ResolveAsync(clinicId, cancellationToken);
@@ -138,6 +160,17 @@ public class ReminderScheduler : IReminderScheduler
                 appointmentId: appointmentId, patientId: patientId, clinicId: clinicId);
             await _notifications.AddAsync(reminder, cancellationToken);
         }
+    }
+
+    /// <summary>
+    /// Can this patient actually be reached? Uses <see cref="PhoneNumber.IsDeliverable"/> — the same predicate
+    /// the senders apply — so the answer here and at dispatch can never disagree. A patient that has gone
+    /// missing is treated as unreachable rather than throwing: this whole class is best-effort.
+    /// </summary>
+    private async Task<bool> HasDeliverablePhoneAsync(Guid patientId, CancellationToken cancellationToken)
+    {
+        var patient = await _patients.GetByIdAsync(patientId, cancellationToken);
+        return patient?.PhoneNumber != null && PhoneNumber.IsDeliverable(patient.PhoneNumber.Value);
     }
 
     // Removes every unsent (Pending) reminder row for the appointment; Sent rows are left untouched.

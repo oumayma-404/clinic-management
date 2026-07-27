@@ -348,8 +348,10 @@ export function CreateAppointmentDialog({
           setError("Veuillez saisir le prénom et le nom du nouveau patient")
           return false
         }
-        // AC-4/AC-5: capture a deliverable phone for the inline patient so reminders can actually be sent.
-        if (!isDeliverablePhone(newPatientPhone)) {
+        // Optional, reconciled with the patient form: a non-blank number must still be deliverable, but a
+        // blank one is allowed. Requiring it here while the patient form does not would have made booking the
+        // one place in the app where a contact-less patient is impossible to create.
+        if (newPatientPhone.trim() && !isDeliverablePhone(newPatientPhone)) {
           setError(PHONE_ERROR_FR)
           return false
         }
@@ -398,7 +400,7 @@ export function CreateAppointmentDialog({
             const newPatient = await patientsApi.create({
               firstName: newPatientFirstName.trim(),
               lastName: newPatientLastName.trim(),
-              phoneNumber: newPatientPhone.trim(),
+              phoneNumber: newPatientPhone.trim() || null,
             })
             patientId = newPatient.id
           } catch (err) {
@@ -625,7 +627,7 @@ export function CreateAppointmentDialog({
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="newPatientPhone" className="text-sm">
-                        Téléphone *
+                        Téléphone <span className="text-muted-foreground">(optionnel)</span>
                       </Label>
                       <Input
                         id="newPatientPhone"
@@ -634,10 +636,11 @@ export function CreateAppointmentDialog({
                         value={newPatientPhone}
                         onChange={(e) => setNewPatientPhone(e.target.value)}
                         className="h-10"
-                        required
                       />
                       <p className="text-xs text-muted-foreground">
-                        Requis pour l&apos;envoi des rappels (numéro tunisien à 8 chiffres, ou +216…).
+                        {newPatientPhone.trim()
+                          ? "Numéro tunisien à 8 chiffres, ou +216…"
+                          : "Sans numéro, ce patient ne recevra ni rappel ni relance."}
                       </p>
                     </div>
                   </div>
