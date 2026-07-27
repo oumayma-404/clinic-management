@@ -3,6 +3,7 @@ using ClinicManagement.Application.Features.Dashboard.Queries;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Xunit;
 
@@ -26,7 +27,7 @@ public class GetDashboardStatsQueryHandlerTests
     private static readonly DateTime WeekEnd = new(2026, 6, 28, 23, 59, 59, DateTimeKind.Utc);
 
     private GetDashboardStatsQueryHandler CreateHandler() =>
-        new(_appointmentRepository.Object, _patientRepository.Object, _userRepository.Object, _invoiceRepository.Object, _planRepository.Object, _clinicContext.Object);
+        new(_appointmentRepository.Object, _patientRepository.Object, _userRepository.Object, _invoiceRepository.Object, _planRepository.Object, _clinicContext.Object, NullLogger<GetDashboardStatsQueryHandler>.Instance);
 
     private static GetDashboardStatsQuery CreateQuery() => new()
     {

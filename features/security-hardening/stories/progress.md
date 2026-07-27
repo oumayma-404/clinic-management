@@ -11,7 +11,7 @@
 | P2 Backup output posture | **done** — committed |
 | P3 Auth & session | **done** — US-4 and US-5 closed (client IP, rate limiter, per-source lockout, token revocation, R-4, short lifetime + silent renewal) |
 | P4 Authorization | in progress — **P4.1–P4.4, P4.6, AC-9.3 done; P4.5 partial** (procedure types + recall settings gated; clinic doctors/billing controls still open) |
-| P5 Hygiene | **P5.1–P5.3 done, P5.4 partial** — remaining: logger injection for 5 handlers (AC-13.2), the CSP flip to enforcing after a production page walk (AC-12.4), upload-form constraints (AC-11.7) |
+| P5 Hygiene | **P5.1–P5.4 done** — remaining: the CSP flip to enforcing after a production page walk (AC-12.4), upload-form constraints (AC-11.7), the ~79 other `{ex.Message}` sites + AC-13.6 guard |
 
 > **Suite baseline is now 3 failures, not 8.** Five of the eight pre-existing failures were stale test fixtures/mocks and are fixed. Use **3** as the reference point — and still judge against repeated runs, because the PDF-render tests remain order-sensitive.
 
@@ -355,7 +355,11 @@ It now persists the **validated** content type and the **actual** byte count rat
 
 **P5.4 — exception leaks (US-13), PARTIAL.** All six named sites stop returning `ex.Message` and give French guidance. `UpdateAppointmentCommand` — the only one with a logger — logs at Error, moving the detail to the log.
 
-**The other five have no logger, so AC-13.2 is not met for them: the leak is closed but the diagnostic is gone.** Injecting `ILogger<T>` into five handlers means five constructor cascades, which this session has seen blow up three times. Left deliberately, not overlooked. Also outstanding: the ~79 other `{ex.Message}` sites (most likely surface as 500s via `ExceptionMiddleware` rather than the `{ error }` body — confirm per site) and the AC-13.6 guard test.
+**AC-13.2 now met for all six** — fixed in a follow-up pass. `ILogger<T>` was appended as the **last** constructor parameter in the remaining five handlers, which keeps both the handler change and every test call site purely additive. Six test files updated in lock-step; one (`GetDashboardStatsQueryHandlerTests`) constructs via a target-typed `new(...)` in a factory method, so the earlier `new <Handler>(` grep missed it and the build caught it.
+
+Verified per handler rather than assumed: all six now have exactly one `_logger.LogError(ex, …)` and zero `{ex.Message}` occurrences.
+
+Still outstanding: the ~79 other `{ex.Message}` sites (most likely surface as 500s via `ExceptionMiddleware` rather than the `{ error }` body — confirm per site) and the AC-13.6 guard test.
 
 **Two more stale fixtures, same class as the cachet one.** `UploadPatientFileAtomicityTests` declared `application/pdf` over four arbitrary bytes; it now starts with `%PDF-`. The pattern is worth knowing: **every** upload fixture in this repo predated magic-byte validation.
 

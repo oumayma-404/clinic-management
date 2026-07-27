@@ -126,7 +126,7 @@ public class AppointmentTenantIsolationTests
             uow.Object,
             new Mock<INotificationGenerator>().Object,
             new Mock<IReminderScheduler>().Object,
-            new Mock<IAppointmentGoogleSyncDispatcher>().Object);
+            new Mock<IAppointmentGoogleSyncDispatcher>().Object, NullLogger<CreateAppointmentCommandHandler>.Instance);
         return (handler, appts, uow);
     }
 
