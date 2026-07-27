@@ -63,9 +63,9 @@ public class DeleteDentalRecordCommandHandler : IRequestHandler<DeleteDentalReco
 
             return Result<bool>.Success(true);
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            return Result<bool>.Failure($"Error deleting dental record: {ex.Message}");
+            return Result<bool>.Failure("Erreur lors de la suppression du dossier dentaire. Veuillez réessayer.");
         }
     }
 }

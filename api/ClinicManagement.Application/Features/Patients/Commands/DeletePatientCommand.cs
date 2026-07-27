@@ -56,9 +56,9 @@ public class DeletePatientCommandHandler : IRequestHandler<DeletePatientCommand,
             // surface a clear French message instead of a raw 500.
             return Result.Failure("Impossible de supprimer ce patient : des données liées (factures, rendez-vous, dossiers) existent.");
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            return Result.Failure($"Erreur lors de la suppression du patient : {ex.Message}");
+            return Result.Failure("Erreur lors de la suppression du patient. Veuillez réessayer.");
         }
     }
 }

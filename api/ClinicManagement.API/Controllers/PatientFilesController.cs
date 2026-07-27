@@ -159,6 +159,13 @@ public class PatientFilesController : ApiControllerBase
         }
 
         var fileDto = result.Value!;
+
+        // AC-11.6: serve the STORED, validated type and make the response inert. `nosniff` stops the browser
+        // second-guessing the type, and the attachment disposition (which the fileDownloadName overload sets)
+        // means nothing renders in the app's own origin. This also covers files stored before upload
+        // validation existed, whose type was never checked (AC-11.9) — they download, but cannot execute.
+        Response.Headers["X-Content-Type-Options"] = "nosniff";
+
         return File(fileDto.FileStream, fileDto.ContentType, fileDto.FileName);
     }
 

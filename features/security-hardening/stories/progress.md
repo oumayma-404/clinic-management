@@ -11,7 +11,7 @@
 | P2 Backup output posture | **done** — committed |
 | P3 Auth & session | **done** — US-4 and US-5 closed (client IP, rate limiter, per-source lockout, token revocation, R-4, short lifetime + silent renewal) |
 | P4 Authorization | in progress — **P4.1–P4.4, P4.6, AC-9.3 done; P4.5 partial** (procedure types + recall settings gated; clinic doctors/billing controls still open) |
-| P5 Hygiene | in progress — **P5.1 done** (MinIO fail-loud); remaining **P5.2** upload validation, **P5.3** headers + CSP, **P5.4** exception leaks |
+| P5 Hygiene | **P5.1–P5.3 done, P5.4 partial** — remaining: logger injection for 5 handlers (AC-13.2), the CSP flip to enforcing after a production page walk (AC-12.4), upload-form constraints (AC-11.7) |
 
 > **Suite baseline is now 3 failures, not 8.** Five of the eight pre-existing failures were stale test fixtures/mocks and are fixed. Use **3** as the reference point — and still judge against repeated runs, because the PDF-render tests remain order-sensitive.
 
@@ -344,6 +344,28 @@ Deliberately **not** started rather than half-applied. Recommended approach when
 The diagnosis from the previous pass was right: `CreateHandler` passed an **unconfigured** `Mock<ICurrentClinicResolver>`, so the handler short-circuited at the clinic check — which sits *before* the patient lookup — and the test failed asserting the lookup had happened. The premise was still correct; it just predated the handler becoming clinic-scoped. A resolver that actually resolves fixes it.
 
 **Suite baseline is now 3 failures** — only the 3 unrelated `ReminderSchedulerTests` remain. It was 8 at branch point.
+
+### 2026-07-27 — Part 5 steps 2–4 (upload validation, headers, exception leaks)
+
+**P5.2 — upload validation (US-11), done.** New `Application/Common/FileContentValidation` holds the allow-list, magic-byte signatures and caps in one place, extracted from the cachet logic rather than reimplemented. `UploadPatientFileCommand` validates **before** anything is written, so a refused upload leaves no blob and no row. PDF/PNG/JPEG only; `image/jpg` folded to `image/jpeg`; charset parameters stripped before comparison.
+
+It now persists the **validated** content type and the **actual** byte count rather than the client's claims — the stored type is what download serves back, and a client-supplied `FileSize` could disagree with what was written. Download sets `nosniff` and keeps the attachment disposition, which also makes files stored *before* validation existed inert (AC-11.9): they download, but cannot execute in the app's origin.
+
+**P5.3 — security headers (US-12), done.** New `SecurityHeadersMiddleware` registered **first**, so in Local mode — where Kestrel is the single browser-facing endpoint — it covers the proxied Next application too. Writes on `OnStarting` rather than after `next()`, because the response may already be streaming. CSP ships **report-only** and **will not overwrite** an existing one; `next.config.ts` `headers()` is conditioned on `AUTH_MODE` for the same reason. That is plan risk **R-13**: two CSP headers make the browser enforce the *intersection* rather than either policy, so Local gets exactly one. HSTS is Cloud-on / Local-opt-in (self-generated CA), never on the plain-HTTP loopback hop. The inline `nosniff` on the cachet endpoint is retired (AC-12.9).
+
+**P5.4 — exception leaks (US-13), PARTIAL.** All six named sites stop returning `ex.Message` and give French guidance. `UpdateAppointmentCommand` — the only one with a logger — logs at Error, moving the detail to the log.
+
+**The other five have no logger, so AC-13.2 is not met for them: the leak is closed but the diagnostic is gone.** Injecting `ILogger<T>` into five handlers means five constructor cascades, which this session has seen blow up three times. Left deliberately, not overlooked. Also outstanding: the ~79 other `{ex.Message}` sites (most likely surface as 500s via `ExceptionMiddleware` rather than the `{ error }` body — confirm per site) and the AC-13.6 guard test.
+
+**Two more stale fixtures, same class as the cachet one.** `UploadPatientFileAtomicityTests` declared `application/pdf` over four arbitrary bytes; it now starts with `%PDF-`. The pattern is worth knowing: **every** upload fixture in this repo predated magic-byte validation.
+
+**The warning gate caught a real mistake.** Blanking the six messages left `catch (Exception ex)` with `ex` unused — six new `CS0168`s. That was not a cosmetic nit; it was the build pointing out that the diagnostic had been dropped. Fixed properly where a logger existed, variable removed where it could not be.
+
+| Gate | Result |
+|---|---|
+| Backend build | 0 errors, back to the **58**-warning baseline, **0 new** |
+| Full suite | **941 passed / 3 failed** — the 3 known `ReminderSchedulerTests` |
+| Frontend | typecheck 0 errors; production build compiles |
 
 ### Triage of the pre-existing failures (P5 blocker cleared)
 

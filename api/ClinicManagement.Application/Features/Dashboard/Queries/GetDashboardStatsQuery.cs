@@ -121,9 +121,9 @@ public class GetDashboardStatsQueryHandler : IRequestHandler<GetDashboardStatsQu
 
             return Result<DashboardStatsDto>.Success(dto);
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            return Result<DashboardStatsDto>.Failure($"Error retrieving dashboard stats: {ex.Message}");
+            return Result<DashboardStatsDto>.Failure("Erreur lors du chargement du tableau de bord. Veuillez réessayer.");
         }
     }
 

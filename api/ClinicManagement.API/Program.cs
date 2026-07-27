@@ -440,6 +440,10 @@ try
     app.UseCors("AllowAll");
     
     // Exception handling middleware (must be before authentication/authorization)
+    // First in the pipeline so it also covers the proxied Next application in Local mode, where Kestrel is
+    // the single browser-facing endpoint (security-hardening US-12 / AC-12.5).
+    app.UseMiddleware<ClinicManagement.API.Middleware.SecurityHeadersMiddleware>();
+
     // Before authentication: an unauthenticated flood must be refused as cheaply as possible, and the
     // anonymous auth endpoints (the brute-force surface) are gated on the client address, not on identity.
     app.UseRateLimiter();

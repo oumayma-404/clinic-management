@@ -235,9 +235,9 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
 
             return Result<AppointmentDto>.Success(dto);
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            return Result<AppointmentDto>.Failure($"Error creating appointment: {ex.Message}");
+            return Result<AppointmentDto>.Failure("Erreur lors de la création du rendez-vous. Veuillez réessayer.");
         }
     }
 

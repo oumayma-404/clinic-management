@@ -66,9 +66,9 @@ public class MarkNotificationReadCommandHandler : IRequestHandler<MarkNotificati
 
             return Result.Success();
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            return Result.Failure($"Error marking notification read: {ex.Message}");
+            return Result.Failure("Erreur lors de la mise à jour de la notification.");
         }
     }
 }
