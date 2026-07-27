@@ -9,7 +9,7 @@
 |---|---|
 | P1 Installer filesystem posture | **done** — committed `43fe6d5` |
 | P2 Backup output posture | **done** — committed |
-| P3 Auth & session | in progress — **P3.0–P3.3 + R-4 done**; **P3.4–P3.6 pending** (short lifetime, refresh-audience cookie, silent renewal) |
+| P3 Auth & session | **done** — US-4 and US-5 closed (client IP, rate limiter, per-source lockout, token revocation, R-4, short lifetime + silent renewal) |
 | P4 Authorization | pending |
 | P5 Hygiene | pending |
 
@@ -207,5 +207,40 @@ Two follow-through notes left in the code for P3.4–P3.6:
 | Single acquisition site | `grep -rn "bff/auth/token"` over `lib/`, `components/`, `app/` → **one hit**, in `client.ts` |
 | Frontend typecheck | 0 errors |
 | Frontend production build | Compiled successfully, 27/27 static pages |
+
+### 2026-07-27 — Part 3, steps 4–6 (short-lived tokens + silent renewal). **Part 3 complete.**
+
+US-5 closed. Two token kinds, and the cookie no longer carries a working API credential.
+
+| | Access token | Refresh token (the cookie) |
+|---|---|---|
+| Lifetime | **~30 min** (`Auth:Local:AccessTokenLifetimeMinutes`) | 12h — unchanged, so the felt session length is the same |
+| Audience | the API audience | **`…-refresh`** — the API's bearer validation rejects it outright (AC-5.5) |
+| Held by | browser memory only | HttpOnly cookie, never reaches JS |
+| Claims | `sub`, `clinic_id`, `role`, `token_version` | `sub`, `role`, `email`, `name`, `token_version` — **no `clinic_id`**, so it is useful for nothing but being exchanged |
+
+- `POST /api/auth/refresh` — anonymous by necessity (the caller has no access token; that is the point), rate-limited like the other auth endpoints, and **re-checks live account state**: version, `IsActive`. A session revoked since the cookie was issued cannot mint itself a new access token (AC-5.6) — without that check the refresh token would *be* the long-lived unrevocable credential this feature removes.
+- Refresh token passed in the **body**, not a bearer header: the authentication layer requires the access-token audience, so a refresh token in `Authorization` would be rejected before the endpoint ran.
+- A pending forced password change is deliberately **not** a refusal — the change-password screen needs a working access token to submit, and the enforcement middleware already restricts such a token to that one endpoint.
+- All rejections share one message: expired, revoked and forged must be indistinguishable.
+- `ValidateRefreshToken` requires the refresh audience, so an **access** token replayed at the refresh endpoint cannot mint an endless supply. Uses `JsonWebTokenHandler` (what the runtime's JwtBearer uses) per the LEARNINGS note that the legacy handler misreads its own `iss` on .NET 8.
+- `/bff/auth/token` now **exchanges** instead of echoing the cookie — which is what previously made the HttpOnly flag worthless, since the browser held the same 12h credential the cookie did. It distinguishes 401 (session gone → stop, sign in) from **503** (API unreachable → retry, do not log the user out over a blip — spec EC-10).
+- `handleRequest` renews **once** on a 401 and retries (AC-5.7). Exactly once is deliberate: a genuine 401 must surface promptly rather than spin. Skipped when the caller passed its own token — that caller owns its lifecycle.
+- The two multipart variants build their headers **inside** the callback so the retry rebuilds them with the renewed token. Uploads are precisely where a stale token bites: they are user-initiated after a period of reading, so they are the likeliest request to be the first past expiry. This is why R-4 had to land first.
+
+`ControllerAuthorizationCoverageTests` gained `Auth.Refresh` — the guard did its job, forcing the new anonymous endpoint through a conscious review rather than letting it appear silently.
+
+#### Quality gates — Part 3 steps 4–6
+
+| Gate | Result |
+|---|---|
+| Backend build | 0 errors. Three fixed on the way: a missing `Microsoft.IdentityModel.JsonWebTokens` type, then an **ambiguity** that import caused with `JwtRegisteredClaimNames` (resolved by fully qualifying rather than importing), then a duplicate `[AllowAnonymous]` where the new action's attributes landed under `setup`'s. |
+| Backend tests | **897 passed / 8 failed** — the same 8 pre-existing |
+| Frontend typecheck | 0 errors |
+| Frontend production build | Compiled successfully, 27/27 static pages |
+
+**Test-harness gap fixed in lock-step:** three login success-path tests began failing because the handler now calls `GenerateRefreshToken` and the mock returned `null`, which the handler's catch-all turned into a failure. Fixed with a default setup in a new test constructor, plus a test asserting the two tokens are issued and are **different** values — if they were the same, the cookie would carry a working API bearer and the separation would be cosmetic.
+
+**Not verified end-to-end.** Renewal, the 401-retry and hub reconnection are unit- and build-verified only; AC-5.4 (never bounced), AC-5.8 (hub survives expiry) and EC-8 (a form open past expiry submits fine) need a running stack with a shortened lifetime. `use-auth-token` still caches in component state — flagged in the file; prefer the shared client, which now renews.
 
 **Testing note.** The ordering assertion (AC-14.2) is proved indirectly but soundly: the dummy `pg_dump` is a real file (so the existence check passes) but not a real executable, so the dump throws. The hardening is still recorded — which is only possible if it ran *first*. If it ran after the dump it would never be recorded at all.

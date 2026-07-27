@@ -50,7 +50,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { accessToken, expiresAt, mustChangePassword } = data.value;
+    // Store the REFRESH token in the cookie, never the access token (security-hardening AC-5.5). The API
+    // rejects the refresh audience as a bearer token, so the cookie no longer carries a working API
+    // credential — it can only be exchanged, and the exchange re-checks live account state. Older builds
+    // stored the access token here, which is why the cookie value is still a decodable JWT: /bff/auth/session
+    // reads its claims for the header identity (AC-5.12).
+    const { refreshToken, accessToken, expiresAt, mustChangePassword } = data.value;
+    const sessionCredential = refreshToken || accessToken;
     const mustChange = Boolean(mustChangePassword);
     // The browser now reaches the app over the HTTPS front door (Phase 5 S3), but this handler runs on
     // the Node server that sits behind it on a plain-HTTP loopback hop — so `request.nextUrl.protocol`
@@ -64,7 +70,7 @@ export async function POST(request: NextRequest) {
       : request.nextUrl.protocol === 'https:';
     const expires = expiresAt ? new Date(expiresAt) : undefined;
     const response = NextResponse.json({ mustChangePassword: mustChange });
-    response.cookies.set(SESSION_COOKIE, accessToken, {
+    response.cookies.set(SESSION_COOKIE, sessionCredential, {
       httpOnly: true,
       secure,
       sameSite: 'lax',

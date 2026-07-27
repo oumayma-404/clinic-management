@@ -12,7 +12,7 @@ The user chose **one story** deliberately (twice). It is not split into separate
 |---|---|---|---|---|
 | **P1** Installer filesystem posture | US-1, US-2, US-3 | 🔴×4 | Operator only (`packaging/` R-1) | **done** |
 | **P2** Backup output posture | US-14 | 🔴 | `dotnet test` + operator | **done** |
-| **P3** Auth & session | US-4, US-5 | 🔴 + 🟠 | `dotnet test` + manual | next |
+| **P3** Auth & session | US-4, US-5 | 🔴 + 🟠 | `dotnet test` + manual | **done** |
 | **P4** Authorization | US-6, US-7, US-8, US-9 | 🟠×3 + 🟡 | `dotnet test` | pending |
 | **P5** Hygiene | US-10, US-11, US-12, US-13 | 🟠 + 🟡×3 | `dotnet test` + page walk | pending |
 

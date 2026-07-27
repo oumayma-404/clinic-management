@@ -19,6 +19,15 @@ public class LoginCommandHandlerTests
     // cases exercise the same paths as before; the per-source cases below drive it explicitly.
     private readonly Mock<ILoginAttemptTracker> _attempts = new();
 
+    public LoginCommandHandlerTests()
+    {
+        // Every successful login now also issues the durable refresh token stored in the BFF cookie
+        // (security-hardening US-5). Set up once here so the per-test arrangements stay focused on what they
+        // are actually asserting; individual tests override it where the refresh token itself is the subject.
+        _auth.Setup(a => a.GenerateRefreshToken(It.IsAny<User>()))
+            .Returns(new LocalAuthToken("refresh-jwt", DateTime.UtcNow.AddHours(12)));
+    }
+
     private LoginCommandHandler Handler() => new(_users.Object, _auth.Object, _uow.Object, _attempts.Object);
 
     private static User LocalUser(bool mustChangePassword = false) =>
@@ -28,6 +37,28 @@ public class LoginCommandHandlerTests
 
     private void SaveSucceeds() =>
         _uow.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
+
+    // [AC-5.3][AC-5.5] A login returns BOTH credentials: the short-lived access token the browser holds, and
+    // the durable refresh token the BFF puts in its HttpOnly cookie. They must be different values — if the
+    // same token were used for both, the cookie would carry a working API bearer and the whole separation
+    // would be cosmetic.
+    [Fact]
+    public async Task Handle_Should_Issue_Both_An_Access_And_A_Refresh_Token()
+    {
+        var user = LocalUser();
+        _users.Setup(r => r.GetByEmailAsync("doc@clinic.com", It.IsAny<CancellationToken>())).ReturnsAsync(user);
+        _auth.Setup(a => a.VerifyPassword("STORED-HASH", "s3cret!!")).Returns(PasswordVerificationOutcome.Success);
+        _auth.Setup(a => a.GenerateToken(user)).Returns(new LocalAuthToken("access-jwt", DateTime.UtcNow.AddMinutes(30)));
+        _auth.Setup(a => a.GenerateRefreshToken(user)).Returns(new LocalAuthToken("refresh-jwt", DateTime.UtcNow.AddHours(12)));
+        SaveSucceeds();
+
+        var result = await Handler().Handle(Command(), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("access-jwt", result.Value!.AccessToken);
+        Assert.Equal("refresh-jwt", result.Value.RefreshToken);
+        Assert.NotEqual(result.Value.AccessToken, result.Value.RefreshToken);
+    }
 
     // ---- Per-source lockout (security-hardening US-4 / AC-4.2) ----
 

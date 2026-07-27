@@ -74,6 +74,31 @@ public class AuthController : ApiControllerBase
     }
 
     /// <summary>
+    /// Exchanges the BFF's HttpOnly session cookie for a fresh short-lived access token (US-5).
+    ///
+    /// Anonymous by necessity — the caller has no access token yet, that is the point. It is not
+    /// unauthenticated in effect: the refresh token itself is the credential, and it is signed, audience-bound,
+    /// lifetime-bound and re-checked against live account state. Rate-limited like the other anonymous auth
+    /// endpoints.
+    /// </summary>
+    [AllowAnonymous]
+    [EnableRateLimiting(RateLimiting.AnonymousAuthPolicy)]
+    [HttpPost("refresh")]
+    public async Task<IActionResult> Refresh([FromBody] RefreshRequest request)
+    {
+        if (!LocalAuthConfig.IsLocalMode(_configuration))
+        {
+            return NotFound();
+        }
+
+        var result = await _mediator.Send(new RefreshTokenCommand { RefreshToken = request.RefreshToken });
+
+        return result.IsFailure
+            ? Failure(result.Error, StatusCodes.Status401Unauthorized)
+            : Ok(result);
+    }
+
+    /// <summary>
     /// Local-mode first-run setup: creates the clinic + first admin (email+password).
     /// Reachable only from the server machine (localhost) and only until the first admin
     /// exists — AC-1.2a. Does not exist in Cloud mode.

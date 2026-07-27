@@ -17,7 +17,8 @@ public static class LocalAuthConfig
 
     private const string DefaultIssuer = "clinic-management-local";
     private const string DefaultAudience = "clinic-management-local-api";
-    private const int DefaultTokenLifetimeMinutes = 720; // 12h; frontend enforces inactivity expiry (AC-3.5)
+    private const int DefaultTokenLifetimeMinutes = 720; // 12h durable session; frontend enforces inactivity expiry (AC-3.5)
+    private const int DefaultAccessTokenLifetimeMinutes = 30; // browser-held credential, renewed silently (AC-5.3)
 
     private static readonly object KeyFileLock = new();
 
@@ -35,8 +36,30 @@ public static class LocalAuthConfig
     public static string Audience(IConfiguration configuration) =>
         configuration["Auth:Local:Audience"] ?? DefaultAudience;
 
+    /// <summary>
+    /// Lifetime of the <b>durable session</b> — the refresh token held in the HttpOnly cookie. This is how
+    /// long a staff member stays signed in without re-entering their password, and it keeps the value the
+    /// single access token used to have, so the felt session length is unchanged.
+    /// </summary>
     public static int TokenLifetimeMinutes(IConfiguration configuration) =>
         configuration.GetValue<int?>("Auth:Local:TokenLifetimeMinutes") ?? DefaultTokenLifetimeMinutes;
+
+    /// <summary>
+    /// Lifetime of the <b>access token</b> the browser actually holds (security-hardening AC-5.3). Short on
+    /// purpose: this is the credential exposed to browser JavaScript, so a stolen one must die quickly. The
+    /// user never notices, because the client renews silently from the cookie (AC-5.4).
+    /// </summary>
+    public static int AccessTokenLifetimeMinutes(IConfiguration configuration) =>
+        configuration.GetValue<int?>("Auth:Local:AccessTokenLifetimeMinutes") ?? DefaultAccessTokenLifetimeMinutes;
+
+    /// <summary>
+    /// Audience of the refresh token. Deliberately <b>different</b> from <see cref="Audience"/>, because the
+    /// API's bearer validation requires that audience — so the cookie's credential is rejected outright as an
+    /// API token (AC-5.5). Stealing it therefore buys nothing that can call the API directly; it can only be
+    /// exchanged, and the exchange re-checks live account state.
+    /// </summary>
+    public static string RefreshAudience(IConfiguration configuration) =>
+        configuration["Auth:Local:RefreshAudience"] ?? $"{Audience(configuration)}-refresh";
 
     public static SymmetricSecurityKey SecurityKey(IConfiguration configuration) =>
         new(ResolveSigningKey(configuration));

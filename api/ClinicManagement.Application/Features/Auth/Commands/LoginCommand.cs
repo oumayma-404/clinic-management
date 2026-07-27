@@ -109,9 +109,14 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
             _userRepository.Update(user);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
+            // The durable session credential the BFF stores in its HttpOnly cookie; the access token above is
+            // held only in browser memory and renewed from this (US-5).
+            var refreshToken = _localAuthService.GenerateRefreshToken(user);
+
             var result = new LoginResultDto
             {
                 AccessToken = token.AccessToken,
+                RefreshToken = refreshToken.AccessToken,
                 ExpiresAt = token.ExpiresAtUtc,
                 MustChangePassword = user.MustChangePassword,
                 User = new UserDto
