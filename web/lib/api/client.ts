@@ -77,8 +77,19 @@ async function handleRequest<T>(requestFn: () => Promise<Response>): Promise<T> 
   }
 }
 
-// Get Auth0 access token from client-side
-async function getAccessToken(): Promise<string | null> {
+/**
+ * The single place the app acquires an API access token (mode-aware: an Auth0 token in Cloud, the local
+ * JWT in Local).
+ *
+ * **Exported deliberately, and this must stay the only implementation.** Seven per-resource modules used to
+ * carry their own private copy of this fetch. That was harmless while the token lived 12 hours, but it
+ * becomes a real defect once tokens are short-lived and renewed: any copy that bypasses this helper keeps
+ * using an expired token and fails silently, surfacing to the user as a random unexplained error
+ * (security-hardening plan risk R-4). Renewal logic can only live in one place if acquisition does.
+ *
+ * If you need a token in a new module, import this — do not re-implement the fetch.
+ */
+export async function getAccessToken(): Promise<string | null> {
   try {
     const response = await fetch('/bff/auth/token', {
       credentials: 'include', // Include cookies for session

@@ -9,7 +9,7 @@
 |---|---|
 | P1 Installer filesystem posture | **done** — committed `43fe6d5` |
 | P2 Backup output posture | **done** — committed |
-| P3 Auth & session | in progress — **P3.0–P3.3 done** (client IP, rate limiter, per-source lockout, token revocation); **P3.4–P3.6 pending** (short lifetime + silent renewal + R-4) |
+| P3 Auth & session | in progress — **P3.0–P3.3 + R-4 done**; **P3.4–P3.6 pending** (short lifetime, refresh-audience cookie, silent renewal) |
 | P4 Authorization | pending |
 | P5 Hygiene | pending |
 
@@ -181,5 +181,31 @@ AC-5.1, AC-5.2, AC-5.11 and AC-5.15 closed. **Deliberately sequenced before the 
 **The default of 0 does not weaken the check.** Existing rows get `TokenVersion = 0` and newly issued tokens carry `token_version=0`, which matches — but a *pre-upgrade* token carries no claim at all, and absence is rejected regardless. Presence, not value, is what retires the old tokens.
 
 > **Suite flake discovered — read a single test run with care.** One full-suite run reported **18** failures, adding 9 `GenericDocumentRenderTests` and 1 `LiaisonRenderContentTests`. Those pass in isolation, and three consecutive full runs then reported a stable 8/896/904. The PDF-render tests share process-wide QuestPDF/`Bs1FontResolver` state and are order- or timing-sensitive. Not caused by this change and not in scope to fix, but anyone comparing failure counts across runs needs to know the baseline is not always 8. Worth a follow-up.
+
+### 2026-07-27 — Part 3, R-4 (one token-acquisition site)
+
+Plan risk **R-4 closed**, and done *before* the renewal work rather than alongside it: renewal logic can only live in one place if acquisition does. Eight sites → **one**.
+
+| Site | Was | Now |
+|---|---|---|
+| `client.ts` | private helper | the single **exported** `getAccessToken()` |
+| `invoices`, `billing`, `clinics`, `doctors`, `patient-files`, `treatment-plans` | a private copy each | import the shared helper |
+| `medical-documents` | an inline IIFE mid-function | imports the shared helper |
+| `use-auth-token` hook | direct `fetch` | shared helper (+ an unmount guard it lacked) |
+| `clinic-hub` (SignalR) | direct `fetch` | shared helper |
+
+Net **−77 lines**. The six identical copies were removed by a scripted brace-match rather than by hand, so differing formatting between them could not cause a partial edit; the diff was reviewed afterwards.
+
+Why this mattered enough to do first: while tokens live 12 hours, eight copies are merely duplication. Once the lifetime drops to ~30 minutes, **any copy that bypasses the helper keeps using an expired token and fails silently** — surfacing to the user as a random unexplained error, in whichever screen happened to use that module.
+
+Two follow-through notes left in the code for P3.4–P3.6:
+- `use-auth-token` still caches the token in component state, which is safe only while tokens are long-lived. A `NOTE` in the file says so and points at the shared client instead.
+- `clinic-hub` relies on SignalR calling `accessTokenFactory` on every (re)connect, so a reconnect picks up a fresh token for free (AC-5.8).
+
+| Gate | Result |
+|---|---|
+| Single acquisition site | `grep -rn "bff/auth/token"` over `lib/`, `components/`, `app/` → **one hit**, in `client.ts` |
+| Frontend typecheck | 0 errors |
+| Frontend production build | Compiled successfully, 27/27 static pages |
 
 **Testing note.** The ordering assertion (AC-14.2) is proved indirectly but soundly: the dummy `pg_dump` is a real file (so the existence check passes) but not a real executable, so the dump throws. The hardening is still recorded — which is only possible if it ran *first*. If it ran after the dump it would never be recorded at all.
