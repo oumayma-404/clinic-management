@@ -10,7 +10,7 @@
 | P1 Installer filesystem posture | **done** — committed `43fe6d5` |
 | P2 Backup output posture | **done** — committed |
 | P3 Auth & session | **done** — US-4 and US-5 closed (client IP, rate limiter, per-source lockout, token revocation, R-4, short lifetime + silent renewal) |
-| P4 Authorization | in progress — **P4.1–P4.4 done (all 10 commands)**; remaining: **P4.5** frontend gating, **P4.6** guard test, **AC-9.3** tenant tests |
+| P4 Authorization | in progress — **P4.1–P4.4 + AC-9.3 tests done**; remaining: **P4.5** frontend gating, **P4.6** role-policy guard test |
 | P5 Hygiene | pending |
 
 ## Working tree note (start of session, 2026-07-27)
@@ -265,13 +265,28 @@ Cascade again, in three more test files. `CnamVlcTests` had **no** resolver mock
 
 Two tooling notes, both cost a cycle: a `python - <<'PY'` heredoc **hung for 7 minutes** because python is not installed here (the Store shim blocks on stdin) — use node, or write the script to the scratchpad. And a multi-line JS anchor silently failed to match because the files are **CRLF**; single-line `split`/`join` worked, and the fix went in via the edit tool.
 
+### AC-9.3 — the tests that actually pin finding 10
+
+New `Features/Catalogs/CatalogTenantIsolationTests` (11 cases) covering all 10 commands.
+
+**Why they are meaningful where the CRUD tests are not.** A mocked repository applies no query filter at all, so having it return a row owned by *another* clinic is exactly what "the EF filter is inactive" looks like from the handler's side. The existing CRUD tests pass a row from the caller's own clinic, so they would pass with or without the guard.
+
+Each case asserts three things: the operation fails, it reads as **"introuvable"** rather than "forbidden" (no existence disclosure), and **nothing is saved**. The `Confirm*` cases assert the caller's row *is* confirmed while the other clinic's is **not** — a set-level check, since there is no id to guard. One case covers the fail-open resolver itself: with no clinic resolvable the handler refuses outright and never reaches the row.
+
+**Mutation-verified, not merely green.** Removing the `ClinicId` comparison from `DeactivateDentalActCommand` makes `DeactivateDentalAct_Refuses_Another_Clinics_Row` **fail**; restoring it makes it pass. Without that check these tests could have been decorative.
+
+> **Caught a false negative in my own verification.** The first mutation attempt used `dotnet test --no-build` and reported 11/11 passing *with the guard removed* — it was running stale DLLs. Re-running without `--no-build` produced the expected failure. **Do not use `--no-build` when the production code has just changed**, or a test run will happily confirm the previous build's behaviour.
+
+| Gate | Result |
+|---|---|
+| Full suite | **908 passed / 8 failed** — same 8 pre-existing |
+
 **Still open in P4** (do not assume US-6–US-9 are closed):
 
 | Item | Note |
 |---|---|
 | P4.5 frontend gating | The newly admin-only controls still render for non-admins, who will now get a 403 |
 | P4.6 role-policy coverage guard | Not written |
-| AC-9.3 tenant tests | **The tests that matter most for P4.4 do not exist yet** — the existing CRUD tests pass with the query filter *active*, which proves nothing about the finding. A test with no `clinic_id` claim is what actually pins it. |
 
 | Gate | Result |
 |---|---|
