@@ -226,6 +226,37 @@ public class InvoicesController : ApiControllerBase
     }
 
     /// <summary>
+    /// The avoirs established against this invoice, newest first. Readable by anyone who can see the
+    /// invoice — establishing one is admin/doctor, reading one is not a financial action.
+    /// </summary>
+    [HttpGet("{id}/avoirs")]
+    public async Task<ActionResult<List<CreditNoteDto>>> GetCreditNotes(Guid id, CancellationToken cancellationToken = default)
+    {
+        var result = await _mediator.Send(new GetInvoiceCreditNotesQuery { InvoiceId = id }, cancellationToken);
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+
+        return Ok(result.Value);
+    }
+
+    /// <summary>Download an avoir's PDF — the patient's proof of the refund.</summary>
+    [HttpGet("avoirs/{creditNoteId}/pdf")]
+    public async Task<IActionResult> GetCreditNotePdf(Guid creditNoteId, CancellationToken cancellationToken = default)
+    {
+        var result = await _mediator.Send(new GetCreditNotePdfQuery { Id = creditNoteId }, cancellationToken);
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+
+        return File(result.Value!.Content, "application/pdf", result.Value.FileName);
+    }
+
+    /// <summary>
     /// Send (or retry sending) an issued invoice to TTN « El Fatoora ». Queues it into the offline outbox
     /// and dispatches inline when the server has internet; idempotent per invoice.
     /// </summary>

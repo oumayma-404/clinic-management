@@ -49,8 +49,20 @@ public class InvoiceDto
     public bool HasSignedXml { get; set; }
     public bool HasTtnReceipt { get; set; }
 
+    /// <summary>
+    /// Sum of the avoirs established against this invoice. Always populated (0 when there are none) so the
+    /// list can badge a credited invoice; until now an avoir was invisible everywhere after creation.
+    /// </summary>
+    public decimal CreditedTotal { get; set; }
+
     public List<InvoiceLineDto> Lines { get; set; } = new();
     public List<PaymentDto> Payments { get; set; } = new();
+
+    /// <summary>
+    /// The avoirs themselves — only populated on the single-invoice read (the detail modal), not on the list,
+    /// which gets <see cref="CreditedTotal"/> alone.
+    /// </summary>
+    public List<CreditNoteDto> CreditNotes { get; set; } = new();
 }
 
 public class InvoiceLineDto

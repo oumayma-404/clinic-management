@@ -10,6 +10,9 @@ import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select"
+import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog"
 import {
@@ -30,7 +33,9 @@ import { useClinicAccess } from "@/lib/hooks/use-clinic-access"
 import { InvoiceFormModal } from "./invoice-form-modal"
 import { PaymentModal } from "./payment-modal"
 import { InvoiceDetailModal } from "./invoice-detail-modal"
-import { invoiceStatusLabel, eInvoiceStatusLabel, eInvoiceStatusBadgeClass } from "./invoice-labels"
+import {
+  invoiceStatusLabel, eInvoiceStatusLabel, eInvoiceStatusBadgeClass, paymentMethodLabel, PAYMENT_METHODS,
+} from "./invoice-labels"
 
 interface InvoicesTableProps {
   patientId?: string
@@ -93,6 +98,8 @@ export function InvoicesTable({
   const [cancelReason, setCancelReason] = useState("")
   // Avoir (credit note) modal state (finding #8).
   const [avoirTarget, setAvoirTarget] = useState<InvoiceDto | null>(null)
+  const [avoirMethod, setAvoirMethod] = useState<string>("Cash")
+  const [avoirRefundedOn, setAvoirRefundedOn] = useState<string>("")
   const [avoirAmount, setAvoirAmount] = useState("")
   const [avoirReason, setAvoirReason] = useState("")
 
@@ -124,6 +131,11 @@ export function InvoicesTable({
     setAvoirTarget(invoice)
     setAvoirAmount("")
     setAvoirReason("")
+    setAvoirMethod("Cash")
+    // Today, in the browser's own calendar. The API rejects an absent or future date, and the previous
+    // dialog sent neither date nor method — so every avoir was stamped "now" with no recorded means of
+    // refund, and its PDF had nothing to print.
+    setAvoirRefundedOn(new Date().toISOString().slice(0, 10))
   }
 
   const confirmAvoir = async () => {
@@ -139,8 +151,13 @@ export function InvoicesTable({
     }
     setBusyId(avoirTarget.id)
     try {
-      await invoicesApi.createAvoir(avoirTarget.id, { amount, reason: avoirReason.trim() })
-      toast.success("Avoir établi")
+      const created = await invoicesApi.createAvoir(avoirTarget.id, {
+        amount,
+        reason: avoirReason.trim(),
+        method: avoirMethod,
+        refundedOn: avoirRefundedOn,
+      })
+      toast.success(`Avoir ${created.number} établi`)
       setAvoirTarget(null)
       afterMutation()
     } catch (err) {
@@ -406,7 +423,21 @@ export function InvoicesTable({
                       )}
                     </TableCell>
                     <TableCell className="text-right">{formatDT(invoice.totalTtc)}</TableCell>
-                    <TableCell className="text-right">{formatDT(invoice.amountCollected)}</TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex flex-col items-end">
+                        <span>{formatDT(invoice.amountCollected)}</span>
+                        {/* An avoir was invisible everywhere once established. The row is where a user
+                            notices that money went back — and why « Encaissé » no longer matches the caisse. */}
+                        {invoice.creditedTotal > 0 && (
+                          <span
+                            className="text-xs text-blue-700 dark:text-blue-400"
+                            title="Montant remboursé au patient par avoir"
+                          >
+                            −{formatDT(invoice.creditedTotal)} avoir
+                          </span>
+                        )}
+                      </div>
+                    </TableCell>
                     <TableCell className="text-right">{formatDT(invoice.outstanding)}</TableCell>
                     <TableCell>
                       <div className="flex justify-end gap-1">
@@ -580,6 +611,32 @@ export function InvoicesTable({
                 placeholder="0,000"
               />
             </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="avoirRefundedOn">Date du remboursement</Label>
+                <Input
+                  id="avoirRefundedOn"
+                  type="date"
+                  value={avoirRefundedOn}
+                  onChange={(e) => setAvoirRefundedOn(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="avoirMethod">Mode</Label>
+                <Select value={avoirMethod} onValueChange={setAvoirMethod}>
+                  <SelectTrigger id="avoirMethod">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PAYMENT_METHODS.map((method) => (
+                      <SelectItem key={method} value={method}>
+                        {paymentMethodLabel(method)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
             <div className="space-y-1.5">
               <Label htmlFor="avoirReason">Motif</Label>
               <Textarea
@@ -590,6 +647,15 @@ export function InvoicesTable({
                 rows={3}
               />
             </div>
+
+            {/* AC-45: only the invoice is transmitted to TTN — the avoir never is. Silence here would let
+                a clinic assume El Fatoora had been corrected along with the books. */}
+            {avoirTarget && ["Submitted", "Validating", "Valid"].includes(avoirTarget.eInvoiceStatus) && (
+              <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+                Cette facture est enregistrée auprès de TTN « El Fatoora ». L&apos;avoir n&apos;est pas
+                télétransmis : la régularisation auprès de TTN reste à effectuer par le cabinet.
+              </div>
+            )}
           </div>
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setAvoirTarget(null)} disabled={busyId === avoirTarget?.id}>

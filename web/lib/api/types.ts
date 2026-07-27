@@ -71,6 +71,11 @@ export interface PatientBillingSummaryDto {
   oldestOverdueDate: string | null;
   cnamReimbursable: number;
   patientOutOfPocket: number;
+  /**
+   * Total refunded to this patient through avoirs. Informational — an avoir returns the cash *and* cancels
+   * the fee, so it does not move `totalOutstanding`.
+   */
+  creditedTotal: number;
 }
 
 /** One row of the clinic-wide « Créances » (accounts-receivable) list. */
@@ -143,8 +148,35 @@ export interface InvoiceDto {
   canCreateAvoir: boolean;
   hasSignedXml: boolean;
   hasTtnReceipt: boolean;
+  /**
+   * Sum of the avoirs established against this invoice — always present, 0 when there are none. Present on
+   * the list too, so a row can show that money was credited back without fetching the avoirs themselves.
+   */
+  creditedTotal: number;
   lines: InvoiceLineDto[];
   payments: PaymentDto[];
+  /** Only populated by `invoicesApi.get` (the detail modal); the list carries `creditedTotal` alone. */
+  creditNotes: CreditNoteDto[];
+}
+
+/** An avoir: the lawful correction for cash already collected on an invoice. */
+export interface CreditNoteDto {
+  id: string;
+  invoiceId: string;
+  /** Own per-clinic-per-year sequence, AAAA-NNNN — not the invoice's. */
+  number: string;
+  issueDate: string;
+  amount: number;
+  reason: string;
+  /** Cash | Cheque | Card | Transfer, or null when the means of refund was not recorded. */
+  method?: string | null;
+  /** When the money went back — the date la caisse nets it against. */
+  refundedOn: string;
+  /**
+   * The corrected invoice is registered with TTN « El Fatoora ». The avoir is not transmitted, so the
+   * régularisation with TTN is still the clinic's to do.
+   */
+  correctedInvoiceIsTtnRegistered: boolean;
 }
 
 export interface InvoiceRevenueDto {

@@ -33,6 +33,7 @@ public class GetDashboardStatsQueryHandler : IRequestHandler<GetDashboardStatsQu
     private readonly IUserRepository _userRepository;
     private readonly IInvoiceRepository _invoiceRepository;
     private readonly ITreatmentPlanRepository _planRepository;
+    private readonly ICreditNoteRepository _creditNoteRepository;
     private readonly IClinicContext _clinicContext;
 
     public GetDashboardStatsQueryHandler(
@@ -41,6 +42,7 @@ public class GetDashboardStatsQueryHandler : IRequestHandler<GetDashboardStatsQu
         IUserRepository userRepository,
         IInvoiceRepository invoiceRepository,
         ITreatmentPlanRepository planRepository,
+        ICreditNoteRepository creditNoteRepository,
         IClinicContext clinicContext)
     {
         _appointmentRepository = appointmentRepository;
@@ -48,6 +50,7 @@ public class GetDashboardStatsQueryHandler : IRequestHandler<GetDashboardStatsQu
         _userRepository = userRepository;
         _invoiceRepository = invoiceRepository;
         _planRepository = planRepository;
+        _creditNoteRepository = creditNoteRepository;
         _clinicContext = clinicContext;
     }
 
@@ -101,7 +104,13 @@ public class GetDashboardStatsQueryHandler : IRequestHandler<GetDashboardStatsQu
                 clinicId, monthStart, monthEnd, cancellationToken);
             var installmentCollected = await _planRepository.GetInstallmentCollectedBetweenAsync(
                 clinicId, monthStart, monthEnd, billedPlanIds, cancellationToken);
-            var monthlyRevenueCollected = InvoiceCalculator.RoundMoney(invoiceCollected + installmentCollected);
+            // Avoirs refunded this month reduce what the clinic actually kept. La caisse has always netted
+            // them; this KPI did not, so the dashboard and the caisse reported different cash for the same
+            // month — over the same window, from the same rows.
+            var refunds = await _creditNoteRepository.GetRefundedBetweenAsync(
+                clinicId, monthStart, monthEnd, cancellationToken);
+            var monthlyRevenueCollected = InvoiceCalculator.RoundMoney(
+                invoiceCollected + installmentCollected - refunds);
 
             // En attente de recouvrement = clinic-wide outstanding across both tracks. A plan bridged into a
             // real invoice is counted through that invoice only (PlanBillingRules — the same rule

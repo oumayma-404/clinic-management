@@ -31,6 +31,19 @@ public class InstallmentOverdueBoundaryTests
     private readonly Mock<ICnamBillingCalculator> _cnam = new();
     private readonly Mock<ICurrentClinicResolver> _clinicResolver = new();
 
+    // No avoirs in these fixtures. Stated explicitly rather than left to Moq's default, because the
+    // batch read returns a dictionary the handlers immediately enumerate.
+    private readonly Mock<ICreditNoteRepository> _creditNotes = NoCreditNotes();
+
+    private static Mock<ICreditNoteRepository> NoCreditNotes()
+    {
+        var mock = new Mock<ICreditNoteRepository>();
+        mock.Setup(r => r.GetTotalsForInvoicesAsync(
+                It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<Guid, decimal>());
+        return mock;
+    }
+
     /// <summary>An accepted 500 DT devis whose single unpaid échéance falls on <paramref name="dueDate"/>.</summary>
     private static TreatmentPlan PlanDueOn(DateTime dueDate)
     {
@@ -66,8 +79,8 @@ public class InstallmentOverdueBoundaryTests
             .ReturnsAsync(new CnamSplit(0m, 500m));
 
         var handler = new GetPatientBillingSummaryQueryHandler(
-            _invoices.Object, _plans.Object, _patients.Object, _cnam.Object, _clinicResolver.Object,
-            NullLogger<GetPatientBillingSummaryQueryHandler>.Instance);
+            _invoices.Object, _plans.Object, _patients.Object, _creditNotes.Object, _cnam.Object,
+            _clinicResolver.Object, NullLogger<GetPatientBillingSummaryQueryHandler>.Instance);
 
         var result = await handler.Handle(
             new GetPatientBillingSummaryQuery { PatientId = PatientId }, CancellationToken.None);

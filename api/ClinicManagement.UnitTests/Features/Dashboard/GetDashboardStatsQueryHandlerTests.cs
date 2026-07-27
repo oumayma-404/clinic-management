@@ -15,6 +15,7 @@ public class GetDashboardStatsQueryHandlerTests
     private readonly Mock<IUserRepository> _userRepository = new();
     private readonly Mock<IInvoiceRepository> _invoiceRepository = new();
     private readonly Mock<ITreatmentPlanRepository> _planRepository = new();
+    private readonly Mock<ICreditNoteRepository> _creditNoteRepository = new();  // no avoirs in these fixtures
     private readonly Mock<IClinicContext> _clinicContext = new();
 
     private const string Auth0Sub = "auth0|user-123";
@@ -26,7 +27,7 @@ public class GetDashboardStatsQueryHandlerTests
     private static readonly DateTime WeekEnd = new(2026, 6, 28, 23, 59, 59, DateTimeKind.Utc);
 
     private GetDashboardStatsQueryHandler CreateHandler() =>
-        new(_appointmentRepository.Object, _patientRepository.Object, _userRepository.Object, _invoiceRepository.Object, _planRepository.Object, _clinicContext.Object);
+        new(_appointmentRepository.Object, _patientRepository.Object, _userRepository.Object, _invoiceRepository.Object, _planRepository.Object, _creditNoteRepository.Object, _clinicContext.Object);
 
     private static GetDashboardStatsQuery CreateQuery() => new()
     {

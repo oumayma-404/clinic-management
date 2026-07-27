@@ -67,9 +67,15 @@ public class CreateCreditNoteCommandHandler : IRequestHandler<CreateCreditNoteCo
                 return Result<CreditNoteDto>.Failure("Facture introuvable.");
             }
 
-            if (invoice.Status != InvoiceStatus.Paid && invoice.Status != InvoiceStatus.PartiallyPaid)
+            // The gate is now the aggregate's own CanCreateCreditNote — "a real invoice with collected money
+            // on it" — instead of a Paid|PartiallyPaid status whitelist maintained here. The two are close
+            // but not identical, and the whitelist was the copy the UI never saw: InvoiceDto.CanCreateAvoir
+            // has always been fed by CanCreateCreditNote, so the button and the endpoint were free to
+            // disagree about any state the whitelist forgot. One predicate, one answer.
+            if (!invoice.CanCreateCreditNote)
             {
-                return Result<CreditNoteDto>.Failure("Un avoir ne peut être établi que sur une facture (partiellement) payée.");
+                return Result<CreditNoteDto>.Failure(
+                    "Un avoir ne peut être établi que sur une facture émise dont un montant a été encaissé.");
             }
 
             if (request.Amount <= 0)
@@ -90,14 +96,24 @@ public class CreateCreditNoteCommandHandler : IRequestHandler<CreateCreditNoteCo
                     "Le montant de l'avoir dépasse le montant encaissé restant à créditer.");
             }
 
+            // An unrecognised method used to be silently dropped to null, so a typo produced an avoir with no
+            // recorded means of refund and nobody was told.
             PaymentMethod? method = null;
-            if (!string.IsNullOrWhiteSpace(request.Method)
-                && Enum.TryParse<PaymentMethod>(request.Method, ignoreCase: true, out var parsed))
+            if (!string.IsNullOrWhiteSpace(request.Method))
             {
+                if (!Enum.TryParse<PaymentMethod>(request.Method, ignoreCase: true, out var parsed))
+                {
+                    return Result<CreditNoteDto>.Failure("Mode de remboursement invalide.");
+                }
                 method = parsed;
             }
 
             var refundedOn = request.RefundedOn ?? DateTime.UtcNow;
+            var dateError = PaymentDateRules.Validate(refundedOn, "La date de remboursement");
+            if (dateError != null)
+            {
+                return Result<CreditNoteDto>.Failure(dateError);
+            }
             var year = DateTime.UtcNow.Year;
             CreditNote? creditNote = null;
 
@@ -121,7 +137,7 @@ public class CreateCreditNoteCommandHandler : IRequestHandler<CreateCreditNoteCo
                 {
                     await _unitOfWork.SaveChangesAsync(cancellationToken);
                     _logger.LogInformation("Created avoir {Number} for invoice {InvoiceId}", creditNote.Number, invoice.Id);
-                    return Result<CreditNoteDto>.Success(ToDto(creditNote));
+                    return Result<CreditNoteDto>.Success(creditNote.ToDto(invoice));
                 }
                 catch (DbUpdateException) when (attempt < MaxNumberingAttempts)
                 {
@@ -141,16 +157,4 @@ public class CreateCreditNoteCommandHandler : IRequestHandler<CreateCreditNoteCo
             return Result<CreditNoteDto>.Failure("Erreur lors de l'établissement de l'avoir.");
         }
     }
-
-    private static CreditNoteDto ToDto(CreditNote c) => new()
-    {
-        Id = c.Id,
-        InvoiceId = c.InvoiceId,
-        Number = c.Number,
-        IssueDate = c.IssueDate,
-        Amount = c.Amount,
-        Reason = c.Reason,
-        Method = c.Method?.ToString(),
-        RefundedOn = c.RefundedOn,
-    };
 }

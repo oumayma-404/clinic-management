@@ -21,8 +21,8 @@
 | C | Appointment update stops wiping the act | complete | `f5d915e` | yes |
 | D | Void a payment + invoice detail modal | complete | `d451c14` | yes |
 | E | Installment ledger + plan void + receipts | complete | `0fcc796` | yes |
-| F | Devis→facture carry-over | complete | | |
-| G | Avoirs readable + PDF + netting | pending | | |
+| F | Devis→facture carry-over | complete | `c182571` | yes |
+| G | Avoirs readable + PDF + netting | complete | | |
 | H | Patient contact optional | pending | | |
 | I | Conflict detection — backend | pending | | |
 | J | Conflict detection — frontend | pending | | |
@@ -71,6 +71,72 @@ workaround (`dotnet test` is Smart-App-Control-blocked on this machine).
 `Infrastructure/Persistence/MoneyReconciliationReader.cs`, `API/Maintenance/ReconcileMoneyCommand.cs`,
 `UnitTests/Common/Maintenance/MoneyReconciliationServiceTests.cs`,
 `UnitTests/Api/Maintenance/ReconcileMoneyCommandTests.cs`. **Changed:** `API/Program.cs` (verb interception).
+
+## Part G — notes
+
+**Quality gate:** backend build 0 errors and no new warnings; **906 tests, 898 pass, 8 fail — the documented
+pre-existing baseline** (`DoctorCachetTests` ×4, `ReminderSchedulerTests` ×3, `DocumentTypeAndFilenameTests` ×1,
+all reproduced on an untouched `22b37a1` worktree in Part E); `tsc --noEmit` clean; `npm run build` clean.
+13 new tests, all green.
+
+**No migration.** Everything here is a read path, a renderer, or a guard over columns that already exist.
+
+### What was actually broken
+
+`ICreditNoteRepository` had **no read method at all** — a numbering probe, two aggregate sums, `AddAsync`. An
+avoir was write-only in the strict sense: established, counted once in the caisse arithmetic, and then invisible
+forever. No list, no PDF, no DTO field, no way for a clinic to tell that an invoice had one.
+
+The netting defect underneath it was worse than "a missing feature". `GetInvoiceRevenueQuery` has two branches,
+and **only the windowed one subtracted avoirs**. `/factures` loads with both date filters empty, so the branch
+that ignored them is the « Total encaissé » nearly every user actually sees — while la caisse, over the same
+rows, had always netted. Two screens, one clinic, two different figures for the money in the drawer. The
+dashboard KPI had the same hole. Both now net; `MoneyReadConsistencyTests`' fixtures were given an explicit
+"no avoirs" credit-note mock rather than being left to Moq's default, since the batch read returns a dictionary
+the handlers immediately enumerate.
+
+### The avoir PDF needed data the entity does not hold
+
+`CreditNote` stores a soft `InvoiceId` with no navigation, one scalar `Amount`, and no patient. A lawful avoir
+must cite **the invoice it corrects, by number and date**, name the patient, and — for a VAT-applicable clinic —
+show an HT/TVA split. So `AvoirPdfData` is assembled in the handler: the corrected invoice is loaded and its
+**frozen** VAT posture is applied to the credited total to derive the split. A dangling `InvoiceId` **fails the
+render** instead of producing half a document, because a piece that cites nothing is not usable.
+
+Two dates are printed deliberately — `IssueDate` (when the avoir was drawn up) and `RefundedOn` (when the money
+went back, and the date la caisse nets against). They are routinely different and an accountant needs both.
+
+### Three creation guards that were silently wrong
+
+| Was | Now | Why it mattered |
+|---|---|---|
+| Status whitelist `Paid \| PartiallyPaid`, maintained in the handler | `invoice.CanCreateCreditNote` | `InvoiceDto.CanCreateAvoir` has **always** been fed by `CanCreateCreditNote`, so the button and the endpoint were free to disagree about any state the whitelist forgot. One predicate, one answer. |
+| Unparseable `Method` silently dropped to `null` | `Result.Failure("Mode de remboursement invalide.")` | A typo produced an avoir with no recorded means of refund and nobody was told. |
+| `RefundedOn` unvalidated | `PaymentDateRules.Validate` | Same divergence the rule already closes for payments: a future refund counts in the balance today and is absent from la caisse until its date arrives. |
+
+The dialog also now **sends** a date and a method. It previously sent neither, so every avoir was stamped
+"now" with a null method — which is precisely why the new PDF would have had nothing to print.
+
+### AC-45, in three places
+
+The avoir is **never** transmitted to TTN; only the invoice is. Silence would let a clinic assume El Fatoora had
+been corrected along with its books. The warning therefore appears on the creation dialog (before the act), on
+the avoir row in the detail modal (after it), and on the PDF itself (the copy that leaves the building). All
+three read one flag, `CorrectedInvoiceIsTtnRegistered`, derived from the invoice's `EInvoiceStatus` by a single
+shared predicate — `Submitted | Validating | Valid`, the states where the declared figure no longer matches what
+the clinic keeps.
+
+### « Solde patient » gained a credited line that deliberately does not move the balance
+
+An avoir returns the cash **and** cancels the fee, so the net position is unchanged and `TotalOutstanding` must
+not shift. But a settled-after-refund patient then looks identical to one who never owed anything. The card now
+shows « Remboursé (avoirs) » alongside, with the DTO comment stating outright that it is informational.
+
+### Verified the test catches the bug
+
+Reverted the no-period netting to the old `billable.Sum(i => i.AmountCollected)` and rebuilt: exactly
+`Revenue_Without_A_Period_Nets_Avoirs` went red, 12 of 13 still passing. Restored, re-ran the full suite, back
+to the 8-failure baseline.
 
 ### Auto-approved deviations
 
@@ -316,6 +382,9 @@ carry-over.
 |-----------|----------------|--------|
 | No transaction, no plan mutation (plan called for a two-aggregate transactional write) | Trivial — strictly less risk | Read-side de-dup makes the write single-aggregate. Removes R-8 and is self-correcting on cancel. |
 | `excludedPlanIds` made **required** on the collected query | Trivial | Mirrors the outstanding query, which is required for exactly this reason: a cash read must not be able to silently skip the de-dup. |
+| Added `GetTotalsForInvoicesAsync` (a batch read the plan did not list) | Trivial | The row badge and the no-period revenue branch both need per-invoice credited totals; one grouped query beats an N+1 and a second bespoke sum. |
+| The avoir dialog now sends `refundedOn` + `method` (plan only asked for the TTN warning) | Trivial | The API already accepted both and now validates them; without them the new PDF has no date and no means of refund to print. |
+| Consolidated the credit-note→DTO mapping into `InvoiceMappingExtensions` | Trivial | `CreateCreditNoteCommand` had a private copy; three new call sites would have made four. |
 
 ## Significant deviations
 

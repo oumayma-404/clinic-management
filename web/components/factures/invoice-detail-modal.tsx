@@ -14,7 +14,7 @@ import { toast } from "sonner"
 import { invoicesApi } from "@/lib/api/invoices"
 import { billingApi } from "@/lib/api/billing"
 import { ApiError } from "@/lib/api/client"
-import type { InvoiceDto, PaymentDto } from "@/lib/api/types"
+import type { CreditNoteDto, InvoiceDto, PaymentDto } from "@/lib/api/types"
 import { formatDT, formatDateFr } from "@/lib/format"
 import { downloadBlob } from "@/lib/download"
 import { useSession } from "@/lib/auth/session"
@@ -78,6 +78,15 @@ export function InvoiceDetailModal({ open, onOpenChange, invoiceId, onChanged }:
     }
     load()
   }, [open, load])
+
+  const handleDownloadAvoir = async (creditNote: CreditNoteDto) => {
+    try {
+      const blob = await invoicesApi.downloadAvoirPdf(creditNote.id)
+      downloadBlob(blob, `avoir-${creditNote.number}.pdf`)
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Échec du téléchargement de l'avoir.")
+    }
+  }
 
   const handleDownloadReceipt = async (payment: PaymentDto) => {
     try {
@@ -294,6 +303,44 @@ export function InvoiceDetailModal({ open, onOpenChange, invoiceId, onChanged }:
               )}
             </section>
 
+            {/* ---- Avoirs ---- */}
+            {invoice.creditNotes.length > 0 && (
+              <section className="space-y-2">
+                <h3 className="text-sm font-semibold">Avoirs</h3>
+                <ul className="divide-y rounded-md border">
+                  {invoice.creditNotes.map((creditNote) => (
+                    <li key={creditNote.id} className="space-y-1 p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <span className="font-medium">{formatDT(creditNote.amount)}</span>
+                          <span className="text-muted-foreground">
+                            {" "}· avoir {creditNote.number} · remboursé le {formatDateFr(creditNote.refundedOn)}
+                            {creditNote.method ? ` · ${paymentMethodLabel(creditNote.method)}` : ""}
+                          </span>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDownloadAvoir(creditNote)}
+                          title="Télécharger l'avoir"
+                          aria-label={`Télécharger l'avoir ${creditNote.number} de ${formatDT(creditNote.amount)}`}
+                        >
+                          <FileDown className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      <p className="text-xs text-muted-foreground">Motif : {creditNote.reason}</p>
+                      {creditNote.correctedInvoiceIsTtnRegistered && (
+                        <p className="text-xs text-amber-700 dark:text-amber-400">
+                          Facture télétransmise à TTN : l&apos;avoir ne l&apos;est pas — la régularisation
+                          auprès d&apos;El Fatoora reste à faire.
+                        </p>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+
             {/* ---- Totals ---- */}
             <section className="rounded-md border p-3">
               <dl className="space-y-1 text-sm">
@@ -312,6 +359,14 @@ export function InvoiceDetailModal({ open, onOpenChange, invoiceId, onChanged }:
                     {formatDT(invoice.amountCollected)}
                   </dd>
                 </div>
+                {invoice.creditedTotal > 0 && (
+                  <div className="flex justify-between">
+                    <dt className="text-muted-foreground">Remboursé (avoirs)</dt>
+                    <dd className="font-medium text-blue-700 dark:text-blue-400">
+                      −{formatDT(invoice.creditedTotal)}
+                    </dd>
+                  </div>
+                )}
                 <div className="flex justify-between">
                   <dt className="text-muted-foreground">Reste à payer</dt>
                   <dd className="font-semibold text-amber-700 dark:text-amber-400">

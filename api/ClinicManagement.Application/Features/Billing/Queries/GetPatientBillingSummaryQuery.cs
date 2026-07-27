@@ -22,6 +22,7 @@ public class GetPatientBillingSummaryQueryHandler
     private readonly IInvoiceRepository _invoiceRepository;
     private readonly ITreatmentPlanRepository _planRepository;
     private readonly IPatientRepository _patientRepository;
+    private readonly ICreditNoteRepository _creditNoteRepository;
     private readonly ICnamBillingCalculator _cnamBillingCalculator;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly ILogger<GetPatientBillingSummaryQueryHandler> _logger;
@@ -30,6 +31,7 @@ public class GetPatientBillingSummaryQueryHandler
         IInvoiceRepository invoiceRepository,
         ITreatmentPlanRepository planRepository,
         IPatientRepository patientRepository,
+        ICreditNoteRepository creditNoteRepository,
         ICnamBillingCalculator cnamBillingCalculator,
         ICurrentClinicResolver clinicResolver,
         ILogger<GetPatientBillingSummaryQueryHandler> logger)
@@ -37,6 +39,7 @@ public class GetPatientBillingSummaryQueryHandler
         _invoiceRepository = invoiceRepository;
         _planRepository = planRepository;
         _patientRepository = patientRepository;
+        _creditNoteRepository = creditNoteRepository;
         _cnamBillingCalculator = cnamBillingCalculator;
         _clinicResolver = clinicResolver;
         _logger = logger;
@@ -112,6 +115,12 @@ public class GetPatientBillingSummaryQueryHandler
                 totalBilled += plan.TotalPlanned;
             }
 
+            // What has been refunded to this patient. Does not move the balance (see the DTO) — it makes a
+            // settled-after-refund patient distinguishable from one who simply never paid anything back.
+            var creditedByInvoice = await _creditNoteRepository.GetTotalsForInvoicesAsync(
+                invoices.Select(i => i.Id).ToList(), cancellationToken);
+            var creditedTotal = InvoiceCalculator.RoundMoney(creditedByInvoice.Values.Sum());
+
             var cnamReimbursable = InvoiceCalculator.RoundMoney(reimbursable);
             var patientOutOfPocket = InvoiceCalculator.RoundMoney(Math.Max(0m, totalBilled - reimbursable));
 
@@ -123,6 +132,7 @@ public class GetPatientBillingSummaryQueryHandler
                 OldestOverdueDate = oldestOverdue,
                 CnamReimbursable = cnamReimbursable,
                 PatientOutOfPocket = patientOutOfPocket,
+                CreditedTotal = creditedTotal,
             });
         }
         catch (NotFoundException)

@@ -543,6 +543,131 @@ public class PdfGenerationService : IPdfGenerationService
         }
     }
 
+    public async Task<byte[]> GenerateAvoirPdfAsync(AvoirPdfData data, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            _logger.LogInformation("Generating avoir PDF {Number} for {Patient}", data.Number, data.PatientName);
+
+            var pdfBytes = await Task.Run(() =>
+            {
+                return Document.Create(container =>
+                {
+                    container.Page(page =>
+                    {
+                        page.Size(PageSizes.A4);
+                        page.Margin(2, Unit.Centimetre);
+                        page.PageColor(Colors.White);
+                        page.DefaultTextStyle(x => x.FontSize(11).FontFamily("Helvetica"));
+
+                        page.Content().Column(column =>
+                        {
+                            column.Spacing(16);
+
+                            // Same identity header as the note d'honoraires — an avoir is the fiscal
+                            // counterpart of the invoice it corrects, not a lesser note.
+                            column.Item().Column(header =>
+                            {
+                                header.Spacing(3);
+                                header.Item().Text(data.ClinicName).FontSize(14).Bold().FontColor(Colors.Blue.Darken2).FontFamily("Helvetica");
+                                if (!string.IsNullOrWhiteSpace(data.ClinicAddress))
+                                    header.Item().Text(data.ClinicAddress).FontSize(10).FontFamily("Helvetica");
+                                if (!string.IsNullOrWhiteSpace(data.ClinicPhone))
+                                    header.Item().Text($"Tél : {data.ClinicPhone}").FontSize(10).FontFamily("Helvetica");
+                                if (!string.IsNullOrWhiteSpace(data.MatriculeFiscal))
+                                    header.Item().Text($"Matricule fiscal : {data.MatriculeFiscal}").FontSize(10).FontFamily("Helvetica");
+                            });
+
+                            column.Item().PaddingTop(4).AlignCenter().Text("AVOIR").FontSize(16).Bold().FontFamily("Helvetica");
+                            column.Item().AlignCenter().Text($"N° {data.Number}").FontSize(12).Bold().FontColor(Colors.Blue.Darken2).FontFamily("Helvetica");
+
+                            column.Item().PaddingTop(8).Table(table =>
+                            {
+                                table.ColumnsDefinition(cols =>
+                                {
+                                    cols.RelativeColumn(3);
+                                    cols.RelativeColumn(5);
+                                });
+
+                                void Row(string label, string value)
+                                {
+                                    table.Cell().Element(BodyCell).Text(label).FontFamily("Helvetica");
+                                    table.Cell().Element(BodyCell).Text(value).FontFamily("Helvetica");
+                                }
+
+                                Row("Date d'établissement", $"{data.IssueDate:dd/MM/yyyy}");
+                                Row("Date de remboursement", $"{data.RefundedOn:dd/MM/yyyy}");
+                                Row("Patient", data.PatientName);
+
+                                // Mandatory on an avoir: the document it corrects. Rendering it blank would
+                                // make the piece unusable, so say so explicitly rather than leave a gap.
+                                var invoiceRef = string.IsNullOrWhiteSpace(data.InvoiceNumber)
+                                    ? "Facture non numérotée"
+                                    : data.InvoiceIssueDate.HasValue
+                                        ? $"N° {data.InvoiceNumber} du {data.InvoiceIssueDate.Value:dd/MM/yyyy}"
+                                        : $"N° {data.InvoiceNumber}";
+                                Row("Facture corrigée", invoiceRef);
+
+                                if (!string.IsNullOrWhiteSpace(data.Method))
+                                {
+                                    Row("Mode de remboursement", data.Method!);
+                                }
+                            });
+
+                            column.Item().PaddingTop(6).Column(reason =>
+                            {
+                                reason.Spacing(3);
+                                reason.Item().Text("Motif").FontSize(11).Bold().FontFamily("Helvetica");
+                                reason.Item().Text(data.Reason).FontSize(11).FontFamily("Helvetica");
+                            });
+
+                            column.Item().PaddingTop(6).AlignRight().Column(totals =>
+                            {
+                                totals.Spacing(3);
+                                // The split is only meaningful when the corrected invoice carried VAT;
+                                // otherwise the single TTC figure is the honest presentation.
+                                if (data.VatApplicable && data.VatRate > 0m)
+                                {
+                                    totals.Item().Text($"Montant HT : {FormatDt(data.AmountHt)}").FontSize(11).FontFamily("Helvetica");
+                                    totals.Item().Text($"TVA ({data.VatRate:0.##} %) : {FormatDt(data.AmountVat)}").FontSize(11).FontFamily("Helvetica");
+                                }
+                                totals.Item().PaddingTop(3).Text($"Montant remboursé : {FormatDt(data.AmountTtc)}")
+                                    .FontSize(14).Bold().FontColor(Colors.Blue.Darken2).FontFamily("Helvetica");
+                            });
+
+                            // The avoir is never transmitted to TTN — only the invoice is. Without this line
+                            // a clinic would reasonably assume the declared figure had been corrected too.
+                            if (data.CorrectedInvoiceIsTtnRegistered)
+                            {
+                                column.Item().PaddingTop(10).Text(
+                                        "La facture corrigée est enregistrée auprès de TTN « El Fatoora ». Cet avoir n'est pas "
+                                        + "télétransmis : la régularisation auprès de TTN reste à effectuer par le cabinet.")
+                                    .FontSize(9).FontColor(Colors.Red.Darken2).FontFamily("Helvetica");
+                            }
+
+                            column.Item().ExtendVertical();
+                        });
+
+                        page.Footer().PaddingTop(20).Column(footer =>
+                        {
+                            footer.Item().LineHorizontal(0.5f).LineColor(Colors.Grey.Medium);
+                            footer.Item().PaddingTop(6).Text("Avoir — Montants exprimés en dinars tunisiens (DT).")
+                                .FontSize(8).FontColor(Colors.Grey.Darken1).FontFamily("Helvetica");
+                        });
+                    });
+                }).GeneratePdf();
+            }, cancellationToken);
+
+            _logger.LogInformation("Avoir PDF generated, size: {Size} bytes", pdfBytes.Length);
+            return pdfBytes;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error generating avoir PDF {Number}", data.Number);
+            throw;
+        }
+    }
+
     // Format a TND amount to millimes (3 decimals) with the "DT" suffix, French grouping.
     private static string FormatDt(decimal amount) =>
         amount.ToString("#,##0.000", System.Globalization.CultureInfo.GetCultureInfo("fr-FR")) + " DT";

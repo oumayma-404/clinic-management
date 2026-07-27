@@ -662,6 +662,17 @@ export default function PatientDetailsPage() {
                     <div>
                       <p className="text-xs text-muted-foreground">Reste à charge patient</p>
                       <p className="text-lg font-medium">{formatDT(billingSummary.patientOutOfPocket)}</p>
+                      {/* An avoir returns the cash AND cancels the fee, so it leaves the balance at zero.
+                          Without this line a refunded patient is indistinguishable from one who never had
+                          anything to settle. */}
+                      {billingSummary.creditedTotal > 0 && (
+                        <>
+                          <p className="mt-1 text-xs text-muted-foreground">Remboursé (avoirs)</p>
+                          <p className="text-lg font-medium text-blue-700 dark:text-blue-400">
+                            −{formatDT(billingSummary.creditedTotal)}
+                          </p>
+                        </>
+                      )}
                     </div>
                   </div>
                 </CardContent>

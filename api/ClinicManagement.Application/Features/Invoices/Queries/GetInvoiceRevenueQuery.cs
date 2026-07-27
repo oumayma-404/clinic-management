@@ -72,7 +72,13 @@ public class GetInvoiceRevenueQueryHandler : IRequestHandler<GetInvoiceRevenueQu
             }
             else
             {
-                totalCollected = billable.Sum(i => i.AmountCollected);
+                // This branch is what /factures loads on arrival — both date filters start empty — so it is
+                // the « Total encaissé » nearly every user actually sees, and it was the one branch that did
+                // not net avoirs. A refunded invoice inflated the headline figure indefinitely while the
+                // caisse, which has always netted, disagreed with it.
+                var creditedByInvoice = await _creditNoteRepository.GetTotalsForInvoicesAsync(
+                    billable.Select(i => i.Id).ToList(), cancellationToken);
+                totalCollected = billable.Sum(i => i.AmountCollected) - creditedByInvoice.Values.Sum();
             }
 
             var dto = new InvoiceRevenueDto
