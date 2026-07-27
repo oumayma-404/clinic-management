@@ -82,7 +82,7 @@ export const invoicesApi = {
 
   update: async (
     id: string,
-    data: CreateInvoiceRequest,
+    data: CreateInvoiceRequest & { version?: number },
   ): Promise<InvoiceDto> => apiPut<InvoiceDto>(`/invoices/${id}`, data),
 
   issue: async (id: string): Promise<InvoiceDto> =>

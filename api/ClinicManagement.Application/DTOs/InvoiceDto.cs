@@ -25,6 +25,13 @@ public class InvoiceDto
     public decimal AmountCollected { get; set; }
     public decimal Outstanding { get; set; }
     public DateTime CreatedAt { get; set; }
+
+    /// <summary>
+    /// Optimistic-concurrency token (PostgreSQL <c>xmin</c>). Send it back on the matching update command so
+    /// the save is checked against the copy the user actually edited; a peer's change in between then yields
+    /// a 409 instead of a silent overwrite.
+    /// </summary>
+    public uint Version { get; set; }
     public DateTime? UpdatedAt { get; set; }
 
     // TTN « El Fatoora » electronic-invoicing state (FR-5). Secrets/blobs are never exposed — only status,

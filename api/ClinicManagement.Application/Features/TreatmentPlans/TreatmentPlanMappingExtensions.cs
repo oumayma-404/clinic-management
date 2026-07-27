@@ -42,6 +42,7 @@ public static class TreatmentPlanMappingExtensions
             AmountPaid = plan.AmountPaid,
             Outstanding = plan.Outstanding,
             CreatedAt = plan.CreatedAt,
+        Version = plan.Version,
             UpdatedAt = plan.UpdatedAt,
             RevisionNumber = plan.RevisionNumber,
             ItemsDone = plan.Items.Count(i => i.Status == TreatmentPlanItemStatus.Done),

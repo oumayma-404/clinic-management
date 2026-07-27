@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using MediatR;
 using Microsoft.Extensions.Logging;
@@ -102,7 +103,7 @@ public class DeletePatientFolderCommandHandler : IRequestHandler<DeletePatientFo
 
             return Result<bool>.Success(true);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error deleting folder {FolderId}", request.FolderId);
             return Result<bool>.Failure($"Error deleting folder: {ex.Message}");

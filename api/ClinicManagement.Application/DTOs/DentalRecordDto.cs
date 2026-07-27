@@ -17,6 +17,13 @@ public class DentalRecordDto
     public List<int> ToothNumbers { get; set; } = new();
     public List<DentalRecordActDto> Acts { get; set; } = new();
     public DateTime CreatedAt { get; set; }
+
+    /// <summary>
+    /// Optimistic-concurrency token (PostgreSQL <c>xmin</c>). Send it back on the matching update command so
+    /// the save is checked against the copy the user actually edited; a peer's change in between then yields
+    /// a 409 instead of a silent overwrite.
+    /// </summary>
+    public uint Version { get; set; }
     public DateTime? UpdatedAt { get; set; }
 }
 

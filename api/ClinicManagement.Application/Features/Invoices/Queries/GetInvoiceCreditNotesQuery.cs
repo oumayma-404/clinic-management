@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -66,7 +67,7 @@ public class GetInvoiceCreditNotesQueryHandler
             return Result<List<CreditNoteDto>>.Success(
                 creditNotes.Select(c => c.ToDto(invoice)).ToList());
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error listing credit notes for invoice {InvoiceId}", request.InvoiceId);
             return Result<List<CreditNoteDto>>.Failure("Erreur lors de la récupération des avoirs.");

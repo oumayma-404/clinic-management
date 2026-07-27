@@ -103,7 +103,7 @@ public class GetInstallmentReceiptPdfQueryHandler : IRequestHandler<GetInstallme
                 FileName = $"recu-echeance-{suffix}.pdf",
             });
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error generating installment receipt PDF for plan {PlanId} installment {InstallmentId}",
                 request.PlanId, request.InstallmentId);

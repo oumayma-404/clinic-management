@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Domain.Entities;
@@ -136,7 +137,7 @@ public class UploadPatientFileCommandHandler : IRequestHandler<UploadPatientFile
                 throw;
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error uploading file for patient {PatientId}", request.PatientId);
             return Result<PatientFileDto>.Failure("Erreur lors de l'envoi du fichier.");

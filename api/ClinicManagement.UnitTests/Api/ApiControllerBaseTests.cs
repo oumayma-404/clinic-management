@@ -48,6 +48,7 @@ public class ApiControllerBaseTests
     [InlineData(StatusCodes.Status401Unauthorized)]
     [InlineData(StatusCodes.Status403Forbidden)]
     [InlineData(StatusCodes.Status404NotFound)]
+    [InlineData(StatusCodes.Status409Conflict)]
     public void Failure_Preserves_The_Actions_Status_Code(int statusCode) // [AC-1]
     {
         var result = new TestController().InvokeFailure("boom", statusCode);

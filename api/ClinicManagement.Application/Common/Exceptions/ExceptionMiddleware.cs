@@ -46,6 +46,13 @@ public class ExceptionMiddleware
                 code = HttpStatusCode.NotFound;
                 result = JsonSerializer.Serialize(new { error = exception.Message });
                 break;
+            // A concurrent edit is not a fault — it is a 409 the client can recover from by reloading. It
+            // must not fall through to the generic 500 branch, or the user is told « une erreur est survenue »
+            // for something that has a specific, actionable cause.
+            case ConflictException:
+                code = HttpStatusCode.Conflict;
+                result = JsonSerializer.Serialize(new { error = exception.Message });
+                break;
             case FluentValidation.ValidationException validationException:
                 code = HttpStatusCode.BadRequest;
                 var validationMessage = string.Join(" ", validationException.Errors.Select(e => e.ErrorMessage));

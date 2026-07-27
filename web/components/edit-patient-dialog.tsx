@@ -20,6 +20,8 @@ import { Switch } from "@/components/ui/switch"
 import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import { toast } from "sonner"
+import { FormErrorBanner } from "@/components/ui/form-error-banner"
+import { useConflict } from "@/lib/hooks/use-conflict"
 import { User, Phone, Heart, CreditCard, Flag, Save, X, Plus, Trash2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { patientsApi } from "@/lib/api/patients"
@@ -90,9 +92,17 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
   const [flagNotes, setFlagNotes] = useState("")
 
   const [loading, setLoading] = useState(false)
+  // The one editing surface in the app with no form-level error display: a failed save produced a toast
+  // that disappeared while the dialog sat there looking fine.
+  const conflict = useConflict()
   const [errors, setErrors] = useState<Record<string, string>>({})
 
-  // Populate form when patient changes or dialog opens
+  // Populate the form once per opening.
+  //
+  // Keyed on the patient's ID, not the object: this dialog's parent refetches on every realtime
+  // `patients` event, which hands down a new object identity. Depending on the object meant a peer's
+  // unrelated edit re-ran this effect and wiped whatever the user had typed, mid-sentence.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (open) {
       if (patient) {
@@ -183,7 +193,9 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
         setFamilyHistoryEntries([])
       }
     }
-  }, [patient, open])
+    conflict.reset()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [patient?.id, open])
 
   // Reset form when dialog closes
   useEffect(() => {
@@ -376,6 +388,9 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
           // "leave it alone" and clearing the box would silently do nothing.
           phoneNumber: phone.trim() || null,
           email: email.trim() || null,
+          // The version this form was hydrated from — so a peer's save in the meantime is a 409, not a
+          // silent overwrite of their work.
+          version: patient.version,
           address: addressObj,
           emergencyContactName: emergencyName.trim(),
           emergencyContactPhone: emergencyPhone.trim(),
@@ -511,11 +526,17 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
       onOpenChange(false)
     } catch (err) {
       console.error("Failed to save patient:", err)
-      const errorMessage = err instanceof ApiError ? err.message : (patient ? "Échec de la mise à jour des informations du patient" : "Échec de la création du patient")
-      toast.error(patient ? "Erreur lors de la mise à jour" : "Erreur lors de la création", {
-        description: errorMessage,
-        duration: 4000,
-      })
+      const fallback = patient
+        ? "Échec de la mise à jour des informations du patient"
+        : "Échec de la création du patient"
+      // A conflict stays on screen with a reload; anything else keeps the familiar toast as well, since
+      // those are usually transient and the user may already have looked away.
+      if (!conflict.capture(err, fallback)) {
+        toast.error(patient ? "Erreur lors de la mise à jour" : "Erreur lors de la création", {
+          description: conflict.error ?? fallback,
+          duration: 4000,
+        })
+      }
     } finally {
       setLoading(false)
     }
@@ -552,6 +573,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
 
         <div className="overflow-y-auto max-h-[calc(90vh-200px)]">
           <form onSubmit={handleSave} className="p-6 space-y-6">
+            <FormErrorBanner message={conflict.error} />
             {/* Personal Information Section */}
             <div className="space-y-4">
               <div className="flex items-center gap-2 pb-2">

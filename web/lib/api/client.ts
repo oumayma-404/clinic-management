@@ -11,6 +11,16 @@ export class ApiError extends Error {
   }
 }
 
+/** French text for statuses that can reach the client with an empty body. */
+const STATUS_FALLBACK_FR: Record<number, string> = {
+  401: "Votre session a expiré. Reconnectez-vous.",
+  403: "Vous n'avez pas les droits nécessaires pour cette action.",
+  404: "Élément introuvable.",
+  409: "Cet enregistrement a été modifié par quelqu'un d'autre pendant votre saisie. "
+    + "Rechargez pour voir la version à jour, puis appliquez à nouveau votre modification.",
+  500: "Une erreur est survenue lors du traitement de votre demande.",
+};
+
 async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
@@ -40,6 +50,15 @@ async function handleResponse<T>(response: Response): Promise<T> {
     } catch {
       // If response is not JSON, use status text
     }
+
+    // Some statuses arrive with no body at all — most importantly the 403 that ASP.NET's authorization
+    // pipeline returns before any handler runs, which short-circuits the `{ error }` contract. Falling back
+    // to the raw status line put « HTTP 403: Forbidden » in front of a French-speaking dentist.
+    if (errorMessage === `HTTP ${response.status}: ${response.statusText}`) {
+      const french = STATUS_FALLBACK_FR[response.status];
+      if (french) errorMessage = french;
+    }
+
     throw new ApiError(response.status, errorMessage);
   }
 

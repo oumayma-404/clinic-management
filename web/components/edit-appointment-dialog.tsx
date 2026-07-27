@@ -21,6 +21,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
+import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -151,7 +152,10 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
     }
   }, [selectedProcedureTypeId, procedureTypes])
 
-  // Populate form when appointment changes
+  // Populate the form once per opening — keyed on the appointment's ID, not the object. The calendar
+  // refetches on every realtime `appointments` event and hands down a fresh object each time; depending
+  // on it meant a peer booking an unrelated slot reset this form under the user's hands.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (appointment && open) {
       setPatientName(appointment.patientName)
@@ -208,7 +212,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
         setNotes("")
       }
     }
-  }, [appointment, open])
+  }, [appointment?.id, open])
 
   // Reset form when dialog closes
   useEffect(() => {
@@ -284,6 +288,8 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
         notes: appointmentNotes || null,
         status: status,
         procedureTypeId: selectedProcedureTypeId || null,
+        // The version this form was hydrated from.
+        version: appointment.version,
       })
 
       onSuccess?.()
@@ -335,6 +341,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
     try {
       await appointmentsApi.update(appointment.id, {
         status: "cancelled",
+        version: appointment.version,
       })
 
       setShowCancelDialog(false)
@@ -381,11 +388,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
           </DialogHeader>
 
           <form onSubmit={handleUpdate} className="space-y-6 mt-4">
-            {error && (
-              <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-800 dark:bg-red-950 dark:border-red-800 dark:text-red-200">
-                {error}
-              </div>
-            )}
+            <FormErrorBanner message={error} />
 
             {/* Patient Section */}
             <div className="space-y-4 p-4 rounded-lg border bg-muted/30">

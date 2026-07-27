@@ -95,7 +95,10 @@ export const treatmentPlansApi = {
   create: async (data: CreateTreatmentPlanRequest): Promise<TreatmentPlanDto> =>
     apiPost<TreatmentPlanDto>('/treatment-plans', data),
 
-  update: async (id: string, data: UpdateTreatmentPlanRequest): Promise<TreatmentPlanDto> =>
+  update: async (
+    id: string,
+    data: UpdateTreatmentPlanRequest & { version?: number },
+  ): Promise<TreatmentPlanDto> =>
     apiPut<TreatmentPlanDto>(`/treatment-plans/${id}`, data),
 
   accept: async (id: string): Promise<TreatmentPlanDto> =>

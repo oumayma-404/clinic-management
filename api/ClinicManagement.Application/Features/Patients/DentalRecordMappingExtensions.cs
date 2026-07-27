@@ -35,6 +35,7 @@ public static class DentalRecordMappingExtensions
             })
             .ToList(),
         CreatedAt = record.CreatedAt,
+        Version = record.Version,
         UpdatedAt = record.UpdatedAt
     };
 }

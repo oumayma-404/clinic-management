@@ -1,6 +1,7 @@
 using MediatR;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
@@ -243,7 +244,8 @@ public class CreatePatientCommandHandler : IRequestHandler<CreatePatientCommand,
                 Allergies = patient.Allergies,
                 EmergencyContactName = patient.EmergencyContactName,
                 EmergencyContactPhone = patient.EmergencyContactPhone?.Value,
-                CreatedAt = patient.CreatedAt
+                CreatedAt = patient.CreatedAt,
+                Version = patient.Version,
             };
 
             // Map address to DTO
@@ -284,7 +286,7 @@ public class CreatePatientCommandHandler : IRequestHandler<CreatePatientCommand,
 
             return Result<PatientDto>.Success(dto);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             return Result<PatientDto>.Failure($"Error creating patient: {ex.Message}");
         }

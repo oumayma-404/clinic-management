@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -10,6 +11,13 @@ namespace ClinicManagement.Application.Features.Invoices.Commands;
 /// <summary>Update a draft invoice's lines / patient links. Fails if the invoice is not a draft.</summary>
 public class UpdateInvoiceCommand : IRequest<Result<InvoiceDto>>
 {
+    /// <summary>
+    /// The <c>Version</c> the client read. Round-tripped so the save is validated against the copy the user
+    /// actually edited rather than the one the handler just loaded. Omit (0) to skip the check — the seam
+    /// server-internal writers use; see <c>IUnitOfWork.SetExpectedVersion</c>.
+    /// </summary>
+    public uint Version { get; set; }
+
     public Guid Id { get; set; }
     public Guid PatientId { get; set; }
     public Guid? DentalRecordId { get; set; }
@@ -73,6 +81,9 @@ public class UpdateInvoiceCommandHandler : IRequestHandler<UpdateInvoiceCommand,
                 request.AppointmentId ?? invoice.AppointmentId);
             invoice.SetLines(request.Lines.Select(l => (l.Designation, l.Quantity, l.UnitPriceHt, l.DentalRecordId, l.DentalActCodeId, l.CodeActe)));
 
+            // Validate the save against the version the USER was editing, not the one this
+            // handler just loaded — that one always matches and would detect nothing.
+            _unitOfWork.SetExpectedVersion(invoice, request.Version);
             await _invoiceRepository.UpdateAsync(invoice, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -86,7 +97,7 @@ public class UpdateInvoiceCommandHandler : IRequestHandler<UpdateInvoiceCommand,
         {
             return Result<InvoiceDto>.Failure(ex.Message);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error updating invoice {InvoiceId}", request.Id);
             return Result<InvoiceDto>.Failure("Erreur lors de la mise à jour de la facture.");

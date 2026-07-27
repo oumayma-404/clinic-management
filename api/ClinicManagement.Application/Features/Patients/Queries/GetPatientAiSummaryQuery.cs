@@ -75,7 +75,7 @@ public class GetPatientAiSummaryQueryHandler : IRequestHandler<GetPatientAiSumma
 
             return Result<PatientAiSummaryDto>.Success(new PatientAiSummaryDto { Summary = response.Message.Trim() });
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             // AI call failed (offline, backend error, timeout): log and surface a clean failure. The frontend
             // maps this to the French "résumé indisponible" fallback while the rest of the page still loads (AC-7).

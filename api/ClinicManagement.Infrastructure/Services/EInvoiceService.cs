@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Domain.Entities;
@@ -119,9 +120,57 @@ public class EInvoiceService : IEInvoiceService
             await _invoiceRepository.UpdateAsync(invoice, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
         }
+        catch (ConflictException)
+        {
+            // A concurrent edit here is the one case that must NOT be swallowed as "retry later". The TTN
+            // exchange already happened: the invoice is registered, and its identifier and QR payload exist
+            // only in this in-memory instance. Dropping them leaves the row Queued, so the next outbox tick
+            // re-submits an invoice TTN has already accepted — a duplicate declaration.
+            //
+            // So reload the row the peer wrote and re-apply the e-invoicing outcome on top of it. Only the
+            // e-invoice fields are re-applied; whatever the peer changed (a payment, a cancellation motif)
+            // is kept, because it was written from a view of the invoice this dispatch never had.
+            _logger.LogWarning(
+                "Concurrent edit while persisting the El Fatoora outcome for invoice {InvoiceId}; reloading and re-applying.",
+                invoiceId);
+            await ReapplyEInvoiceOutcomeAsync(invoice, cancellationToken);
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to persist El Fatoora dispatch outcome for invoice {InvoiceId}", invoiceId);
+        }
+    }
+
+    /// <summary>
+    /// Re-apply the e-invoicing outcome of <paramref name="dispatched"/> onto a freshly-loaded invoice, after a
+    /// peer's concurrent write. Best-effort like everything else here: if the second attempt also fails, the
+    /// state is logged in full so an operator can reconcile against TTN by hand — which is strictly better
+    /// than a silent duplicate submission.
+    /// </summary>
+    private async Task ReapplyEInvoiceOutcomeAsync(Invoice dispatched, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var fresh = await _invoiceRepository.GetByIdAsync(dispatched.Id, cancellationToken);
+            if (fresh == null)
+            {
+                _logger.LogError(
+                    "Invoice {InvoiceId} vanished while re-applying its El Fatoora outcome (TTN id {TtnId}).",
+                    dispatched.Id, dispatched.TtnIdentifier);
+                return;
+            }
+
+            fresh.CopyEInvoiceStateFrom(dispatched);
+            await _invoiceRepository.UpdateAsync(fresh, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "Could not re-apply the El Fatoora outcome for invoice {InvoiceId}. TTN id {TtnId}, status {Status} — "
+                + "reconcile manually before the outbox retries.",
+                dispatched.Id, dispatched.TtnIdentifier, dispatched.EInvoiceStatus);
         }
     }
 

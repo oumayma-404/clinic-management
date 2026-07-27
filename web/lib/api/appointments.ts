@@ -82,6 +82,11 @@ export const appointmentsApi = {
    * no-op in one direction and silent data loss in the other.
    */
   update: async (id: string, data: {
+    /**
+     * Concurrency token read from the DTO. Send it back so the save is checked against the copy shown to
+     * this user; a peer's change in between then yields a 409 instead of silently overwriting them.
+     */
+    version?: number;
     appointmentDateTime?: string;
     durationMinutes?: number;
     /** `null` unassigns the practitioner. */

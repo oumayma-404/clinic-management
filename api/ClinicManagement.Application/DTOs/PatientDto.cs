@@ -34,4 +34,11 @@ public class PatientDto
     public string? ArchiveReason { get; set; }
 
     public DateTime CreatedAt { get; set; }
+
+    /// <summary>
+    /// Optimistic-concurrency token (PostgreSQL <c>xmin</c>). Send it back on the matching update command so
+    /// the save is checked against the copy the user actually edited; a peer's change in between then yields
+    /// a 409 instead of a silent overwrite.
+    /// </summary>
+    public uint Version { get; set; }
 }

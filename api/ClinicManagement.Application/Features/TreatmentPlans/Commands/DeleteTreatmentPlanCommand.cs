@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Domain.Repositories;
@@ -57,7 +58,7 @@ public class DeleteTreatmentPlanCommandHandler : IRequestHandler<DeleteTreatment
 
             return Result.Success();
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error deleting treatment plan {PlanId}", request.Id);
             return Result.Failure("Erreur lors de la suppression du plan de traitement.");

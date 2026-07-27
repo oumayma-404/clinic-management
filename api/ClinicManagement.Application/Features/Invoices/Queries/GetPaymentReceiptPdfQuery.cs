@@ -91,7 +91,7 @@ public class GetPaymentReceiptPdfQueryHandler : IRequestHandler<GetPaymentReceip
                 FileName = $"recu-{suffix}.pdf",
             });
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error generating receipt PDF for payment {PaymentId}", request.PaymentId);
             return Result<ReceiptPdfResult>.Failure("Erreur lors de la génération du reçu.");

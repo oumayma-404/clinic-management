@@ -1,4 +1,5 @@
 using MediatR;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Domain.Entities;
@@ -104,7 +105,7 @@ public class CancelRecurringSeriesCommandHandler : IRequestHandler<CancelRecurri
             await _unitOfWork.SaveChangesAsync(cancellationToken);
             return Result<int>.Success(cancelled);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             return Result<int>.Failure($"Erreur lors de l'annulation de la série : {ex.Message}");
         }

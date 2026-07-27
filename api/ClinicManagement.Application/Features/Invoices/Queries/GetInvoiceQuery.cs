@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -58,7 +59,7 @@ public class GetInvoiceQueryHandler : IRequestHandler<GetInvoiceQuery, Result<In
 
             return Result<InvoiceDto>.Success(invoice.ToDto(patient?.GetFullName(), creditNotes));
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error retrieving invoice {InvoiceId}", request.Id);
             return Result<InvoiceDto>.Failure("Erreur lors de la récupération de la facture.");

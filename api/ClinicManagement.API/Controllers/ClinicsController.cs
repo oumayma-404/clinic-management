@@ -214,7 +214,8 @@ public class ClinicsController : ApiControllerBase
             StampDutyAmount = request.StampDutyAmount,
             TtnEInvoicingEnabled = request.TtnEInvoicingEnabled,
             TtnEnvironment = request.TtnEnvironment,
-            WorkingHoursJson = request.WorkingHoursJson
+            WorkingHoursJson = request.WorkingHoursJson,
+            Version = request.Version
         };
 
         var result = await _mediator.Send(command);

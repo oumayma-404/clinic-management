@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -68,7 +69,7 @@ public class ArchivePatientCommandHandler : IRequestHandler<ArchivePatientComman
 
             return Result<PatientDto>.Success(patient.ToDto());
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             return Result<PatientDto>.Failure($"Erreur lors de l'archivage du patient : {ex.Message}");
         }

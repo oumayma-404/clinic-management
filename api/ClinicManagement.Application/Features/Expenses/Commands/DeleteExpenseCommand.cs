@@ -1,4 +1,5 @@
 using MediatR;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Domain.Repositories;
@@ -43,7 +44,7 @@ public class DeleteExpenseCommandHandler : IRequestHandler<DeleteExpenseCommand,
 
             return Result<bool>.Success(true);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             return Result<bool>.Failure($"Erreur lors de la suppression de la dépense : {ex.Message}");
         }

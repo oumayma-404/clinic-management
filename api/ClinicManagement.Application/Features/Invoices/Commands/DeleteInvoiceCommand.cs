@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Domain.Repositories;
@@ -58,7 +59,7 @@ public class DeleteInvoiceCommandHandler : IRequestHandler<DeleteInvoiceCommand,
 
             return Result.Success();
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error deleting invoice {InvoiceId}", request.Id);
             return Result.Failure("Erreur lors de la suppression de la facture.");

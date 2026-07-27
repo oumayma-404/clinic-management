@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Domain.Repositories;
@@ -67,7 +68,7 @@ public class GetDoctorCachetQueryHandler : IRequestHandler<GetDoctorCachetQuery,
                 ContentType = doctor.CachetContentType ?? "application/octet-stream"
             });
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             // A stale key (row set, blob missing/unreadable) must degrade to a clean 404 like the sibling
             // render path — never an unhandled 500 (the controller maps this failure to 404).

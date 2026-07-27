@@ -36,6 +36,7 @@ public static class InvoiceMappingExtensions
         AmountCollected = invoice.AmountCollected,
         Outstanding = invoice.Outstanding,
         CreatedAt = invoice.CreatedAt,
+        Version = invoice.Version,
         UpdatedAt = invoice.UpdatedAt,
         EInvoiceStatus = invoice.EInvoiceStatus.ToString(),
         TtnIdentifier = invoice.TtnIdentifier,

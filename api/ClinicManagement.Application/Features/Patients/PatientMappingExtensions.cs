@@ -37,6 +37,7 @@ public static class PatientMappingExtensions
             ArchivedAt = patient.ArchivedAt,
             ArchiveReason = patient.ArchiveReason,
             CreatedAt = patient.CreatedAt,
+            Version = patient.Version,
             Flags = includeFlags
                 ? patient.Flags.Select(f => new PatientFlagDto
                 {

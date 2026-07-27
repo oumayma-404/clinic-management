@@ -65,7 +65,16 @@ public class MedicalDocumentRepository : IMedicalDocumentRepository
 
     public async Task UpdateAsync(MedicalDocument document, CancellationToken cancellationToken = default)
     {
-        _context.MedicalDocuments.Update(document);
+        // Only attach when the caller handed us a DETACHED instance. On the normal path the handler loaded
+        // the aggregate through this same DbContext, so it is already tracked and change tracking has the
+        // real original values — including the xmin concurrency token. Calling Update() on a tracked entity
+        // instead re-marks every property modified, and on a detached one that was never loaded the token
+        // reads as 0, producing "WHERE xmin = 0", zero matched rows and a 409 for a conflict that never was.
+        var entry = _context.Entry(document);
+        if (entry.State == EntityState.Detached)
+        {
+            _context.MedicalDocuments.Update(document);
+        }
         await Task.CompletedTask;
     }
 

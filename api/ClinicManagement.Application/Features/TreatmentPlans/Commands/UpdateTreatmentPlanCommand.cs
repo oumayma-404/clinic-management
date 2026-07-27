@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -10,6 +11,13 @@ namespace ClinicManagement.Application.Features.TreatmentPlans.Commands;
 /// <summary>Update a draft treatment plan's details, act lines and installment schedule (draft only).</summary>
 public class UpdateTreatmentPlanCommand : IRequest<Result<TreatmentPlanDto>>
 {
+    /// <summary>
+    /// The <c>Version</c> the client read. Round-tripped so the save is validated against the copy the user
+    /// actually edited rather than the one the handler just loaded. Omit (0) to skip the check — the seam
+    /// server-internal writers use; see <c>IUnitOfWork.SetExpectedVersion</c>.
+    /// </summary>
+    public uint Version { get; set; }
+
     public Guid Id { get; set; }
     public string Title { get; set; } = string.Empty;
     public string? Notes { get; set; }
@@ -68,6 +76,9 @@ public class UpdateTreatmentPlanCommandHandler : IRequestHandler<UpdateTreatment
             plan.SetItems(items, scheduleWillBeResent: true);
             plan.SetInstallments(request.Installments.Select(i => (i.DueDate, i.Amount)));
 
+            // Validate the save against the version the USER was editing, not the one this
+            // handler just loaded — that one always matches and would detect nothing.
+            _unitOfWork.SetExpectedVersion(plan, request.Version);
             await _planRepository.UpdateAsync(plan, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -82,7 +93,7 @@ public class UpdateTreatmentPlanCommandHandler : IRequestHandler<UpdateTreatment
         {
             return Result<TreatmentPlanDto>.Failure(ex.Message);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error updating treatment plan {PlanId}", request.Id);
             return Result<TreatmentPlanDto>.Failure("Erreur lors de la mise à jour du plan de traitement.");

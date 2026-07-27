@@ -1,6 +1,7 @@
 using MediatR;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
@@ -226,6 +227,7 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
                 ProcedureColorHex = appointment.ProcedureColorHex,
                 TreatmentPlanItemId = appointment.TreatmentPlanItemId,
                 CreatedAt = appointment.CreatedAt,
+                Version = appointment.Version,
                 IsSyncedToGoogle = appointment.GoogleCalendarEventId != null
             };
 
@@ -235,7 +237,7 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
 
             return Result<AppointmentDto>.Success(dto);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             return Result<AppointmentDto>.Failure($"Error creating appointment: {ex.Message}");
         }

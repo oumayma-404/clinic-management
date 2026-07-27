@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -123,7 +124,7 @@ public class IssueInvoiceCommandHandler : IRequestHandler<IssueInvoiceCommand, R
         {
             return Result<InvoiceDto>.Failure(ex.Message);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error issuing invoice {InvoiceId}", request.Id);
             return Result<InvoiceDto>.Failure("Erreur lors de l'émission de la facture.");

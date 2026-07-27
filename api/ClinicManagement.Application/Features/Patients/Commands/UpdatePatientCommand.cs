@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using MediatR;
 using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Domain.Entities;
@@ -12,6 +13,13 @@ namespace ClinicManagement.Application.Features.Patients.Commands;
 
 public class UpdatePatientCommand : IRequest<Result<PatientDto>>
 {
+    /// <summary>
+    /// The <c>Version</c> the client read. Round-tripped so the save is validated against the copy the user
+    /// actually edited rather than the one the handler just loaded. Omit (0) to skip the check — the seam
+    /// server-internal writers use; see <c>IUnitOfWork.SetExpectedVersion</c>.
+    /// </summary>
+    public uint Version { get; set; }
+
     public Guid Id { get; set; }
     public string? FirstName { get; set; }
     public string? LastName { get; set; }
@@ -237,6 +245,9 @@ public class UpdatePatientCommandHandler : IRequestHandler<UpdatePatientCommand,
                 }
             }
 
+            // Validate the save against the version the USER was editing, not the one this
+            // handler just loaded — that one always matches and would detect nothing.
+            _unitOfWork.SetExpectedVersion(patient, request.Version);
             await _patientRepository.UpdateAsync(patient, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -256,6 +267,7 @@ public class UpdatePatientCommandHandler : IRequestHandler<UpdatePatientCommand,
                 EmergencyContactName = patient.EmergencyContactName,
                 EmergencyContactPhone = patient.EmergencyContactPhone?.Value,
                 CreatedAt = patient.CreatedAt,
+                Version = patient.Version,
                 Address = patient.Address != null ? new AddressDto
                 {
                     Street = patient.Address.Street,
@@ -284,7 +296,7 @@ public class UpdatePatientCommandHandler : IRequestHandler<UpdatePatientCommand,
 
             return Result<PatientDto>.Success(dto);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             return Result<PatientDto>.Failure($"Error updating patient: {ex.Message}");
         }

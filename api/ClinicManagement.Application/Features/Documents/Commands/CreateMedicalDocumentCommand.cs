@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Domain.Entities;
@@ -260,7 +261,7 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
 
             return Result<MedicalDocumentDto>.Success(dto);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error creating medical document for patient {PatientId}", request.PatientId);
             return Result<MedicalDocumentDto>.Failure("Erreur lors de la création du document médical.");

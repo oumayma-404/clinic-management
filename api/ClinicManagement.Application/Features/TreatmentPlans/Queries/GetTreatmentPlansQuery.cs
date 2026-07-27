@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -84,7 +85,7 @@ public class GetTreatmentPlansQueryHandler : IRequestHandler<GetTreatmentPlansQu
 
             return Result<List<TreatmentPlanDto>>.Success(dtos);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error listing treatment plans");
             return Result<List<TreatmentPlanDto>>.Failure("Erreur lors du chargement des plans de traitement.");

@@ -108,6 +108,12 @@ export interface PaymentDto {
 }
 
 export interface InvoiceDto {
+  /**
+   * Optimistic-concurrency token (PostgreSQL `xmin`). Send it back on the matching update so the save is
+   * checked against the copy this user was shown; a peer's change in between then yields a 409 instead of
+   * silently discarding their work.
+   */
+  version: number;
   id: string;
   patientId: string;
   patientName?: string | null;
@@ -186,6 +192,12 @@ export interface InvoiceRevenueDto {
 }
 
 export interface AppointmentDto {
+  /**
+   * Optimistic-concurrency token (PostgreSQL `xmin`). Send it back on the matching update so the save is
+   * checked against the copy this user was shown; a peer's change in between then yields a 409 instead of
+   * silently discarding their work.
+   */
+  version: number;
   id: string;
   patientId: string | null;
   patientName: string;
@@ -254,6 +266,12 @@ export interface MedicationDto {
 }
 
 export interface PatientDto {
+  /**
+   * Optimistic-concurrency token (PostgreSQL `xmin`). Send it back on the matching update so the save is
+   * checked against the copy this user was shown; a peer's change in between then yields a 409 instead of
+   * silently discarding their work.
+   */
+  version: number;
   id: string;
   firstName: string;
   lastName: string;
@@ -371,6 +389,12 @@ export interface DentalRecordActDto {
 }
 
 export interface DentalRecordDto {
+  /**
+   * Optimistic-concurrency token (PostgreSQL `xmin`). Send it back on the matching update so the save is
+   * checked against the copy this user was shown; a peer's change in between then yields a 409 instead of
+   * silently discarding their work.
+   */
+  version: number;
   id: string;
   patientId: string;
   interventionDate: string;
@@ -664,6 +688,12 @@ export interface RecurringSeriesResultDto {
 // A treatment plan / devis for a patient. `status` is a TreatmentPlanStatus enum name: Draft | Accepted |
 // InProgress | Completed | Cancelled.
 export interface TreatmentPlanDto {
+  /**
+   * Optimistic-concurrency token (PostgreSQL `xmin`). Send it back on the matching update so the save is
+   * checked against the copy this user was shown; a peer's change in between then yields a 409 instead of
+   * silently discarding their work.
+   */
+  version: number;
   id: string;
   patientId: string;
   patientName: string | null;

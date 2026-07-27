@@ -1436,7 +1436,14 @@ export default function PatientDetailsPage() {
                     <CardDescription>Notes d'honoraires du patient — création, émission, paiement et PDF.</CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <InvoicesTable patientId={patientId} patientName={patientName} showPatientColumn={false} />
+                    {/* onChanged was missing: recording a payment here left « Solde patient » and the plan
+                        card above showing the pre-payment figures until a manual refresh. */}
+                    <InvoicesTable
+                      patientId={patientId}
+                      patientName={patientName}
+                      showPatientColumn={false}
+                      onChanged={() => setRefreshKey((k) => k + 1)}
+                    />
                   </CardContent>
                 </Card>
               </TabsContent>

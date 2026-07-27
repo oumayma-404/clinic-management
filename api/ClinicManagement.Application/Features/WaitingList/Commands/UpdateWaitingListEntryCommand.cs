@@ -1,4 +1,5 @@
 using MediatR;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -62,7 +63,7 @@ public class UpdateWaitingListEntryCommandHandler : IRequestHandler<UpdateWaitin
         {
             return Result<WaitingListEntryDto>.Failure(ex.Message);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             return Result<WaitingListEntryDto>.Failure($"Erreur lors de la mise à jour de l'entrée de liste d'attente : {ex.Message}");
         }

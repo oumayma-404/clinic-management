@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Domain.Entities;
@@ -84,7 +85,7 @@ public class GetCreditNotePdfQueryHandler : IRequestHandler<GetCreditNotePdfQuer
                 FileName = $"avoir-{creditNote.Number}.pdf"
             });
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error generating PDF for credit note {CreditNoteId}", request.Id);
             return Result<AvoirPdfResult>.Failure("Erreur lors de la génération du PDF.");

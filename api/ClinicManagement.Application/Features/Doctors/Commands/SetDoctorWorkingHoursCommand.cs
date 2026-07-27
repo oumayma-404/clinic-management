@@ -1,5 +1,6 @@
 using System.Text.Json;
 using MediatR;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -57,7 +58,7 @@ public class SetDoctorWorkingHoursCommandHandler : IRequestHandler<SetDoctorWork
             var hours = WorkingHoursSerializer.Parse(doctor.WorkingHoursJson) ?? new List<WorkingDayDto>();
             return Result<List<WorkingDayDto>>.Success(hours);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             return Result<List<WorkingDayDto>>.Failure($"Erreur lors de l'enregistrement des horaires du praticien : {ex.Message}");
         }

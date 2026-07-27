@@ -139,7 +139,7 @@ public class GetPatientBillingSummaryQueryHandler
         {
             throw;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error building billing summary for patient {PatientId}", request.PatientId);
             return Result<PatientBillingSummaryDto>.Failure("Erreur lors du calcul du solde patient.");

@@ -1,4 +1,5 @@
 using MediatR;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -66,7 +67,7 @@ public class GetClinicReminderStatusQueryHandler
             var dtos = rows.Select(ToDto).ToList();
             return Result<IReadOnlyList<ReminderStatusDto>>.Success(dtos);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             return Result<IReadOnlyList<ReminderStatusDto>>.Failure($"Error retrieving reminder status: {ex.Message}");
         }

@@ -295,6 +295,40 @@ public class Invoice : AggregateRoot<Guid>
         && EInvoiceStatus != EInvoiceStatus.Submitted
         && EInvoiceStatus != EInvoiceStatus.Validating;
 
+    /// <summary>
+    /// Copy the whole TTN e-invoicing block from another instance of this same invoice, leaving every other
+    /// field alone.
+    ///
+    /// <para>
+    /// Exists for exactly one caller: the e-invoice dispatcher, when a peer edited the invoice between the
+    /// TTN exchange and the save. The exchange is not repeatable — TTN has already accepted the document and
+    /// issued its identifier — so the outcome must land on the peer's version of the row rather than being
+    /// discarded, which would leave the invoice Queued and let the outbox submit it a second time.
+    /// </para>
+    /// <para>
+    /// Deliberately a whole-block copy, not a merge: these ten fields are one state machine and mixing two
+    /// snapshots of it would produce a state neither side ever reached.
+    /// </para>
+    /// </summary>
+    public void CopyEInvoiceStateFrom(Invoice source)
+    {
+        if (source is null) throw new ArgumentNullException(nameof(source));
+        if (source.Id != Id)
+            throw new InvalidOperationException("L'état e-facture ne peut être copié que depuis la même facture.");
+
+        EInvoiceStatus = source.EInvoiceStatus;
+        TtnIdentifier = source.TtnIdentifier;
+        SignedXmlStorageKey = source.SignedXmlStorageKey;
+        TtnReceiptStorageKey = source.TtnReceiptStorageKey;
+        QrPayload = source.QrPayload;
+        EInvoiceSubmittedAt = source.EInvoiceSubmittedAt;
+        EInvoiceValidatedAt = source.EInvoiceValidatedAt;
+        EInvoiceLastError = source.EInvoiceLastError;
+        EInvoiceAttemptCount = source.EInvoiceAttemptCount;
+        EInvoiceNextAttemptAt = source.EInvoiceNextAttemptAt;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
     /// <summary>True when an avoir may be established: the invoice is issued and has collected money to credit.</summary>
     public bool CanCreateCreditNote =>
         Status != InvoiceStatus.Draft && Status != InvoiceStatus.Cancelled && AmountCollected > 0m;

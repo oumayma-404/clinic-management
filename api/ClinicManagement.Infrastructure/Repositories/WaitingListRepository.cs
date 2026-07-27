@@ -46,7 +46,16 @@ public class WaitingListRepository : IWaitingListRepository
 
     public Task UpdateAsync(WaitingListEntry entry, CancellationToken cancellationToken = default)
     {
-        _context.WaitingListEntries.Update(entry);
+        // Only attach when the caller handed us a DETACHED instance. On the normal path the handler loaded
+        // the aggregate through this same DbContext, so it is already tracked and change tracking has the
+        // real original values — including the xmin concurrency token. Calling Update() on a tracked entity
+        // instead re-marks every property modified, and on a detached one that was never loaded the token
+        // reads as 0, producing "WHERE xmin = 0", zero matched rows and a 409 for a conflict that never was.
+        var trackingEntry = _context.Entry(entry);
+        if (trackingEntry.State == EntityState.Detached)
+        {
+            _context.WaitingListEntries.Update(entry);
+        }
         return Task.CompletedTask;
     }
 

@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Domain.Repositories;
 
@@ -75,7 +76,7 @@ public class DeletePatientCommandHandler : IRequestHandler<DeletePatientCommand,
                 "Impossible de supprimer ce patient : des données lui ont été rattachées entre-temps. "
                 + "Réessayez.");
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             return Result.Failure($"Erreur lors de la suppression du patient : {ex.Message}");
         }

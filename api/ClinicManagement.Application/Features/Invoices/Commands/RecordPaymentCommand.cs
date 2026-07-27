@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -86,7 +87,7 @@ public class RecordPaymentCommandHandler : IRequestHandler<RecordPaymentCommand,
         {
             return Result<InvoiceDto>.Failure(ex.Message);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error recording payment for invoice {InvoiceId}", request.InvoiceId);
             return Result<InvoiceDto>.Failure("Erreur lors de l'enregistrement du paiement.");

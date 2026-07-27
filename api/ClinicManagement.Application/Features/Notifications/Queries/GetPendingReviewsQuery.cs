@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -58,7 +59,7 @@ public class GetPendingReviewsQueryHandler : IRequestHandler<GetPendingReviewsQu
             var dtos = reviews.Select(r => r.ToPendingReviewDto()).ToList();
             return Result<IEnumerable<PendingReviewDto>>.Success(dtos);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error retrieving pending reviews for user {UserId}", userId);
             return Result<IEnumerable<PendingReviewDto>>.Failure("Erreur lors du chargement des visites à saisir.");

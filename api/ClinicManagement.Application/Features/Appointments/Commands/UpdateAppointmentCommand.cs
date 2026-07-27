@@ -1,5 +1,6 @@
 using MediatR;
 using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Domain.Entities;
@@ -33,6 +34,13 @@ namespace ClinicManagement.Application.Features.Appointments.Commands;
 /// </summary>
 public class UpdateAppointmentCommand : IRequest<Result<AppointmentDto>>
 {
+    /// <summary>
+    /// The <c>Version</c> the client read. Round-tripped so the save is validated against the copy the user
+    /// actually edited rather than the one the handler just loaded. Omit (0) to skip the check — the seam
+    /// server-internal writers use; see <c>IUnitOfWork.SetExpectedVersion</c>.
+    /// </summary>
+    public uint Version { get; set; }
+
     public Guid Id { get; set; }
     public DateTime? AppointmentDateTime { get; set; }
     public int? DurationMinutes { get; set; }
@@ -390,6 +398,9 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                 }
             }
 
+            // Validate the save against the version the USER was editing, not the one this
+            // handler just loaded — that one always matches and would detect nothing.
+            _unitOfWork.SetExpectedVersion(appointment, request.Version);
             await _appointmentRepository.UpdateAsync(appointment, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -499,6 +510,7 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                 CreatedAt = appointment.CreatedAt.Kind == DateTimeKind.Utc
                     ? appointment.CreatedAt
                     : DateTime.SpecifyKind(appointment.CreatedAt, DateTimeKind.Utc),
+                Version = appointment.Version,
                 ProcedureTypeId = appointment.ProcedureTypeId,
                 ProcedureTypeName = appointment.ProcedureType?.Name,
                 // Use current procedure type color if available, otherwise use stored color
@@ -516,7 +528,7 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
 
             return Result<AppointmentDto>.Success(dto);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             return Result<AppointmentDto>.Failure($"Error updating appointment: {ex.Message}");
         }

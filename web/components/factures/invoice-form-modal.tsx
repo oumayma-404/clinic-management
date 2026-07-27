@@ -1,8 +1,11 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import type React from "react"
+
+import { useState, useEffect, useRef } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
+import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
@@ -43,6 +46,24 @@ interface InvoiceFormModalProps {
 
 const emptyLine = (): LineRow => ({ designation: "", quantity: "1", unitPriceHt: "", dentalActCodeId: null, codeActe: null })
 
+/**
+ * Upgrade the message when the same edit conflicts twice running. The first 409 means "someone saved before
+ * you"; the second means "someone is editing this right now", and telling the user to reload again would be
+ * repeating advice that has already failed.
+ */
+function conflictMessage(err: unknown, fallback: string, consecutive: React.MutableRefObject<number>): string {
+  if (err instanceof ApiError && err.status === 409) {
+    consecutive.current += 1
+    if (consecutive.current > 1) {
+      return "L'enregistrement a encore été modifié pendant votre saisie. Quelqu'un travaille probablement "
+        + "dessus en même temps — coordonnez-vous avant de réessayer."
+    }
+    return err.message || fallback
+  }
+  consecutive.current = 0
+  return err instanceof ApiError ? err.message : fallback
+}
+
 export function InvoiceFormModal({
   open,
   onOpenChange,
@@ -60,6 +81,7 @@ export function InvoiceFormModal({
   const [pickerOpenIndex, setPickerOpenIndex] = useState<number | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const conflictStreak = useRef(0)
 
   const isEditing = !!editingInvoice
 
@@ -184,7 +206,11 @@ export function InvoiceFormModal({
     setLoading(true)
     try {
       if (isEditing && editingInvoice) {
-        await invoicesApi.update(editingInvoice.id, { patientId, lines: parsedLines })
+        await invoicesApi.update(editingInvoice.id, {
+          patientId,
+          lines: parsedLines,
+          version: editingInvoice.version,
+        })
         toast.success("Brouillon mis à jour")
       } else {
         const payload: CreateInvoiceRequest = { patientId, lines: parsedLines }
@@ -196,7 +222,7 @@ export function InvoiceFormModal({
       onSuccess?.()
       onOpenChange(false)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Échec de l'enregistrement de la facture.")
+      setError(conflictMessage(err, "Échec de l'enregistrement de la facture.", conflictStreak))
     } finally {
       setLoading(false)
     }
@@ -213,11 +239,7 @@ export function InvoiceFormModal({
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {error && (
-            <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-800 dark:bg-red-950 dark:border-red-900 dark:text-red-200">
-              {error}
-            </div>
-          )}
+          <FormErrorBanner message={error} />
 
           <div className="space-y-1.5">
             <Label htmlFor="patient">

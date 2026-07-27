@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -151,7 +152,7 @@ public class CreateCreditNoteCommandHandler : IRequestHandler<CreateCreditNoteCo
         {
             return Result<CreditNoteDto>.Failure(ex.Message);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error creating credit note for invoice {InvoiceId}", request.InvoiceId);
             return Result<CreditNoteDto>.Failure("Erreur lors de l'établissement de l'avoir.");

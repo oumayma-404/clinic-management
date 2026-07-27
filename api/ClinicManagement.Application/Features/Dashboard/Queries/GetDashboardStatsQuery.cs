@@ -1,6 +1,7 @@
 using MediatR;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
@@ -134,7 +135,7 @@ public class GetDashboardStatsQueryHandler : IRequestHandler<GetDashboardStatsQu
 
             return Result<DashboardStatsDto>.Success(dto);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             return Result<DashboardStatsDto>.Failure($"Error retrieving dashboard stats: {ex.Message}");
         }

@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common.Exceptions;
 using MediatR;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -54,7 +55,7 @@ public class GetReimbursementEstimateQueryHandler
                 RateApplied = CnamReimbursementCalculator.RateForPatient(request.PatientDateOfBirth, careDate),
             });
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error computing CNAM reimbursement estimate");
             return Result<ReimbursementEstimateDto>.Failure(

@@ -22,6 +22,16 @@ export function getErrorMessage(err: unknown, fallback: string = DEFAULT_ERROR_M
   return fallback
 }
 
+/** True when the failure is a concurrent-edit conflict (HTTP 409) rather than a fault. */
+export function isConflictError(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 409
+}
+
+/** True when the failure is a permission denial (HTTP 403) rather than a fault. */
+export function isForbiddenError(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 403
+}
+
 /** Show a single, non-blocking error toast for any thrown value (replaces `alert()` / silent swallows). */
 export function showErrorToast(err: unknown, fallback: string = DEFAULT_ERROR_MESSAGE): void {
   toast.error(getErrorMessage(err, fallback))
