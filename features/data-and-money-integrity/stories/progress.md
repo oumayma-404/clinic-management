@@ -23,7 +23,7 @@
 | E | Installment ledger + plan void + receipts | complete | `0fcc796` | yes |
 | F | Devis→facture carry-over | complete | `c182571` | yes |
 | G | Avoirs readable + PDF + netting | complete | `f19ed35` | yes |
-| H | Patient contact optional | complete | | |
+| H | Patient contact optional | complete | `a7e8fb8` | yes |
 | I | Conflict detection — backend | pending | | |
 | J | Conflict detection — frontend | pending | | |
 | K | Documentation | pending | | |
