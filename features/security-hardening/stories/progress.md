@@ -10,7 +10,7 @@
 | P1 Installer filesystem posture | **done** — committed `43fe6d5` |
 | P2 Backup output posture | **done** — committed |
 | P3 Auth & session | **done** — US-4 and US-5 closed (client IP, rate limiter, per-source lockout, token revocation, R-4, short lifetime + silent renewal) |
-| P4 Authorization | in progress — **P4.1–P4.4, P4.6, AC-9.3 done**; remaining: **P4.5** frontend gating only |
+| P4 Authorization | in progress — **P4.1–P4.4, P4.6, AC-9.3 done; P4.5 partial** (procedure types + recall settings gated; clinic doctors/billing controls still open) |
 | P5 Hygiene | pending |
 
 ## Working tree note (start of session, 2026-07-27)
@@ -295,11 +295,25 @@ Deliberately narrower than a 200-entry policy matrix: a rule that is exactly rig
 |---|---|
 | Full suite | **913 passed / 8 failed** — same 8 pre-existing |
 
+### P4.5 — frontend gating (partial)
+
+**Procedure types.** Write controls hidden for non-admins: the header's "Charger les actes courants" + add buttons, the per-row Modifier/Supprimer, and the empty-state add button. Deliberately **not** blocking the whole page the way the three admin-only catalog pages do — procedure types sit in the *general* nav, and the backend now allows reads while blocking writes, so everyone still needs to see the catalogue. The empty state gets a different line for non-admins ("Demandez à un administrateur d'en ajouter") rather than a dead end.
+
+Also fixed a stray untranslated label while in there — "Add Procedure Type" → « Ajouter un type d'acte » (the UI is otherwise French throughout).
+
+**Recall settings.** The settings dialog trigger is admin-only; the recall list and the per-patient actions (contacted / snooze / send) stay available to all staff, matching the backend split exactly.
+
+**Still open:** the clinic-settings surfaces — the doctors roster editor (`PUT /api/clinics/doctors`) and the legal billing fields (matricule fiscal, TVA, timbre). Those live in `clinic-settings.tsx`, which is a larger component, and the billing case needs *field-level* disabling rather than hiding a button, to mirror the per-field backend gate. A non-admin can still press them today and collect a 403.
+
+| Gate | Result |
+|---|---|
+| Frontend typecheck | 0 errors |
+| Frontend production build | Compiled successfully, 27/27 static pages |
+
 **Still open in P4** (do not assume US-6–US-9 are closed):
 
 | Item | Note |
 |---|---|
-| P4.5 frontend gating | The newly admin-only controls still render for non-admins, who will now get a 403 |
 
 | Gate | Result |
 |---|---|
