@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Domain.Entities;
@@ -106,7 +107,7 @@ public class GetInvoicePdfQueryHandler : IRequestHandler<GetInvoicePdfQuery, Res
                 FileName = $"note-honoraires-{invoice.Number}.pdf"
             });
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error generating PDF for invoice {InvoiceId}", request.Id);
             return Result<InvoicePdfResult>.Failure("Erreur lors de la génération du PDF.");

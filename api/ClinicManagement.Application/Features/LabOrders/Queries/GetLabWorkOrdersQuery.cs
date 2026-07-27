@@ -1,4 +1,5 @@
 using MediatR;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -48,7 +49,7 @@ public class GetLabWorkOrdersQueryHandler : IRequestHandler<GetLabWorkOrdersQuer
             var orders = await _labWorkOrderRepository.GetByClinicIdAsync(clinic.Value, cancellationToken);
             return Result<IEnumerable<LabWorkOrderDto>>.Success(orders.Select(o => o.ToDto()));
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             return Result<IEnumerable<LabWorkOrderDto>>.Failure($"Erreur lors de la récupération des bons de laboratoire : {ex.Message}");
         }

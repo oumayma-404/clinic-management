@@ -2,6 +2,7 @@ using MediatR;
 using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Domain.Repositories;
 
@@ -9,6 +10,13 @@ namespace ClinicManagement.Application.Features.Clinics.Commands;
 
 public class UpdateClinicCommand : IRequest<Result<ClinicDto>>
 {
+    /// <summary>
+    /// The <c>Version</c> the client read. Round-tripped so the save is validated against the copy the user
+    /// actually edited rather than the one the handler just loaded. Omit (0) to skip the check — the seam
+    /// server-internal writers use; see <c>IUnitOfWork.SetExpectedVersion</c>.
+    /// </summary>
+    public uint Version { get; set; }
+
     public string Name { get; set; } = string.Empty;
     public string? Address { get; set; }
     public string? City { get; set; }
@@ -190,6 +198,9 @@ public class UpdateClinicCommandHandler : IRequestHandler<UpdateClinicCommand, R
                     clinic.SetWorkingHours(normalizedWorkingHours);
                 }
 
+                // Validate the save against the version the USER was editing, not the one this
+                // handler just loaded — that one always matches and would detect nothing.
+                _unitOfWork.SetExpectedVersion(clinic, request.Version);
                 await _clinicRepository.UpdateAsync(clinic, cancellationToken);
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
             }
@@ -229,7 +240,7 @@ public class UpdateClinicCommandHandler : IRequestHandler<UpdateClinicCommand, R
 
             return Result<ClinicDto>.Success(clinicDto);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error updating clinic");
             return Result<ClinicDto>.Failure("Erreur lors de la mise à jour de la clinique.");

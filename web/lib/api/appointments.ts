@@ -73,21 +73,34 @@ export const appointmentsApi = {
     });
   },
 
+  /**
+   * Partially update an appointment.
+   *
+   * **Every nullable field below is tri-state, and the distinction matters:** *omit* the key to leave the
+   * field untouched, send `null` to clear it. `JSON.stringify` drops `undefined` keys entirely, so
+   * `x || undefined` means "leave alone" and `x || null` means "clear" — passing the wrong one is a silent
+   * no-op in one direction and silent data loss in the other.
+   */
   update: async (id: string, data: {
+    /**
+     * Concurrency token read from the DTO. Send it back so the save is checked against the copy shown to
+     * this user; a peer's change in between then yields a 409 instead of silently overwriting them.
+     */
+    version?: number;
     appointmentDateTime?: string;
     durationMinutes?: number;
-    doctorId?: string;
-    doctorName?: string;
-    notes?: string;
+    /** `null` unassigns the practitioner. */
+    doctorId?: string | null;
+    /** `null` clears the free-text practitioner label. */
+    doctorName?: string | null;
+    /** `null` clears the notes. */
+    notes?: string | null;
     status?: string;
+    /** `null` clears the booked act along with its snapshot duration and colour. */
     procedureTypeId?: string | null;
     /** Required alongside `treatmentPlanItemId` when linking — the server validates the pair. */
     treatmentPlanId?: string;
-    /**
-     * Move or clear the plan act this appointment schedules. Tri-state, and the distinction matters:
-     * **omit** the key to leave the link alone, send `null` to clear it. Sending `null` when you only meant
-     * "don't change it" silently unlinks the act.
-     */
+    /** `null` clears the plan-act link. */
     treatmentPlanItemId?: string | null;
   }): Promise<AppointmentDto> => {
     return apiPut<AppointmentDto>(`/appointments/${id}`, data);

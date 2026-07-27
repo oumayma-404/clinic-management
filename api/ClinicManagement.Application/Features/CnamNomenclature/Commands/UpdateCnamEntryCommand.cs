@@ -1,4 +1,5 @@
 using MediatR;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -83,7 +84,7 @@ public class UpdateCnamEntryCommandHandler : IRequestHandler<UpdateCnamEntryComm
             _logger.LogInformation("Updated CNAM catalog entry {Id}", entry.Id);
             return Result<CnamNomenclatureEntryDto>.Success(CnamEntryMapper.ToDto(entry));
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error updating CNAM catalog entry {Id}", request.Id);
             return Result<CnamNomenclatureEntryDto>.Failure("Erreur lors de la mise à jour de l'acte.");

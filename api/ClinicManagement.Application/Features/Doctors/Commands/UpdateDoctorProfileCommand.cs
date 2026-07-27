@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Domain.Entities;
@@ -172,7 +173,7 @@ public class UpdateDoctorProfileCommandHandler : IRequestHandler<UpdateDoctorPro
                 CachetContentType = doctor.CachetContentType
             });
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error updating doctor profile {DoctorId}", request.DoctorId);
             return Result<DoctorProfileDto>.Failure("Erreur lors de la mise à jour du profil praticien.");

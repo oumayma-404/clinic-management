@@ -1,6 +1,7 @@
 using MediatR;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Domain.Repositories;
 
@@ -60,59 +61,9 @@ public class GetPatientQueryHandler : IRequestHandler<GetPatientQuery, Result<Pa
                 return Result<PatientDto>.Failure("Patient introuvable.");
             }
 
-        var dto = new PatientDto
-        {
-            Id = patient.Id,
-            ClinicId = patient.ClinicId,
-            FirstName = patient.FirstName,
-            LastName = patient.LastName,
-            DateOfBirth = patient.DateOfBirth,
-            Gender = patient.Gender,
-            Email = patient.Email.Value,
-            PhoneNumber = patient.PhoneNumber.Value,
-            MedicalHistory = patient.MedicalHistory,
-            Allergies = patient.Allergies,
-            EmergencyContactName = patient.EmergencyContactName,
-            EmergencyContactPhone = patient.EmergencyContactPhone?.Value,
-            Flags = patient.Flags.Select(f => new PatientFlagDto
-            {
-                Id = f.Id,
-                FlagType = f.FlagType.ToString(),
-                Description = f.Description,
-                Notes = f.Notes,
-                IsActive = f.IsActive
-            }).ToList(),
-            CreatedAt = patient.CreatedAt
-        };
-
-        if (patient.Address != null)
-        {
-            dto.Address = new AddressDto
-            {
-                Street = patient.Address.Street,
-                City = patient.Address.City,
-                State = patient.Address.State,
-                ZipCode = patient.Address.ZipCode,
-                Country = patient.Address.Country
-            };
+        return Result<PatientDto>.Success(patient.ToDto());
         }
-
-        if (patient.InsuranceInfo != null)
-        {
-            dto.InsuranceInfo = new InsuranceInfoDto
-            {
-                Provider = patient.InsuranceInfo.Provider,
-                PolicyNumber = patient.InsuranceInfo.PolicyNumber,
-                GroupNumber = patient.InsuranceInfo.GroupNumber,
-                ExpiryDate = patient.InsuranceInfo.ExpiryDate
-            };
-        }
-
-        dto.CnamInfo = patient.CnamInfo.ToDto();
-
-        return Result<PatientDto>.Success(dto);
-        }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             return Result<PatientDto>.Failure($"Error retrieving patient: {ex.Message}");
         }

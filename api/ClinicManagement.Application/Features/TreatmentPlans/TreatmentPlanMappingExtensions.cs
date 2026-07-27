@@ -42,6 +42,7 @@ public static class TreatmentPlanMappingExtensions
             AmountPaid = plan.AmountPaid,
             Outstanding = plan.Outstanding,
             CreatedAt = plan.CreatedAt,
+        Version = plan.Version,
             UpdatedAt = plan.UpdatedAt,
             RevisionNumber = plan.RevisionNumber,
             ItemsDone = plan.Items.Count(i => i.Status == TreatmentPlanItemStatus.Done),
@@ -64,7 +65,25 @@ public static class TreatmentPlanMappingExtensions
                     Outstanding = i.Outstanding,
                     IsPaid = i.IsPaid,
                     LastMethod = i.LastMethod?.ToString(),
-                    LastPaidOn = i.LastPaidOn
+                    LastPaidOn = i.LastPaidOn,
+                    // Oldest first, with the insertion stamp as tiebreaker — two payments on the same day
+                    // are common and the list needs a deterministic order.
+                    Payments = i.Payments
+                        .OrderBy(p => p.PaidOn)
+                        .ThenBy(p => p.CreatedAt)
+                        .Select(p => new InstallmentPaymentDto
+                        {
+                            Id = p.Id,
+                            Amount = p.Amount,
+                            Method = p.Method.ToString(),
+                            PaidOn = p.PaidOn,
+                            CreatedAt = p.CreatedAt,
+                            IsVoided = p.IsVoided,
+                            VoidedAt = p.VoidedAt,
+                            VoidReason = p.VoidReason,
+                            VoidedByName = p.VoidedByName
+                        })
+                        .ToList()
                 })
                 .ToList()
         };

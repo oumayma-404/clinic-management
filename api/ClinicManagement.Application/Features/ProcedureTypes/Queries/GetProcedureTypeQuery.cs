@@ -1,4 +1,5 @@
 using MediatR;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -62,7 +63,7 @@ public class GetProcedureTypeQueryHandler : IRequestHandler<GetProcedureTypeQuer
 
             return Result<ProcedureTypeDto>.Success(dto);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error retrieving procedure type {ProcedureTypeId}", request.Id);
             return Result<ProcedureTypeDto>.Failure($"Error retrieving procedure type: {ex.Message}");

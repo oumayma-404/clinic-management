@@ -1,7 +1,9 @@
 using MediatR;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Domain.Repositories;
+using ClinicManagement.Domain.ValueObjects;
 
 namespace ClinicManagement.Application.Features.Recall.Commands;
 
@@ -49,6 +51,16 @@ public class SendRecallCommandHandler : IRequestHandler<SendRecallCommand, Resul
             if (patient == null || patient.ClinicId != clinic.Value)
                 return Result<bool>.Failure("Patient introuvable.");
 
+            // Refuse rather than pretend. This used to enqueue nothing (the number was undeliverable), then
+            // stamp "contacted" and snooze 30 days anyway — so a patient with no phone silently dropped off the
+            // relance list for a month and nobody was ever told to call them.
+            if (patient.PhoneNumber == null || !PhoneNumber.IsDeliverable(patient.PhoneNumber.Value))
+            {
+                return Result<bool>.Failure(
+                    "Ce patient n'a pas de numéro de téléphone valide : la relance ne peut pas être envoyée. "
+                    + "Contactez-le autrement, puis utilisez « Marquer comme contacté ».");
+            }
+
             var reason = string.IsNullOrWhiteSpace(request.Reason) ? patient.RecallReason : request.Reason;
 
             // Enqueue the outbound recall (best-effort; per-channel, connectivity-gated at send).
@@ -62,7 +74,7 @@ public class SendRecallCommandHandler : IRequestHandler<SendRecallCommand, Resul
 
             return Result<bool>.Success(true);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             return Result<bool>.Failure($"Erreur lors de l'envoi de la relance : {ex.Message}");
         }

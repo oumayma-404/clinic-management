@@ -20,6 +20,9 @@ public class TreatmentPlansControllerAuthorizationTests
         nameof(TreatmentPlansController.CancelPlan),
         nameof(TreatmentPlansController.AmendPlan),
         nameof(TreatmentPlansController.ReviseInstallments),
+        // Voiding an installment payment alters what the patient has paid on a numbered devis — the same
+        // class as cancelling an invoice or establishing an avoir, not everyday collection.
+        nameof(TreatmentPlansController.VoidInstallmentPayment),
     };
 
     /// <summary>Everyday clinical/billing work — any authenticated clinic member, via the class-level gate.</summary>

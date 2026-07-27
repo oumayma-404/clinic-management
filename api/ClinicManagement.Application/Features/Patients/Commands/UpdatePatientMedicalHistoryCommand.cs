@@ -1,5 +1,6 @@
 using MediatR;
 using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Domain.Repositories;
@@ -74,7 +75,7 @@ public class UpdatePatientMedicalHistoryCommandHandler : IRequestHandler<UpdateP
 
             return Result<PatientMedicalHistoryDto>.Success(dto);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             return Result<PatientMedicalHistoryDto>.Failure($"Error updating medical history entry: {ex.Message}");
         }

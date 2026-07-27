@@ -1,4 +1,5 @@
 using MediatR;
+using ClinicManagement.Application.Common.Exceptions;
 using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
@@ -70,7 +71,7 @@ public class MarkNotificationReadCommandHandler : IRequestHandler<MarkNotificati
 
             return Result.Success();
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             // AC-13.2: the detail goes to the log; the caller only ever sees French guidance.
             _logger.LogError(ex, "Unhandled failure marking notification read");

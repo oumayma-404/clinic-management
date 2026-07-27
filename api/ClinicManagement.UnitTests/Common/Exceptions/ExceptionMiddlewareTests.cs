@@ -87,4 +87,18 @@ public class ExceptionMiddlewareTests
         Assert.DoesNotContain("SENSITIVE", body);
         Assert.DoesNotContain("p@ssw0rd", body);
     }
+
+    // [AC-55][AC-56] A concurrent edit is a 409 carrying its own French message — NOT a 500 with the generic
+    // « une erreur est survenue ». Without the explicit case it falls to the default branch and the user is
+    // told a fault occurred, with nothing to act on and nothing for the UI to offer a reload against.
+    [Fact]
+    public async Task ConflictException_Maps_To_409_Canonical_Error()
+    {
+        var (status, body, contentType) = await InvokeWith(new ConflictException(ErrorMessages.Conflict));
+
+        Assert.Equal(StatusCodes.Status409Conflict, status);
+        Assert.Equal("application/json", contentType);
+        Assert.Equal(ErrorMessages.Conflict, ErrorField(body));
+        Assert.NotEqual(GenericMessage, ErrorField(body));
+    }
 }

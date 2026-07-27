@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Domain.Repositories;
@@ -65,7 +66,7 @@ public class InitializeDefaultProcedureTypesCommandHandler : IRequestHandler<Ini
             _logger.LogInformation("Seeded {Count} default procedure types for clinic {ClinicId}", added, clinicResult.Value);
             return Result<int>.Success(added);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error seeding default procedure types");
             return Result<int>.Failure("Erreur lors du chargement des actes courants.");

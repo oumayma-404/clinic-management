@@ -59,7 +59,7 @@ public class GetTreatmentPlansQueryHandlerTests
                 PlanFixture(PatientAId), PlanFixture(PatientAId),
                 PlanFixture(PatientBId), PlanFixture(PatientBId),
             });
-        _patients.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<CancellationToken>()))
+        _patients.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new[] { PatientFixture(PatientAId, "Jean"), PatientFixture(PatientBId, "Marie") });
         _appointments.Setup(r => r.GetByTreatmentPlanItemIdsAsync(
                 It.IsAny<Guid>(), It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
@@ -95,7 +95,7 @@ public class GetTreatmentPlansQueryHandlerTests
         Assert.True(result.IsSuccess);
         Assert.Contains(result.Value!, d => d.PatientName == "Jean Dupont");
         Assert.Contains(result.Value!, d => d.PatientName == "Marie Dupont");
-        _patients.Verify(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<CancellationToken>()), Times.Once);
+        _patients.Verify(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Once);
         _patients.Verify(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 

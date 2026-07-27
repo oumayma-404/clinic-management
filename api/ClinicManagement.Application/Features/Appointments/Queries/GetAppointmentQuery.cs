@@ -1,4 +1,5 @@
 using MediatR;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -71,6 +72,7 @@ public class GetAppointmentQueryHandler : IRequestHandler<GetAppointmentQuery, R
                 CreatedAt = appointment.CreatedAt.Kind == DateTimeKind.Utc
                     ? appointment.CreatedAt
                     : DateTime.SpecifyKind(appointment.CreatedAt, DateTimeKind.Utc),
+                Version = appointment.Version,
                 ProcedureTypeId = appointment.ProcedureTypeId,
                 ProcedureTypeName = appointment.ProcedureType?.Name,
                 // Use current procedure type color if available, otherwise use stored color
@@ -81,7 +83,7 @@ public class GetAppointmentQueryHandler : IRequestHandler<GetAppointmentQuery, R
 
             return Result<AppointmentDto>.Success(dto);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             return Result<AppointmentDto>.Failure($"Error retrieving appointment: {ex.Message}");
         }

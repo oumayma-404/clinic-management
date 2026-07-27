@@ -1,4 +1,5 @@
 using MediatR;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Domain.Entities;
@@ -66,7 +67,7 @@ public class MarkAllNotificationsReadCommandHandler : IRequestHandler<MarkAllNot
             await _unitOfWork.SaveChangesAsync(cancellationToken);
             return Result.Success();
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             return Result.Failure($"Error marking all notifications read: {ex.Message}");
         }

@@ -1,4 +1,5 @@
 using MediatR;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -79,7 +80,7 @@ public class DisconnectClinicWhatsAppCommandHandler
 
             return Result<ReminderSettingsDto>.Success(settings.ToDto());
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             return Result<ReminderSettingsDto>.Failure($"Error disconnecting WhatsApp: {ex.Message}");
         }

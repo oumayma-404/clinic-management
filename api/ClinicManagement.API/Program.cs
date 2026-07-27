@@ -34,6 +34,16 @@ if (args.Length > 0 && string.Equals(args[0], ProvisionCertCommand.CommandName, 
     return ProvisionCertCommand.Run(args);
 }
 
+// Money reconciliation (Data & Money Integrity, slice H): a read-only, cross-clinic report of every figure a
+// data migration must not move. Runs without starting the web server so it can be used on a stopped app —
+// run it before a migration, keep the output, run it after, and diff. Usage:
+//   ClinicManagement.API.exe reconcile-money [months-of-history]
+// Exit codes: 0 = clean, 1 = could not run, 2 = ran and found drift.
+if (args.Length > 0 && string.Equals(args[0], ReconcileMoneyCommand.CommandName, StringComparison.OrdinalIgnoreCase))
+{
+    return await ReconcileMoneyCommand.RunAsync(args);
+}
+
 // Install-time permission hardening (security-hardening, audit § 2 findings 1–3): tightens NTFS ACLs on the
 // install's data directories so no other local account can read the patient database, the uploaded files,
 // the logs, or the .local/ trust store. The installer calls this instead of running icacls itself, so the

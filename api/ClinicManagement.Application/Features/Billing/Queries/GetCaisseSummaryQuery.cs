@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -66,12 +67,17 @@ public class GetCaisseSummaryQueryHandler : IRequestHandler<GetCaisseSummaryQuer
             // side now skips Draft/Cancelled plans (PlanBillingRules, applied in the repository) so an
             // unaccepted devis's échéancier never shows up as clinic cash.
             //
-            // No billed-plan de-duplication here, unlike the outstanding reads: this is cash *received*, and
-            // the devis→facture bridge carries no payment onto the invoice (the bridge invoice starts at
-            // AmountCollected = 0). Suppressing a bridged plan's collections would erase real receipts from
-            // the till instead of removing a double count.
+            // Billed-plan de-duplication now applies to cash too — a reversal of the previous rule. It used to
+            // say the opposite, and correctly so: the bridge carried no payment onto the invoice, so excluding
+            // a bridged plan would have erased real receipts from the till. The bridge now carries that money
+            // across at issue, so those receipts live on the invoice track and counting the plan as well would
+            // double them.
+            var billedPlanIds = PlanBillingRules.BilledPlanIds(
+                await _invoiceRepository.GetTreatmentPlanLinksAsync(clinicId, cancellationToken));
+
             var invoiceCollected = await _invoiceRepository.GetCollectedBetweenAsync(clinicId, from, to, cancellationToken);
-            var installmentCollected = await _planRepository.GetInstallmentCollectedBetweenAsync(clinicId, from, to, cancellationToken);
+            var installmentCollected = await _planRepository.GetInstallmentCollectedBetweenAsync(
+                clinicId, from, to, billedPlanIds, cancellationToken);
             // Avoirs (credit notes) refunded in the period reduce net encaissements (finding #8) — netted into
             // CashIn so the caisse stays reconcilable (CashIn − CashOut = Net) without a new DTO field.
             var refunds = await _creditNoteRepository.GetRefundedBetweenAsync(clinicId, from, to, cancellationToken);
@@ -89,7 +95,7 @@ public class GetCaisseSummaryQueryHandler : IRequestHandler<GetCaisseSummaryQuer
 
             return Result<CaisseSummaryDto>.Success(dto);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error building the caisse summary");
             return Result<CaisseSummaryDto>.Failure("Erreur lors du calcul de la caisse.");

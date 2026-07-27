@@ -1,4 +1,5 @@
 using MediatR;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -91,7 +92,7 @@ public class UpdateMedicationCommandHandler : IRequestHandler<UpdateMedicationCo
             _logger.LogInformation("Updated medication catalog entry {Id}", medication.Id);
             return Result<MedicationDto>.Success(MedicationMapper.ToDto(medication));
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error updating medication catalog entry {Id}", request.Id);
             return Result<MedicationDto>.Failure("Erreur lors de la mise à jour du médicament.");

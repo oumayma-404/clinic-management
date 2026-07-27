@@ -1,4 +1,5 @@
 using MediatR;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -83,7 +84,7 @@ public class GetPatientFilesQueryHandler : IRequestHandler<GetPatientFilesQuery,
 
             return Result<IEnumerable<PatientFileDto>>.Success(dtos);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             return Result<IEnumerable<PatientFileDto>>.Failure($"Error retrieving files: {ex.Message}");
         }

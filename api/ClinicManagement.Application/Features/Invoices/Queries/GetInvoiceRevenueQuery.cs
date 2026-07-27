@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -72,7 +73,13 @@ public class GetInvoiceRevenueQueryHandler : IRequestHandler<GetInvoiceRevenueQu
             }
             else
             {
-                totalCollected = billable.Sum(i => i.AmountCollected);
+                // This branch is what /factures loads on arrival — both date filters start empty — so it is
+                // the « Total encaissé » nearly every user actually sees, and it was the one branch that did
+                // not net avoirs. A refunded invoice inflated the headline figure indefinitely while the
+                // caisse, which has always netted, disagreed with it.
+                var creditedByInvoice = await _creditNoteRepository.GetTotalsForInvoicesAsync(
+                    billable.Select(i => i.Id).ToList(), cancellationToken);
+                totalCollected = billable.Sum(i => i.AmountCollected) - creditedByInvoice.Values.Sum();
             }
 
             var dto = new InvoiceRevenueDto
@@ -84,7 +91,7 @@ public class GetInvoiceRevenueQueryHandler : IRequestHandler<GetInvoiceRevenueQu
 
             return Result<InvoiceRevenueDto>.Success(dto);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error computing invoice revenue");
             return Result<InvoiceRevenueDto>.Failure("Erreur lors du calcul des recettes.");

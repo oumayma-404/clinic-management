@@ -62,6 +62,42 @@ Frontend talks to the API via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
 
 ## Key architectural notes (verified, may surprise you)
 
+- **Optimistic concurrency, solution-wide (`data-and-money-integrity`)**: `Entity<TId>.Version` is mapped in the
+  `ApplicationDbContext` loop onto PostgreSQL's **`xmin` system column**, giving all 38 entities a concurrency
+  token with **no schema change**. A losing write raises `DbUpdateConcurrencyException`, translated **once** in
+  `UnitOfWork.SaveChangesAsync` into `ConflictException` → **HTTP 409** with the canonical `{ error }` body.
+  Two things are easy to get wrong here: (a) the handler catch-alls must carry
+  `when (ex is not ConflictException)` or a 409 is flattened into a generic failure — only catches that
+  *return a Result* were filtered, since a log-only catch is a best-effort post-commit side effect that must
+  still swallow; (b) the check must run against the version **the user was editing**, so the six round-tripped
+  aggregates (Patient, Appointment, Invoice, TreatmentPlan, DentalRecord, Clinic) send `Version` back on the
+  update and the handler calls `IUnitOfWork.SetExpectedVersion` — a version of `0` means "not supplied" and
+  skips the check, which is what keeps the AI dispatcher, Google→App sync and the jobs working.
+  ⚠️ The `AddConcurrencyToken` migration has a **deliberately empty `Up()`**: EF's differ emits 38 ×
+  `AddColumn<uint>("xmin")`, which PostgreSQL rejects (`column name "xmin" conflicts with a system column
+  name`). It is committed for its **model snapshot** only.
+- **Money is correctable, not immutable (`data-and-money-integrity`)**: invoice payments and treatment-plan
+  installment payments can be **voided** (motif + actor + moment recorded; the row is kept and struck through,
+  and a reprinted receipt is stamped « REÇU ANNULÉ »). The installment side required an **event-sourced
+  `InstallmentPayment` ledger** — a single cumulative `AmountPaid` has nothing to void, and dating it by one
+  `LastPaidOn` also booked revenue into the wrong month. **Avoirs** are now readable, listable and printable,
+  and are netted in *both* branches of the revenue read and in the dashboard KPI. Issuing a **devis→facture**
+  bridge invoice **carries the plan's collected payments across**, with the read-side de-dup extended from
+  outstanding to cash — the two had to land together or the money is either doubled or erased.
+- **Patient records resist destruction (`data-and-money-integrity`)**: deleting a patient is **refused** when
+  anything is attached (the message names the real counts), and **archiving** (`Patient.IsArchived`) is the
+  escape hatch. Contact details are genuinely optional — `Email`/`PhoneNumber` are nullable and the four
+  sentinel literals (`noemail@example.com`, `0000000000`, `unknown@example.com`, `000-000-0000`) are retired.
+  The `PUT /api/appointments/{id}` partial-update wipe is closed by generalizing the tri-state pattern to
+  `ProcedureTypeId`/`DoctorId`/`Notes`/`DoctorName`; `UpdatePatientCommand`'s contact fields use the same
+  mechanism, so a field can finally be **cleared** rather than only overwritten.
+- **`reconcile-money` (Local-mode console verb)**: `dotnet run -- reconcile-money` prints a per-clinic
+  reconciliation — the two payment ledgers against their stored denormalizations, per-plan échéancier sums,
+  monthly collected computed the **old and the new way** (the line that proves the ledger migration moved no
+  closed month), orphan and sentinel counts, over-credited invoices and duplicate bridge invoices. Exit code
+  **0** clean / **1** couldn't run / **2** drift found; it never mutates. Run it before and after the migration
+  batch and diff.
+
 - **Multi-tenancy**: every request is scoped to a clinic. The **authoritative** check is per-request in the handlers — the clinic is resolved from the DB user record (`ICurrentClinicResolver`/`IClinicContext` → DB lookup of the `sub`, not purely from the JWT claim) and each loaded aggregate's `ClinicId` is re-verified. Since `cloud-security-and-tenant-isolation` (PR #11) there is **also** a defense-in-depth backstop: EF Core **global query filters** on ~15 clinic-owned aggregate roots, fed the JWT `clinic_id` via `ICurrentClinicProvider` (fail-open — inactive when no clinic is in scope, so jobs/CLI/auth flows still work). See `Infrastructure/Persistence/ApplicationDbContext.cs`. Tenant-isolation is pinned by `*TenantIsolationTests` in the test project.
 - **Pluggable auth (`Auth:Mode` = `Cloud` | `Local`)**: Cloud is the original Auth0 path; **Local** (for offline Windows/LAN installs) issues its own HS256 JWTs against local email+password accounts. Backend seam: `ILocalAuthService`/`LocalAuthService` (+ per-install signing key via `LocalAuthConfig`), a mode-branched JWT setup in `Program.cs`, and `AuthController` (`login`/`setup`/`register`/`mode`/`change-password`). `CreateClinicCommand`/`JoinClinicCommand` branch to a Local path when a `Password` is present. Frontend seam: a single `useSession()` context (`web/lib/auth/session.tsx`) backed by either `CloudSessionProvider` (Auth0) or `LocalSessionProvider` (HttpOnly cookie), gated on `AUTH_MODE`. All Local behavior is additive; the Cloud path is unchanged. Offline admin lockout recovery is a console command (`dotnet run -- reset-admin-password`), not a web endpoint. *All 5 phases of the offline-Windows repackaging are complete — see `features/windows-desktop-app/`.*
 - **Local-disk file storage (Phase 2)**: the single `IFileStorage` seam is mode-branched — `LocalDiskFileStorage` (Local, blobs under `FileStorage:BasePath`) vs `MinioFileStorage` (Cloud). Additive; Cloud unchanged.

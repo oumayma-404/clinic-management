@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Patients;
@@ -149,7 +150,7 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
         {
             return Result<DentalRecordDto>.Failure(ex.Message);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             return Result<DentalRecordDto>.Failure($"Error creating dental record: {ex.Message}");
         }

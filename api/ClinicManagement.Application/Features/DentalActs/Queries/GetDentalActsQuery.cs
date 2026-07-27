@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common.Exceptions;
 using MediatR;
 using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common.Models;
@@ -47,7 +48,7 @@ public class GetDentalActsQueryHandler : IRequestHandler<GetDentalActsQuery, Res
 
             return Result<List<DentalActDto>>.Success(query.Select(a => a.ToDto()).ToList());
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error listing dental acts");
             return Result<List<DentalActDto>>.Failure("Erreur lors du chargement du catalogue des actes.");

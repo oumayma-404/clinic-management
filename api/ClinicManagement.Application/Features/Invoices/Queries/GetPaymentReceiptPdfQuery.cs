@@ -73,7 +73,13 @@ public class GetPaymentReceiptPdfQueryHandler : IRequestHandler<GetPaymentReceip
                 Amount = payment.Amount,
                 Method = PaymentMethodLabels.ToFrench(payment.Method),
                 For = invoice.Number != null ? $"Note d'honoraires N° {invoice.Number}" : "Note d'honoraires",
-                RemainingBalance = invoice.Outstanding,
+                // The balance AS OF this payment, not the live one — a receipt states what was true when it
+                // was issued. Reprinting the first of two receipts used to show a figure that never applied,
+                // and after a void it would show a balance that had grown.
+                RemainingBalance = BalanceAsOf(invoice, payment),
+                IsVoided = payment.IsVoided,
+                VoidedOn = payment.VoidedAt,
+                VoidReason = payment.VoidReason,
                 Reference = invoice.Number,
             };
 
@@ -85,10 +91,22 @@ public class GetPaymentReceiptPdfQueryHandler : IRequestHandler<GetPaymentReceip
                 FileName = $"recu-{suffix}.pdf",
             });
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error generating receipt PDF for payment {PaymentId}", request.PaymentId);
             return Result<ReceiptPdfResult>.Failure("Erreur lors de la génération du reçu.");
         }
+    }
+
+    /// <summary>The invoice's balance immediately after <paramref name="payment"/> was received.</summary>
+    private static decimal BalanceAsOf(Domain.Entities.Invoice invoice, Domain.Entities.Payment payment)
+    {
+        var collectedByThen = invoice.Payments
+            .Where(p => !p.IsVoided
+                        && (p.PaidOn < payment.PaidOn
+                            || (p.PaidOn == payment.PaidOn && p.CreatedAt <= payment.CreatedAt)))
+            .Sum(p => p.Amount);
+
+        return Math.Max(0m, invoice.TotalTtc - Domain.Services.InvoiceCalculator.RoundMoney(collectedByThen));
     }
 }

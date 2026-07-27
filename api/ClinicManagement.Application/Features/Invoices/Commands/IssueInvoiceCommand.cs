@@ -1,10 +1,12 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Domain.Repositories;
+using ClinicManagement.Domain.Services;
 
 namespace ClinicManagement.Application.Features.Invoices.Commands;
 
@@ -26,6 +28,7 @@ public class IssueInvoiceCommandHandler : IRequestHandler<IssueInvoiceCommand, R
     private readonly IInvoiceRepository _invoiceRepository;
     private readonly IClinicRepository _clinicRepository;
     private readonly IPatientRepository _patientRepository;
+    private readonly ITreatmentPlanRepository _planRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<IssueInvoiceCommandHandler> _logger;
@@ -34,6 +37,7 @@ public class IssueInvoiceCommandHandler : IRequestHandler<IssueInvoiceCommand, R
         IInvoiceRepository invoiceRepository,
         IClinicRepository clinicRepository,
         IPatientRepository patientRepository,
+        ITreatmentPlanRepository planRepository,
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
         ILogger<IssueInvoiceCommandHandler> logger)
@@ -41,6 +45,7 @@ public class IssueInvoiceCommandHandler : IRequestHandler<IssueInvoiceCommand, R
         _invoiceRepository = invoiceRepository;
         _clinicRepository = clinicRepository;
         _patientRepository = patientRepository;
+        _planRepository = planRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
         _logger = logger;
@@ -79,6 +84,13 @@ public class IssueInvoiceCommandHandler : IRequestHandler<IssueInvoiceCommand, R
                 if (attempt == 1)
                 {
                     invoice.Issue(number, clinic.VatApplicable, clinic.VatRate, clinic.StampDutyEnabled, clinic.StampDutyAmount);
+
+                    // The totals are frozen now, so this is the first moment the carry-over can be bounded.
+                    var carryOver = await CarryOverPlanPaymentsAsync(invoice, cancellationToken);
+                    if (carryOver.IsFailure)
+                    {
+                        return Result<InvoiceDto>.Failure(carryOver.Error!);
+                    }
                 }
                 else
                 {
@@ -112,7 +124,7 @@ public class IssueInvoiceCommandHandler : IRequestHandler<IssueInvoiceCommand, R
         {
             return Result<InvoiceDto>.Failure(ex.Message);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error issuing invoice {InvoiceId}", request.Id);
             return Result<InvoiceDto>.Failure("Erreur lors de l'émission de la facture.");
@@ -150,5 +162,78 @@ public class IssueInvoiceCommandHandler : IRequestHandler<IssueInvoiceCommand, R
     {
         var patient = await _patientRepository.GetByIdAsync(invoice.PatientId, cancellationToken);
         return invoice.ToDto(patient?.GetFullName());
+    }
+
+    /// <summary>
+    /// Carry money already collected on the devis's échéancier onto the invoice that now bills it.
+    ///
+    /// <para>
+    /// Without this, bridging a plan that had taken a deposit re-billed the patient for money they had already
+    /// paid: the invoice was created with <c>AmountCollected = 0</c>, and the moment it left Draft the plan's
+    /// outstanding was suppressed everywhere — so the deposit simply vanished from the balance and reappeared
+    /// as invoice debt.
+    /// </para>
+    /// <para>
+    /// Each carried payment keeps its <b>original</b> date, so no month's takings move, and records
+    /// <c>SourceInstallmentPaymentId</c> as provenance. Nothing is written to the plan: de-duplication is
+    /// read-side (<c>GetInstallmentCollectedBetweenAsync</c> excludes bridged plans), which keeps this a
+    /// single-aggregate write and makes it self-correcting — cancelling the bridge hands the money straight
+    /// back to the plan track.
+    /// </para>
+    /// </summary>
+    private async Task<Result> CarryOverPlanPaymentsAsync(
+        Domain.Entities.Invoice invoice,
+        CancellationToken cancellationToken)
+    {
+        if (invoice.TreatmentPlanId is not { } planId)
+        {
+            return Result.Success();
+        }
+
+        var plan = await _planRepository.GetByIdAsync(planId, cancellationToken);
+        if (plan == null || plan.ClinicId != invoice.ClinicId)
+        {
+            // The bridge link is a soft reference with no FK. A missing plan must not block issuing a numbered
+            // fiscal document — there is simply nothing to carry.
+            _logger.LogWarning(
+                "Invoice {InvoiceId} references treatment plan {PlanId}, which was not found; nothing carried over",
+                invoice.Id, planId);
+            return Result.Success();
+        }
+
+        var collected = plan.Installments
+            .SelectMany(i => i.Payments)
+            .Where(p => !p.IsVoided)
+            .OrderBy(p => p.PaidOn)
+            .ThenBy(p => p.CreatedAt)
+            .ToList();
+
+        if (collected.Count == 0)
+        {
+            return Result.Success();
+        }
+
+        var total = InvoiceCalculator.RoundMoney(collected.Sum(p => p.Amount));
+        if (total > invoice.TotalTtc)
+        {
+            // Refused rather than clamped, and refused BEFORE any payment is recorded. Letting
+            // Invoice.RecordPayment throw its over-payment guard mid-loop would strand a numbered invoice that
+            // can then be neither issued nor rebuilt. Reachable when acts were removed from the plan after
+            // money was taken, or when the clinic's VAT settings changed.
+            return Result.Failure(
+                $"Ce devis a déjà encaissé {total:0.000} DT, soit plus que le total de la facture "
+                + $"({invoice.TotalTtc:0.000} DT). Corrigez le devis ou les actes facturés avant d'émettre.");
+        }
+
+        foreach (var payment in collected)
+        {
+            invoice.RecordPayment(payment.Amount, payment.Method, payment.PaidOn, payment.Id);
+        }
+
+        _logger.LogInformation(
+            "Carried {Amount} DT of installment payments from plan {PlanId} onto invoice {InvoiceId}",
+            total, plan.Id, invoice.Id);
+
+        return Result.Success();
     }
 }

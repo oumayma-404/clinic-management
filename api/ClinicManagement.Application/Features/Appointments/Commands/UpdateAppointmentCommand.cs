@@ -1,5 +1,6 @@
 using MediatR;
 using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Domain.Entities;
@@ -10,47 +11,95 @@ using System.Text.Json.Serialization;
 
 namespace ClinicManagement.Application.Features.Appointments.Commands;
 
+/// <summary>
+/// Partially update an appointment.
+///
+/// <para>
+/// <b>Every nullable field here is tri-state.</b> Omitting a property leaves it untouched; sending an explicit
+/// <c>null</c> clears it. System.Text.Json only invokes a setter for a key physically present in the payload,
+/// so each setter doubles as a "was this sent?" probe.
+/// </para>
+/// <para>
+/// This used to be true of <see cref="TreatmentPlanItemId"/> alone, and the inconsistency was a data-loss bug:
+/// <see cref="ProcedureTypeId"/> was compared against the stored value with no notion of "provided", so an
+/// omitted key bound to <c>null</c>, read as "different from the current act", and wiped the procedure type,
+/// its snapshot duration and its colour. Cancelling an appointment — which posts <c>{ status }</c> alone, from
+/// the edit dialog and from the AI assistant — destroyed the act every time.
+/// </para>
+/// <para>
+/// The mirror-image defect applied to <see cref="Notes"/>, <see cref="DoctorName"/> and <see cref="DoctorId"/>:
+/// they treated <c>null</c> as "not provided", so those fields could never be <i>cleared</i> at all. Emptying
+/// the notes box was a silent no-op and a practitioner could never be unassigned.
+/// </para>
+/// </summary>
 public class UpdateAppointmentCommand : IRequest<Result<AppointmentDto>>
 {
+    /// <summary>
+    /// The <c>Version</c> the client read. Round-tripped so the save is validated against the copy the user
+    /// actually edited rather than the one the handler just loaded. Omit (0) to skip the check — the seam
+    /// server-internal writers use; see <c>IUnitOfWork.SetExpectedVersion</c>.
+    /// </summary>
+    public uint Version { get; set; }
+
     public Guid Id { get; set; }
     public DateTime? AppointmentDateTime { get; set; }
     public int? DurationMinutes { get; set; }
-    public string? DoctorName { get; set; }
-    public string? Notes { get; set; }
     public string? Status { get; set; }
-    public Guid? ProcedureTypeId { get; set; }
-    /// <summary>Reassign the appointment's practitioner (an FK to Doctor). Ignored when null.</summary>
-    public Guid? DoctorId { get; set; }
 
     /// <summary>The plan the linked act belongs to — required whenever <see cref="TreatmentPlanItemId"/> is set.</summary>
     public Guid? TreatmentPlanId { get; set; }
 
+    private string? _doctorName;
+    private string? _notes;
+    private Guid? _procedureTypeId;
+    private Guid? _doctorId;
     private Guid? _treatmentPlanItemId;
 
+    /// <summary>Free-text practitioner label. Explicit <c>null</c> clears it; omitting leaves it.</summary>
+    public string? DoctorName
+    {
+        get => _doctorName;
+        set { _doctorName = value; DoctorNameSpecified = true; }
+    }
+
+    /// <summary>Explicit <c>null</c> clears the notes; omitting leaves them.</summary>
+    public string? Notes
+    {
+        get => _notes;
+        set { _notes = value; NotesSpecified = true; }
+    }
+
     /// <summary>
-    /// Move — or clear — the treatment-plan act this appointment schedules.
-    /// <para>
-    /// Deliberately tri-state, unlike the other nullable fields here: an explicit <c>null</c> clears the
-    /// link, while <b>omitting</b> the property leaves it untouched. Every existing caller (the edit dialog,
-    /// the calendar's status flips, the drag-to-reschedule) sends neither field, so treating "absent" as
-    /// "clear" would silently orphan the plan link on any unrelated edit — and because the link has no FK,
-    /// nothing at the database level would catch it.
-    /// </para>
+    /// The booked act. Explicit <c>null</c> clears it along with its snapshot duration and colour; omitting
+    /// leaves all three untouched.
     /// </summary>
+    public Guid? ProcedureTypeId
+    {
+        get => _procedureTypeId;
+        set { _procedureTypeId = value; ProcedureTypeIdSpecified = true; }
+    }
+
+    /// <summary>Assigned practitioner (an FK to Doctor). Explicit <c>null</c> unassigns; omitting leaves it.</summary>
+    public Guid? DoctorId
+    {
+        get => _doctorId;
+        set { _doctorId = value; DoctorIdSpecified = true; }
+    }
+
+    /// <summary>Move — or clear — the treatment-plan act this appointment schedules.</summary>
     public Guid? TreatmentPlanItemId
     {
         get => _treatmentPlanItemId;
-        set
-        {
-            _treatmentPlanItemId = value;
-            TreatmentPlanItemIdSpecified = true;
-        }
+        set { _treatmentPlanItemId = value; TreatmentPlanItemIdSpecified = true; }
     }
 
-    /// <summary>True once the caller has actually sent <see cref="TreatmentPlanItemId"/> (System.Text.Json
-    /// only assigns properties present in the payload). Not part of the wire contract.</summary>
-    [JsonIgnore]
-    public bool TreatmentPlanItemIdSpecified { get; private set; }
+    // "Was this property present in the payload?" — not part of the wire contract in either direction, so a
+    // client can neither read nor forge them.
+    [JsonIgnore] public bool DoctorNameSpecified { get; private set; }
+    [JsonIgnore] public bool NotesSpecified { get; private set; }
+    [JsonIgnore] public bool ProcedureTypeIdSpecified { get; private set; }
+    [JsonIgnore] public bool DoctorIdSpecified { get; private set; }
+    [JsonIgnore] public bool TreatmentPlanItemIdSpecified { get; private set; }
 }
 
 public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointmentCommand, Result<AppointmentDto>>
@@ -160,9 +209,15 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                 }
             }
 
-            // Update duration if provided
-            if (request.DurationMinutes.HasValue && request.DurationMinutes.Value > 0)
+            // Update duration if provided. A non-positive duration is rejected rather than ignored — it used
+            // to fall through this guard and return 200 having changed nothing.
+            if (request.DurationMinutes.HasValue)
             {
+                if (request.DurationMinutes.Value <= 0)
+                {
+                    return Result<AppointmentDto>.Failure("La durée doit être supérieure à 0 minute.");
+                }
+
                 var newDuration = TimeSpan.FromMinutes(request.DurationMinutes.Value);
                 if (appointment.Duration != newDuration)
                 {
@@ -170,32 +225,38 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                 }
             }
 
-            // Update doctor name if provided
-            if (request.DoctorName != null)
+            // Tri-state: only touch the name when the caller actually sent the field. An explicit null clears it.
+            if (request.DoctorNameSpecified)
             {
                 appointment.UpdateDoctorName(request.DoctorName);
             }
 
-            // Reassign the practitioner if provided (validated against the clinic — the DoctorId FK).
-            if (request.DoctorId.HasValue && request.DoctorId != appointment.DoctorId)
+            // Tri-state. An explicit null unassigns the practitioner — previously unreachable, because null
+            // was read as "not provided".
+            if (request.DoctorIdSpecified && request.DoctorId != appointment.DoctorId)
             {
-                var doctor = await _doctorRepository.GetByIdAsync(request.DoctorId.Value, cancellationToken);
-                if (doctor == null || doctor.ClinicId != clinicResult.Value)
+                if (request.DoctorId.HasValue)
                 {
-                    return Result<AppointmentDto>.Failure("Praticien introuvable.");
+                    var doctor = await _doctorRepository.GetByIdAsync(request.DoctorId.Value, cancellationToken);
+                    if (doctor == null || doctor.ClinicId != clinicResult.Value)
+                    {
+                        return Result<AppointmentDto>.Failure("Praticien introuvable.");
+                    }
                 }
+
                 appointment.SetDoctorId(request.DoctorId);
             }
 
-            // Update notes if provided
-            if (request.Notes != null)
+            // Tri-state: an explicit null clears the notes. Emptying the notes box used to be a silent no-op.
+            if (request.NotesSpecified)
             {
                 appointment.UpdateNotes(request.Notes);
             }
 
-            // Update procedure type - check if it's being changed
-            // If request.ProcedureTypeId is different from current, update it
-            if (request.ProcedureTypeId != appointment.ProcedureTypeId)
+            // Tri-state — THE data-loss fix. Without the Specified guard an omitted key bound to null, compared
+            // as "different from the current act", and wiped the procedure type plus its snapshot duration and
+            // colour. Cancelling an appointment posts { status } alone, so every cancellation destroyed the act.
+            if (request.ProcedureTypeIdSpecified && request.ProcedureTypeId != appointment.ProcedureTypeId)
             {
                 if (request.ProcedureTypeId.HasValue)
                 {
@@ -204,12 +265,12 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                     {
                         return Result<AppointmentDto>.Failure("Type de procédure introuvable.");
                     }
-                    
+
                     if (!procedureType.IsActive)
                     {
                         return Result<AppointmentDto>.Failure("Le type de procédure sélectionné n'est pas actif.");
                     }
-                    
+
                     appointment.SetProcedureType(
                         procedureType.Id,
                         procedureType.DefaultDurationMinutes,
@@ -217,15 +278,20 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                 }
                 else
                 {
-                    // Clear procedure type
+                    // Explicitly requested: clear the act and its snapshots.
                     appointment.SetProcedureType(null, null, null);
                 }
             }
 
-            // Update status if provided and different from current
+            // Update status if provided and different from current. An unparseable status is rejected rather
+            // than ignored — it used to return 200 having changed nothing, so a typo read as success.
             if (!string.IsNullOrWhiteSpace(request.Status))
             {
-                if (Enum.TryParse<AppointmentStatus>(request.Status, true, out var newStatus))
+                if (!Enum.TryParse<AppointmentStatus>(request.Status, true, out var newStatus))
+                {
+                    return Result<AppointmentDto>.Failure($"Statut de rendez-vous invalide : « {request.Status} ».");
+                }
+
                 {
                     // Only update if status is different
                     if (appointment.Status != newStatus)
@@ -332,6 +398,9 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                 }
             }
 
+            // Validate the save against the version the USER was editing, not the one this
+            // handler just loaded — that one always matches and would detect nothing.
+            _unitOfWork.SetExpectedVersion(appointment, request.Version);
             await _appointmentRepository.UpdateAsync(appointment, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -441,6 +510,7 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                 CreatedAt = appointment.CreatedAt.Kind == DateTimeKind.Utc
                     ? appointment.CreatedAt
                     : DateTime.SpecifyKind(appointment.CreatedAt, DateTimeKind.Utc),
+                Version = appointment.Version,
                 ProcedureTypeId = appointment.ProcedureTypeId,
                 ProcedureTypeName = appointment.ProcedureType?.Name,
                 // Use current procedure type color if available, otherwise use stored color
@@ -458,7 +528,7 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
 
             return Result<AppointmentDto>.Success(dto);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             // AC-13.2: the detail moves to the log; the caller gets French guidance, never exception text.
             _logger.LogError(ex, "Unhandled failure updating appointment {AppointmentId}", request.Id);

@@ -71,6 +71,11 @@ export interface PatientBillingSummaryDto {
   oldestOverdueDate: string | null;
   cnamReimbursable: number;
   patientOutOfPocket: number;
+  /**
+   * Total refunded to this patient through avoirs. Informational — an avoir returns the cash *and* cancels
+   * the fee, so it does not move `totalOutstanding`.
+   */
+  creditedTotal: number;
 }
 
 /** One row of the clinic-wide « Créances » (accounts-receivable) list. */
@@ -88,9 +93,27 @@ export interface PaymentDto {
   /** Cash | Cheque | Card | Transfer */
   method: string;
   paidOn: string;
+  createdAt: string;
+  /**
+   * A voided payment was never really received. The row is kept and shown struck through with its motif, so
+   * the correction leaves a trail rather than silently disappearing. Voided payments are excluded from every
+   * cash read server-side.
+   */
+  isVoided: boolean;
+  voidedAt?: string | null;
+  voidReason?: string | null;
+  voidedByName?: string | null;
+  /** Set when this payment was carried onto the invoice from a treatment-plan installment. */
+  sourceInstallmentPaymentId?: string | null;
 }
 
 export interface InvoiceDto {
+  /**
+   * Optimistic-concurrency token (PostgreSQL `xmin`). Send it back on the matching update so the save is
+   * checked against the copy this user was shown; a peer's change in between then yields a 409 instead of
+   * silently discarding their work.
+   */
+  version: number;
   id: string;
   patientId: string;
   patientName?: string | null;
@@ -122,10 +145,44 @@ export interface InvoiceDto {
   eInvoiceLastError?: string | null;
   eInvoiceAttemptCount: number;
   canSubmitToElFatoora: boolean;
+  /**
+   * Server-computed. Do NOT re-derive these from status + amountCollected: that is exactly how the table
+   * ended up offering « Annuler » on invoices the API refuses — after a full void the status is Issued and
+   * collected is 0, but the voided payment rows are still there.
+   */
+  canCancel: boolean;
+  canCreateAvoir: boolean;
   hasSignedXml: boolean;
   hasTtnReceipt: boolean;
+  /**
+   * Sum of the avoirs established against this invoice — always present, 0 when there are none. Present on
+   * the list too, so a row can show that money was credited back without fetching the avoirs themselves.
+   */
+  creditedTotal: number;
   lines: InvoiceLineDto[];
   payments: PaymentDto[];
+  /** Only populated by `invoicesApi.get` (the detail modal); the list carries `creditedTotal` alone. */
+  creditNotes: CreditNoteDto[];
+}
+
+/** An avoir: the lawful correction for cash already collected on an invoice. */
+export interface CreditNoteDto {
+  id: string;
+  invoiceId: string;
+  /** Own per-clinic-per-year sequence, AAAA-NNNN — not the invoice's. */
+  number: string;
+  issueDate: string;
+  amount: number;
+  reason: string;
+  /** Cash | Cheque | Card | Transfer, or null when the means of refund was not recorded. */
+  method?: string | null;
+  /** When the money went back — the date la caisse nets it against. */
+  refundedOn: string;
+  /**
+   * The corrected invoice is registered with TTN « El Fatoora ». The avoir is not transmitted, so the
+   * régularisation with TTN is still the clinic's to do.
+   */
+  correctedInvoiceIsTtnRegistered: boolean;
 }
 
 export interface InvoiceRevenueDto {
@@ -135,6 +192,12 @@ export interface InvoiceRevenueDto {
 }
 
 export interface AppointmentDto {
+  /**
+   * Optimistic-concurrency token (PostgreSQL `xmin`). Send it back on the matching update so the save is
+   * checked against the copy this user was shown; a peer's change in between then yields a 409 instead of
+   * silently discarding their work.
+   */
+  version: number;
   id: string;
   patientId: string | null;
   patientName: string;
@@ -203,13 +266,21 @@ export interface MedicationDto {
 }
 
 export interface PatientDto {
+  /**
+   * Optimistic-concurrency token (PostgreSQL `xmin`). Send it back on the matching update so the save is
+   * checked against the copy this user was shown; a peer's change in between then yields a 409 instead of
+   * silently discarding their work.
+   */
+  version: number;
   id: string;
   firstName: string;
   lastName: string;
   dateOfBirth: string;
   gender: string;
-  email: string;
-  phoneNumber: string;
+  /** Null when the patient gave none — never a placeholder address. */
+  email?: string | null;
+  /** Null when the patient gave none. Such a patient receives no reminder and no relance. */
+  phoneNumber?: string | null;
   medicalHistory?: string;
   allergies?: string;
   emergencyContactName?: string;
@@ -235,7 +306,36 @@ export interface PatientDto {
     notes?: string;
     isActive: boolean;
   }>;
+  /**
+   * Archived patients are hidden from lists, search, recall and every picker, but keep every record and stay
+   * reachable by direct URL — so a detail page that loads one must be able to say so.
+   */
+  isArchived: boolean;
+  archivedAt?: string | null;
+  archiveReason?: string | null;
   createdAt: string;
+}
+
+/** What blocks a patient's deletion, read when the confirm dialog opens rather than after clicking. */
+export interface PatientDeletionCheckDto {
+  patientId: string;
+  patientName: string;
+  canDelete: boolean;
+  isArchived: boolean;
+  canArchive: boolean;
+  /** French, ready to display. Null when archiving is available. */
+  archiveBlockedReason?: string | null;
+  blockers: PatientDeletionBlockerDto[];
+}
+
+export interface PatientDeletionBlockerDto {
+  /** Stable machine key (e.g. `invoices`) — key off this, never the label. */
+  kind: string;
+  /** French, already pluralised for `count` (e.g. « factures »). */
+  label: string;
+  count: number;
+  /** Patient-detail tab this record kind lives on, so the dialog can link to it. */
+  tab?: string | null;
 }
 
 export interface PatientMedicalHistoryDto {
@@ -289,6 +389,12 @@ export interface DentalRecordActDto {
 }
 
 export interface DentalRecordDto {
+  /**
+   * Optimistic-concurrency token (PostgreSQL `xmin`). Send it back on the matching update so the save is
+   * checked against the copy this user was shown; a peer's change in between then yields a 409 instead of
+   * silently discarding their work.
+   */
+  version: number;
   id: string;
   patientId: string;
   interventionDate: string;
@@ -451,11 +557,29 @@ export interface InstallmentDto {
   id: string;
   dueDate: string;
   amount: number;
+  /** Derived from the payment ledger — no longer monotonic, since a payment can be voided. */
   amountPaid: number;
   outstanding: number;
   isPaid: boolean;
+  /** Derived: the most recent LIVE payment's method/date. */
   lastMethod: string | null;
   lastPaidOn: string | null;
+  /** Every payment received against this échéance, each on its own date. Newest last. */
+  payments: InstallmentPaymentDto[];
+}
+
+export interface InstallmentPaymentDto {
+  id: string;
+  amount: number;
+  /** Cash | Cheque | Card | Transfer */
+  method: string;
+  paidOn: string;
+  createdAt: string;
+  /** A voided payment was never really received; the row is kept and shown struck through with its motif. */
+  isVoided: boolean;
+  voidedAt?: string | null;
+  voidReason?: string | null;
+  voidedByName?: string | null;
 }
 
 // ---- Clinical-workflow-depth DTOs ----------------------------------------------------------------
@@ -564,6 +688,12 @@ export interface RecurringSeriesResultDto {
 // A treatment plan / devis for a patient. `status` is a TreatmentPlanStatus enum name: Draft | Accepted |
 // InProgress | Completed | Cancelled.
 export interface TreatmentPlanDto {
+  /**
+   * Optimistic-concurrency token (PostgreSQL `xmin`). Send it back on the matching update so the save is
+   * checked against the copy this user was shown; a peer's change in between then yields a 409 instead of
+   * silently discarding their work.
+   */
+  version: number;
   id: string;
   patientId: string;
   patientName: string | null;

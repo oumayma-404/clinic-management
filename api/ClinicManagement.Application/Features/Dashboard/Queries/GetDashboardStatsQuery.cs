@@ -2,6 +2,7 @@ using MediatR;
 using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
@@ -34,6 +35,7 @@ public class GetDashboardStatsQueryHandler : IRequestHandler<GetDashboardStatsQu
     private readonly IUserRepository _userRepository;
     private readonly IInvoiceRepository _invoiceRepository;
     private readonly ITreatmentPlanRepository _planRepository;
+    private readonly ICreditNoteRepository _creditNoteRepository;
     private readonly IClinicContext _clinicContext;
     private readonly ILogger<GetDashboardStatsQueryHandler> _logger;
 
@@ -43,6 +45,7 @@ public class GetDashboardStatsQueryHandler : IRequestHandler<GetDashboardStatsQu
         IUserRepository userRepository,
         IInvoiceRepository invoiceRepository,
         ITreatmentPlanRepository planRepository,
+        ICreditNoteRepository creditNoteRepository,
         IClinicContext clinicContext,
         ILogger<GetDashboardStatsQueryHandler> logger)
     {
@@ -51,6 +54,7 @@ public class GetDashboardStatsQueryHandler : IRequestHandler<GetDashboardStatsQu
         _userRepository = userRepository;
         _invoiceRepository = invoiceRepository;
         _planRepository = planRepository;
+        _creditNoteRepository = creditNoteRepository;
         _clinicContext = clinicContext;
         _logger = logger;
     }
@@ -94,20 +98,30 @@ public class GetDashboardStatsQueryHandler : IRequestHandler<GetDashboardStatsQu
 
             var monthStart = request.MonthStart ?? new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
             var monthEnd = request.MonthEnd ?? monthStart.AddMonths(1).AddTicks(-1);
+            // A plan bridged into a real invoice is counted through that invoice on BOTH the cash and the
+            // outstanding side now — the bridge carries its collected money across at issue, so counting the
+            // plan as well would double it.
+            var billedPlanIds = PlanBillingRules.BilledPlanIds(
+                await _invoiceRepository.GetTreatmentPlanLinksAsync(clinicId, cancellationToken));
+
             // Encaissé ce mois-ci = invoice payments + treatment-plan installment collections (both tracks).
             var invoiceCollected = await _invoiceRepository.GetCollectedBetweenAsync(
                 clinicId, monthStart, monthEnd, cancellationToken);
             var installmentCollected = await _planRepository.GetInstallmentCollectedBetweenAsync(
+                clinicId, monthStart, monthEnd, billedPlanIds, cancellationToken);
+            // Avoirs refunded this month reduce what the clinic actually kept. La caisse has always netted
+            // them; this KPI did not, so the dashboard and the caisse reported different cash for the same
+            // month — over the same window, from the same rows.
+            var refunds = await _creditNoteRepository.GetRefundedBetweenAsync(
                 clinicId, monthStart, monthEnd, cancellationToken);
-            var monthlyRevenueCollected = InvoiceCalculator.RoundMoney(invoiceCollected + installmentCollected);
+            var monthlyRevenueCollected = InvoiceCalculator.RoundMoney(
+                invoiceCollected + installmentCollected - refunds);
 
             // En attente de recouvrement = clinic-wide outstanding across both tracks. A plan bridged into a
             // real invoice is counted through that invoice only (PlanBillingRules — the same rule
             // « Solde patient » and « Créances » apply), so the KPI can't overstate what patients owe.
             var invoiceOutstanding = (await _invoiceRepository.GetOutstandingByPatientAsync(clinicId, cancellationToken))
                 .Sum(r => r.Outstanding);
-            var billedPlanIds = PlanBillingRules.BilledPlanIds(
-                await _invoiceRepository.GetTreatmentPlanLinksAsync(clinicId, cancellationToken));
             var installmentOutstanding = (await _planRepository.GetInstallmentOutstandingByPatientAsync(clinicId, now, billedPlanIds, cancellationToken))
                 .Sum(r => r.Outstanding);
             var totalOutstanding = InvoiceCalculator.RoundMoney(invoiceOutstanding + installmentOutstanding);
@@ -125,7 +139,7 @@ public class GetDashboardStatsQueryHandler : IRequestHandler<GetDashboardStatsQu
 
             return Result<DashboardStatsDto>.Success(dto);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             // AC-13.2: the detail goes to the log; the caller only ever sees French guidance.
             _logger.LogError(ex, "Unhandled failure building dashboard stats");

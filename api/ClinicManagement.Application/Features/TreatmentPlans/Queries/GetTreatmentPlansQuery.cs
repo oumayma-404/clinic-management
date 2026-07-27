@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -67,7 +68,10 @@ public class GetTreatmentPlansQueryHandler : IRequestHandler<GetTreatmentPlansQu
 
             // One query for patient names, mapped by id (a clinic's patient set is small) — mirrors
             // GetInvoicesQuery rather than a GetByIdAsync per distinct patient.
-            var patients = await _patientRepository.GetByClinicIdAsync(clinicId, cancellationToken);
+            // includeArchived: this resolves NAMES, it is not a picker. An archived patient's devis must still
+            // show who they belong to.
+            var patients = await _patientRepository.GetByClinicIdAsync(
+                clinicId, includeArchived: true, cancellationToken);
             var names = patients.ToDictionary(p => p.Id, p => p.GetFullName());
 
             // Derived scheduling + devis→facture read-back for the whole page: two batched queries total,
@@ -81,7 +85,7 @@ public class GetTreatmentPlansQueryHandler : IRequestHandler<GetTreatmentPlansQu
 
             return Result<List<TreatmentPlanDto>>.Success(dtos);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error listing treatment plans");
             return Result<List<TreatmentPlanDto>>.Failure("Erreur lors du chargement des plans de traitement.");

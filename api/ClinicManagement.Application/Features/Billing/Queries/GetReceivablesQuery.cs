@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -110,7 +111,7 @@ public class GetReceivablesQueryHandler : IRequestHandler<GetReceivablesQuery, R
 
             return Result<List<ReceivableDto>>.Success(sorted);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error building the receivables list");
             return Result<List<ReceivableDto>>.Failure("Erreur lors du calcul des créances.");

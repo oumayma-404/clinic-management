@@ -4,6 +4,12 @@ namespace ClinicManagement.API.Models;
 
 public class UpdateClinicRequest
 {
+    /// <summary>
+    /// Optimistic-concurrency token, as a FORM field — this endpoint is multipart (it carries the logo), so
+    /// the version cannot ride in a JSON body like it does everywhere else.
+    /// </summary>
+    public uint Version { get; set; }
+
     public string Name { get; set; } = string.Empty;
     public string? Address { get; set; }
     public string? City { get; set; }

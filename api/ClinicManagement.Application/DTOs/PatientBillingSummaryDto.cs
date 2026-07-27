@@ -24,4 +24,12 @@ public class PatientBillingSummaryDto
 
     /// <summary>Patient out-of-pocket (reste à charge) = total billed − CNAM-reimbursable.</summary>
     public decimal PatientOutOfPocket { get; set; }
+
+    /// <summary>
+    /// Total refunded to this patient through avoirs, across their invoices. Informational: an avoir returns
+    /// collected cash <b>and</b> cancels the corresponding fee, so the net position — and therefore
+    /// <see cref="TotalOutstanding"/> — is unchanged by it. Shown so a « Solde patient » of 0 after a refund
+    /// is legible as "settled, 300 DT returned" rather than looking like nothing ever happened.
+    /// </summary>
+    public decimal CreditedTotal { get; set; }
 }

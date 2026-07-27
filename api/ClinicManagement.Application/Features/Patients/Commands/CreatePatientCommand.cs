@@ -1,6 +1,7 @@
 using MediatR;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
@@ -89,24 +90,22 @@ public class CreatePatientCommandHandler : IRequestHandler<CreatePatientCommand,
             var clinicId = user.ClinicId;
 
             // AC-5: a provided phone must be a deliverable Tunisian number (the same rule the reminder engine
-            // uses), else reject at entry so it never silently fails at dispatch. An empty phone is still
-            // allowed (keeps the legacy placeholder) — the patient simply can't receive reminders.
+            // uses), else reject at entry so it never silently fails at dispatch. An empty phone is allowed —
+            // the patient simply can't receive reminders, and the form says so.
             if (!string.IsNullOrWhiteSpace(request.PhoneNumber) && !PhoneNumber.IsDeliverable(request.PhoneNumber))
             {
                 return Result<PatientDto>.Failure(
                     "Numéro de téléphone invalide. Utilisez un numéro tunisien à 8 chiffres (ou +216…).");
             }
 
-            // Provide default values if email or phone are empty
-            var emailValue = string.IsNullOrWhiteSpace(request.Email)
-                ? "noemail@example.com"
-                : request.Email;
-            var phoneValue = string.IsNullOrWhiteSpace(request.PhoneNumber)
-                ? "0000000000"
-                : request.PhoneNumber;
-
-            var email = new Email(emailValue);
-            var phoneNumber = new PhoneNumber(phoneValue);
+            // Blank means blank. This used to manufacture noemail@example.com and a ten-zero phone so the
+            // NOT NULL columns would accept the row — which made "we have no way to reach this patient"
+            // indistinguishable from "we have their details", and put an address on file that would silently
+            // absorb any mail sent to it.
+            var email = string.IsNullOrWhiteSpace(request.Email) ? null : new Email(request.Email);
+            var phoneNumber = string.IsNullOrWhiteSpace(request.PhoneNumber)
+                ? null
+                : new PhoneNumber(request.PhoneNumber);
 
             // Convert AddressDto to Address value object if provided and valid
             Address? address = null;
@@ -239,13 +238,14 @@ public class CreatePatientCommandHandler : IRequestHandler<CreatePatientCommand,
                 LastName = patient.LastName,
                 DateOfBirth = patient.DateOfBirth,
                 Gender = patient.Gender,
-                Email = patient.Email.Value,
-                PhoneNumber = patient.PhoneNumber.Value,
+                Email = patient.Email?.Value,
+                PhoneNumber = patient.PhoneNumber?.Value,
                 MedicalHistory = patient.MedicalHistory,
                 Allergies = patient.Allergies,
                 EmergencyContactName = patient.EmergencyContactName,
                 EmergencyContactPhone = patient.EmergencyContactPhone?.Value,
-                CreatedAt = patient.CreatedAt
+                CreatedAt = patient.CreatedAt,
+                Version = patient.Version,
             };
 
             // Map address to DTO
@@ -286,7 +286,7 @@ public class CreatePatientCommandHandler : IRequestHandler<CreatePatientCommand,
 
             return Result<PatientDto>.Success(dto);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             return Result<PatientDto>.Failure($"Error creating patient: {ex.Message}");
         }

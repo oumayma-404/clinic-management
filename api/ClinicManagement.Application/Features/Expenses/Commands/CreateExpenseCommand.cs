@@ -1,4 +1,5 @@
 using MediatR;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -66,7 +67,7 @@ public class CreateExpenseCommandHandler : IRequestHandler<CreateExpenseCommand,
         {
             return Result<ExpenseDto>.Failure(ex.Message);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             return Result<ExpenseDto>.Failure($"Erreur lors de la création de la dépense : {ex.Message}");
         }

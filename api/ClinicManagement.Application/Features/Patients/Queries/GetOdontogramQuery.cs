@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -69,7 +70,7 @@ public class GetOdontogramQueryHandler : IRequestHandler<GetOdontogramQuery, Res
 
             return Result<List<ToothStateDto>>.Success(dtos);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error loading odontogram for patient {PatientId}", request.PatientId);
             return Result<List<ToothStateDto>>.Failure("Erreur lors du chargement de l'odontogramme.");

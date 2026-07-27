@@ -1,6 +1,7 @@
 using MediatR;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Domain.Repositories;
 
@@ -82,10 +83,11 @@ public class RegenerateClinicCodeCommandHandler : IRequestHandler<RegenerateClin
                 LogoUrl = clinic.LogoUrl,
                 TtnEInvoicingEnabled = clinic.TtnEInvoicingEnabled,
                 TtnEnvironment = clinic.TtnEnvironment,
-                CreatedAt = clinic.CreatedAt
+                CreatedAt = clinic.CreatedAt,
+                Version = clinic.Version,
             });
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             return Result<ClinicDto>.Failure($"Error regenerating clinic code: {ex.Message}");
         }

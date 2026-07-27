@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -86,7 +87,7 @@ public class CreateDentalActCommandHandler : IRequestHandler<CreateDentalActComm
             _logger.LogInformation("Created dental act {Id} ({Code})", act.Id, act.CodeActe);
             return Result<DentalActDto>.Success(act.ToDto());
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error creating dental act");
             return Result<DentalActDto>.Failure("Erreur lors de la création de l'acte.");

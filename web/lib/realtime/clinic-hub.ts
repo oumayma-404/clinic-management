@@ -27,6 +27,9 @@ export const RealtimeResource = {
   Medications: "medications",
   DentalActs: "dentalacts",
   TreatmentPlans: "treatmentplans",
+  // The server has always broadcast this key — RealtimeResourceResolver derives it from the
+  // Features.Expenses namespace — and no client listened. La caisse is the screen that needs it.
+  Expenses: "expenses",
 } as const
 
 export type RealtimeResourceKey = (typeof RealtimeResource)[keyof typeof RealtimeResource]

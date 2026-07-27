@@ -34,6 +34,9 @@ Infrastructure/ → service/repo/persistence tests: renderers, senders, e-invoic
 - **`Common/Authorization/AuthorizationPoliciesTests.cs`** — the `FallbackPolicy` is installed only in Local mode.
 - **`Common/Behaviors/RealtimeBroadcastBehavior*` + `Common/Behaviors/RealtimeResourceResolverTests.cs`** — the MediatR pipeline behavior that auto-broadcasts SignalR resource-changed events.
 - **`Api/TreatmentPlansControllerAuthorizationTests.cs`** — pins `CancelPlan` to `AdminOrDoctor` (altering a numbered financial document) and every other action to *no* method-level policy. Carries a **drift guard** (`Every_Action_Is_Classified_By_This_Test`) that fails when a new action is added without deciding its policy — deliberate, so slice B's `amend`/`revise-installments`/`items/order` cannot land unclassified.
+- **`Features/Common/ConcurrencyConflictTests.cs`** — the optimistic-concurrency contract. Reflection-based where it can be, so a new entity or DTO is covered without editing the test: every `Entity<>` carries the token, the six round-tripped DTOs and their update commands expose it, a `ConflictException` **escapes** the handler catch-alls rather than being flattened, and the handler actually calls `SetExpectedVersion` (without which the whole feature is inert while looking present).
+- **`Features/Invoices/CreditNoteReadTests.cs`** — avoirs are readable, and « Total encaissé » nets them in **both** branches of the revenue read (the no-period branch is the one `/factures` actually loads).
+- **`Features/Patients/PatientContactOptionalTests.cs`** — contact is optional, the tri-state clears, no sentinel is written, and one phone-less patient no longer 500s the patient list.
 - **`Features/Billing/MoneyReadConsistencyTests.cs`** — « Solde patient », « Créances » and the dashboard KPI must report the same outstanding figure for one shared fixture. Its repository mocks intentionally reimplement `TreatmentPlanRepository`/`InvoiceRepository`'s SQL filters, so the test targets the *handlers* feeding `Domain/Services/PlanBillingRules` the same rule. Paired with `Domain/PlanBillingRulesTests.cs` (the rule itself).
 - **`Infrastructure/Persistence/*SeedTests.cs`** — CNAM + medication catalog seed integrity.
 - **`Infrastructure/Services/`** e-invoicing depth: `TeifXmlGeneratorTests` (TTN TEIF XML), `XadesEInvoiceSignerTests` (XAdES signature), `QrCodeGeneratorTests`, `SandboxTtnClientTests`; reminders: `ReminderChannelSenderTests`/`ReminderScheduler`/`ReminderSettingsProvider`/`ReminderPhone`/`ReminderSchedule`; plus `CertificateProvisionerTests`, `PgDumpBackupServiceTests`, `InternetProbeTests`, `CnamBs1BulletinRendererTests`, document renderers (`Certificat`/`Liaison`/`Generic`/`PractitionerRenderSnapshot`).
@@ -41,4 +44,11 @@ Infrastructure/ → service/repo/persistence tests: renderers, senders, e-invoic
 ## Gotchas
 
 - **`Features/Patients/DentalRecordPostVisitCompletionTests.cs.deferred`** — the `.deferred` extension deliberately excludes it from compilation (parked, not deleted). Don't rename it back without checking why it was parked.
-- **Running the suite on this machine.** `dotnet test` fails at assembly-load with `0x800711C7` because Windows **Smart App Control** is ON and blocks freshly-built DLLs — environmental, not a test defect. See the user's `smart-app-control-blocks-tests` memory.
+- **Running the suite on this machine.** `dotnet test` fails at assembly-load with `0x800711C7` because Windows **Smart App Control** is ON and blocks freshly-built DLLs — environmental, not a test defect. See the user's `smart-app-control-blocks-tests` memory. Workaround: `dotnet build <UnitTests.csproj> -p:OutDir=<scratch>/` then `dotnet vstest <scratch>/ClinicManagement.UnitTests.dll`.
+- **A failing test here has three times been a stale fixture, not a defect.** `data-and-money-integrity` inherited
+  an "8-failure baseline" that turned out to be exactly that, in all three cases with the production code correct
+  and the test drifted behind it: `ReminderSchedulerTests` stubbed `ResolveEnabledChannelsAsync` while the
+  scheduler reads the full `ResolveAsync`; `DoctorCachetTests` uploaded three arbitrary bytes after the handler
+  grew a **magic-byte** check (so the guard itself had no coverage); `DocumentTypeAndFilenameTests` left
+  `ICurrentClinicResolver` unconfigured after the tenant guard moved ahead of the patient lookup (so it passed
+  its main assertion for the wrong reason). Diagnose before assuming environmental.

@@ -6,6 +6,7 @@ import { useState, useEffect } from "react"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { Button } from "@/components/ui/button"
+import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -271,11 +272,23 @@ export default function ClinicSettings() {
 
   // Real-time: reload clinic profile/doctors when another client of this clinic changes them — but not
   // while this admin is mid-edit, so a live refresh never clobbers unsaved form input.
+  // A peer's change is deliberately NOT applied while a section is being edited — that would wipe the
+  // user's typing. But silently dropping it meant they went on to save over the other person with no idea
+  // anything had happened, and then hit a 409 they could not explain. Record it and offer the reload.
+  const [peerChangePending, setPeerChangePending] = useState(false)
+
   useClinicRealtime(RealtimeResource.Clinics, () => {
     if (!isEditingClinicInfo && !isEditingDoctors && !isEditingHours && !isEditingBilling) {
       loadClinicData()
+      return
     }
+    setPeerChangePending(true)
   })
+
+  const reloadAfterPeerChange = () => {
+    setPeerChangePending(false)
+    loadClinicData()
+  }
 
   const handleEditClinicInfo = () => {
     setOriginalClinicData({ clinicName, address, governorate, phone, email, logoPreview, logoFile })
@@ -507,6 +520,14 @@ export default function ClinicSettings() {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-slate-950">
+
+      {/* A colleague saved these settings while this form was open. */}
+      {peerChangePending && (
+        <FormErrorBanner
+          message="Les paramètres du cabinet ont été modifiés par quelqu'un d'autre pendant votre saisie. Vos modifications non enregistrées seront conservées si vous rechargez maintenant… mais la version affichée n'est plus à jour."
+          action={{ label: "Recharger les paramètres", onClick: reloadAfterPeerChange }}
+        />
+      )}
       <div className="max-w-5xl mx-auto p-3 space-y-3">
         <div className="flex items-center gap-2 mb-3">
           <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-blue-600">

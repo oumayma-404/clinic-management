@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
@@ -167,12 +168,13 @@ public class JoinClinicCommandHandler : IRequestHandler<JoinClinicCommand, Resul
                 Phone = clinic.Phone,
                 Email = clinic.Email,
                 Code = clinic.Code,
-                CreatedAt = clinic.CreatedAt
+                CreatedAt = clinic.CreatedAt,
+                Version = clinic.Version,
             };
 
             return Result<ClinicDto>.Success(dto);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             // Detail to the log only — never leak infrastructure text to the join/register screen.
             _logger.LogError(ex, "Error joining clinic with code {Code}", request.Code);
@@ -257,7 +259,8 @@ public class JoinClinicCommandHandler : IRequestHandler<JoinClinicCommand, Resul
             Email = clinic.Email,
             Code = clinic.Code,
             LogoUrl = clinic.LogoUrl,
-            CreatedAt = clinic.CreatedAt
+            CreatedAt = clinic.CreatedAt,
+            Version = clinic.Version,
         });
     }
 }

@@ -134,11 +134,11 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
     )
   }
 
-  const handleDownloadReceipt = async (installmentId: string) => {
+  const handleDownloadReceipt = async (installmentId: string, paymentId: string) => {
     setBusy(true)
     try {
-      const blob = await treatmentPlansApi.downloadInstallmentReceipt(plan.id, installmentId)
-      downloadBlob(blob, `recu-echeance-${installmentId.slice(0, 8)}.pdf`)
+      const blob = await treatmentPlansApi.downloadInstallmentReceipt(plan.id, installmentId, paymentId)
+      downloadBlob(blob, `recu-echeance-${paymentId.slice(0, 8)}.pdf`)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Échec du téléchargement du reçu.")
     } finally {
@@ -204,9 +204,19 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                         await invoicesApi.createFromPlan(plan.id)
                         router.push("/factures")
                       },
-                      "Facture brouillon créée depuis le devis",
+                      // The carry-over happens at ISSUE, not at draft creation (a draft invoice cannot hold
+                      // payments), so the draft will show the full amount owing. Say so, or the dentist sees a
+                      // full-price invoice for a patient who has already paid half and assumes it is wrong.
+                      plan.amountPaid > 0
+                        ? `Facture brouillon créée — ${formatDT(plan.amountPaid)} déjà encaissé sera reporté à l'émission`
+                        : "Facture brouillon créée depuis le devis",
                       "Échec de la facturation du devis.",
                     )
+                  }
+                  title={
+                    plan.amountPaid > 0
+                      ? `${formatDT(plan.amountPaid)} déjà encaissé sur ce devis sera reporté sur la facture à son émission`
+                      : undefined
                   }
                 >
                   <ReceiptText className="h-4 w-4" />
@@ -403,18 +413,24 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                                 Encaisser
                               </Button>
                             )}
-                            {inst.amountPaid > 0 && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-8 gap-1"
-                                disabled={busy}
-                                onClick={() => handleDownloadReceipt(inst.id)}
-                              >
-                                <ReceiptText className="h-4 w-4" />
-                                Reçu
-                              </Button>
-                            )}
+                            {/* One receipt per PAYMENT — an échéance can hold several, and the receipt used
+                                to print the cumulative total instead of the money handed over. */}
+                            {inst.payments
+                              .filter((p) => !p.isVoided)
+                              .map((payment) => (
+                                <Button
+                                  key={payment.id}
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 gap-1"
+                                  disabled={busy}
+                                  title={`Reçu du paiement de ${formatDT(payment.amount)} du ${formatDateFr(payment.paidOn)}`}
+                                  onClick={() => handleDownloadReceipt(inst.id, payment.id)}
+                                >
+                                  <ReceiptText className="h-4 w-4" />
+                                  Reçu
+                                </Button>
+                              ))}
                           </div>
                         </TableCell>
                       </TableRow>

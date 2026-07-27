@@ -275,7 +275,11 @@ export default function RecallsPage() {
                               return (
                                 <TableRow key={recall.patientId}>
                                   <TableCell className="font-medium text-foreground">{recall.patientName}</TableCell>
-                                  <TableCell className="text-muted-foreground">{recall.phoneNumber ?? "—"}</TableCell>
+                                  <TableCell className="text-muted-foreground">
+                                    {recall.phoneNumber ?? (
+                                      <span className="text-amber-700 dark:text-amber-400">Aucun numéro</span>
+                                    )}
+                                  </TableCell>
                                   <TableCell className="text-muted-foreground">
                                     {formatDate(recall.lastVisitDate, "Jamais")}
                                   </TableCell>
@@ -312,7 +316,15 @@ export default function RecallsPage() {
                                         variant="ghost"
                                         size="sm"
                                         onClick={() => handleSend(recall)}
-                                        disabled={busy}
+                                        // Disabled rather than hidden: the secretary needs to see that the
+                                        // relance exists and why it can't go out, so they can call instead.
+                                        // The API refuses these too — and no longer snoozes them 30 days.
+                                        disabled={busy || !recall.phoneNumber}
+                                        title={
+                                          recall.phoneNumber
+                                            ? undefined
+                                            : "Ce patient n'a pas de numéro de téléphone : contactez-le autrement, puis « Marquer comme contacté »."
+                                        }
                                         className="h-8 gap-1"
                                       >
                                         {busy ? (

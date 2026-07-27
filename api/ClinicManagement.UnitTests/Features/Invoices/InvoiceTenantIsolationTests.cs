@@ -26,6 +26,19 @@ public class InvoiceTenantIsolationTests
     private readonly Mock<ICurrentClinicResolver> _clinicResolver = new();
     private readonly Mock<IUnitOfWork> _uow = new();
 
+    // No avoirs in these fixtures. Stated explicitly rather than left to Moq's default, because the
+    // batch read returns a dictionary the handlers immediately enumerate.
+    private readonly Mock<ICreditNoteRepository> _creditNotes = NoCreditNotes();
+
+    private static Mock<ICreditNoteRepository> NoCreditNotes()
+    {
+        var mock = new Mock<ICreditNoteRepository>();
+        mock.Setup(r => r.GetTotalsForInvoicesAsync(
+                It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<Guid, decimal>());
+        return mock;
+    }
+
     private void Authenticated() =>
         _clinicResolver.Setup(r => r.GetClinicIdAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(Result<Guid>.Success(ClinicId));
@@ -53,7 +66,8 @@ public class InvoiceTenantIsolationTests
         _invoices.Setup(r => r.GetByIdAsync(foreign.Id, It.IsAny<CancellationToken>())).ReturnsAsync(foreign);
 
         var handler = new GetInvoiceQueryHandler(
-            _invoices.Object, _patients.Object, _clinicResolver.Object, NullLogger<GetInvoiceQueryHandler>.Instance);
+            _invoices.Object, _patients.Object, _creditNotes.Object, _clinicResolver.Object,
+            NullLogger<GetInvoiceQueryHandler>.Instance);
 
         var result = await handler.Handle(new GetInvoiceQuery { Id = foreign.Id }, CancellationToken.None);
 
@@ -142,11 +156,12 @@ public class InvoiceTenantIsolationTests
                 ClinicId, It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<Guid?>(),
                 It.IsAny<InvoiceStatus?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<Invoice>());
-        _patients.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<CancellationToken>()))
+        _patients.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<Patient>());
 
         var handler = new GetInvoicesQueryHandler(
-            _invoices.Object, _patients.Object, _clinicResolver.Object, NullLogger<GetInvoicesQueryHandler>.Instance);
+            _invoices.Object, _patients.Object, _creditNotes.Object, _clinicResolver.Object,
+            NullLogger<GetInvoicesQueryHandler>.Instance);
 
         var result = await handler.Handle(new GetInvoicesQuery(), CancellationToken.None);
 

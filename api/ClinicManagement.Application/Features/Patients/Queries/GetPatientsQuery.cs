@@ -3,6 +3,7 @@ using System.Text;
 using MediatR;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
@@ -55,7 +56,9 @@ public class GetPatientsQueryHandler : IRequestHandler<GetPatientsQuery, Result<
 
             var clinicId = user.ClinicId;
 
-            IEnumerable<Patient> patients = await _patientRepository.GetByClinicIdAsync(clinicId, cancellationToken);
+            // Archived patients are excluded: this backs both the patients page and the header search.
+            IEnumerable<Patient> patients = await _patientRepository.GetByClinicIdAsync(
+                clinicId, cancellationToken: cancellationToken);
 
             // Server-side filter: match first/last/full name and phone, case- and accent-insensitive.
             var normalizedTerm = NormalizeForSearch(request.SearchTerm);
@@ -65,7 +68,9 @@ public class GetPatientsQueryHandler : IRequestHandler<GetPatientsQuery, Result<
                     NormalizeForSearch(p.FirstName).Contains(normalizedTerm) ||
                     NormalizeForSearch(p.LastName).Contains(normalizedTerm) ||
                     NormalizeForSearch($"{p.FirstName} {p.LastName}").Contains(normalizedTerm) ||
-                    NormalizeForSearch(p.PhoneNumber.Value).Contains(normalizedTerm));
+                    // Null-safe: this runs in memory over every patient in the clinic, so a single
+                    // contact-less patient used to take out the whole list AND the header search with a 500.
+                    NormalizeForSearch(p.PhoneNumber?.Value).Contains(normalizedTerm));
             }
 
             // Stable order so a capped result is deterministic.
@@ -76,32 +81,11 @@ public class GetPatientsQueryHandler : IRequestHandler<GetPatientsQuery, Result<
                 patients = patients.Take(request.Limit.Value);
             }
 
-            var dtos = patients.Select(p => new PatientDto
-            {
-                Id = p.Id,
-                ClinicId = p.ClinicId,
-                FirstName = p.FirstName,
-                LastName = p.LastName,
-                DateOfBirth = p.DateOfBirth,
-                Gender = p.Gender,
-                Email = p.Email.Value,
-                PhoneNumber = p.PhoneNumber.Value,
-                MedicalHistory = p.MedicalHistory,
-                Allergies = p.Allergies,
-                CreatedAt = p.CreatedAt,
-                Flags = p.Flags.Select(f => new PatientFlagDto
-                {
-                    Id = f.Id,
-                    FlagType = f.FlagType.ToString(),
-                    Description = f.Description,
-                    Notes = f.Notes,
-                    IsActive = f.IsActive
-                }).ToList()
-            }).ToList();
+            var dtos = patients.Select(p => p.ToDto()).ToList();
 
             return Result<IEnumerable<PatientDto>>.Success(dtos);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             return Result<IEnumerable<PatientDto>>.Failure($"Error retrieving patients: {ex.Message}");
         }

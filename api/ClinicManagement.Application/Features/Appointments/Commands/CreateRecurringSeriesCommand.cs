@@ -1,4 +1,5 @@
 using MediatR;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -225,7 +226,7 @@ public class CreateRecurringSeriesCommandHandler : IRequestHandler<CreateRecurri
                 Conflicts = conflicts
             });
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             return Result<RecurringSeriesResultDto>.Failure($"Erreur lors de la création de la série récurrente : {ex.Message}");
         }

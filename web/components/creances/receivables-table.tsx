@@ -1,6 +1,8 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
+import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
+import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { Loader2, HandCoins } from "lucide-react"
@@ -17,6 +19,14 @@ export function ReceivablesTable() {
   const [rows, setRows] = useState<ReceivableDto[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // Bumped by a realtime event to re-run the load below. « Créances » is a debt list a colleague settles
+  // from another screen; without this it kept showing balances that had already been paid.
+  const [reloadKey, setReloadKey] = useState(0)
+
+  useClinicRealtime(
+    [RealtimeResource.Invoices, RealtimeResource.TreatmentPlans],
+    useCallback(() => setReloadKey((k) => k + 1), []),
+  )
 
   useEffect(() => {
     let active = true
@@ -40,7 +50,7 @@ export function ReceivablesTable() {
     return () => {
       active = false
     }
-  }, [])
+  }, [reloadKey])
 
   const total = rows.reduce((sum, r) => sum + r.totalOutstanding, 0)
 

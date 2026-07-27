@@ -85,6 +85,12 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
                     b.HasKey("Id");
 
                     b.HasIndex("ClinicId");
@@ -187,6 +193,12 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasColumnType("decimal(5,2)")
                         .HasDefaultValue(7m);
 
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
                     b.Property<string>("WorkingHoursJson")
                         .HasColumnType("text");
 
@@ -231,6 +243,12 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
 
                     b.Property<string>("WhatsAppAccessTokenEncrypted")
                         .HasColumnType("text");
@@ -297,6 +315,12 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<decimal>("Value")
                         .HasColumnType("decimal(18,3)");
 
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
                     b.HasKey("Id");
 
                     b.HasIndex("ClinicId", "LettreCle")
@@ -348,6 +372,12 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
                     b.HasKey("Id");
 
                     b.HasIndex("ClinicId", "CodeActe")
@@ -391,6 +421,12 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                     b.Property<DateTime>("RefundedOn")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
 
                     b.HasKey("Id");
 
@@ -453,6 +489,12 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
                     b.HasKey("Id");
 
                     b.HasIndex("ClinicId", "CodeActe")
@@ -499,6 +541,12 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
 
                     b.HasKey("Id");
 
@@ -550,6 +598,12 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<decimal?>("UnitCost")
                         .HasColumnType("decimal(18,3)");
 
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
                     b.HasKey("Id");
 
                     b.HasIndex("DentalRecordId");
@@ -570,6 +624,12 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                     b.Property<int>("ToothNumber")
                         .HasColumnType("integer");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
 
                     b.HasKey("Id");
 
@@ -636,6 +696,12 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
                     b.Property<string>("WorkingHoursJson")
                         .HasColumnType("text");
 
@@ -682,6 +748,12 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
                     b.HasKey("Id");
 
                     b.HasIndex("ClinicId", "ExpenseDate");
@@ -712,11 +784,75 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<Guid>("TreatmentPlanId")
                         .HasColumnType("uuid");
 
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
                     b.HasKey("Id");
+
+                    b.HasIndex("DueDate");
 
                     b.HasIndex("TreatmentPlanId");
 
                     b.ToTable("Installments", (string)null);
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.InstallmentPayment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Amount")
+                        .HasColumnType("decimal(18,3)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("InstallmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsVoided")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<int>("Method")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("PaidOn")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<string>("VoidReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<DateTime?>("VoidedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("VoidedByName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("VoidedByUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("InstallmentId");
+
+                    b.HasIndex("PaidOn")
+                        .HasFilter("NOT \"IsVoided\"");
+
+                    b.ToTable("InstallmentPayments", (string)null);
                 });
 
             modelBuilder.Entity("ClinicManagement.Domain.Entities.Invoice", b =>
@@ -819,6 +955,12 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<decimal>("VatRate")
                         .HasColumnType("decimal(5,2)");
 
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
                     b.HasKey("Id");
 
                     b.HasIndex("PatientId");
@@ -865,6 +1007,12 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                     b.Property<decimal>("UnitPriceHt")
                         .HasColumnType("decimal(18,3)");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
 
                     b.HasKey("Id");
 
@@ -918,6 +1066,12 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
 
                     b.Property<string>("WorkDescription")
                         .IsRequired()
@@ -1011,6 +1165,12 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
                     b.HasKey("Id");
 
                     b.HasIndex("AppointmentId");
@@ -1055,6 +1215,12 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
                     b.HasKey("Id");
 
                     b.HasIndex("ClinicId", "BrandName");
@@ -1077,6 +1243,12 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                     b.Property<Guid>("MedicationId")
                         .HasColumnType("uuid");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
 
                     b.HasKey("Id");
 
@@ -1133,6 +1305,12 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<int>("Type")
                         .HasColumnType("integer");
 
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
                     b.HasKey("Id");
 
                     b.HasIndex("AppointmentId");
@@ -1169,6 +1347,13 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<string>("Allergies")
                         .HasColumnType("text");
 
+                    b.Property<string>("ArchiveReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime?>("ArchivedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<Guid>("ClinicId")
                         .HasColumnType("uuid");
 
@@ -1192,6 +1377,11 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
 
+                    b.Property<bool>("IsArchived")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<string>("LastName")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -1213,9 +1403,15 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
                     b.HasKey("Id");
 
-                    b.HasIndex("ClinicId");
+                    b.HasIndex("ClinicId", "IsArchived");
 
                     b.ToTable("Patients", (string)null);
                 });
@@ -1248,6 +1444,12 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
 
                     b.HasKey("Id");
 
@@ -1299,6 +1501,12 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
                     b.HasKey("Id");
 
                     b.HasIndex("FolderId");
@@ -1335,6 +1543,12 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<Guid>("PatientId")
                         .HasColumnType("uuid");
 
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
                     b.HasKey("Id");
 
                     b.HasIndex("PatientId");
@@ -1363,6 +1577,12 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
 
                     b.HasKey("Id");
 
@@ -1400,6 +1620,12 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
                     b.HasKey("Id");
 
                     b.HasIndex("PatientId");
@@ -1421,15 +1647,47 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<Guid>("InvoiceId")
                         .HasColumnType("uuid");
 
+                    b.Property<bool>("IsVoided")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<int>("Method")
                         .HasColumnType("integer");
 
                     b.Property<DateTime>("PaidOn")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<Guid?>("SourceInstallmentPaymentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<string>("VoidReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<DateTime?>("VoidedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("VoidedByName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("VoidedByUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("InvoiceId");
+
+                    b.HasIndex("InvoiceId", "PaidOn")
+                        .HasFilter("NOT \"IsVoided\"");
 
                     b.ToTable("Payments", (string)null);
                 });
@@ -1470,6 +1728,12 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
 
                     b.HasKey("Id");
 
@@ -1529,6 +1793,12 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<DateTime>("StartDate")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
                     b.HasKey("Id");
 
                     b.HasIndex("ClinicId");
@@ -1580,6 +1850,12 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
 
                     b.HasKey("Id");
 
@@ -1652,6 +1928,12 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
                     b.HasKey("Id");
 
                     b.HasIndex("ClinicId");
@@ -1685,6 +1967,12 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                     b.Property<int>("Type")
                         .HasColumnType("integer");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
 
                     b.HasKey("Id");
 
@@ -1726,6 +2014,12 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                     b.Property<DateTime>("TreatmentDate")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
 
                     b.HasKey("Id");
 
@@ -1784,6 +2078,12 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
                     b.HasKey("Id");
 
                     b.HasIndex("ClinicId", "Number")
@@ -1838,6 +2138,12 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                     b.Property<Guid>("TreatmentPlanId")
                         .HasColumnType("uuid");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
 
                     b.HasKey("Id");
 
@@ -1896,13 +2202,14 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 
-                    b.Property<int>("TokenVersion")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(0);
-
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
 
                     b.HasKey("Id");
 
@@ -1954,6 +2261,12 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
                     b.HasKey("Id");
 
                     b.HasIndex("PatientId");
@@ -1979,7 +2292,7 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.HasOne("ClinicManagement.Domain.Entities.Patient", "Patient")
                         .WithMany("Appointments")
                         .HasForeignKey("PatientId")
-                        .OnDelete(DeleteBehavior.Cascade);
+                        .OnDelete(DeleteBehavior.SetNull);
 
                     b.HasOne("ClinicManagement.Domain.Entities.ProcedureType", "ProcedureType")
                         .WithMany("Appointments")
@@ -2091,6 +2404,15 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.InstallmentPayment", b =>
+                {
+                    b.HasOne("ClinicManagement.Domain.Entities.Installment", null)
+                        .WithMany("Payments")
+                        .HasForeignKey("InstallmentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("ClinicManagement.Domain.Entities.InvoiceLine", b =>
                 {
                     b.HasOne("ClinicManagement.Domain.Entities.Invoice", null)
@@ -2182,45 +2504,7 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.OwnsOne("ClinicManagement.Domain.ValueObjects.PhoneNumber", "EmergencyContactPhone", b1 =>
-                        {
-                            b1.Property<Guid>("PatientId")
-                                .HasColumnType("uuid");
-
-                            b1.Property<string>("Value")
-                                .IsRequired()
-                                .HasMaxLength(20)
-                                .HasColumnType("character varying(20)")
-                                .HasColumnName("EmergencyContactPhone");
-
-                            b1.HasKey("PatientId");
-
-                            b1.ToTable("Patients");
-
-                            b1.WithOwner()
-                                .HasForeignKey("PatientId");
-                        });
-
-                    b.OwnsOne("ClinicManagement.Domain.ValueObjects.PhoneNumber", "PhoneNumber", b1 =>
-                        {
-                            b1.Property<Guid>("PatientId")
-                                .HasColumnType("uuid");
-
-                            b1.Property<string>("Value")
-                                .IsRequired()
-                                .HasMaxLength(20)
-                                .HasColumnType("character varying(20)")
-                                .HasColumnName("PhoneNumber");
-
-                            b1.HasKey("PatientId");
-
-                            b1.ToTable("Patients");
-
-                            b1.WithOwner()
-                                .HasForeignKey("PatientId");
-                        });
-
-                    b.OwnsOne("ClinicManagement.Domain.ValueObjects.Address", "Address", b1 =>
+                    b.OwnsOne("ClinicManagement.Domain.Entities.Patient.Address#ClinicManagement.Domain.ValueObjects.Address", "Address", b1 =>
                         {
                             b1.Property<Guid>("PatientId")
                                 .HasColumnType("uuid");
@@ -2256,13 +2540,13 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                             b1.HasKey("PatientId");
 
-                            b1.ToTable("Patients");
+                            b1.ToTable("Patients", (string)null);
 
                             b1.WithOwner()
                                 .HasForeignKey("PatientId");
                         });
 
-                    b.OwnsOne("ClinicManagement.Domain.ValueObjects.CnamInfo", "CnamInfo", b1 =>
+                    b.OwnsOne("ClinicManagement.Domain.Entities.Patient.CnamInfo#ClinicManagement.Domain.ValueObjects.CnamInfo", "CnamInfo", b1 =>
                         {
                             b1.Property<Guid>("PatientId")
                                 .HasColumnType("uuid");
@@ -2309,13 +2593,13 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                             b1.HasKey("PatientId");
 
-                            b1.ToTable("Patients");
+                            b1.ToTable("Patients", (string)null);
 
                             b1.WithOwner()
                                 .HasForeignKey("PatientId");
                         });
 
-                    b.OwnsOne("ClinicManagement.Domain.ValueObjects.Email", "Email", b1 =>
+                    b.OwnsOne("ClinicManagement.Domain.Entities.Patient.Email#ClinicManagement.Domain.ValueObjects.Email", "Email", b1 =>
                         {
                             b1.Property<Guid>("PatientId")
                                 .HasColumnType("uuid");
@@ -2328,13 +2612,32 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                             b1.HasKey("PatientId");
 
-                            b1.ToTable("Patients");
+                            b1.ToTable("Patients", (string)null);
 
                             b1.WithOwner()
                                 .HasForeignKey("PatientId");
                         });
 
-                    b.OwnsOne("ClinicManagement.Domain.ValueObjects.InsuranceInfo", "InsuranceInfo", b1 =>
+                    b.OwnsOne("ClinicManagement.Domain.Entities.Patient.EmergencyContactPhone#ClinicManagement.Domain.ValueObjects.PhoneNumber", "EmergencyContactPhone", b1 =>
+                        {
+                            b1.Property<Guid>("PatientId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<string>("Value")
+                                .IsRequired()
+                                .HasMaxLength(20)
+                                .HasColumnType("character varying(20)")
+                                .HasColumnName("EmergencyContactPhone");
+
+                            b1.HasKey("PatientId");
+
+                            b1.ToTable("Patients", (string)null);
+
+                            b1.WithOwner()
+                                .HasForeignKey("PatientId");
+                        });
+
+                    b.OwnsOne("ClinicManagement.Domain.Entities.Patient.InsuranceInfo#ClinicManagement.Domain.ValueObjects.InsuranceInfo", "InsuranceInfo", b1 =>
                         {
                             b1.Property<Guid>("PatientId")
                                 .HasColumnType("uuid");
@@ -2362,7 +2665,26 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                             b1.HasKey("PatientId");
 
-                            b1.ToTable("Patients");
+                            b1.ToTable("Patients", (string)null);
+
+                            b1.WithOwner()
+                                .HasForeignKey("PatientId");
+                        });
+
+                    b.OwnsOne("ClinicManagement.Domain.Entities.Patient.PhoneNumber#ClinicManagement.Domain.ValueObjects.PhoneNumber", "PhoneNumber", b1 =>
+                        {
+                            b1.Property<Guid>("PatientId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<string>("Value")
+                                .IsRequired()
+                                .HasMaxLength(20)
+                                .HasColumnType("character varying(20)")
+                                .HasColumnName("PhoneNumber");
+
+                            b1.HasKey("PatientId");
+
+                            b1.ToTable("Patients", (string)null);
 
                             b1.WithOwner()
                                 .HasForeignKey("PatientId");
@@ -2374,15 +2696,13 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                     b.Navigation("CnamInfo");
 
-                    b.Navigation("Email")
-                        .IsRequired();
+                    b.Navigation("Email");
 
                     b.Navigation("EmergencyContactPhone");
 
                     b.Navigation("InsuranceInfo");
 
-                    b.Navigation("PhoneNumber")
-                        .IsRequired();
+                    b.Navigation("PhoneNumber");
                 });
 
             modelBuilder.Entity("ClinicManagement.Domain.Entities.PatientFamilyHistory", b =>
@@ -2465,7 +2785,7 @@ namespace ClinicManagement.Infrastructure.Migrations
 
             modelBuilder.Entity("ClinicManagement.Domain.Entities.ProcedureType", b =>
                 {
-                    b.OwnsOne("ClinicManagement.Domain.ValueObjects.ColorHex", "Color", b1 =>
+                    b.OwnsOne("ClinicManagement.Domain.Entities.ProcedureType.Color#ClinicManagement.Domain.ValueObjects.ColorHex", "Color", b1 =>
                         {
                             b1.Property<Guid>("ProcedureTypeId")
                                 .HasColumnType("uuid");
@@ -2478,7 +2798,7 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                             b1.HasKey("ProcedureTypeId");
 
-                            b1.ToTable("ProcedureTypes");
+                            b1.ToTable("ProcedureTypes", (string)null);
 
                             b1.WithOwner()
                                 .HasForeignKey("ProcedureTypeId");
@@ -2588,6 +2908,11 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Navigation("Acts");
 
                     b.Navigation("Teeth");
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.Installment", b =>
+                {
+                    b.Navigation("Payments");
                 });
 
             modelBuilder.Entity("ClinicManagement.Domain.Entities.Invoice", b =>
