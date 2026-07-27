@@ -1,4 +1,5 @@
 import { HubConnection, HubConnectionBuilder, LogLevel } from "@microsoft/signalr"
+import { getAccessToken } from "@/lib/api/client"
 
 /**
  * Server → client event name (mirrors ClinicHub.EntityChanged on the API). Carries one argument: the
@@ -44,18 +45,17 @@ function resolveHubUrl(): string | null {
 }
 
 /**
- * Fetches the bearer token the same way `lib/api/client.ts` does (mode-aware: Auth0 access token in
- * cloud, the local JWT from the cookie in local). SignalR sends it as the `Authorization` header on
- * the negotiate request and as the `access_token` query param on the WebSocket handshake — the API
- * honors both for `/hub` paths.
+ * Fetches the bearer token through the shared `lib/api/client.ts` helper (mode-aware: Auth0 access token in
+ * cloud, the local JWT in local). SignalR sends it as the `Authorization` header on the negotiate request and
+ * as the `access_token` query param on the WebSocket handshake — the API honors both for `/hub` paths.
+ *
+ * Routed through the shared helper rather than fetching directly so that when tokens become short-lived and
+ * renewable, the hub renews by the same path as every REST call (security-hardening R-4). SignalR invokes
+ * `accessTokenFactory` on every (re)connect, so a reconnect naturally picks up a fresh token.
  */
 async function fetchAccessToken(): Promise<string> {
   try {
-    const response = await fetch("/bff/auth/token", { credentials: "include" })
-    if (response.ok) {
-      const data = await response.json()
-      return data.accessToken || ""
-    }
+    return (await getAccessToken()) ?? ""
   } catch {
     // Token endpoint unavailable — the connection attempt will fail and be retried.
   }

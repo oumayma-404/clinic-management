@@ -463,7 +463,7 @@ public class NotificationGenerationTests
             appointments.Object, patients.Object, new Mock<IDoctorRepository>().Object, procedures.Object,
             new Mock<ITreatmentPlanRepository>().Object, users.Object,
             context.Object, uow.Object, gen.Object,
-            new Mock<IReminderScheduler>().Object, new Mock<IAppointmentGoogleSyncDispatcher>().Object);
+            new Mock<IReminderScheduler>().Object, new Mock<IAppointmentGoogleSyncDispatcher>().Object, NullLogger<CreateAppointmentCommandHandler>.Instance);
         return (handler, gen);
     }
 

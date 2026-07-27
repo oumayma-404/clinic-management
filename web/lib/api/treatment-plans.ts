@@ -1,20 +1,7 @@
-import { apiGet, apiPost, apiPut, apiDelete } from './client';
+import { apiGet, apiPost, apiPut, apiDelete, getAccessToken } from './client';
 import type { TreatmentPlanDto } from './types';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
-
-async function getAccessToken(): Promise<string | null> {
-  try {
-    const response = await fetch('/bff/auth/token', { credentials: 'include' });
-    if (response.ok) {
-      const data = await response.json();
-      return data.accessToken || null;
-    }
-  } catch {
-    // Token endpoint unavailable
-  }
-  return null;
-}
 
 export interface TreatmentPlanItemInput {
   /**

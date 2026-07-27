@@ -174,6 +174,9 @@ public class ClinicsController : ApiControllerBase
     /// <summary>
     /// Update doctors for the current user's clinic
     /// </summary>
+    // Admin-only: rewriting the practitioner roster is clinic-wide configuration, and it was reachable by any
+    // authenticated user including a secretary (audit § 2, finding 8).
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
     [HttpPut("doctors")]
     public async Task<IActionResult> UpdateDoctors([FromBody] UpdateDoctorsRequest request)
     {

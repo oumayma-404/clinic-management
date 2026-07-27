@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using MediatR;
+using ClinicManagement.Application.Common.Authorization;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Recall.Commands;
 using ClinicManagement.Application.Features.Recall.Queries;
@@ -39,7 +40,11 @@ public class RecallController : ApiControllerBase
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
     }
 
-    /// <summary>Set the clinic recall interval (months).</summary>
+    /// <summary>Set the clinic recall interval (months). Admin-only — clinic-wide configuration.</summary>
+    // Finally matches this endpoint's own doc comment, which claimed "Admin-editable" while enforcing nothing
+    // (audit § 2, finding 8). The recall LIST and the per-patient actions below stay open to all staff —
+    // those are day-to-day work, not configuration.
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
     [HttpPut("settings")]
     public async Task<ActionResult<RecallSettingsDto>> SetSettings([FromBody] SetRecallSettingsCommand command)
     {

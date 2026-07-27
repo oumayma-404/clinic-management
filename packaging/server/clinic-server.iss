@@ -46,10 +46,17 @@ PrivilegesRequired=admin
 ; AppContext.BaseDirectory by the API — R-6), so a service whose CWD is System32 still finds them.
 
 [Dirs]
-Name: "{app}\api\.local"; Permissions: service-modify
-Name: "{app}\api\Files"; Permissions: service-modify
-Name: "{app}\api\logs";  Permissions: service-modify
-Name: "{app}\pgdata";    Permissions: service-modify
+; Permissions are deliberately NOT set here any more. Inno's `Permissions:` flag only ADDS an ACE and leaves
+; the inherited "Users: Read & Execute" from Program Files fully intact -- which is exactly the defect this
+; release fixes (audit section 2, findings 2-3: the JWT signing key, the HTTPS server key, the Data
+; Protection key ring, the e-invoice certificate and every uploaded radiograph were readable by every local
+; account). The directories are created here and SECURED after install by the API's `harden-permissions`
+; console verb, which breaks inheritance and removes Users/Everyone -- one testable implementation, shared
+; with the one-click backup so the two cannot drift.
+Name: "{app}\api\.local"
+Name: "{app}\api\Files"
+Name: "{app}\api\logs"
+Name: "{app}\pgdata"
 Name: "{commonappdata}\ClinicManagement"
 
 [Files]
@@ -82,6 +89,7 @@ Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=
 var
   DbPassword: string;       { clinic_user login password (also baked into the connection string) }
   PgSuperPassword: string;   { postgres superuser password (scram-sha-256, Finding 10) }
+  LastVerbOutput: AnsiString; { stdout+stderr of the most recent API console verb, for operator messages }
 
 { OS CSPRNG (bcrypt.dll) — replaces Inno's non-cryptographic, unseeded Random for generated secrets
   (Finding 12). BCRYPT_USE_SYSTEM_PREFERRED_RNG = 2; hAlgorithm = NULL (0). Returns STATUS_SUCCESS (0). }
@@ -92,6 +100,80 @@ function BCryptGenRandom(hAlgorithm: Cardinal; pbBuffer: AnsiString; cbBuffer: C
 function RunWait(const FileName, Params, WorkingDir: string; var ResultCode: Integer): Boolean;
 begin
   Result := Exec(FileName, Params, WorkingDir, SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
+end;
+
+// Full path to the published API executable, which also hosts the Local console verbs used below
+// (harden-permissions, protect-credentials, read-credentials) alongside provision-cert.
+function ApiExecutable: string;
+begin
+  Result := ExpandConstant('{app}\api\ClinicManagement.API.exe');
+end;
+
+// Run an API console verb hidden, CAPTURING stdout+stderr so the verb's own French message can be shown to
+// the operator instead of a bare exit code (Finding 5 -- surface the real reason, never just a code).
+// Returns True on exit code 0; the captured output is left in LastVerbOutput either way.
+function RunApiVerbQuiet(const Params: string): Boolean;
+var
+  Rc: Integer;
+  LogFile, CmdLine: string;
+begin
+  Result := False;
+  LastVerbOutput := '';
+  LogFile := ExpandConstant('{tmp}\api-verb.log');
+
+  // Wrapped in cmd.exe so the redirection applies. The nested quoting needs the outer "" cmd /C wrapper --
+  // the same shape the initdb invocation below uses.
+  CmdLine := '/C ""' + ApiExecutable + '" ' + Params + ' > "' + LogFile + '" 2>&1"';
+
+  if not Exec(ExpandConstant('{sys}\cmd.exe'), CmdLine, ExpandConstant('{app}\api'),
+              SW_HIDE, ewWaitUntilTerminated, Rc) then
+  begin
+    LastVerbOutput := 'Impossible de lancer ' + ApiExecutable;
+    Exit;
+  end;
+
+  LoadStringFromFile(LogFile, LastVerbOutput);
+  DeleteFile(LogFile);
+  Result := (Rc = 0);
+end;
+
+// As RunApiVerbQuiet, but reports the failure to the operator. For steps that MUST abort the install: a
+// permission or encryption step that cannot be applied has to fail loud, never silently leave patient data
+// readable or passwords in cleartext (spec AC-1.4 / AC-2.9).
+function RunApiVerb(const Params, StepDescription: string): Boolean;
+begin
+  Result := RunApiVerbQuiet(Params);
+  if not Result then
+    MsgBox('Échec de ' + StepDescription + '.' + #13#10#13#10 +
+           'Détail :' + #13#10 + String(LastVerbOutput) + #13#10#13#10 +
+           'Installation interrompue.', mbError, MB_OK);
+end;
+
+// Secure one or more already-quoted directory paths: inheritance broken, access reserved to the service
+// account / LocalSystem / Administrators, and any grant to the local Users group or Everyone removed
+// recursively. Delegates to the API so the policy has exactly one (unit-tested) implementation.
+function HardenDirectories(const QuotedPaths, StepDescription: string): Boolean;
+begin
+  Result := RunApiVerb('harden-permissions ' + QuotedPaths, StepDescription);
+end;
+
+function Quoted(const Path: string): string;
+begin
+  Result := '"' + Path + '"';
+end;
+
+// The console verbs refuse to run outside Local mode, and Auth:Mode=Local is set by the generated
+// appsettings.Production.json -- which WriteProductionConfig cannot produce until the DB password exists.
+// So make sure a minimal Local-mode overlay is present BEFORE the first verb call. On a reinstall the full
+// file already survives from the previous install and this is a no-op; WriteProductionConfig overwrites it
+// with the complete configuration later either way.
+procedure EnsureLocalModeConfig;
+var
+  CfgPath: string;
+begin
+  CfgPath := ExpandConstant('{app}\api\appsettings.Production.json');
+  if not FileExists(CfgPath) then
+    SaveStringToFile(CfgPath, '{ "Auth": { "Mode": "Local" } }' + #13#10, False);
 end;
 
 { Cryptographically-random 24-char password over an unambiguous alphabet. Sourced from the OS CSPRNG so it
@@ -134,9 +216,9 @@ end;
     generating new passwords would not match the existing cluster (recovery is documented in the README). }
 function EstablishDbCredentials: Boolean;
 var
-  CredFile, PgData: string;
+  CredFile, PgData, PlainFile: string;
   Lines: TArrayOfString;
-  ClusterExists: Boolean;
+  ClusterExists, Recovered: Boolean;
 begin
   Result := False;
   CredFile := DbCredentialsFile;
@@ -145,17 +227,36 @@ begin
 
   if FileExists(CredFile) then
   begin
-    { Reuse persisted credentials when the file has two non-empty lines. The index access is nested under
-      the length guard because Inno's Pascal Script does not guarantee short-circuit boolean evaluation. }
-    if LoadStringsFromFile(CredFile, Lines) and (GetArrayLength(Lines) >= 2) then
+    // The persisted file is ENCRYPTED (machine-scoped) as of this release, so it can no longer be read
+    // directly -- the read-credentials verb decrypts it to a temp file we delete immediately, mirroring the
+    // existing pg-super.pw pattern. The verb also accepts a legacy PLAINTEXT file written by an earlier
+    // installer and migrates it to the encrypted form in the same pass (spec AC-3.3), so an upgrade over an
+    // existing install is remediated rather than left as-is.
+    Recovered := False;
+    PlainFile := ExpandConstant('{tmp}\db-credentials.plain');
+
+    if RunApiVerbQuiet('read-credentials --out ' + Quoted(PlainFile)) then
     begin
-      if (Trim(Lines[0]) <> '') and (Trim(Lines[1]) <> '') then
+      { The index access is nested under the length guard because Inno's Pascal Script does not guarantee
+        short-circuit boolean evaluation. }
+      if LoadStringsFromFile(PlainFile, Lines) and (GetArrayLength(Lines) >= 2) then
       begin
-        DbPassword      := Trim(Lines[0]);
-        PgSuperPassword := Trim(Lines[1]);
-        Result := True;
-        Exit;
+        if (Trim(Lines[0]) <> '') and (Trim(Lines[1]) <> '') then
+        begin
+          DbPassword      := Trim(Lines[0]);
+          PgSuperPassword := Trim(Lines[1]);
+          Recovered := True;
+        end;
       end;
+    end;
+
+    { Delete the decrypted copy whether or not it parsed -- it must never outlive this function. }
+    DeleteFile(PlainFile);
+
+    if Recovered then
+    begin
+      Result := True;
+      Exit;
     end;
     { File present but unreadable/corrupt: if a cluster also exists we cannot recover the real passwords. }
     if ClusterExists then
@@ -184,12 +285,26 @@ begin
   DbPassword      := NewRandomPassword;
   PgSuperPassword := NewRandomPassword;
   ForceDirectories(ExpandConstant('{app}\api\.local'));
+
+  // Secure the secrets directory BEFORE the plaintext passwords are written into it, so they are never
+  // readable by another local account -- not even for the few milliseconds between write and encryption.
+  if not HardenDirectories(Quoted(ExpandConstant('{app}\api\.local')),
+                           'la sécurisation du dossier des secrets') then
+    Exit;
+
   if not SaveStringToFile(CredFile, DbPassword + #13#10 + PgSuperPassword + #13#10, False) then
   begin
     MsgBox('Impossible d''écrire le fichier d''identifiants de la base (' + CredFile + '). ' +
            'Installation interrompue.', mbError, MB_OK);
     Exit;
   end;
+
+  // Encrypt the credentials file at rest (machine-scoped, via the same Data Protection key ring the API
+  // uses) so a stolen disk or a copy of the install folder yields no PostgreSQL passwords -- audit
+  // section 2 finding 4. Fails loud: a credentials file left in cleartext is the defect, not a warning.
+  if not RunApiVerb('protect-credentials', 'le chiffrement des identifiants de la base') then
+    Exit;
+
   Result := True;
 end;
 
@@ -277,11 +392,26 @@ begin
     begin
       LogText := '';
       LoadStringFromFile(InitLog, LogText);
+
+      // AC-1.7: revoke the Users grant on the FAILURE path too. An aborted install must not leave the
+      // cluster directory world-readable while the operator believes the install simply failed cleanly.
+      // Best-effort here (the install is already aborting; a message about permissions on top of the real
+      // initdb error would only obscure it), but it must be attempted.
+      HardenDirectories(Quoted(PgData), 'la sécurisation du dossier de la base');
+
       MsgBox('Échec de l''initialisation de PostgreSQL (initdb, code ' + IntToStr(Rc) + ').' + #13#10#13#10 +
              'Détail :' + #13#10 + LogText + #13#10#13#10 +
              'Journal complet : ' + InitLog + #13#10 + 'Installation interrompue.', mbError, MB_OK);
       Exit;
     end;
+
+    // AC-1.2: initdb has finished, so the Full Control that BUILTIN\Users needed in order to run it is
+    // revoked IMMEDIATELY -- the grant is scoped to the one step that genuinely requires it. This is the
+    // headline P0: it was previously never taken away, leaving every local account read/write over the
+    // whole cluster holding all patient records. Because that grant was inheritable, removing it here also
+    // clears it from everything initdb created (AC-1.3).
+    if not HardenDirectories(Quoted(PgData), 'la sécurisation du dossier de la base') then
+      Exit;
   end;
 
   { Register as an auto-start service (bind loopback only — the DB is never LAN-facing). Tolerate
@@ -439,8 +569,10 @@ begin
   Exec(ExpandConstant('{sys}\sc.exe'), 'start {#ServiceWeb}', '', SW_HIDE, ewWaitUntilTerminated, Rc);
   Exec(ExpandConstant('{sys}\sc.exe'), 'start {#ServiceApi}', '', SW_HIDE, ewWaitUntilTerminated, Rc);
 
-  { The API writes .local/ next to its own exe (AppContext.BaseDirectory = {app}\api), so the CA is at
-    {app}\api\.local\ca.crt — NOT {app}\.local\ca.crt (which left %ProgramData%\...\ca.crt empty). }
+  // The API writes .local/ next to its own exe (AppContext.BaseDirectory = {app}\api), so the CA is at
+  // {app}\api\.local\ca.crt -- NOT {app}\.local\ca.crt (which left %ProgramData%\...\ca.crt empty).
+  // NOTE: this must stay a // comment. Inno's Pascal { } comments do not nest, so the first } -- the one
+  // closing {app} -- would terminate the comment early and leave the rest of the line as code.
   CaSrc := ExpandConstant('{app}\api\.local\ca.crt');
   CaDst := ExpandConstant('{commonappdata}\ClinicManagement\ca.crt');
 
@@ -460,10 +592,40 @@ begin
            mbInformation, MB_OK);
 end;
 
+// Secure every directory holding patient data or per-install secrets, and remove the initdb transcript.
+// Runs BEFORE the services are registered/started so the API service never observes a permissive state.
+// Idempotent, so it also remediates an install created by an earlier installer version (spec AC-1.6 /
+// AC-2.7 -- the upgrade path, which is how most existing clinics will receive this fix).
+function HardenInstallDirectories: Boolean;
+var
+  Paths, InitLog: string;
+begin
+  Paths := Quoted(ExpandConstant('{app}\api\.local')) + ' ' +
+           Quoted(ExpandConstant('{app}\api\Files')) + ' ' +
+           Quoted(ExpandConstant('{app}\api\logs')) + ' ' +
+           Quoted(ExpandConstant('{app}\pgdata'));
+
+  Result := HardenDirectories(Paths, 'la sécurisation des droits d''accès aux données');
+  if not Result then
+    Exit;
+
+  // AC-2.8: initdb's transcript is written into the install root, which stays readable by every local
+  // account (only the four directories above are secured). It has served its purpose once the install
+  // succeeds, and it can echo cluster detail, so remove it rather than leave it exposed.
+  InitLog := ExpandConstant('{app}\initdb.log');
+  if FileExists(InitLog) then
+    DeleteFile(InitLog);
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
   begin
+    // The console verbs invoked from here refuse to run outside Local mode, and Auth:Mode=Local lives in the
+    // generated appsettings.Production.json -- which WriteProductionConfig cannot write until the DB
+    // password exists. Seed a minimal Local overlay first so the ordering works on a fresh install.
+    EnsureLocalModeConfig;
+
     { Establish DB credentials FIRST — generate + persist on a fresh install, reuse on reinstall over an
       existing cluster. Abort (skip the rest) if it cannot proceed safely. Runs before WriteProductionConfig
       because the connection string bakes in DbPassword. The .local/ dir was already created by [Dirs]. }
@@ -473,6 +635,11 @@ begin
     WriteProductionConfig;
     if SetupPostgres then
     begin
+      // Secure the data directories before anything starts consuming them. Aborts the install on failure --
+      // completing with patient records readable by every local account is not an acceptable outcome.
+      if not HardenInstallDirectories then
+        Exit;
+
       SetupAppServices;
       OpenFirewall;
       StartAndExportCa;

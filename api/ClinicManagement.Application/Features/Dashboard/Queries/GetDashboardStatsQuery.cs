@@ -1,4 +1,5 @@
 using MediatR;
+using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Common.Interfaces;
@@ -34,6 +35,7 @@ public class GetDashboardStatsQueryHandler : IRequestHandler<GetDashboardStatsQu
     private readonly IInvoiceRepository _invoiceRepository;
     private readonly ITreatmentPlanRepository _planRepository;
     private readonly IClinicContext _clinicContext;
+    private readonly ILogger<GetDashboardStatsQueryHandler> _logger;
 
     public GetDashboardStatsQueryHandler(
         IAppointmentRepository appointmentRepository,
@@ -41,7 +43,8 @@ public class GetDashboardStatsQueryHandler : IRequestHandler<GetDashboardStatsQu
         IUserRepository userRepository,
         IInvoiceRepository invoiceRepository,
         ITreatmentPlanRepository planRepository,
-        IClinicContext clinicContext)
+        IClinicContext clinicContext,
+        ILogger<GetDashboardStatsQueryHandler> logger)
     {
         _appointmentRepository = appointmentRepository;
         _patientRepository = patientRepository;
@@ -49,6 +52,7 @@ public class GetDashboardStatsQueryHandler : IRequestHandler<GetDashboardStatsQu
         _invoiceRepository = invoiceRepository;
         _planRepository = planRepository;
         _clinicContext = clinicContext;
+        _logger = logger;
     }
 
     public async Task<Result<DashboardStatsDto>> Handle(GetDashboardStatsQuery request, CancellationToken cancellationToken)
@@ -123,7 +127,9 @@ public class GetDashboardStatsQueryHandler : IRequestHandler<GetDashboardStatsQu
         }
         catch (Exception ex)
         {
-            return Result<DashboardStatsDto>.Failure($"Error retrieving dashboard stats: {ex.Message}");
+            // AC-13.2: the detail goes to the log; the caller only ever sees French guidance.
+            _logger.LogError(ex, "Unhandled failure building dashboard stats");
+            return Result<DashboardStatsDto>.Failure("Erreur lors du chargement du tableau de bord. Veuillez réessayer.");
         }
     }
 

@@ -1,6 +1,7 @@
 using ClinicManagement.Application.Features.CnamNomenclature.Commands;
 using ClinicManagement.Application.Features.CnamNomenclature.Queries;
 using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -16,6 +17,18 @@ public class CnamVlcTests
 {
     private readonly Mock<ICnamCatalogRepository> _repo = new();
     private readonly Mock<IUnitOfWork> _uow = new();
+
+    private static readonly Guid ClinicId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+
+    // Catalogs are per-clinic, so the update command now resolves the caller's clinic from the DB and
+    // refuses a row belonging to another one (security-hardening P4.4, audit § 2 finding 10).
+    private readonly Mock<ICurrentClinicResolver> _clinicResolver = new();
+
+    public CnamVlcTests()
+    {
+        _clinicResolver.Setup(r => r.GetClinicIdAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ClinicManagement.Application.Common.Models.Result<Guid>.Success(ClinicId));
+    }
 
     // VLC-1
     [Fact]
@@ -42,10 +55,10 @@ public class CnamVlcTests
     [Fact]
     public async Task Update_By_Admin_Persists_New_Value() // [FR-5.2]
     {
-        var vlc = new CnamLetterValue(Guid.NewGuid(), Guid.NewGuid(), "D", 1.2m);
+        var vlc = new CnamLetterValue(Guid.NewGuid(), ClinicId, "D", 1.2m);
         _repo.Setup(r => r.GetLetterValueByIdAsync(vlc.Id, It.IsAny<CancellationToken>())).ReturnsAsync(vlc);
 
-        var handler = new UpdateCnamLetterValueCommandHandler(_repo.Object, _uow.Object, NullLogger<UpdateCnamLetterValueCommandHandler>.Instance);
+        var handler = new UpdateCnamLetterValueCommandHandler(_repo.Object, _clinicResolver.Object, _uow.Object, NullLogger<UpdateCnamLetterValueCommandHandler>.Instance);
         var result = await handler.Handle(new UpdateCnamLetterValueCommand { Id = vlc.Id, Value = 1.5m }, CancellationToken.None);
 
         Assert.True(result.IsSuccess);
@@ -60,7 +73,7 @@ public class CnamVlcTests
     {
         _repo.Setup(r => r.GetLetterValueByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync((CnamLetterValue?)null);
 
-        var handler = new UpdateCnamLetterValueCommandHandler(_repo.Object, _uow.Object, NullLogger<UpdateCnamLetterValueCommandHandler>.Instance);
+        var handler = new UpdateCnamLetterValueCommandHandler(_repo.Object, _clinicResolver.Object, _uow.Object, NullLogger<UpdateCnamLetterValueCommandHandler>.Instance);
         var result = await handler.Handle(new UpdateCnamLetterValueCommand { Id = Guid.NewGuid(), Value = 2m }, CancellationToken.None);
 
         Assert.True(result.IsFailure);

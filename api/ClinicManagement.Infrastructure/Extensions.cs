@@ -1,4 +1,3 @@
-using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -7,6 +6,7 @@ using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Infrastructure.Auth;
 using ClinicManagement.Infrastructure.Persistence;
 using ClinicManagement.Infrastructure.Repositories;
+using ClinicManagement.Infrastructure.Security;
 using ClinicManagement.Infrastructure.Services;
 using ClinicManagement.Infrastructure.Storage;
 using Microsoft.Extensions.Logging;
@@ -71,6 +71,10 @@ public static class Extensions
         // Local (offline) authentication service. Harmless in Cloud mode (only used by /api/auth/login).
         services.AddScoped<ILocalAuthService, LocalAuthService>();
 
+        // Per-(account, source) failed-login tracking (security-hardening US-4 / AC-4.2). Backed by the
+        // shared IMemoryCache registered above, so lockout state is transient by design — see the class.
+        services.AddScoped<ILoginAttemptTracker, LoginAttemptTracker>();
+
         // Auth0 Management Service — real in Cloud mode, no-op in Local mode (no Auth0 tenant).
         if (LocalAuthConfig.IsLocalMode(configuration))
         {
@@ -98,6 +102,32 @@ public static class Extensions
             var minioSecretKey = configuration["MinIO:SecretKey"];
             var minioBucketName = configuration["MinIO:BucketName"] ?? "clinic-files";
             var minioUseSSL = configuration.GetValue<bool>("MinIO:UseSSL", false);
+
+            // "Configured" means present AND not the published default — see MinioCredentials. Previously a
+            // mere non-empty check, so a Cloud deploy that forgot its env vars authenticated with
+            // minioadmin/minioadmin instead of failing loud (audit § 2, finding 11).
+            var minioConfigured = MinioCredentials.IsConfigured(minioEndpoint, minioAccessKey, minioSecretKey);
+
+            if (!minioConfigured)
+            {
+                var environmentName = configuration["ASPNETCORE_ENVIRONMENT"];
+
+                if (!MinioCredentials.TolerateUnconfigured(environmentName))
+                {
+                    // Fail loud at startup, consistent with how an empty DB connection string is treated.
+                    // Running on default credentials is the defect, not a warning.
+                    throw new InvalidOperationException(
+                        MinioCredentials.NotConfiguredMessage(minioAccessKey, minioSecretKey));
+                }
+
+                // Development only: the tracked appsettings.json is Cloud mode, docker-compose runs MinIO as
+                // minioadmin, and Development.json has no override — so failing here would break `dotnet run`
+                // on a fresh clone for every developer (AC-10.5). Warn once and carry on.
+                Console.Error.WriteLine(
+                    "[warn] MinIO is using default or missing credentials. Acceptable in Development only — "
+                    + "a non-Development environment will refuse to start. "
+                    + MinioCredentials.NotConfiguredMessage(minioAccessKey, minioSecretKey));
+            }
 
             if (!string.IsNullOrWhiteSpace(minioEndpoint) &&
                 !string.IsNullOrWhiteSpace(minioAccessKey) &&
@@ -132,31 +162,12 @@ public static class Extensions
             }
         }
 
-        // Per-clinic reminder secrets are encrypted at rest via ASP.NET Core Data Protection. The key ring is
-        // persisted to a mode-resolved directory so ciphertext survives restarts: Local → the gitignored
-        // per-install .local/ (via LocalInstallPaths); Cloud → an optional configured directory
-        // (DataProtection:KeyRingPath). If Cloud leaves it unset, keys use the framework default location
-        // (single-instance only — a multi-instance Cloud deployment must configure a shared key ring; ops note).
-        var dataProtection = services.AddDataProtection().SetApplicationName("ClinicManagement");
-        var isLocalMode = LocalAuthConfig.IsLocalMode(configuration);
-        var keyRingPath = isLocalMode
-            ? Path.Combine(LocalInstallPaths.LocalDir, "dataprotection-keys")
-            : configuration["DataProtection:KeyRingPath"];
-        if (!string.IsNullOrWhiteSpace(keyRingPath))
-        {
-            Directory.CreateDirectory(keyRingPath);
-            dataProtection.PersistKeysToFileSystem(new DirectoryInfo(keyRingPath));
-
-            // Encrypt the key ring itself at rest: supplying a custom key repository disables the framework's
-            // automatic key-at-rest protection, which would leave the master keys (that encrypt every clinic's
-            // credentials) in cleartext on disk. On the Local Windows install, protect them with machine-scoped
-            // DPAPI so a stolen/copied key-ring folder is useless off the host. DPAPI is Windows-only; a Cloud
-            // key ring at DataProtection:KeyRingPath relies on that directory's ACLs (ops responsibility).
-            if (isLocalMode && OperatingSystem.IsWindows())
-            {
-                dataProtection.ProtectKeysWithDpapi(protectToLocalMachine: true);
-            }
-        }
+        // Per-clinic reminder secrets — and the Local install's DB credentials file — are encrypted at rest
+        // via ASP.NET Core Data Protection. The key-ring configuration lives in ONE place
+        // (LocalDataProtection) because the Local console verbs must configure the identical key ring from
+        // outside this DI container; two definitions could drift and leave the installer writing ciphertext
+        // the API cannot read. See LocalDataProtection for the mode-resolved path and at-rest protection.
+        LocalDataProtection.AddConfiguredDataProtection(services, configuration);
         services.AddSingleton<IReminderSecretProtector, ReminderSecretProtector>();
 
         // SMS/WhatsApp appointment reminders (revives the dormant Notification outbox).
@@ -181,6 +192,10 @@ public static class Extensions
         // One-click backup (US-8 / FR-G): pg_dump + file-storage copy. Safe to register unconditionally —
         // only exercised by the admin-gated backup endpoint; on Cloud (no bundled pg_dump) a call fails
         // with a clear "pg_dump introuvable" error rather than doing anything.
+        // Directory-permission policy (security-hardening). Stateless, so a singleton. Shared by the Local
+        // `harden-permissions` console verb and the backup service, which must not diverge — a backup that
+        // is not access-restricted hands out an unprotected copy of everything the install protects.
+        services.AddSingleton<DirectoryAclHardener>();
         services.AddScoped<IBackupService, PgDumpBackupService>();
 
         // Per-clinic reference-catalog seeder (feature cloud-security-and-tenant-isolation, #5): clones the

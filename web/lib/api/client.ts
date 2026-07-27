@@ -40,6 +40,18 @@ async function handleResponse<T>(response: Response): Promise<T> {
     } catch {
       // If response is not JSON, use status text
     }
+
+    // Rate-limit refusals carry a French `{ error }` body from the API, so the branch above normally
+    // surfaces it. This is the safety net for a 429 whose body is missing or unparseable (e.g. refused by
+    // an intermediary): "HTTP 429: Too Many Requests" is not something to show a clinic
+    // (security-hardening AC-4.5).
+    if (response.status === 429 && errorMessage.startsWith('HTTP 429')) {
+      const retryAfter = Number(response.headers.get('retry-after'));
+      errorMessage = Number.isFinite(retryAfter) && retryAfter > 0
+        ? `Trop de tentatives. Veuillez réessayer dans ${Math.ceil(retryAfter / 60)} minute(s).`
+        : 'Trop de tentatives. Veuillez réessayer dans quelques minutes.';
+    }
+
     throw new ApiError(response.status, errorMessage);
   }
 
@@ -50,23 +62,61 @@ async function handleResponse<T>(response: Response): Promise<T> {
   return response.text() as unknown as T;
 }
 
-async function handleRequest<T>(requestFn: () => Promise<Response>): Promise<T> {
-  try {
-    const response = await requestFn();
-    return handleResponse<T>(response);
-  } catch (err) {
-    if (err instanceof TypeError && err.message.includes('fetch')) {
-      throw new ApiError(0, 'Network error: Unable to connect to the API. Please check if the API is running and CORS is configured correctly.', err);
+/**
+ * Sends a request with an access token and, on a 401, acquires a fresh token **once** and retries.
+ *
+ * Access tokens are short-lived (~30 min) and renewed silently from the HttpOnly cookie, so a page left open
+ * past expiry must not show the user an error: the first 401 is expected and the retry succeeds
+ * (security-hardening AC-5.7). Retrying exactly once is deliberate — a genuine 401 (revoked session,
+ * deactivated account, forced password change) must surface promptly rather than spin.
+ *
+ * The retry is skipped when the caller supplied its own token: that caller owns its lifecycle, and silently
+ * substituting a different one would be surprising.
+ *
+ * `requestFn` therefore takes the token as a parameter rather than closing over it — the retry has to be able
+ * to build the request again with a *different* token.
+ */
+async function handleRequest<T>(
+  accessToken: string | null | undefined,
+  requestFn: (token: string | null) => Promise<Response>,
+): Promise<T> {
+  const explicit = accessToken !== undefined;
+  let token = explicit ? accessToken! : await getAccessToken();
+
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await handleResponse<T>(await requestFn(token));
+    } catch (err) {
+      const canRetry = !explicit && attempt === 0 && err instanceof ApiError && err.status === 401;
+      if (canRetry) {
+        token = await getAccessToken();
+        continue;
+      }
+
+      if (err instanceof TypeError && err.message.includes('fetch')) {
+        throw new ApiError(0, 'Network error: Unable to connect to the API. Please check if the API is running and CORS is configured correctly.', err);
+      }
+      if (err instanceof ApiError) {
+        throw err;
+      }
+      throw new ApiError(0, err instanceof Error ? err.message : 'An unexpected error occurred', err);
     }
-    if (err instanceof ApiError) {
-      throw err;
-    }
-    throw new ApiError(0, err instanceof Error ? err.message : 'An unexpected error occurred', err);
   }
 }
 
-// Get Auth0 access token from client-side
-async function getAccessToken(): Promise<string | null> {
+/**
+ * The single place the app acquires an API access token (mode-aware: an Auth0 token in Cloud, the local
+ * JWT in Local).
+ *
+ * **Exported deliberately, and this must stay the only implementation.** Seven per-resource modules used to
+ * carry their own private copy of this fetch. That was harmless while the token lived 12 hours, but it
+ * becomes a real defect once tokens are short-lived and renewed: any copy that bypasses this helper keeps
+ * using an expired token and fails silently, surfacing to the user as a random unexplained error
+ * (security-hardening plan risk R-4). Renewal logic can only live in one place if acquisition does.
+ *
+ * If you need a token in a new module, import this — do not re-implement the fetch.
+ */
+export async function getAccessToken(): Promise<string | null> {
   try {
     const response = await fetch('/bff/auth/token', {
       credentials: 'include', // Include cookies for session
@@ -79,6 +129,12 @@ async function getAccessToken(): Promise<string | null> {
     // Token endpoint not available or error
   }
   return null;
+}
+
+
+// Auth-only headers for multipart uploads: Content-Type must be left unset so the browser adds the boundary.
+function formDataHeaders(accessToken: string | null): HeadersInit {
+  return accessToken ? { Authorization: `Bearer ${accessToken}` } : {};
 }
 
 // Create headers with optional auth token
@@ -110,10 +166,7 @@ export async function apiGet<T>(endpoint: string, params?: Record<string, any>, 
     });
   }
 
-  // If no token provided, try to get it automatically
-  const token = accessToken !== undefined ? accessToken : await getAccessToken();
-
-  return handleRequest<T>(() => fetch(url.toString(), {
+  return handleRequest<T>(accessToken, (token) => fetch(url.toString(), {
     method: 'GET',
     headers: createHeaders(token),
     credentials: 'include',
@@ -121,10 +174,7 @@ export async function apiGet<T>(endpoint: string, params?: Record<string, any>, 
 }
 
 export async function apiPost<T>(endpoint: string, data: any, accessToken?: string | null): Promise<T> {
-  // If no token provided, try to get it automatically
-  const token = accessToken !== undefined ? accessToken : await getAccessToken();
-
-  return handleRequest<T>(() => fetch(`${API_BASE_URL}${endpoint}`, {
+  return handleRequest<T>(accessToken, (token) => fetch(`${API_BASE_URL}${endpoint}`, {
     method: 'POST',
     headers: createHeaders(token),
     body: JSON.stringify(data),
@@ -133,10 +183,7 @@ export async function apiPost<T>(endpoint: string, data: any, accessToken?: stri
 }
 
 export async function apiPut<T>(endpoint: string, data: any, accessToken?: string | null): Promise<T> {
-  // If no token provided, try to get it automatically
-  const token = accessToken !== undefined ? accessToken : await getAccessToken();
-
-  return handleRequest<T>(() => fetch(`${API_BASE_URL}${endpoint}`, {
+  return handleRequest<T>(accessToken, (token) => fetch(`${API_BASE_URL}${endpoint}`, {
     method: 'PUT',
     headers: createHeaders(token),
     body: JSON.stringify(data),
@@ -145,10 +192,7 @@ export async function apiPut<T>(endpoint: string, data: any, accessToken?: strin
 }
 
 export async function apiDelete<T>(endpoint: string, accessToken?: string | null): Promise<T> {
-  // If no token provided, try to get it automatically
-  const token = accessToken !== undefined ? accessToken : await getAccessToken();
-
-  return handleRequest<T>(() => fetch(`${API_BASE_URL}${endpoint}`, {
+  return handleRequest<T>(accessToken, (token) => fetch(`${API_BASE_URL}${endpoint}`, {
     method: 'DELETE',
     headers: createHeaders(token),
     credentials: 'include',
@@ -156,36 +200,21 @@ export async function apiDelete<T>(endpoint: string, accessToken?: string | null
 }
 
 export async function apiPostFormData<T>(endpoint: string, formData: FormData, accessToken?: string | null): Promise<T> {
-  // If no token provided, try to get it automatically
-  const token = accessToken !== undefined ? accessToken : await getAccessToken();
-
-  const headers: HeadersInit = {};
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-  // Don't set Content-Type for FormData, browser will set it with boundary
-
-  return handleRequest<T>(() => fetch(`${API_BASE_URL}${endpoint}`, {
+  // Headers are built INSIDE the callback so a 401 retry rebuilds them with the renewed token. Uploads are
+  // exactly where a stale token bites — they are user-initiated after a period of reading, so they are the
+  // most likely request to be the first one past the access token's expiry.
+  return handleRequest<T>(accessToken, (token) => fetch(`${API_BASE_URL}${endpoint}`, {
     method: 'POST',
-    headers,
+    headers: formDataHeaders(token),
     body: formData,
     credentials: 'include',
   }));
 }
 
 export async function apiPutFormData<T>(endpoint: string, formData: FormData, accessToken?: string | null): Promise<T> {
-  // If no token provided, try to get it automatically
-  const token = accessToken !== undefined ? accessToken : await getAccessToken();
-
-  const headers: HeadersInit = {};
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-  // Don't set Content-Type for FormData, browser will set it with boundary
-
-  return handleRequest<T>(() => fetch(`${API_BASE_URL}${endpoint}`, {
+  return handleRequest<T>(accessToken, (token) => fetch(`${API_BASE_URL}${endpoint}`, {
     method: 'PUT',
-    headers,
+    headers: formDataHeaders(token),
     body: formData,
     credentials: 'include',
   }));

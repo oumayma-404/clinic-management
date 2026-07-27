@@ -21,6 +21,12 @@ public class ControllerAuthorizationCoverageTests
         "Auth.Login",                // bootstrap: email+password login (issues the session token)
         "Auth.Setup",                // bootstrap: first-run clinic+admin (also localhost-gated, AC-1.2a)
         "Auth.Register",             // bootstrap: clinic-code self-registration
+        "Auth.Refresh",              // exchanges the HttpOnly session cookie for a short-lived access token
+                                     // (security-hardening US-5). Anonymous by necessity — the caller has no
+                                     // access token yet, that being the point. Not unauthenticated in effect:
+                                     // the refresh token IS the credential, and it is signed, audience-bound,
+                                     // lifetime-bound, and re-checked against live account state on every use.
+                                     // Rate-limited like the other anonymous auth endpoints.
         "Connectivity.Get",          // non-sensitive online/offline poll (Local-only; 404s in Cloud)
         "GoogleCalendar.Callback",   // OAuth browser redirect back from Google — cannot carry a bearer
     };

@@ -19,6 +19,7 @@ import { Stethoscope, Pencil, Trash2, Clock, Plus, DollarSign, ListPlus, Loader2
 import { procedureTypesApi } from "@/lib/api/procedure-types"
 import type { ProcedureTypeDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
+import { useSession } from "@/lib/auth/session"
 import { toast } from "sonner"
 
 interface ProcedureTypesTableProps {
@@ -27,6 +28,12 @@ interface ProcedureTypesTableProps {
 }
 
 export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps) {
+  // Procedure-type WRITES became admin-only (security-hardening AC-7.2) — prices here feed straight into what
+  // a patient is charged. Reads stay open to all staff, which is why the page itself is not blocked the way
+  // the three admin-only catalog pages are: everyone still needs to see the catalogue. Hiding the write
+  // controls rather than letting a non-admin press them and collect an unexplained 403 (AC-7.4).
+  const { user } = useSession()
+  const isAdmin = user?.role === "admin"
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [procedureToDelete, setProcedureToDelete] = useState<ProcedureTypeDto | null>(null)
   const [procedures, setProcedures] = useState<ProcedureTypeDto[]>([])
@@ -119,16 +126,18 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
                 {procedures.length} {procedures.length === 1 ? "type" : "types"}
               </Badge>
             </CardTitle>
-            <div className="flex items-center gap-2">
-              <Button onClick={handleLoadDefaults} variant="outline" size="sm" className="gap-2" disabled={seeding}>
-                {seeding ? <Loader2 className="h-4 w-4 animate-spin" /> : <ListPlus className="h-4 w-4" />}
-                {seeding ? "Chargement…" : "Charger les actes courants"}
-              </Button>
-              <Button onClick={onAdd} size="sm" className="gap-2">
-                <Plus className="h-4 w-4" />
-                Add Procedure Type
-              </Button>
-            </div>
+            {isAdmin && (
+              <div className="flex items-center gap-2">
+                <Button onClick={handleLoadDefaults} variant="outline" size="sm" className="gap-2" disabled={seeding}>
+                  {seeding ? <Loader2 className="h-4 w-4 animate-spin" /> : <ListPlus className="h-4 w-4" />}
+                  {seeding ? "Chargement…" : "Charger les actes courants"}
+                </Button>
+                <Button onClick={onAdd} size="sm" className="gap-2">
+                  <Plus className="h-4 w-4" />
+                  Ajouter un type d'acte
+                </Button>
+              </div>
+            )}
           </div>
         </CardHeader>
         <CardContent>
@@ -153,11 +162,17 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
                 {procedures.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={6} className="h-24 text-center">
-                      <p className="text-muted-foreground">Aucun type d'acte défini</p>
-                      <Button onClick={onAdd} variant="outline" size="sm" className="mt-2 gap-2">
-                        <Plus className="h-4 w-4" />
-                        Ajouter votre premier type d'acte
-                      </Button>
+                      <p className="text-muted-foreground">
+                        {isAdmin
+                          ? "Aucun type d'acte défini"
+                          : "Aucun type d'acte défini. Demandez à un administrateur d'en ajouter."}
+                      </p>
+                      {isAdmin && (
+                        <Button onClick={onAdd} variant="outline" size="sm" className="mt-2 gap-2">
+                          <Plus className="h-4 w-4" />
+                          Ajouter votre premier type d'acte
+                        </Button>
+                      )}
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -204,21 +219,23 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
                       </TableCell>
                       <TableCell className="text-muted-foreground">{procedure.description || "-"}</TableCell>
                       <TableCell className="text-right">
-                        <div className="flex justify-end gap-2">
-                          <Button variant="ghost" size="sm" onClick={() => onEdit(procedure)} className="h-8 gap-1">
-                            <Pencil className="h-3 w-3" />
-                            Modifier
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleDelete(procedure)}
-                            className="h-8 gap-1 text-destructive hover:text-destructive"
-                          >
-                            <Trash2 className="h-3 w-3" />
-                            Supprimer
-                          </Button>
-                        </div>
+                        {isAdmin && (
+                          <div className="flex justify-end gap-2">
+                            <Button variant="ghost" size="sm" onClick={() => onEdit(procedure)} className="h-8 gap-1">
+                              <Pencil className="h-3 w-3" />
+                              Modifier
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDelete(procedure)}
+                              className="h-8 gap-1 text-destructive hover:text-destructive"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                              Supprimer
+                            </Button>
+                          </div>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))

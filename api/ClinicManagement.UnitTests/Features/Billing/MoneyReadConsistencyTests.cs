@@ -182,7 +182,7 @@ public class MoneyReadConsistencyTests
     {
         var handler = new GetDashboardStatsQueryHandler(
             _appointments.Object, _patients.Object, _users.Object, _invoices.Object, _plans.Object,
-            _clinicContext.Object);
+            _clinicContext.Object, NullLogger<GetDashboardStatsQueryHandler>.Instance);
         var result = await handler.Handle(new GetDashboardStatsQuery(), CancellationToken.None);
         Assert.True(result.IsSuccess);
         return result.Value!.TotalOutstanding;

@@ -34,6 +34,31 @@ if (args.Length > 0 && string.Equals(args[0], ProvisionCertCommand.CommandName, 
     return ProvisionCertCommand.Run(args);
 }
 
+// Install-time permission hardening (security-hardening, audit § 2 findings 1–3): tightens NTFS ACLs on the
+// install's data directories so no other local account can read the patient database, the uploaded files,
+// the logs, or the .local/ trust store. The installer calls this instead of running icacls itself, so the
+// policy has one testable implementation shared with the one-click backup. Usage:
+//   ClinicManagement.API.exe harden-permissions <dir> [<dir> ...]
+if (args.Length > 0 && string.Equals(args[0], HardenPermissionsCommand.CommandName, StringComparison.OrdinalIgnoreCase))
+{
+    return HardenPermissionsCommand.Run(args);
+}
+
+// DB-credentials protection (security-hardening, audit § 2 finding 4): encrypts .local/db-credentials at
+// rest so a disk-level copy of the install folder yields no PostgreSQL passwords, and decrypts it on a
+// reinstall so the installer can authenticate against the existing cluster. Usage:
+//   ClinicManagement.API.exe protect-credentials
+//   ClinicManagement.API.exe read-credentials --out <file>
+if (args.Length > 0 && string.Equals(args[0], CredentialProtectionCommand.ProtectCommandName, StringComparison.OrdinalIgnoreCase))
+{
+    return CredentialProtectionCommand.RunProtect(args);
+}
+
+if (args.Length > 0 && string.Equals(args[0], CredentialProtectionCommand.ReadCommandName, StringComparison.OrdinalIgnoreCase))
+{
+    return CredentialProtectionCommand.RunRead(args);
+}
+
 // Determine auth mode early (before Serilog is configured) so Local installs can anchor the log file to
 // the install directory (R-6) — a Windows service's CWD is System32, where a relative "logs/" path would
 // scatter or fail. Cloud keeps its prior relative path, byte-for-byte. This early config is also the seam
@@ -119,6 +144,11 @@ try
             options.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
             options.JsonSerializerOptions.PropertyNameCaseInsensitive = true;
         });
+    // Rate limiting (security-hardening US-4): per-IP on the anonymous auth endpoints, generous per-user
+    // elsewhere, with the connectivity poll / OAuth callback / SignalR hub / proxied Next traffic exempt.
+    // Both auth modes — Cloud is internet-facing and needs it at least as much as a LAN install.
+    builder.Services.AddConfiguredRateLimiter(builder.Configuration);
+
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddSwaggerGen(c =>
     {
@@ -410,6 +440,14 @@ try
     app.UseCors("AllowAll");
     
     // Exception handling middleware (must be before authentication/authorization)
+    // First in the pipeline so it also covers the proxied Next application in Local mode, where Kestrel is
+    // the single browser-facing endpoint (security-hardening US-12 / AC-12.5).
+    app.UseMiddleware<ClinicManagement.API.Middleware.SecurityHeadersMiddleware>();
+
+    // Before authentication: an unauthenticated flood must be refused as cheaply as possible, and the
+    // anonymous auth endpoints (the brute-force surface) are gated on the client address, not on identity.
+    app.UseRateLimiter();
+
     app.UseMiddleware<ExceptionMiddleware>();
     
     app.UseAuthentication();

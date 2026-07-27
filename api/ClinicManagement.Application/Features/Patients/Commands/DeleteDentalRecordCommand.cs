@@ -1,4 +1,5 @@
 using MediatR;
+using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Domain.Repositories;
@@ -17,17 +18,20 @@ public class DeleteDentalRecordCommandHandler : IRequestHandler<DeleteDentalReco
     private readonly IPatientRepository _patientRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly ILogger<DeleteDentalRecordCommandHandler> _logger;
 
     public DeleteDentalRecordCommandHandler(
         IDentalRecordRepository dentalRecordRepository,
         IPatientRepository patientRepository,
         ICurrentClinicResolver clinicResolver,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        ILogger<DeleteDentalRecordCommandHandler> logger)
     {
         _dentalRecordRepository = dentalRecordRepository;
         _patientRepository = patientRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
+        _logger = logger;
     }
 
     public async Task<Result<bool>> Handle(DeleteDentalRecordCommand request, CancellationToken cancellationToken)
@@ -65,7 +69,9 @@ public class DeleteDentalRecordCommandHandler : IRequestHandler<DeleteDentalReco
         }
         catch (Exception ex)
         {
-            return Result<bool>.Failure($"Error deleting dental record: {ex.Message}");
+            // AC-13.2: the detail goes to the log; the caller only ever sees French guidance.
+            _logger.LogError(ex, "Unhandled failure deleting dental record");
+            return Result<bool>.Failure("Erreur lors de la suppression du dossier dentaire. Veuillez réessayer.");
         }
     }
 }

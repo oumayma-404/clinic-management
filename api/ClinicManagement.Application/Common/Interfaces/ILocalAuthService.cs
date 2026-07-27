@@ -17,6 +17,12 @@ public enum PasswordVerificationOutcome
 public record LocalAuthToken(string AccessToken, DateTime ExpiresAtUtc);
 
 /// <summary>
+/// What a validated refresh token asserts. The version must still be checked against the account before a
+/// new access token is issued — the signature only proves the token was ours, not that the session is live.
+/// </summary>
+public record RefreshTokenPrincipal(string Subject, int TokenVersion);
+
+/// <summary>
 /// Local (offline) authentication primitives: password hashing/verification and
 /// issuance of app-signed JWTs. Only used when <c>Auth:Mode = Local</c>.
 /// </summary>
@@ -31,6 +37,26 @@ public interface ILocalAuthService
     /// <c>clinic_id</c> claims that <see cref="IClinicContext"/> and the role handlers expect.
     /// </summary>
     LocalAuthToken GenerateToken(User user);
+
+    /// <summary>
+    /// Issues the <b>durable session</b> credential stored in the HttpOnly cookie (security-hardening US-5).
+    ///
+    /// <para>Carries a different audience from <see cref="GenerateToken"/>, so the API's bearer validation
+    /// rejects it outright — stealing the cookie buys nothing that can call the API (AC-5.5). It can only be
+    /// exchanged via <see cref="ValidateRefreshToken"/>, and that exchange re-checks live account state.</para>
+    ///
+    /// <para>It still carries <c>email</c>, <c>name</c> and <c>role</c>, because the BFF decodes this token to
+    /// render the header identity without a server round trip (AC-5.12).</para>
+    /// </summary>
+    LocalAuthToken GenerateRefreshToken(User user);
+
+    /// <summary>
+    /// Validates a refresh token's signature, issuer, refresh audience and lifetime, returning the subject and
+    /// token version it asserts — or <c>null</c> if it is invalid or is an access token being misused here.
+    /// The caller must still confirm the version against the account, so a revoked session cannot renew
+    /// (AC-5.6).
+    /// </summary>
+    RefreshTokenPrincipal? ValidateRefreshToken(string refreshToken);
 
     /// <summary>
     /// Generates a readable, cryptographically-random temporary password for an admin-driven

@@ -21,18 +21,25 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
     // Deliberately generic so we never reveal whether the email exists.
     private const string InvalidCredentialsError = "Invalid email or password.";
 
+    // Same wording for both lockout tiers: the caller must not learn which brake stopped them.
+    private const string LockedOutError =
+        "Ce compte est temporairement bloqué après plusieurs tentatives de connexion échouées. Veuillez réessayer plus tard.";
+
     private readonly IUserRepository _userRepository;
     private readonly ILocalAuthService _localAuthService;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly ILoginAttemptTracker _attemptTracker;
 
     public LoginCommandHandler(
         IUserRepository userRepository,
         ILocalAuthService localAuthService,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        ILoginAttemptTracker attemptTracker)
     {
         _userRepository = userRepository;
         _localAuthService = localAuthService;
         _unitOfWork = unitOfWork;
+        _attemptTracker = attemptTracker;
     }
 
     public async Task<Result<LoginResultDto>> Handle(LoginCommand request, CancellationToken cancellationToken)
@@ -52,18 +59,30 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
                 return Result<LoginResultDto>.Failure(InvalidCredentialsError);
             }
 
-            // Lockout is checked before the password so a brute-force attempt is actually
+            // Both lockouts are checked before the password so a brute-force attempt is actually
             // stopped (AC-3.4) — this necessarily discloses the locked state, an accepted
             // trade-off. The deactivated state, by contrast, is disclosed only after a correct
             // password (below) so it can't be used to enumerate accounts.
+            //
+            // Primary brake: this source has burned its attempts against this account (AC-4.2). Only the
+            // offending machine is refused — a colleague on another PC signs in normally, which is the whole
+            // point: the previous account-only lockout let one hostile host lock the entire clinic out.
+            if (_attemptTracker.IsLockedOutForCurrentSource(user.Id))
+            {
+                return Result<LoginResultDto>.Failure(LockedOutError);
+            }
+
+            // Durable cross-source backstop (AC-4.3), at a threshold no single source can reach alone. Also
+            // what survives the restart that clears the in-memory per-source counters.
             if (user.IsLockedOut())
             {
-                return Result<LoginResultDto>.Failure("Ce compte est temporairement bloqué après plusieurs tentatives de connexion échouées. Veuillez réessayer plus tard.");
+                return Result<LoginResultDto>.Failure(LockedOutError);
             }
 
             var outcome = _localAuthService.VerifyPassword(user.PasswordHash!, request.Password);
             if (outcome == PasswordVerificationOutcome.Failed)
             {
+                _attemptTracker.RecordFailure(user.Id);
                 user.RecordFailedLogin();
                 _userRepository.Update(user);
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -82,15 +101,22 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
                 user.UpgradePasswordHash(_localAuthService.HashPassword(request.Password));
             }
 
+            // A user who simply mistyped should not carry a penalty into their next session.
+            _attemptTracker.ClearForCurrentSource(user.Id);
             user.RecordSuccessfulLogin();
             var token = _localAuthService.GenerateToken(user);
 
             _userRepository.Update(user);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
+            // The durable session credential the BFF stores in its HttpOnly cookie; the access token above is
+            // held only in browser memory and renewed from this (US-5).
+            var refreshToken = _localAuthService.GenerateRefreshToken(user);
+
             var result = new LoginResultDto
             {
                 AccessToken = token.AccessToken,
+                RefreshToken = refreshToken.AccessToken,
                 ExpiresAt = token.ExpiresAtUtc,
                 MustChangePassword = user.MustChangePassword,
                 User = new UserDto

@@ -95,6 +95,31 @@ public class UpdateClinicCommandHandler : IRequestHandler<UpdateClinicCommand, R
                 return Result<ClinicDto>.Failure("Seul un administrateur peut modifier les paramètres de facturation électronique.");
             }
 
+            // Audit § 2, finding 7: PUT /api/clinics carried NO role policy, so a secretary could change the
+            // clinic's legal billing identity — matricule fiscal, TVA applicable/rate, timbre fiscal. Those
+            // values are frozen onto every invoice issued afterwards, which makes them a different class of
+            // setting from the phone number.
+            //
+            // Gated per FIELD rather than by closing the endpoint, extending the desired-vs-current pattern
+            // the TTN check above already uses. That matters for a real reason: the settings form submits the
+            // whole card, so a secretary correcting the clinic phone re-sends matricule fiscal and TVA at
+            // their existing values. Comparing against the stored value means an unchanged field is not a
+            // change, and only an actual edit is refused (spec EC-11).
+            var legalBillingChanging =
+                IsChanging(request.MatriculeFiscal, clinic.MatriculeFiscal)
+                || (request.VatApplicable.HasValue && request.VatApplicable.Value != clinic.VatApplicable)
+                || (request.VatRate.HasValue && request.VatRate.Value != clinic.VatRate)
+                || (request.StampDutyEnabled.HasValue && request.StampDutyEnabled.Value != clinic.StampDutyEnabled)
+                || (request.StampDutyAmount.HasValue && request.StampDutyAmount.Value != clinic.StampDutyAmount);
+
+            // Refused BEFORE the logo upload below, so an unauthorized caller never writes to storage.
+            if (legalBillingChanging && !user.IsAdmin())
+            {
+                return Result<ClinicDto>.Failure(
+                    "Seul un administrateur peut modifier les paramètres de facturation " +
+                    "(matricule fiscal, TVA, timbre fiscal).");
+            }
+
             // AC-7: validate the working-hours payload up front (before any logo upload) so a bad payload
             // fails fast; a blank/omitted payload leaves the stored hours unchanged.
             string? normalizedWorkingHours = null;
@@ -210,5 +235,13 @@ public class UpdateClinicCommandHandler : IRequestHandler<UpdateClinicCommand, R
             return Result<ClinicDto>.Failure("Erreur lors de la mise à jour de la clinique.");
         }
     }
+
+    /// <summary>
+    /// True only when an <b>optional string</b> field is present in the request AND differs from what is
+    /// stored. An omitted field (null) means "leave it alone", so it is never treated as an edit — that is what
+    /// lets a non-admin submit the whole settings form without tripping the admin gate (spec EC-11).
+    /// </summary>
+    private static bool IsChanging(string? requested, string? current) =>
+        requested is not null && !string.Equals(requested, current, StringComparison.Ordinal);
 }
 

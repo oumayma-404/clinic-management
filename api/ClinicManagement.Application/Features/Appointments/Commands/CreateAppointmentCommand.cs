@@ -1,4 +1,5 @@
 using MediatR;
+using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Common.Interfaces;
@@ -36,6 +37,7 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
     private readonly INotificationGenerator _notificationGenerator;
     private readonly IReminderScheduler _reminderScheduler;
     private readonly IAppointmentGoogleSyncDispatcher _googleSyncDispatcher;
+    private readonly ILogger<CreateAppointmentCommandHandler> _logger;
 
     public CreateAppointmentCommandHandler(
         IAppointmentRepository appointmentRepository,
@@ -48,7 +50,8 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
         IUnitOfWork unitOfWork,
         INotificationGenerator notificationGenerator,
         IReminderScheduler reminderScheduler,
-        IAppointmentGoogleSyncDispatcher googleSyncDispatcher)
+        IAppointmentGoogleSyncDispatcher googleSyncDispatcher,
+        ILogger<CreateAppointmentCommandHandler> logger)
     {
         _appointmentRepository = appointmentRepository;
         _patientRepository = patientRepository;
@@ -61,6 +64,7 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
         _notificationGenerator = notificationGenerator;
         _reminderScheduler = reminderScheduler;
         _googleSyncDispatcher = googleSyncDispatcher;
+        _logger = logger;
     }
 
     public async Task<Result<AppointmentDto>> Handle(CreateAppointmentCommand request, CancellationToken cancellationToken)
@@ -237,7 +241,9 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
         }
         catch (Exception ex)
         {
-            return Result<AppointmentDto>.Failure($"Error creating appointment: {ex.Message}");
+            // AC-13.2: the detail goes to the log; the caller only ever sees French guidance.
+            _logger.LogError(ex, "Unhandled failure creating appointment");
+            return Result<AppointmentDto>.Failure("Erreur lors de la création du rendez-vous. Veuillez réessayer.");
         }
     }
 
