@@ -34,6 +34,31 @@ if (args.Length > 0 && string.Equals(args[0], ProvisionCertCommand.CommandName, 
     return ProvisionCertCommand.Run(args);
 }
 
+// Install-time permission hardening (security-hardening, audit § 2 findings 1–3): tightens NTFS ACLs on the
+// install's data directories so no other local account can read the patient database, the uploaded files,
+// the logs, or the .local/ trust store. The installer calls this instead of running icacls itself, so the
+// policy has one testable implementation shared with the one-click backup. Usage:
+//   ClinicManagement.API.exe harden-permissions <dir> [<dir> ...]
+if (args.Length > 0 && string.Equals(args[0], HardenPermissionsCommand.CommandName, StringComparison.OrdinalIgnoreCase))
+{
+    return HardenPermissionsCommand.Run(args);
+}
+
+// DB-credentials protection (security-hardening, audit § 2 finding 4): encrypts .local/db-credentials at
+// rest so a disk-level copy of the install folder yields no PostgreSQL passwords, and decrypts it on a
+// reinstall so the installer can authenticate against the existing cluster. Usage:
+//   ClinicManagement.API.exe protect-credentials
+//   ClinicManagement.API.exe read-credentials --out <file>
+if (args.Length > 0 && string.Equals(args[0], CredentialProtectionCommand.ProtectCommandName, StringComparison.OrdinalIgnoreCase))
+{
+    return CredentialProtectionCommand.RunProtect(args);
+}
+
+if (args.Length > 0 && string.Equals(args[0], CredentialProtectionCommand.ReadCommandName, StringComparison.OrdinalIgnoreCase))
+{
+    return CredentialProtectionCommand.RunRead(args);
+}
+
 // Determine auth mode early (before Serilog is configured) so Local installs can anchor the log file to
 // the install directory (R-6) — a Windows service's CWD is System32, where a relative "logs/" path would
 // scatter or fail. Cloud keeps its prior relative path, byte-for-byte. This early config is also the seam

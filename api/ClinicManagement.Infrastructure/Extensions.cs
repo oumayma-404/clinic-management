@@ -1,4 +1,3 @@
-using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -7,6 +6,7 @@ using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Infrastructure.Auth;
 using ClinicManagement.Infrastructure.Persistence;
 using ClinicManagement.Infrastructure.Repositories;
+using ClinicManagement.Infrastructure.Security;
 using ClinicManagement.Infrastructure.Services;
 using ClinicManagement.Infrastructure.Storage;
 using Microsoft.Extensions.Logging;
@@ -132,31 +132,12 @@ public static class Extensions
             }
         }
 
-        // Per-clinic reminder secrets are encrypted at rest via ASP.NET Core Data Protection. The key ring is
-        // persisted to a mode-resolved directory so ciphertext survives restarts: Local → the gitignored
-        // per-install .local/ (via LocalInstallPaths); Cloud → an optional configured directory
-        // (DataProtection:KeyRingPath). If Cloud leaves it unset, keys use the framework default location
-        // (single-instance only — a multi-instance Cloud deployment must configure a shared key ring; ops note).
-        var dataProtection = services.AddDataProtection().SetApplicationName("ClinicManagement");
-        var isLocalMode = LocalAuthConfig.IsLocalMode(configuration);
-        var keyRingPath = isLocalMode
-            ? Path.Combine(LocalInstallPaths.LocalDir, "dataprotection-keys")
-            : configuration["DataProtection:KeyRingPath"];
-        if (!string.IsNullOrWhiteSpace(keyRingPath))
-        {
-            Directory.CreateDirectory(keyRingPath);
-            dataProtection.PersistKeysToFileSystem(new DirectoryInfo(keyRingPath));
-
-            // Encrypt the key ring itself at rest: supplying a custom key repository disables the framework's
-            // automatic key-at-rest protection, which would leave the master keys (that encrypt every clinic's
-            // credentials) in cleartext on disk. On the Local Windows install, protect them with machine-scoped
-            // DPAPI so a stolen/copied key-ring folder is useless off the host. DPAPI is Windows-only; a Cloud
-            // key ring at DataProtection:KeyRingPath relies on that directory's ACLs (ops responsibility).
-            if (isLocalMode && OperatingSystem.IsWindows())
-            {
-                dataProtection.ProtectKeysWithDpapi(protectToLocalMachine: true);
-            }
-        }
+        // Per-clinic reminder secrets — and the Local install's DB credentials file — are encrypted at rest
+        // via ASP.NET Core Data Protection. The key-ring configuration lives in ONE place
+        // (LocalDataProtection) because the Local console verbs must configure the identical key ring from
+        // outside this DI container; two definitions could drift and leave the installer writing ciphertext
+        // the API cannot read. See LocalDataProtection for the mode-resolved path and at-rest protection.
+        LocalDataProtection.AddConfiguredDataProtection(services, configuration);
         services.AddSingleton<IReminderSecretProtector, ReminderSecretProtector>();
 
         // SMS/WhatsApp appointment reminders (revives the dormant Notification outbox).
