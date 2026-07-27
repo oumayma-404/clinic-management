@@ -31,6 +31,20 @@ public class User : AggregateRoot<string> // Using Auth0 sub as ID (Cloud) or "l
     public string? PasswordHash { get; private set; }
     public bool IsActive { get; private set; } = true;
     public bool MustChangePassword { get; private set; }
+
+    /// <summary>
+    /// Stamped into every issued token and compared on each request, so a token can be revoked even though
+    /// the JWT itself is stateless (security-hardening US-5 / AC-5.1).
+    ///
+    /// <para>Before this, a <b>voluntary</b> password change left every existing token valid for its full
+    /// remaining lifetime — if a token had been stolen, the user's natural reaction (change my password) did
+    /// nothing. Bumping this invalidates them immediately.</para>
+    ///
+    /// <para>Bumped by <see cref="SetPassword"/> (which every password path funnels through: voluntary change,
+    /// admin reset, and the offline CLI recovery) and by <see cref="Deactivate"/>. Deliberately <b>not</b>
+    /// bumped by <see cref="UpgradePasswordHash"/> — see that method.</para>
+    /// </summary>
+    public int TokenVersion { get; private set; }
     public DateTime? LastLoginAt { get; private set; }
     public int FailedLoginAttempts { get; private set; }
     public DateTime? LockoutEnd { get; private set; }
@@ -113,12 +127,20 @@ public class User : AggregateRoot<string> // Using Auth0 sub as ID (Cloud) or "l
         MustChangePassword = mustChangePassword;
         FailedLoginAttempts = 0;
         LockoutEnd = null;
+        // AC-5.2: every existing token for this account stops working now. This is the single choke point
+        // all four password paths go through — voluntary change, admin reset, offline CLI recovery, first set.
+        TokenVersion++;
         UpdatedAt = DateTime.UtcNow;
     }
 
     /// <summary>
     /// Re-stores the password under an upgraded hash format after a successful verification,
     /// without altering the forced-change flag or lockout state (unlike <see cref="SetPassword"/>).
+    ///
+    /// <para><b>Must not bump <see cref="TokenVersion"/>.</b> This runs <i>during a successful login</i>, so
+    /// bumping here would invalidate the token that same login is about to issue — logging the user straight
+    /// back out, on every sign-in whose stored hash needs upgrading. The password has not changed; only its
+    /// storage format has, so no session should be revoked (AC-5.11).</para>
     /// </summary>
     public void UpgradePasswordHash(string passwordHash)
     {
@@ -153,6 +175,9 @@ public class User : AggregateRoot<string> // Using Auth0 sub as ID (Cloud) or "l
     public void Deactivate()
     {
         IsActive = false;
+        // AC-5.2: revoke the account's tokens outright rather than relying solely on the per-request
+        // IsActive check, so the account is dead even on a path that does not reload it.
+        TokenVersion++;
         UpdatedAt = DateTime.UtcNow;
     }
 

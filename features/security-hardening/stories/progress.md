@@ -9,7 +9,7 @@
 |---|---|
 | P1 Installer filesystem posture | **done** — committed `43fe6d5` |
 | P2 Backup output posture | **done** — committed |
-| P3 Auth & session | in progress — **P3.0–P3.2 done** (client IP, rate limiter, per-source lockout); **P3.3–P3.6 pending** (token model) |
+| P3 Auth & session | in progress — **P3.0–P3.3 done** (client IP, rate limiter, per-source lockout, token revocation); **P3.4–P3.6 pending** (short lifetime + silent renewal + R-4) |
 | P4 Authorization | pending |
 | P5 Hygiene | pending |
 
@@ -158,5 +158,28 @@ US-4 is now closed. `ClientIp` has its consumers.
 | Frontend production build | Compiled successfully, 27/27 static pages |
 
 **Not yet verified end-to-end.** The limiter's real behaviour under load (EC-6: a whole clinic behind one NAT address at 08:00) needs a running stack; the unit tests pin the policy shape and the exemptions, not the thresholds in practice. Defaults are deliberately loose (auth 30 per 5 min, API 600 per min) and config-tunable per AC-4.6.
+
+### 2026-07-27 — Part 3, step 3 (token revocation)
+
+AC-5.1, AC-5.2, AC-5.11 and AC-5.15 closed. **Deliberately sequenced before the lifetime change**: revocation is independent of the renewal flow, so it ships now while `Auth:Local:TokenLifetimeMinutes` stays at its current 12h. Shortening the lifetime to ~30 min without renewal in place would log users out mid-session — a broken intermediate state, which R-1's mitigation forbids.
+
+- `User.TokenVersion` (+ migration `20260727174753_AddUserTokenVersion`, one column, reversible) stamped into every token as `token_version` and compared per request.
+- Bumped by `SetPassword` — the single choke point all four password paths funnel through (voluntary change, admin reset, offline CLI recovery, first set) — and by `Deactivate`.
+- **Not** bumped by `UpgradePasswordHash`. That is plan risk **R-7** and it now has a dedicated test: the method runs *during* a successful login, so bumping there would invalidate the token that same login is about to issue, and every sign-in whose stored hash needed upgrading would appear to fail.
+- `LocalAuthEnforcementMiddleware` compares the version on the account it **already loads**, so revocation costs no extra query. A token with a missing or unparseable claim is rejected — that is what retires every pre-upgrade token (AC-5.15) and is the one-time clinic-wide re-login.
+- New `LocalAuthClaims` holds the claim name, shared by issuer and validator so they cannot drift on a spelling — same reason `LocalAuthConfig` owns the signing key for both sides.
+
+#### Quality gates — Part 3 step 3
+
+| Gate | Result |
+|---|---|
+| Backend build | 0 errors (two fixed on the way: a missing `using System.Globalization` in each of `LocalAuthService` and the middleware) |
+| Migration | `AddUserTokenVersion` — single `integer` column, default 0, `Down` drops it. The `dotnet ef` "host was aborted" output is normal for a `WebApplication` startup host, not a failure. |
+| New tests | **8/8** (`UserTokenVersionTests`) |
+| Full suite | **896 passed / 8 failed** — the same 8 pre-existing |
+
+**The default of 0 does not weaken the check.** Existing rows get `TokenVersion = 0` and newly issued tokens carry `token_version=0`, which matches — but a *pre-upgrade* token carries no claim at all, and absence is rejected regardless. Presence, not value, is what retires the old tokens.
+
+> **Suite flake discovered — read a single test run with care.** One full-suite run reported **18** failures, adding 9 `GenericDocumentRenderTests` and 1 `LiaisonRenderContentTests`. Those pass in isolation, and three consecutive full runs then reported a stable 8/896/904. The PDF-render tests share process-wide QuestPDF/`Bs1FontResolver` state and are order- or timing-sensitive. Not caused by this change and not in scope to fix, but anyone comparing failure counts across runs needs to know the baseline is not always 8. Worth a follow-up.
 
 **Testing note.** The ordering assertion (AC-14.2) is proved indirectly but soundly: the dummy `pg_dump` is a real file (so the existence check passes) but not a real executable, so the dump throws. The hardening is still recorded — which is only possible if it ran *first*. If it ran after the dump it would never be recorded at all.

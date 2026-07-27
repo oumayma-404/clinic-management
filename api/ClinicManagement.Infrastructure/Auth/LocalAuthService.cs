@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
@@ -59,7 +60,11 @@ public class LocalAuthService : ILocalAuthService
             new(JwtRegisteredClaimNames.Sub, user.Id),
             new("clinic_id", user.ClinicId.ToString()),
             new("role", user.Role),
-            new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
+            new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+            // Compared against the account on every request so this token can be revoked despite the JWT
+            // being stateless (US-5 / AC-5.1). A token WITHOUT this claim is rejected outright, which is what
+            // retires the long-lived tokens issued before this shipped (AC-5.15).
+            new(LocalAuthClaims.TokenVersion, user.TokenVersion.ToString(CultureInfo.InvariantCulture))
         };
 
         if (!string.IsNullOrWhiteSpace(user.Email))

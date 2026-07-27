@@ -45,6 +45,13 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
             .IsRequired()
             .HasDefaultValue(false);
 
+        // Token revocation stamp (security-hardening US-5). Existing rows default to 0; because every token
+        // issued from this release onward carries the claim and pre-upgrade tokens carry none, the default
+        // value does not weaken the check — a versionless token is rejected regardless.
+        builder.Property(u => u.TokenVersion)
+            .IsRequired()
+            .HasDefaultValue(0);
+
         builder.Property(u => u.LastLoginAt);
         builder.Property(u => u.FailedLoginAttempts)
             .IsRequired()
