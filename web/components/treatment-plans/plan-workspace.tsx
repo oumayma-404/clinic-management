@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -16,8 +16,9 @@ import {
 import { toast } from "sonner"
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
 import { invoicesApi } from "@/lib/api/invoices"
+import { procedureTypesApi } from "@/lib/api/procedure-types"
 import { ApiError } from "@/lib/api/client"
-import type { InstallmentDto, TreatmentPlanDto, TreatmentPlanItemDto } from "@/lib/api/types"
+import type { InstallmentDto, ProcedureTypeDto, TreatmentPlanDto, TreatmentPlanItemDto } from "@/lib/api/types"
 import { formatDT, formatDateFr } from "@/lib/format"
 import { downloadBlob } from "@/lib/download"
 import { planStatusLabel, planStatusBadgeClass } from "./treatment-plan-labels"
@@ -45,6 +46,35 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
   const [scheduleTarget, setScheduleTarget] = useState<TreatmentPlanItemDto | null>(null)
   const [cancelOpen, setCancelOpen] = useState(false)
   const [cancelReason, setCancelReason] = useState("")
+  const [procedureTypes, setProcedureTypes] = useState<ProcedureTypeDto[]>([])
+
+  // Only needed to resolve an act's procedure when booking it (below). Failure is silent — it degrades to the
+  // previous free-text behaviour rather than blocking the workspace.
+  useEffect(() => {
+    procedureTypesApi
+      .list(false)
+      .then((data) => setProcedureTypes(data || []))
+      .catch(() => setProcedureTypes([]))
+  }, [])
+
+  /**
+   * The procedure an act stands for, so booking it produces a real `procedureTypeId` (colour, default
+   * duration, and the act proposal in the dental-record modal) instead of just a name in the notes.
+   *
+   * Matched by name because the plan editor **discards** `pt.id` when you pick from « Mes actes » — it
+   * snapshots the procedure as a free-text line whose `designationFr` is `pt.name` verbatim
+   * (`treatment-plan-form-modal.tsx`, `selectProcedureType`), so the name is a reliable key. Lines taken from
+   * the CNAM catalogue, typed by hand, or renamed after picking simply do not match and keep the old
+   * behaviour. Persisting the id on the act is the durable fix and would make this a fallback for existing rows.
+   */
+  const scheduleProcedureTypeId = useMemo(() => {
+    const designation = scheduleTarget?.designationFr?.trim().toLowerCase()
+    if (!designation) return undefined
+    const matches = procedureTypes.filter((p) => p.name.trim().toLowerCase() === designation)
+    // Ambiguity means the catalog holds two procedures with the same name; guessing one would put the wrong
+    // fee and colour on the appointment, so prefer no prefill.
+    return matches.length === 1 ? matches[0].id : undefined
+  }, [scheduleTarget, procedureTypes])
 
   const isDraft = plan.status === "Draft"
   const isActive = plan.status === "Accepted" || plan.status === "InProgress"
@@ -417,6 +447,7 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
         presetPatientName={plan.patientName ?? "Patient"}
         presetPlanId={plan.id}
         presetPlanItemId={scheduleTarget?.id}
+        presetProcedureTypeId={scheduleProcedureTypeId}
         presetProcedureName={
           scheduleTarget
             ? scheduleTarget.toothNumbers.length > 0

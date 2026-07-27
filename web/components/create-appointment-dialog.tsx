@@ -64,6 +64,13 @@ interface CreateAppointmentDialogProps {
   presetPlanId?: string
   presetPlanItemId?: string
   presetProcedureName?: string
+  /**
+   * The procedure the plan act stands for, when it could be resolved. Preselects the « Type de procédure »
+   * dropdown so the appointment carries a real `procedureTypeId` — which gives it the procedure's colour and
+   * default duration, and lets the dental-record modal propose the act when the visit is recorded. Without it
+   * a plan-scheduled appointment only got the act name in its notes.
+   */
+  presetProcedureTypeId?: string
 }
 
 export function CreateAppointmentDialog({
@@ -79,6 +86,7 @@ export function CreateAppointmentDialog({
   presetPlanId,
   presetPlanItemId,
   presetProcedureName,
+  presetProcedureTypeId,
 }: CreateAppointmentDialogProps) {
   // True when this dialog was opened to schedule a specific treatment-plan step.
   const isPlanScheduling = Boolean(presetPlanItemId)
@@ -171,6 +179,19 @@ export function CreateAppointmentDialog({
       if (presetProcedureName) setAppointmentType(presetProcedureName)
     }
   }, [open, isPlanScheduling, presetPatientId, presetProcedureName])
+
+  // Preselect the plan act's procedure once the catalog has loaded (it arrives async, so this cannot live in
+  // the effect above). Guarded on the id actually being in the loaded list — a stale or cross-clinic id must
+  // fall through to the free-text behaviour rather than select nothing and silently drop the link. Only fills
+  // an untouched dropdown, so reopening the dialog never overrides a choice the user just made.
+  useEffect(() => {
+    if (!open || !isPlanScheduling || !presetProcedureTypeId) return
+    if (selectedProcedureTypeId || customProcedureMode) return
+    const match = procedureTypes.find((p) => p.id === presetProcedureTypeId)
+    if (!match) return
+    setSelectedProcedureTypeId(match.id)
+    if (match.defaultDurationMinutes) setDuration(String(match.defaultDurationMinutes))
+  }, [open, isPlanScheduling, presetProcedureTypeId, procedureTypes, selectedProcedureTypeId, customProcedureMode])
 
   // Booking from a patient's page ("Planifier un rendez-vous"): preselect that patient (existing patient,
   // not a busy slot / not the inline-new-patient form). Plan scheduling takes precedence when both apply.
