@@ -10,7 +10,7 @@
 | P1 Installer filesystem posture | **done** — committed `43fe6d5` |
 | P2 Backup output posture | **done** — committed |
 | P3 Auth & session | **done** — US-4 and US-5 closed (client IP, rate limiter, per-source lockout, token revocation, R-4, short lifetime + silent renewal) |
-| P4 Authorization | in progress — **P4.1–P4.4 + AC-9.3 tests done**; remaining: **P4.5** frontend gating, **P4.6** role-policy guard test |
+| P4 Authorization | in progress — **P4.1–P4.4, P4.6, AC-9.3 done**; remaining: **P4.5** frontend gating only |
 | P5 Hygiene | pending |
 
 ## Working tree note (start of session, 2026-07-27)
@@ -281,12 +281,25 @@ Each case asserts three things: the operation fails, it reads as **"introuvable"
 |---|---|
 | Full suite | **908 passed / 8 failed** — same 8 pre-existing |
 
+### P4.6 — the role-policy guard
+
+New `Api/AdminSurfaceCoverageTests` (5 cases). Scoped as a **rule** rather than a whole-API allow-list, because the finding was not "one endpoint was wrong" — it was that **three of the four** catalogs were correctly gated and the fourth was missed. A per-endpoint fix does not stop that recurring, so the guard states: *every mutating action on a catalog controller must be admin-gated.* A new write on any of them fails the build until its policy is decided.
+
+It also asserts the inverse — catalog **reads** must **not** be admin-gated. Over-gating would be its own defect: a secretary booking an appointment needs to read the procedure catalog.
+
+Deliberately narrower than a 200-entry policy matrix: a rule that is exactly right for a well-defined set of controllers is worth more than an allow-list nobody maintains. A fifth case pins that the named actions still exist, so a rename cannot silently empty the guard.
+
+**Mutation-verified:** removing the gate from `DELETE /api/procedure-types/{id}` makes the guard fail *and name the offending endpoint*; restoring it passes.
+
+| Gate | Result |
+|---|---|
+| Full suite | **913 passed / 8 failed** — same 8 pre-existing |
+
 **Still open in P4** (do not assume US-6–US-9 are closed):
 
 | Item | Note |
 |---|---|
 | P4.5 frontend gating | The newly admin-only controls still render for non-admins, who will now get a 403 |
-| P4.6 role-policy coverage guard | Not written |
 
 | Gate | Result |
 |---|---|
