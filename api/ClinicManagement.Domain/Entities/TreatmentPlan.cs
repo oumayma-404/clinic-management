@@ -240,15 +240,42 @@ public class TreatmentPlan : AggregateRoot<Guid>
     /// Record a payment against one installment. Allowed on an accepted, in-progress <b>or completed</b> plan —
     /// see <see cref="EnsurePayable"/>. A payment never re-opens a completed plan.
     /// </summary>
-    public void RecordInstallmentPayment(Guid installmentId, decimal amount, PaymentMethod method, DateTime paidOn)
+    public InstallmentPayment RecordInstallmentPayment(Guid installmentId, decimal amount, PaymentMethod method, DateTime paidOn)
     {
         EnsurePayable();
         var installment = _installments.FirstOrDefault(i => i.Id == installmentId)
             ?? throw new InvalidOperationException("Échéance introuvable.");
 
-        installment.RecordPayment(amount, method, paidOn);
+        var payment = installment.RecordPayment(amount, method, paidOn);
         if (Status == TreatmentPlanStatus.Accepted)
             Status = TreatmentPlanStatus.InProgress;
+        Touch();
+        return payment;
+    }
+
+    /// <summary>
+    /// Void a payment recorded against one of this plan's échéances — "this was never received".
+    ///
+    /// <para>
+    /// The plan's <b>status is deliberately not walked back</b>, unlike an invoice's. A plan's status tracks
+    /// clinical progress (« Terminé » means every act is done, not that it is paid), so a corrected payment
+    /// must not un-start or un-complete the treatment.
+    /// </para>
+    /// </summary>
+    public void VoidInstallmentPayment(
+        Guid installmentId,
+        Guid paymentId,
+        string reason,
+        string? actorUserId = null,
+        string? actorName = null)
+    {
+        if (Status == TreatmentPlanStatus.Cancelled)
+            throw new InvalidOperationException("Ce devis est annulé : ses paiements ne peuvent plus être modifiés.");
+
+        var installment = _installments.FirstOrDefault(i => i.Id == installmentId)
+            ?? throw new InvalidOperationException("Échéance introuvable.");
+
+        installment.VoidPayment(paymentId, reason, actorUserId, actorName);
         Touch();
     }
 

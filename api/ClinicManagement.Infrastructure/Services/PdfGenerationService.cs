@@ -468,6 +468,24 @@ public class PdfGenerationService : IPdfGenerationService
 
                             column.Item().PaddingTop(4).AlignCenter().Text("REÇU DE PAIEMENT").FontSize(16).Bold().FontFamily("Helvetica");
 
+                            // A voided payment's receipt still renders — the paper is already in the patient's
+                            // hands and the clinic needs to reproduce what was handed over — but it is
+                            // over-stamped so it can never be reprinted as a clean receipt. Mirrors the
+                            // « FACTURE ANNULÉE » banner on the invoice.
+                            if (data.IsVoided)
+                            {
+                                column.Item().PaddingTop(4).AlignCenter()
+                                    .Text($"REÇU ANNULÉ{(data.VoidedOn.HasValue ? $" LE {data.VoidedOn.Value:dd/MM/yyyy}" : "")}")
+                                    .FontSize(13).Bold().FontColor(Colors.Red.Darken2).FontFamily("Helvetica");
+
+                                if (!string.IsNullOrWhiteSpace(data.VoidReason))
+                                {
+                                    column.Item().AlignCenter()
+                                        .Text($"Motif : {data.VoidReason}")
+                                        .FontSize(10).FontColor(Colors.Red.Darken2).FontFamily("Helvetica");
+                                }
+                            }
+
                             if (!string.IsNullOrWhiteSpace(data.Reference))
                             {
                                 column.Item().AlignCenter().Text($"Réf. {data.Reference}").FontSize(10).FontColor(Colors.Grey.Darken1).FontFamily("Helvetica");

@@ -19,8 +19,8 @@
 | A | Réconciliation report | complete | `c712f06` | yes |
 | B | Patient delete blocks + archive | complete | `4b4a805` | yes |
 | C | Appointment update stops wiping the act | complete | `f5d915e` | yes |
-| D | Void a payment + invoice detail modal | complete | | |
-| E | Installment ledger + plan void + receipts | pending | | |
+| D | Void a payment + invoice detail modal | complete | `d451c14` | yes |
+| E | Installment ledger + plan void + receipts | complete | | |
 | F | Devis→facture carry-over | pending | | |
 | G | Avoirs readable + PDF + netting | pending | | |
 | H | Patient contact optional | pending | | |
@@ -193,6 +193,73 @@ compiles clean, 27/27 pages. 34 tests pass — 18 new plus the existing `Invoice
 | Extracted `PaymentDateRules` instead of inlining the date guard | Trivial | The identical rule is needed by the installment payment (Part E) and the avoir's `RefundedOn` (Part G). One implementation beats three. |
 | `SourceInstallmentPaymentId` landed now, though nothing populates it until Part F | Trivial | A nullable soft-link column with no FK, so it carries no dependency on the not-yet-existing `InstallmentPayment`. Adding it now avoids a second `Payments` migration in Part F. |
 | Added `canReverseFinancials` in a new `lib/auth/can.ts` | Trivial | Every existing client-side gate compares against `"admin"` alone, so **a doctor — the primary user — was denied by all of them**. Shared so the four reversal actions stop disagreeing with each other. |
+
+## Part E — notes
+
+**Quality gate:** backend build 0 errors, 0 warnings in changed files; `tsc --noEmit` clean; `npm run build`
+27/27 pages. **875 pass / 8 fail** — see the baseline note below. The 87 tests across the new ledger suite and
+every money/authorization guard suite all pass.
+
+**Migration:** `20260727181433_AddInstallmentPaymentLedger` — the `InstallmentPayments` table, three indexes
+(FK, a partial `PaidOn WHERE NOT IsVoided`, and `Installments.DueDate`, which never had one), plus a
+hand-written backfill.
+
+### ⚠️ Pre-existing test-failure baseline — VERIFIED, not caused by this work
+
+The full suite reports **8 failures**. I checked out `22b37a1` into a throwaway worktree, built it untouched,
+and ran the same suite: **the failure sets are identical**.
+
+- `DoctorCachetTests` ×4 (2 facts + a 2-case theory)
+- `ReminderSchedulerTests` ×3
+- `DocumentTypeAndFilenameTests.Create_With_Supported_Type_Passes_The_Type_Guard` ×1
+
+None touch anything this feature changes. They are recorded here rather than fixed — repairing unrelated
+pre-existing failures is out of scope, and silently "fixing" them would hide whatever regressed them earlier.
+**Any 9th failure in a later part is mine.**
+
+### What actually fixes the wrong-month bug
+
+`GetInstallmentCollectedBetweenAsync` now sums **ledger rows on their own dates**. It used to key the whole
+cumulative `AmountPaid` off the single `LastPaidOn`, so 400 DT in January and 600 in February reported 0 then
+1000 — and January's already-published figure **changed retroactively** when February's payment landed. The
+invoice side was always event-sourced and correct; this mirrors it.
+
+The traversal stays rooted at the clinic-filtered `TreatmentPlans` set and reaches the ledger by `SelectMany`.
+**That traversal is the tenant scoping** for a grandchild with no `ClinicId`, no `DbSet` and no query filter.
+
+### Design points
+
+- **`AmountPaid`, `LastMethod` and `LastPaidOn` are kept but become derived.** Thirteen read sites depend on
+  them. They are recomputed from the live ledger after every record and void, so the two can never drift.
+  Consequence worth knowing: **`AmountPaid` is no longer monotonic**, and both `Installment.Revise` and the
+  plan amendment rules key off it.
+- **The plan's status is NOT walked back on a void**, unlike an invoice's. A plan's status tracks clinical
+  progress — « Terminé » means every act is done, not that it is paid — so correcting a payment must not
+  un-complete a treatment.
+- **Receipts are per-payment.** The route gained a `paymentId` and the query prints *that* payment. It used to
+  print the cumulative `AmountPaid` dated `LastPaidOn`, so a second partial payment silently reissued a
+  receipt for the running total. Both receipts (invoice and installment) now also print the balance **as of
+  that payment** rather than the live one — previously a reprint of the first of two receipts showed a figure
+  that never applied, and after a void it would have shown a balance that had *grown*.
+- **The backfill reproduces today's figures exactly** (AC-24): one row per already-paid installment, the
+  cumulative amount, dated `LastPaidOn` — precisely what every cash read attributes today. It deliberately
+  does **not** retro-fix the attribution, because the information to do so was never stored. The ledger fixes
+  attribution from its first day forward, and `reconcile-money` now reports both computations side by side so
+  a before/after run proves nothing moved.
+- **Idempotent by `WHERE NOT EXISTS`** — not optional: in Local mode migrations run fire-and-forget *after*
+  Kestrel is serving and a throw calls `StopApplication()`, so a non-idempotent backfill that re-ran would
+  take the whole app down.
+- **`COALESCE` on the backfill date.** `AmountPaid > 0` with a NULL `LastPaidOn` is unreachable through the
+  domain but possible in the data, and `PaidOn` is `NOT NULL` — a bare insert would abort the entire
+  migration.
+
+### Auto-approved deviations
+
+| Deviation | Classification | Reason |
+|-----------|----------------|--------|
+| `RecordInstallmentPayment` now returns the created `InstallmentPayment` | Trivial | The caller needs the new row's id to offer its receipt. Previously it returned void and the modal could only reference the échéance. |
+| Added `Installments.DueDate` index in this migration | Trivial | « Créances » pulls every open installment per clinic and there was no date index at all; the plan lists it under M3 anyway. |
+| `Installment.ResyncFromLedger()` (internal) | Trivial | Lets the verification pass rebuild the denormalizations from EF-loaded rows, which bypass the domain methods. Internal, no public surface. |
 
 ## Significant deviations
 

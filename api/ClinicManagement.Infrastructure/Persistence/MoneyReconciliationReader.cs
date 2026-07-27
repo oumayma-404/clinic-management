@@ -76,6 +76,18 @@ public class MoneyReconciliationReader : IMoneyReconciliationReader
             }))
             .ToListAsync(cancellationToken);
 
+        var ledger = await _context.TreatmentPlans
+            .AsNoTracking()
+            .Where(p => debtBearing.Contains(p.Status))
+            .SelectMany(p => p.Installments.SelectMany(i => i.Payments.Select(pay => new
+            {
+                p.ClinicId,
+                pay.Amount,
+                pay.PaidOn,
+                pay.IsVoided
+            })))
+            .ToListAsync(cancellationToken);
+
         var contacts = await _context.Patients
             .AsNoTracking()
             .Select(p => new { p.ClinicId, Email = p.Email.Value, Phone = p.PhoneNumber.Value })
@@ -105,6 +117,7 @@ public class MoneyReconciliationReader : IMoneyReconciliationReader
             var clinicInvoices = invoices.Where(i => i.ClinicId == clinic.Id).ToList();
             var clinicPayments = payments.Where(p => p.ClinicId == clinic.Id).ToList();
             var clinicInstallments = installments.Where(i => i.ClinicId == clinic.Id).ToList();
+            var clinicLedger = ledger.Where(l => l.ClinicId == clinic.Id && !l.IsVoided).ToList();
 
             var planSchedules = plans
                 .Where(p => p.ClinicId == clinic.Id)
@@ -138,10 +151,17 @@ public class MoneyReconciliationReader : IMoneyReconciliationReader
                 PaymentRowSum: clinicPayments.Sum(p => p.Amount),
                 InvoiceAmountCollectedSum: clinicInvoices.Sum(i => i.AmountCollected),
                 InstallmentAmountPaidSum: clinicInstallments.Sum(i => i.AmountPaid),
+                InstallmentLedgerSum: clinicLedger.Sum(l => l.Amount),
                 PlanSchedules: planSchedules,
-                MonthlyCollected: BuildMonthlyCollected(clinicPayments
+                MonthlyCollected: BuildMonthlyCollected(
+                    clinicPayments
                         .Where(p => p.PaidOn >= since)
                         .Select(p => (p.PaidOn, p.Amount)),
+                    // The ledger figure — what the caisse now reports.
+                    clinicLedger
+                        .Where(l => l.PaidOn >= since)
+                        .Select(l => (l.PaidOn, l.Amount)),
+                    // The same month the OLD way, so a before/after run can prove nothing moved (AC-24).
                     clinicInstallments
                         .Where(i => i.LastPaidOn != null && i.LastPaidOn >= since)
                         .Select(i => (i.LastPaidOn!.Value, i.AmountPaid))),
@@ -163,24 +183,27 @@ public class MoneyReconciliationReader : IMoneyReconciliationReader
     /// </summary>
     private static List<MonthlyCollectedFact> BuildMonthlyCollected(
         IEnumerable<(DateTime PaidOn, decimal Amount)> invoicePayments,
-        IEnumerable<(DateTime PaidOn, decimal Amount)> installmentPayments)
+        IEnumerable<(DateTime PaidOn, decimal Amount)> ledgerPayments,
+        IEnumerable<(DateTime PaidOn, decimal Amount)> legacyInstallmentPayments)
     {
-        var invoiceByMonth = invoicePayments
-            .GroupBy(p => (p.PaidOn.Year, p.PaidOn.Month))
-            .ToDictionary(g => g.Key, g => g.Sum(p => p.Amount));
+        static Dictionary<(int Year, int Month), decimal> ByMonth(IEnumerable<(DateTime PaidOn, decimal Amount)> rows) =>
+            rows.GroupBy(p => (p.PaidOn.Year, p.PaidOn.Month))
+                .ToDictionary(g => g.Key, g => g.Sum(p => p.Amount));
 
-        var installmentByMonth = installmentPayments
-            .GroupBy(p => (p.PaidOn.Year, p.PaidOn.Month))
-            .ToDictionary(g => g.Key, g => g.Sum(p => p.Amount));
+        var invoiceByMonth = ByMonth(invoicePayments);
+        var ledgerByMonth = ByMonth(ledgerPayments);
+        var legacyByMonth = ByMonth(legacyInstallmentPayments);
 
         return invoiceByMonth.Keys
-            .Union(installmentByMonth.Keys)
+            .Union(ledgerByMonth.Keys)
+            .Union(legacyByMonth.Keys)
             .OrderBy(k => k.Year).ThenBy(k => k.Month)
             .Select(k => new MonthlyCollectedFact(
                 k.Year,
                 k.Month,
                 invoiceByMonth.TryGetValue(k, out var invoice) ? invoice : 0m,
-                installmentByMonth.TryGetValue(k, out var installment) ? installment : 0m))
+                ledgerByMonth.TryGetValue(k, out var ledgerAmount) ? ledgerAmount : 0m,
+                legacyByMonth.TryGetValue(k, out var legacy) ? legacy : 0m))
             .ToList();
     }
 

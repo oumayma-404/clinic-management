@@ -13,6 +13,13 @@ public class GetInstallmentReceiptPdfQuery : IRequest<Result<ReceiptPdfResult>>
 {
     public Guid PlanId { get; set; }
     public Guid InstallmentId { get; set; }
+
+    /// <summary>
+    /// Which payment to print. Required now that an échéance can hold several: the receipt used to print the
+    /// CUMULATIVE AmountPaid dated LastPaidOn, so a second partial payment silently reissued a receipt for the
+    /// running total rather than for the money just handed over.
+    /// </summary>
+    public Guid PaymentId { get; set; }
 }
 
 public class GetInstallmentReceiptPdfQueryHandler : IRequestHandler<GetInstallmentReceiptPdfQuery, Result<ReceiptPdfResult>>
@@ -58,10 +65,8 @@ public class GetInstallmentReceiptPdfQueryHandler : IRequestHandler<GetInstallme
         var installment = plan.Installments.FirstOrDefault(i => i.Id == request.InstallmentId)
             ?? throw new NotFoundException("Échéance introuvable.");
 
-        if (installment.LastPaidOn is null || installment.LastMethod is null)
-        {
-            throw new NotFoundException("Aucun paiement enregistré pour cette échéance.");
-        }
+        var payment = installment.Payments.FirstOrDefault(p => p.Id == request.PaymentId)
+            ?? throw new NotFoundException("Paiement introuvable pour cette échéance.");
 
         try
         {
@@ -76,11 +81,17 @@ public class GetInstallmentReceiptPdfQueryHandler : IRequestHandler<GetInstallme
                 ClinicPhone = clinic?.Phone,
                 MatriculeFiscal = clinic?.MatriculeFiscal,
                 PatientName = patient?.GetFullName() ?? string.Empty,
-                PaidOn = installment.LastPaidOn.Value,
-                Amount = installment.AmountPaid,
-                Method = PaymentMethodLabels.ToFrench(installment.LastMethod.Value),
+                PaidOn = payment.PaidOn,
+                Amount = payment.Amount,
+                Method = PaymentMethodLabels.ToFrench(payment.Method),
                 For = $"{planLabel} — échéance du {installment.DueDate:dd/MM/yyyy}",
-                RemainingBalance = installment.Outstanding,
+                // The balance AS OF this payment, not the live one. Printing the current balance made a
+                // reprint of the first of two receipts show a figure that never applied when it was issued —
+                // and after a void it would show a balance that had GROWN.
+                RemainingBalance = BalanceAsOf(installment, payment),
+                IsVoided = payment.IsVoided,
+                VoidedOn = payment.VoidedAt,
+                VoidReason = payment.VoidReason,
                 Reference = plan.Number,
             };
 
@@ -98,5 +109,20 @@ public class GetInstallmentReceiptPdfQueryHandler : IRequestHandler<GetInstallme
                 request.PlanId, request.InstallmentId);
             return Result<ReceiptPdfResult>.Failure("Erreur lors de la génération du reçu.");
         }
+    }
+
+    /// <summary>
+    /// The échéance's balance immediately after <paramref name="payment"/> was received — i.e. counting only
+    /// the live payments up to and including it. A receipt states what was true when it was issued.
+    /// </summary>
+    private static decimal BalanceAsOf(Domain.Entities.Installment installment, Domain.Entities.InstallmentPayment payment)
+    {
+        var collectedByThen = installment.Payments
+            .Where(p => !p.IsVoided
+                        && (p.PaidOn < payment.PaidOn
+                            || (p.PaidOn == payment.PaidOn && p.CreatedAt <= payment.CreatedAt)))
+            .Sum(p => p.Amount);
+
+        return Math.Max(0m, installment.Amount - Domain.Services.InvoiceCalculator.RoundMoney(collectedByThen));
     }
 }

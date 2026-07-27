@@ -56,22 +56,30 @@ export function InstallmentPaymentModal({ open, onOpenChange, planId, installmen
     try {
       const currentPlanId = planId
       const currentInstallmentId = installment.id
-      await treatmentPlansApi.recordInstallmentPayment(currentPlanId, currentInstallmentId, {
+      const priorPaymentIds = new Set((installment.payments ?? []).map((p) => p.id))
+
+      const updated = await treatmentPlansApi.recordInstallmentPayment(currentPlanId, currentInstallmentId, {
         amount: parsedAmount,
         method,
         paidOn: new Date(paidOn).toISOString(),
       })
-      toast.success("Paiement enregistré", {
+
+      // The receipt is per-PAYMENT now, so find the row we just created rather than the échéance total —
+      // that is the whole point: a second partial payment used to reprint a receipt for the running sum.
+      const refreshed = updated.installments.find((i) => i.id === currentInstallmentId)
+      const newPayment = refreshed?.payments.find((p) => !priorPaymentIds.has(p.id))
+
+      toast.success("Paiement enregistré", newPayment ? {
         action: {
           label: "Télécharger le reçu",
           onClick: () => {
             treatmentPlansApi
-              .downloadInstallmentReceipt(currentPlanId, currentInstallmentId)
-              .then((blob) => downloadBlob(blob, `recu-echeance-${currentInstallmentId.slice(0, 8)}.pdf`))
+              .downloadInstallmentReceipt(currentPlanId, currentInstallmentId, newPayment.id)
+              .then((blob) => downloadBlob(blob, `recu-echeance-${newPayment.id.slice(0, 8)}.pdf`))
               .catch((e) => toast.error(e instanceof Error ? e.message : "Échec du téléchargement du reçu."))
           },
         },
-      })
+      } : undefined)
       onSuccess?.()
       onOpenChange(false)
     } catch (err) {

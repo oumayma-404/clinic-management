@@ -30,6 +30,7 @@ public sealed record ClinicMoneyFacts(
     decimal PaymentRowSum,
     decimal InvoiceAmountCollectedSum,
     decimal InstallmentAmountPaidSum,
+    decimal InstallmentLedgerSum,
     IReadOnlyList<PlanScheduleFact> PlanSchedules,
     IReadOnlyList<MonthlyCollectedFact> MonthlyCollected,
     IReadOnlyList<ContactValueFact> ContactValues,
@@ -40,11 +41,21 @@ public sealed record ClinicMoneyFacts(
 public sealed record PlanScheduleFact(Guid PlanId, string? Number, decimal TotalPlanned, decimal InstallmentSum);
 
 /// <summary>
-/// One month's collected cash, split by track. <paramref name="InstallmentCollected"/> is computed the
-/// <b>current</b> way (whole cumulative <c>AmountPaid</c> attributed to the single <c>LastPaidOn</c>) — this is
-/// the baseline the installment-ledger migration must reproduce exactly.
+/// One month's collected cash, split by track.
+///
+/// <para>
+/// <paramref name="InstallmentCollected"/> is the <b>ledger</b> figure — each payment on its own date, which is
+/// what the caisse now reports. <paramref name="InstallmentCollectedLegacy"/> is the same month computed the
+/// old way (the whole cumulative <c>AmountPaid</c> attributed to the single <c>LastPaidOn</c>). Both are
+/// reported so a before/after run can prove the ledger migration moved no closed month (spec AC-24).
+/// </para>
 /// </summary>
-public sealed record MonthlyCollectedFact(int Year, int Month, decimal InvoiceCollected, decimal InstallmentCollected);
+public sealed record MonthlyCollectedFact(
+    int Year,
+    int Month,
+    decimal InvoiceCollected,
+    decimal InstallmentCollected,
+    decimal InstallmentCollectedLegacy);
 
 /// <summary>A patient's stored contact pair, used to count sentinel and near-miss placeholder values.</summary>
 public sealed record ContactValueFact(string? Email, string? Phone);

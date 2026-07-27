@@ -156,13 +156,37 @@ export const treatmentPlansApi = {
   },
 
   // The installment receipt PDF is a binary blob — drop to raw fetch and attach the bearer token ourselves.
-  downloadInstallmentReceipt: async (id: string, installmentId: string): Promise<Blob> => {
+  /**
+   * Void a payment recorded against an échéance — "this was never received". The ledger row is kept and
+   * marked; the installment's totals are re-derived. The plan's status is NOT walked back, because it tracks
+   * clinical progress rather than payment. AdminOrDoctor only.
+   */
+  voidInstallmentPayment: async (
+    id: string,
+    installmentId: string,
+    paymentId: string,
+    reason: string,
+  ): Promise<TreatmentPlanDto> =>
+    apiPost<TreatmentPlanDto>(
+      `/treatment-plans/${id}/installments/${installmentId}/payments/${paymentId}/void`,
+      { reason },
+    ),
+
+  /**
+   * Download the receipt for ONE installment payment. The payment id is required: an échéance can hold
+   * several payments, and the receipt used to print the cumulative total rather than the money handed over.
+   * A voided payment still renders, over-stamped « REÇU ANNULÉ ».
+   */
+  downloadInstallmentReceipt: async (id: string, installmentId: string, paymentId: string): Promise<Blob> => {
     const token = await getAccessToken();
     const headers: HeadersInit = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
     const base = typeof window !== 'undefined' ? window.location.origin : undefined;
-    const url = new URL(`${API_BASE_URL}/treatment-plans/${id}/installments/${installmentId}/receipt-pdf`, base);
+    const url = new URL(
+      `${API_BASE_URL}/treatment-plans/${id}/installments/${installmentId}/payments/${paymentId}/receipt-pdf`,
+      base,
+    );
 
     const response = await fetch(url.toString(), {
       method: 'GET',

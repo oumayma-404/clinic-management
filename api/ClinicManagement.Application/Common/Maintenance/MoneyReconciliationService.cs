@@ -26,9 +26,13 @@ public sealed record MonthlyBaselineLine(
     int Year,
     int Month,
     decimal InvoiceCollected,
-    decimal InstallmentCollected)
+    decimal InstallmentCollected,
+    decimal InstallmentCollectedLegacy)
 {
     public decimal Total => InvoiceCollected + InstallmentCollected;
+
+    /// <summary>True when the ledger attributes this month differently from the pre-ledger computation.</summary>
+    public bool AttributionMoved => InstallmentCollected != InstallmentCollectedLegacy;
 }
 
 /// <summary>The full reconciliation result.</summary>
@@ -81,12 +85,14 @@ public class MoneyReconciliationService
             findings.AddRange(CheckContactSentinels(clinic));
             findings.AddRange(CheckCreditNotes(clinic));
             findings.AddRange(CheckBridges(clinic));
-            findings.Add(RecordInstallmentTotal(clinic));
+            findings.AddRange(CheckMonthlyAttribution(clinic));
+            findings.AddRange(CheckInstallmentLedgerAgrees(clinic));
 
             baseline.AddRange(clinic.MonthlyCollected
                 .OrderBy(m => m.Year).ThenBy(m => m.Month)
                 .Select(m => new MonthlyBaselineLine(
-                    clinic.ClinicName, m.Year, m.Month, m.InvoiceCollected, m.InstallmentCollected)));
+                    clinic.ClinicName, m.Year, m.Month,
+                    m.InvoiceCollected, m.InstallmentCollected, m.InstallmentCollectedLegacy)));
         }
 
         findings.AddRange(CheckOrphans(facts.Orphans));
@@ -245,12 +251,67 @@ public class MoneyReconciliationService
         }
     }
 
-    /// <summary>The total the installment payment ledger must reproduce exactly once it exists.</summary>
-    private static MoneyReconciliationFinding RecordInstallmentTotal(ClinicMoneyFacts clinic) =>
-        new(clinic.ClinicName,
-            "installment-collected-total",
-            $"Σ Installment.AmountPaid = {Money(clinic.InstallmentAmountPaidSum)}",
-            MoneyReconciliationSeverity.Info);
+    /// <summary>
+    /// The installment payment ledger against the stored <c>AmountPaid</c> denormalization it derives.
+    /// These are written together by the domain and backfilled together by the migration, so any difference
+    /// means the ledger and the figure every read uses have diverged.
+    /// </summary>
+    private static IEnumerable<MoneyReconciliationFinding> CheckInstallmentLedgerAgrees(ClinicMoneyFacts clinic)
+    {
+        var ledger = InvoiceCalculator.RoundMoney(clinic.InstallmentLedgerSum);
+        var denormalized = InvoiceCalculator.RoundMoney(clinic.InstallmentAmountPaidSum);
+
+        if (ledger == denormalized)
+        {
+            yield return new MoneyReconciliationFinding(
+                clinic.ClinicName,
+                "installment-ledger-agrees",
+                $"Σ ledger = Σ Installment.AmountPaid = {Money(ledger)}",
+                MoneyReconciliationSeverity.Info);
+            yield break;
+        }
+
+        yield return new MoneyReconciliationFinding(
+            clinic.ClinicName,
+            "installment-ledger-agrees",
+            $"Σ ledger {Money(ledger)} != Σ Installment.AmountPaid {Money(denormalized)} "
+            + $"(difference {Money(ledger - denormalized)})",
+            MoneyReconciliationSeverity.Drift);
+    }
+
+    /// <summary>
+    /// Every month whose ledger figure differs from the same month computed the old way. After the backfill
+    /// this must be empty — that is spec AC-24, and it is the single check that proves the migration moved no
+    /// closed month. Divergence appears only for months collected AFTER the ledger existed, where the new
+    /// attribution is the correct one.
+    /// </summary>
+    private static IEnumerable<MoneyReconciliationFinding> CheckMonthlyAttribution(ClinicMoneyFacts clinic)
+    {
+        var moved = clinic.MonthlyCollected
+            .Where(m => InvoiceCalculator.RoundMoney(m.InstallmentCollected)
+                        != InvoiceCalculator.RoundMoney(m.InstallmentCollectedLegacy))
+            .ToList();
+
+        if (moved.Count == 0)
+        {
+            yield return new MoneyReconciliationFinding(
+                clinic.ClinicName,
+                "monthly-attribution-unchanged",
+                $"{clinic.MonthlyCollected.Count} month(s) report the same installment total both ways",
+                MoneyReconciliationSeverity.Info);
+            yield break;
+        }
+
+        foreach (var month in moved)
+        {
+            yield return new MoneyReconciliationFinding(
+                clinic.ClinicName,
+                "monthly-attribution-unchanged",
+                $"{month.Year:0000}-{month.Month:00}: ledger {Money(month.InstallmentCollected)} "
+                + $"vs ancienne méthode {Money(month.InstallmentCollectedLegacy)}",
+                MoneyReconciliationSeverity.Drift);
+        }
+    }
 
     /// <summary>
     /// Invoices and treatment plans carry no foreign key to Patients, so a past cascading patient delete left

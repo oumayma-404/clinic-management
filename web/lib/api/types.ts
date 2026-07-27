@@ -499,11 +499,29 @@ export interface InstallmentDto {
   id: string;
   dueDate: string;
   amount: number;
+  /** Derived from the payment ledger — no longer monotonic, since a payment can be voided. */
   amountPaid: number;
   outstanding: number;
   isPaid: boolean;
+  /** Derived: the most recent LIVE payment's method/date. */
   lastMethod: string | null;
   lastPaidOn: string | null;
+  /** Every payment received against this échéance, each on its own date. Newest last. */
+  payments: InstallmentPaymentDto[];
+}
+
+export interface InstallmentPaymentDto {
+  id: string;
+  amount: number;
+  /** Cash | Cheque | Card | Transfer */
+  method: string;
+  paidOn: string;
+  createdAt: string;
+  /** A voided payment was never really received; the row is kept and shown struck through with its motif. */
+  isVoided: boolean;
+  voidedAt?: string | null;
+  voidReason?: string | null;
+  voidedByName?: string | null;
 }
 
 // ---- Clinical-workflow-depth DTOs ----------------------------------------------------------------

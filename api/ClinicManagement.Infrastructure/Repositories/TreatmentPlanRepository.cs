@@ -21,6 +21,7 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
         return await _context.TreatmentPlans
             .Include(p => p.Items)
             .Include(p => p.Installments)
+            .ThenInclude(i => i.Payments)
             .FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
     }
 
@@ -35,6 +36,7 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
         var query = _context.TreatmentPlans
             .Include(p => p.Items)
             .Include(p => p.Installments)
+            .ThenInclude(i => i.Payments)
             .Where(p => p.ClinicId == clinicId);
 
         if (patientId.HasValue)
@@ -92,11 +94,20 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
         // delete real receipts from the caisse rather than de-duplicate them.
         var debtStatuses = PlanBillingRules.DebtBearingPlanStatuses;
 
+        // Summed from the payment LEDGER, each row on its own date. This used to key the whole cumulative
+        // AmountPaid off the single LastPaidOn, so an échéance paid 400 DT in January and 600 in February
+        // reported 0 for January and 1000 for February — and January's already-published figure changed
+        // retroactively the moment the February payment landed. Mirrors the invoice side, which was always
+        // event-sourced and correct.
+        //
+        // Still rooted at the clinic-filtered TreatmentPlans set and reached by SelectMany: that traversal IS
+        // the tenant scoping for a grandchild that has no ClinicId and no DbSet of its own.
         return await _context.TreatmentPlans
             .Where(p => p.ClinicId == clinicId && debtStatuses.Contains(p.Status))
             .SelectMany(p => p.Installments)
-            .Where(i => i.LastPaidOn != null && i.LastPaidOn >= from && i.LastPaidOn <= to)
-            .SumAsync(i => (decimal?)i.AmountPaid, cancellationToken) ?? 0m;
+            .SelectMany(i => i.Payments)
+            .Where(p => !p.IsVoided && p.PaidOn >= from && p.PaidOn <= to)
+            .SumAsync(p => (decimal?)p.Amount, cancellationToken) ?? 0m;
     }
 
     public async Task<IReadOnlyList<(Guid PatientId, decimal Outstanding, DateTime? OldestOverdueDueDate)>> GetInstallmentOutstandingByPatientAsync(
@@ -160,6 +171,7 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
         var plan = await _context.TreatmentPlans
             .Include(p => p.Items)
             .Include(p => p.Installments)
+            .ThenInclude(i => i.Payments)
             .FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
 
         if (plan != null)

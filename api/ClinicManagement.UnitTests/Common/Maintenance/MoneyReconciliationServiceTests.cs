@@ -24,6 +24,7 @@ public class MoneyReconciliationServiceTests
         decimal paymentRowSum = 1000m,
         decimal invoiceAmountCollectedSum = 1000m,
         decimal installmentAmountPaidSum = 600m,
+        decimal? installmentLedgerSum = null,
         IReadOnlyList<PlanScheduleFact>? planSchedules = null,
         IReadOnlyList<MonthlyCollectedFact>? monthly = null,
         IReadOnlyList<ContactValueFact>? contacts = null,
@@ -34,6 +35,8 @@ public class MoneyReconciliationServiceTests
             paymentRowSum,
             invoiceAmountCollectedSum,
             installmentAmountPaidSum,
+            // Defaults to matching the denormalization: a clean clinic has ledger == AmountPaid.
+            installmentLedgerSum ?? installmentAmountPaidSum,
             planSchedules ?? new[] { new PlanScheduleFact(PlanId, "2026-0001", 1000m, 1000m) },
             monthly ?? Array.Empty<MonthlyCollectedFact>(),
             contacts ?? new[] { new ContactValueFact("sonia@example.tn", "20123456") },
@@ -206,8 +209,8 @@ public class MoneyReconciliationServiceTests
     {
         Arrange(CleanClinic(monthly: new[]
         {
-            new MonthlyCollectedFact(2026, 2, 600m, 0m),
-            new MonthlyCollectedFact(2026, 1, 0m, 400m)
+            new MonthlyCollectedFact(2026, 2, 600m, 0m, 0m),
+            new MonthlyCollectedFact(2026, 1, 0m, 400m, 400m)
         }));
 
         var report = await CreateService().RunAsync();
@@ -227,17 +230,64 @@ public class MoneyReconciliationServiceTests
             });
     }
 
-    // [AC-74] The Σ AmountPaid total is recorded even when clean, because Part E's ledger must reproduce it.
+    // [AC-23] The ledger and the AmountPaid denormalization it derives are written and backfilled together,
+    // so any difference means they have diverged.
     [Fact]
-    public async Task The_Installment_Collected_Total_Is_Always_Recorded()
+    public async Task A_Ledger_That_Matches_The_Denormalization_Is_Clean()
     {
-        Arrange(CleanClinic(installmentAmountPaidSum: 1234.567m));
+        Arrange(CleanClinic(installmentAmountPaidSum: 1234.567m, installmentLedgerSum: 1234.567m));
 
         var report = await CreateService().RunAsync();
 
-        var finding = Finding(report, "installment-collected-total");
+        var finding = Finding(report, "installment-ledger-agrees");
         Assert.Equal(MoneyReconciliationSeverity.Info, finding.Severity);
         Assert.Contains("1234.567", finding.Detail);
+    }
+
+    // [AC-23] …and a difference is drift.
+    [Fact]
+    public async Task A_Ledger_That_Disagrees_With_The_Denormalization_Is_Drift()
+    {
+        Arrange(CleanClinic(installmentAmountPaidSum: 1000m, installmentLedgerSum: 950m));
+
+        var report = await CreateService().RunAsync();
+
+        Assert.Equal(MoneyReconciliationSeverity.Drift, Finding(report, "installment-ledger-agrees").Severity);
+        Assert.True(report.HasDrift);
+    }
+
+    // [AC-24] THE check the ledger migration is judged against: every month must report the same installment
+    // total computed both ways. A difference means the backfill moved money between months.
+    [Fact]
+    public async Task A_Month_Whose_Attribution_Moved_Is_Drift()
+    {
+        Arrange(CleanClinic(monthly: new[]
+        {
+            // Ledger says 400 in January; the old computation said 0 — the backfill moved a month.
+            new MonthlyCollectedFact(2026, 1, 0m, 400m, 0m)
+        }));
+
+        var report = await CreateService().RunAsync();
+
+        var finding = Finding(report, "monthly-attribution-unchanged");
+        Assert.Equal(MoneyReconciliationSeverity.Drift, finding.Severity);
+        Assert.Contains("2026-01", finding.Detail);
+    }
+
+    // [AC-24] Identical figures both ways is the passing state.
+    [Fact]
+    public async Task Months_That_Report_The_Same_Total_Both_Ways_Are_Clean()
+    {
+        Arrange(CleanClinic(monthly: new[]
+        {
+            new MonthlyCollectedFact(2026, 1, 0m, 400m, 400m),
+            new MonthlyCollectedFact(2026, 2, 600m, 600m, 600m)
+        }));
+
+        var report = await CreateService().RunAsync();
+
+        Assert.Equal(MoneyReconciliationSeverity.Info, Finding(report, "monthly-attribution-unchanged").Severity);
+        Assert.False(report.HasDrift);
     }
 
     // [AC-74] The report reads once and mutates nothing — there is no write seam on it at all.
