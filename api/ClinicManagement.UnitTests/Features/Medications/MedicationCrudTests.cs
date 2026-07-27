@@ -213,7 +213,7 @@ public class MedicationCrudTests
         Assert.True(med.IsProvisional);
         _repo.Setup(r => r.GetAllAsync(true, It.IsAny<CancellationToken>())).ReturnsAsync(new[] { med });
 
-        var handler = new ConfirmMedicationDataCommandHandler(_repo.Object, _uow.Object, NullLogger<ConfirmMedicationDataCommandHandler>.Instance);
+        var handler = new ConfirmMedicationDataCommandHandler(_repo.Object, _clinicResolver.Object, _uow.Object, NullLogger<ConfirmMedicationDataCommandHandler>.Instance);
         var result = await handler.Handle(new ConfirmMedicationDataCommand(), CancellationToken.None);
 
         Assert.True(result.IsSuccess);

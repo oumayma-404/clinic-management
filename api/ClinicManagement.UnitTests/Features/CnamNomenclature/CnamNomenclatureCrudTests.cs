@@ -176,7 +176,7 @@ public class CnamNomenclatureCrudTests
         _repo.Setup(r => r.GetAllAsync(true, It.IsAny<CancellationToken>())).ReturnsAsync(new[] { entry });
         _repo.Setup(r => r.GetAllLetterValuesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new[] { vlc });
 
-        var handler = new ConfirmCnamDataCommandHandler(_repo.Object, _uow.Object, NullLogger<ConfirmCnamDataCommandHandler>.Instance);
+        var handler = new ConfirmCnamDataCommandHandler(_repo.Object, _clinicResolver.Object, _uow.Object, NullLogger<ConfirmCnamDataCommandHandler>.Instance);
         var result = await handler.Handle(new ConfirmCnamDataCommand(), CancellationToken.None);
 
         Assert.True(result.IsSuccess);

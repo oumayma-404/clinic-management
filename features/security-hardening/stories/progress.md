@@ -10,7 +10,7 @@
 | P1 Installer filesystem posture | **done** — committed `43fe6d5` |
 | P2 Backup output posture | **done** — committed |
 | P3 Auth & session | **done** — US-4 and US-5 closed (client IP, rate limiter, per-source lockout, token revocation, R-4, short lifetime + silent renewal) |
-| P4 Authorization | in progress — **P4.1–P4.3 done, P4.4 6 of 10**; remaining: 4 catalog commands, P4.5 frontend gating, P4.6 guard test, AC-9.3 tenant tests |
+| P4 Authorization | in progress — **P4.1–P4.4 done (all 10 commands)**; remaining: **P4.5** frontend gating, **P4.6** guard test, **AC-9.3** tenant tests |
 | P5 Hygiene | pending |
 
 ## Working tree note (start of session, 2026-07-27)
@@ -256,12 +256,19 @@ Applied by script rather than by hand, and the script writes only on *full* succ
 
 **Constructor cascade handled in lock-step:** the 4 new resolver parameters broke `CnamNomenclatureCrudTests` and `MedicationCrudTests`, which construct the handlers directly. Both harnesses already mocked `ICurrentClinicResolver` for the `Create` handlers, so the fix was inserting the existing mock — and those tests passing now also demonstrates the same-clinic happy path still works.
 
+**Follow-up in the same session — P4.4 is now complete, all 10 commands.** The four remaining ones were finished:
+
+- The three `Confirm*` commands filter the returned set by `ClinicId` instead of guarding a single row — there is no id to check, so the set filter is the equivalent. This was the worst of the ten: with the filter inactive, one call confirmed *every* clinic's provisional rows.
+- `UpdateCnamLetterValueCommand` guards by id like the others (it reads via `GetLetterValueByIdAsync`, not the shared `GetByIdAsync`, which is why the earlier script skipped it).
+
+Cascade again, in three more test files. `CnamVlcTests` had **no** resolver mock at all, so it needed one plus a fixed `ClinicId` — and the row under test had to be moved into that clinic, otherwise the new guard correctly refuses it and the test would fail for the right reason. `CnamNomenclatureCrudTests` and `MedicationCrudTests` only needed their existing mock threaded into the `Confirm*` constructions.
+
+Two tooling notes, both cost a cycle: a `python - <<'PY'` heredoc **hung for 7 minutes** because python is not installed here (the Store shim blocks on stdin) — use node, or write the script to the scratchpad. And a multi-line JS anchor silently failed to match because the files are **CRLF**; single-line `split`/`join` worked, and the fix went in via the edit tool.
+
 **Still open in P4** (do not assume US-6–US-9 are closed):
 
 | Item | Note |
 |---|---|
-| `UpdateCnamLetterValueCommand` | Not patched — letter values are keyed by letter, not id, so it has a different shape |
-| `ConfirmDentalActsCommand`, `ConfirmCnamDataCommand`, `ConfirmMedicationDataCommand` | Not patched. They call `GetProvisionalAsync()` and iterate, with **no id lookup to guard** — with the filter inactive they would confirm *every* clinic's provisional rows. Needs a `ClinicId` filter on the returned set, not a single-row check. This is the bulk-write path and arguably the worst of the ten. |
 | P4.5 frontend gating | The newly admin-only controls still render for non-admins, who will now get a 403 |
 | P4.6 role-policy coverage guard | Not written |
 | AC-9.3 tenant tests | **The tests that matter most for P4.4 do not exist yet** — the existing CRUD tests pass with the query filter *active*, which proves nothing about the finding. A test with no `clinic_id` claim is what actually pins it. |
