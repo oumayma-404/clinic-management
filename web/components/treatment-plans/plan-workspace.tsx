@@ -61,14 +61,21 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
    * The procedure an act stands for, so booking it produces a real `procedureTypeId` (colour, default
    * duration, and the act proposal in the dental-record modal) instead of just a name in the notes.
    *
-   * Matched by name because the plan editor **discards** `pt.id` when you pick from « Mes actes » — it
-   * snapshots the procedure as a free-text line whose `designationFr` is `pt.name` verbatim
-   * (`treatment-plan-form-modal.tsx`, `selectProcedureType`), so the name is a reliable key. Lines taken from
-   * the CNAM catalogue, typed by hand, or renamed after picking simply do not match and keep the old
-   * behaviour. Persisting the id on the act is the durable fix and would make this a fallback for existing rows.
+   * Prefers the act's stored `procedureTypeId`. Falls back to matching `designationFr` against the catalog by
+   * name, which works for **acts created before that column existed**: the plan editor used to snapshot a
+   * « Mes actes » pick as a free-text line whose designation is `pt.name` verbatim, so the name is a reliable
+   * key for those rows. Lines from the CNAM catalogue, typed by hand, or renamed after picking match neither
+   * way and keep the previous free-text behaviour.
    */
   const scheduleProcedureTypeId = useMemo(() => {
-    const designation = scheduleTarget?.designationFr?.trim().toLowerCase()
+    if (!scheduleTarget) return undefined
+
+    const stored = scheduleTarget.procedureTypeId
+    // Still verified against the loaded catalog — a procedure retired since the devis was written must not
+    // preselect an option that no longer exists (the link is a soft reference, with no FK to guarantee it).
+    if (stored && procedureTypes.some((p) => p.id === stored)) return stored
+
+    const designation = scheduleTarget.designationFr?.trim().toLowerCase()
     if (!designation) return undefined
     const matches = procedureTypes.filter((p) => p.name.trim().toLowerCase() === designation)
     // Ambiguity means the catalog holds two procedures with the same name; guessing one would put the wrong

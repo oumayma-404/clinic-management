@@ -46,6 +46,12 @@ export interface OdontogramPlanSeed {
   designationFr: string
   /** Prefilled planned cost from the matching procedure-type default (omitted when no catalog match). */
   plannedCost?: number
+  /**
+   * The procedure that treats the charted condition, when exactly one was matched. Carried through to the plan
+   * act so booking it can preselect the procedure — the seeded designation is a condition label
+   * (« Couronne — dent 16 »), so it would never resolve by name.
+   */
+  procedureTypeId?: string
 }
 
 interface OdontogramProps {
@@ -101,11 +107,11 @@ export function Odontogram({ patientId, onCreatePlan }: OdontogramProps) {
   // A charted diagnosis names the desired end-state (e.g. "Couronne"); a procedure whose ResultingCondition
   // is that state is its treatment, so its default cost is the planned cost. Pathology diagnoses (Carie…)
   // have no such procedure and fall back to no prefill (0) — as allowed by the spec.
-  const costByCondition = useMemo(() => {
-    const map = new Map<string, number>()
+  const procedureByCondition = useMemo(() => {
+    const map = new Map<string, ProcedureTypeDto>()
     for (const pt of procedureTypes) {
-      if (pt.resultingCondition && pt.defaultCost != null && !map.has(pt.resultingCondition)) {
-        map.set(pt.resultingCondition, pt.defaultCost)
+      if (pt.resultingCondition && !map.has(pt.resultingCondition)) {
+        map.set(pt.resultingCondition, pt)
       }
     }
     return map
@@ -119,15 +125,23 @@ export function Odontogram({ patientId, onCreatePlan }: OdontogramProps) {
       if (diagnoses.length === 0) continue
       const conditions = Array.from(new Set(diagnoses.map((d) => d.condition)))
       const labels = conditions.map((c) => conditionStyle(c).label)
-      const matchedCost = conditions.reduce((sum, c) => sum + (costByCondition.get(c) ?? 0), 0)
+      const matchedCost = conditions.reduce(
+        (sum, c) => sum + (procedureByCondition.get(c)?.defaultCost ?? 0),
+        0,
+      )
+      // Only a single charted condition names a single procedure. A tooth carrying two diagnoses becomes one
+      // aggregated line whose cost is the sum, and no one procedure speaks for it — so it carries no link
+      // rather than an arbitrary one.
+      const soleProcedure = conditions.length === 1 ? procedureByCondition.get(conditions[0]) : undefined
       seeds.push({
         toothNumbers: [tooth],
         designationFr: `${labels.join(", ")} — dent ${tooth}`,
         plannedCost: matchedCost > 0 ? matchedCost : undefined,
+        procedureTypeId: soleProcedure?.id,
       })
     }
     return seeds
-  }, [byTooth, costByCondition])
+  }, [byTooth, procedureByCondition])
 
   return (
     <div className="w-full space-y-4">

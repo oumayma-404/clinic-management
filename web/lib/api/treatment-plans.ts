@@ -26,6 +26,12 @@ export interface TreatmentPlanItemInput {
   dentalActCodeId?: string | null;
   /** Snapshot of the catalog code (or omitted for free text). */
   codeActe?: string | null;
+  /**
+   * The clinic's own procedure this act will be performed as, when picked from « Mes actes ». Persisted so
+   * booking the act later preselects the procedure — giving the appointment its colour and default duration,
+   * and letting the dental-record modal propose the act. Independent of `dentalActCodeId`.
+   */
+  procedureTypeId?: string | null;
   designationFr: string;
   plannedCost: number;
   toothNumbers: number[];

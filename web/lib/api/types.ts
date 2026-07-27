@@ -420,6 +420,12 @@ export interface TreatmentPlanItemDto {
   id: string;
   dentalActCodeId: string | null;
   codeActe: string | null;
+  /**
+   * The clinic's own procedure this act is performed as, when it was chosen from « Mes actes ». Drives the
+   * procedure prefill when the act is booked. Null for CNAM-only lines, hand-typed lines, and any act created
+   * before the column existed (those fall back to a name match).
+   */
+  procedureTypeId: string | null;
   designationFr: string;
   toothNumbers: number[];
   plannedCost: number;

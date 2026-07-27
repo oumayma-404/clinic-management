@@ -92,7 +92,20 @@ public class TreatmentPlan : AggregateRoot<Guid>
 
     /// <summary>Replace all planned act lines. Draft only. Clears any installment schedule (totals change).</summary>
     public void SetItems(IEnumerable<(string designationFr, decimal plannedCost, Guid? dentalActCodeId, string? codeActe, IReadOnlyList<int> toothNumbers)> items)
-        => SetItems(items.Select(i => ((Guid?)null, i.designationFr, i.plannedCost, i.dentalActCodeId, i.codeActe, i.toothNumbers)));
+        => SetItems(items.Select(i => new TreatmentPlanItemInput(
+            null, i.designationFr, i.plannedCost, i.dentalActCodeId, i.codeActe, null, i.toothNumbers)));
+
+    /// <summary>
+    /// Tuple adapter kept for callers that predate <see cref="TreatmentPlanItemInput"/>. Lines set no
+    /// <c>ProcedureTypeId</c> — correct, since a caller that cannot express one has not chosen a procedure.
+    /// </summary>
+    public void SetItems(
+        IEnumerable<(Guid? id, string designationFr, decimal plannedCost, Guid? dentalActCodeId, string? codeActe, IReadOnlyList<int> toothNumbers)> items,
+        bool scheduleWillBeResent = true)
+        => SetItems(
+            items.Select(i => new TreatmentPlanItemInput(
+                i.id, i.designationFr, i.plannedCost, i.dentalActCodeId, i.codeActe, null, i.toothNumbers)),
+            scheduleWillBeResent);
 
     /// <summary>
     /// Replace all planned act lines, **preserving the id** of every echoed-back line. Draft only.
@@ -110,7 +123,7 @@ public class TreatmentPlan : AggregateRoot<Guid>
     /// </para>
     /// </summary>
     public void SetItems(
-        IEnumerable<(Guid? id, string designationFr, decimal plannedCost, Guid? dentalActCodeId, string? codeActe, IReadOnlyList<int> toothNumbers)> items,
+        IEnumerable<TreatmentPlanItemInput> items,
         bool scheduleWillBeResent = true)
     {
         EnsureDraft();
@@ -132,13 +145,21 @@ public class TreatmentPlan : AggregateRoot<Guid>
         var rebuilt = new List<TreatmentPlanItem>();
         var position = 0;
 
-        foreach (var (id, designationFr, plannedCost, dentalActCodeId, codeActe, toothNumbers) in items)
+        foreach (var item in items)
         {
             // An echoed-back id that still exists on this plan keeps its identity, so every link to that act
             // survives the edit. Anything else is a new line.
-            var reusedId = id.HasValue && existingById.ContainsKey(id.Value) ? id.Value : Guid.NewGuid();
+            var reusedId = item.Id.HasValue && existingById.ContainsKey(item.Id.Value) ? item.Id.Value : Guid.NewGuid();
             rebuilt.Add(new TreatmentPlanItem(
-                reusedId, Id, designationFr, plannedCost, dentalActCodeId, codeActe, toothNumbers, position));
+                reusedId,
+                Id,
+                item.DesignationFr,
+                item.PlannedCost,
+                item.DentalActCodeId,
+                item.CodeActe,
+                item.ToothNumbers,
+                position,
+                item.ProcedureTypeId));
             position++;
         }
 
@@ -289,15 +310,33 @@ public class TreatmentPlan : AggregateRoot<Guid>
     /// amendment never reshuffles the clinical order the dentist already set. Bumps the revision.
     /// </summary>
     public void AddItems(IEnumerable<(string designationFr, decimal plannedCost, Guid? dentalActCodeId, string? codeActe, IReadOnlyList<int> toothNumbers)> items)
+        => AddItems(items.Select(i => new TreatmentPlanItemInput(
+            null, i.designationFr, i.plannedCost, i.dentalActCodeId, i.codeActe, null, i.toothNumbers)));
+
+    /// <inheritdoc cref="AddItems(IEnumerable{ValueTuple{string, decimal, Guid?, string, IReadOnlyList{int}}})"/>
+    /// <remarks>
+    /// Each line's <see cref="TreatmentPlanItemInput.Id"/> is ignored — an added act is always new. Its
+    /// <see cref="TreatmentPlanItemInput.ProcedureTypeId"/> is kept, so an act appended by an amendment can be
+    /// booked with its procedure preselected just like one that was in the original devis.
+    /// </remarks>
+    public void AddItems(IEnumerable<TreatmentPlanItemInput> items)
     {
         EnsureAmendable();
 
         var next = NextSequenceNumber();
         var added = 0;
-        foreach (var (designationFr, plannedCost, dentalActCodeId, codeActe, toothNumbers) in items)
+        foreach (var item in items)
         {
             _items.Add(new TreatmentPlanItem(
-                Guid.NewGuid(), Id, designationFr, plannedCost, dentalActCodeId, codeActe, toothNumbers, next));
+                Guid.NewGuid(),
+                Id,
+                item.DesignationFr,
+                item.PlannedCost,
+                item.DentalActCodeId,
+                item.CodeActe,
+                item.ToothNumbers,
+                next,
+                item.ProcedureTypeId));
             next++;
             added++;
         }

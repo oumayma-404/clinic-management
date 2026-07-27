@@ -52,6 +52,14 @@ public class TreatmentPlanItemDto
     public Guid Id { get; set; }
     public Guid? DentalActCodeId { get; set; }
     public string? CodeActe { get; set; }
+
+    /// <summary>
+    /// The clinic's own procedure this act is performed as, when the line was chosen from that menu. Lets
+    /// booking the act preselect the procedure (colour + default duration on the appointment, and the act
+    /// proposal in the dental-record modal). Null on CNAM-only, hand-typed, and pre-migration lines.
+    /// </summary>
+    public Guid? ProcedureTypeId { get; set; }
+
     public string DesignationFr { get; set; } = string.Empty;
     public List<int> ToothNumbers { get; set; } = new();
     public decimal PlannedCost { get; set; }
@@ -98,6 +106,16 @@ public class TreatmentPlanItemRequest
 
     public Guid? DentalActCodeId { get; set; }
     public string? CodeActe { get; set; }
+
+    /// <summary>
+    /// The clinic's own procedure this act will be performed as, when the caller picked one. Persisted so
+    /// booking the act later can preselect it. Independent of <see cref="DentalActCodeId"/> — a procedure is a
+    /// service you schedule and sell, a DCH code is the regulatory code for one clinical situation, and several
+    /// codes can bill as the same procedure. An unknown or cross-clinic id is stored as sent and simply fails
+    /// to resolve at booking time; it is never trusted for pricing.
+    /// </summary>
+    public Guid? ProcedureTypeId { get; set; }
+
     public string DesignationFr { get; set; } = string.Empty;
     public decimal PlannedCost { get; set; }
     public List<int> ToothNumbers { get; set; } = new();

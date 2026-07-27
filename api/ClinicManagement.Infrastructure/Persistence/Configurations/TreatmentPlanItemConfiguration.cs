@@ -20,6 +20,10 @@ public class TreatmentPlanItemConfiguration : IEntityTypeConfiguration<Treatment
 
         builder.Property(i => i.DentalActCodeId);
 
+        // Soft reference, no FK — retiring a procedure from the clinic's menu must never block or cascade
+        // into an existing devis. Same treatment as DentalActCodeId and LinkedDentalRecordId.
+        builder.Property(i => i.ProcedureTypeId);
+
         builder.Property(i => i.CodeActe)
             .HasMaxLength(50);
 

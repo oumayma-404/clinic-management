@@ -37,6 +37,12 @@ interface LineRow {
   id: string | null
   dentalActCodeId: string | null
   codeActe: string | null
+  /**
+   * The procedure this act will be performed as, kept when the row was filled from « Mes actes ». Persisted
+   * so booking the act preselects it; previously the pick was snapshotted to a name and the id thrown away,
+   * which left every plan-scheduled appointment without a procedure at all.
+   */
+  procedureTypeId: string | null
   designationFr: string
   plannedCost: string
   toothNumbers: number[]
@@ -51,6 +57,7 @@ const emptyLine = (): LineRow => ({
   id: null,
   dentalActCodeId: null,
   codeActe: null,
+  procedureTypeId: null,
   designationFr: "",
   plannedCost: "",
   toothNumbers: [],
@@ -62,6 +69,12 @@ export interface TreatmentPlanSeedLine {
   designationFr: string
   /** Prefilled planned cost from the matching procedure-type default (omitted when no catalog match). */
   plannedCost?: number
+  /**
+   * The procedure that treats the charted condition, when exactly one was matched. Carried so a devis built
+   * from the odontogram can also book its acts with the procedure preselected — the seeded designation
+   * (« Couronne — dent 16 ») is a condition label, so it would never match a procedure by name.
+   */
+  procedureTypeId?: string
 }
 
 interface TreatmentPlanFormModalProps {
@@ -132,6 +145,7 @@ export function TreatmentPlanFormModal({
               id: it.id,
               dentalActCodeId: it.dentalActCodeId,
               codeActe: it.codeActe,
+              procedureTypeId: it.procedureTypeId,
               designationFr: it.designationFr,
               plannedCost: String(it.plannedCost),
               toothNumbers: it.toothNumbers,
@@ -156,6 +170,8 @@ export function TreatmentPlanFormModal({
               id: null,
               dentalActCodeId: null,
               codeActe: null,
+              // Carried when the odontogram could tie the charted condition to exactly one procedure.
+              procedureTypeId: s.procedureTypeId ?? null,
               designationFr: s.designationFr,
               // Prefill the fee from the matching procedure-type default (odontogram match); blank otherwise.
               plannedCost: s.plannedCost != null && s.plannedCost > 0 ? String(s.plannedCost) : "",
@@ -185,6 +201,9 @@ export function TreatmentPlanFormModal({
               ...l,
               dentalActCodeId: act.id,
               codeActe: act.codeActe,
+              // Clear any procedure kept from a previous pick on this row — its designation is being
+              // replaced, so keeping the link would leave the act claiming a procedure it no longer names.
+              procedureTypeId: null,
               designationFr: act.designationFr,
               // Prefill the fee from the catalog default only when the line has no cost yet.
               plannedCost: l.plannedCost.trim() === "" && act.defaultFee != null ? String(act.defaultFee) : l.plannedCost,
@@ -195,7 +214,9 @@ export function TreatmentPlanFormModal({
     setPickerOpenIndex(null)
   }
 
-  // A procedure type is snapshotted as a free-text line (no catalog id/code — backend treats it as free text).
+  // A procedure type carries no CNAM code, so the line has no dentalActCodeId — but its `procedureTypeId` IS
+  // kept. Snapshotting only the name (as this did) meant booking the act could not preselect the procedure,
+  // so a plan-scheduled appointment got no procedure type, no colour and no default duration.
   const selectProcedureType = (index: number, pt: ProcedureTypeDto) => {
     setLines((prev) =>
       prev.map((l, i) =>
@@ -204,6 +225,7 @@ export function TreatmentPlanFormModal({
               ...l,
               dentalActCodeId: null,
               codeActe: null,
+              procedureTypeId: pt.id,
               designationFr: pt.name,
               // Prefill the fee from the procedure default only when the line has no cost yet.
               plannedCost: l.plannedCost.trim() === "" && pt.defaultCost != null ? String(pt.defaultCost) : l.plannedCost,
@@ -214,7 +236,9 @@ export function TreatmentPlanFormModal({
     setPickerOpenIndex(null)
   }
 
-  const detachAct = (index: number) => updateLine(index, { dentalActCodeId: null, codeActe: null })
+  // "Detach from the catalogue" makes the line pure free text, so it drops the procedure link too.
+  const detachAct = (index: number) =>
+    updateLine(index, { dentalActCodeId: null, codeActe: null, procedureTypeId: null })
 
   const updateInstallment = (index: number, patch: Partial<InstallmentRow>) => {
     setInstallments((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)))
@@ -253,6 +277,7 @@ export function TreatmentPlanFormModal({
         id: l.id,
         dentalActCodeId: l.dentalActCodeId,
         codeActe: l.codeActe,
+        procedureTypeId: l.procedureTypeId,
         designationFr: l.designationFr.trim(),
         plannedCost: Number(l.plannedCost),
         toothNumbers: l.toothNumbers,

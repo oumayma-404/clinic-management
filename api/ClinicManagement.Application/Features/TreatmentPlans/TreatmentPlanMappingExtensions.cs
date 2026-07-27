@@ -79,6 +79,7 @@ public static class TreatmentPlanMappingExtensions
             Id = item.Id,
             DentalActCodeId = item.DentalActCodeId,
             CodeActe = item.CodeActe,
+            ProcedureTypeId = item.ProcedureTypeId,
             DesignationFr = item.DesignationFr,
             ToothNumbers = item.ToothNumbers.ToList(),
             PlannedCost = item.PlannedCost,

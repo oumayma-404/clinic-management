@@ -14,6 +14,21 @@ public class TreatmentPlanItem : Entity<Guid>
     public Guid TreatmentPlanId { get; private set; }
     public Guid? DentalActCodeId { get; private set; }
     public string? CodeActe { get; private set; }
+
+    /// <summary>
+    /// The clinic's own <see cref="ProcedureType"/> this act is performed as, when the line was chosen from
+    /// that menu (null for a CNAM-only or hand-typed line). A <b>soft reference</b> — deliberately no FK, like
+    /// <see cref="DentalActCodeId"/> and <see cref="LinkedDentalRecordId"/> — so retiring a procedure from the
+    /// menu can never block or cascade into an existing devis.
+    /// <para>
+    /// Carried so booking this act can preselect the procedure, which gives the appointment its colour and
+    /// default duration and lets the dental-record modal propose the act when the visit is recorded. Before
+    /// this existed the plan editor discarded the procedure's id and kept only its name, so a plan-scheduled
+    /// appointment had no <c>ProcedureTypeId</c> at all.
+    /// </para>
+    /// </summary>
+    public Guid? ProcedureTypeId { get; private set; }
+
     public string DesignationFr { get; private set; } = string.Empty;
 
     private readonly List<int> _toothNumbers = new();
@@ -41,7 +56,8 @@ public class TreatmentPlanItem : Entity<Guid>
         Guid? dentalActCodeId = null,
         string? codeActe = null,
         IEnumerable<int>? toothNumbers = null,
-        int sequenceNumber = 0)
+        int sequenceNumber = 0,
+        Guid? procedureTypeId = null)
     {
         if (string.IsNullOrWhiteSpace(designationFr))
             throw new ArgumentException("La désignation de l'acte est requise.", nameof(designationFr));
@@ -52,6 +68,7 @@ public class TreatmentPlanItem : Entity<Guid>
         TreatmentPlanId = treatmentPlanId;
         DentalActCodeId = dentalActCodeId;
         CodeActe = string.IsNullOrWhiteSpace(codeActe) ? null : codeActe.Trim();
+        ProcedureTypeId = procedureTypeId;
         DesignationFr = designationFr.Trim();
         PlannedCost = InvoiceCalculator.RoundMoney(plannedCost);
         Status = TreatmentPlanItemStatus.Planned;

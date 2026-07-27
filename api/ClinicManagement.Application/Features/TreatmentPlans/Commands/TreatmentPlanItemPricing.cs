@@ -1,4 +1,5 @@
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 
 namespace ClinicManagement.Application.Features.TreatmentPlans.Commands;
@@ -13,17 +14,22 @@ namespace ClinicManagement.Application.Features.TreatmentPlans.Commands;
 internal static class TreatmentPlanItemPricing
 {
     /// <summary>
-    /// Resolves each request line into the tuple <see cref="Domain.Entities.TreatmentPlan.SetItems"/> expects,
-    /// filling <c>PlannedCost</c> from the linked act's default fee when the caller sent a non-positive cost.
+    /// Resolves each request line into the <see cref="TreatmentPlanItemInput"/> that
+    /// <see cref="TreatmentPlan.SetItems(IEnumerable{TreatmentPlanItemInput}, bool)"/> expects, filling
+    /// <c>PlannedCost</c> from the linked act's default fee when the caller sent a non-positive cost.
     /// Only acts belonging to <paramref name="clinicId"/> are trusted (defense-in-depth over the query filter).
+    /// <para>
+    /// Line ids are dropped, so every line is created fresh — correct on the create path, where there is no
+    /// prior identity to preserve. The update path must use <see cref="ResolveWithIdsAsync"/>.
+    /// </para>
     /// </summary>
-    public static async Task<List<(string DesignationFr, decimal PlannedCost, Guid? DentalActCodeId, string? CodeActe, IReadOnlyList<int> ToothNumbers)>> ResolveAsync(
+    public static async Task<List<TreatmentPlanItemInput>> ResolveAsync(
         IEnumerable<TreatmentPlanItemRequest> items,
         Guid clinicId,
         IDentalActCodeRepository dentalActRepository,
         CancellationToken cancellationToken)
         => (await ResolveWithIdsAsync(items, clinicId, dentalActRepository, cancellationToken))
-            .Select(i => (i.DesignationFr, i.PlannedCost, i.DentalActCodeId, i.CodeActe, i.ToothNumbers))
+            .Select(i => i with { Id = null })
             .ToList();
 
     /// <summary>
@@ -31,13 +37,13 @@ internal static class TreatmentPlanItemPricing
     /// of an unchanged act — without which a draft edit re-issues every id and orphans any appointment or
     /// dental-record link pointing at those acts.
     /// </summary>
-    public static async Task<List<(Guid? Id, string DesignationFr, decimal PlannedCost, Guid? DentalActCodeId, string? CodeActe, IReadOnlyList<int> ToothNumbers)>> ResolveWithIdsAsync(
+    public static async Task<List<TreatmentPlanItemInput>> ResolveWithIdsAsync(
         IEnumerable<TreatmentPlanItemRequest> items,
         Guid clinicId,
         IDentalActCodeRepository dentalActRepository,
         CancellationToken cancellationToken)
     {
-        var resolved = new List<(Guid?, string, decimal, Guid?, string?, IReadOnlyList<int>)>();
+        var resolved = new List<TreatmentPlanItemInput>();
         // Cache per act code so a plan with several lines of the same act does one lookup.
         var feeCache = new Dictionary<Guid, decimal?>();
 
@@ -60,7 +66,18 @@ internal static class TreatmentPlanItemPricing
                 }
             }
 
-            resolved.Add((item.Id, item.DesignationFr, plannedCost, item.DentalActCodeId, item.CodeActe, (IReadOnlyList<int>)item.ToothNumbers));
+            // ProcedureTypeId is carried through verbatim and deliberately NOT used to seed the cost. It says
+            // which service the act is performed as, so booking it can preselect the procedure; the devis fee
+            // is the negotiated number, and reseeding it from the menu's current default would rewrite what
+            // the patient agreed to.
+            resolved.Add(new TreatmentPlanItemInput(
+                item.Id,
+                item.DesignationFr,
+                plannedCost,
+                item.DentalActCodeId,
+                item.CodeActe,
+                item.ProcedureTypeId,
+                item.ToothNumbers));
         }
 
         return resolved;
