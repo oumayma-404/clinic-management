@@ -103,6 +103,32 @@ public static class Extensions
             var minioBucketName = configuration["MinIO:BucketName"] ?? "clinic-files";
             var minioUseSSL = configuration.GetValue<bool>("MinIO:UseSSL", false);
 
+            // "Configured" means present AND not the published default — see MinioCredentials. Previously a
+            // mere non-empty check, so a Cloud deploy that forgot its env vars authenticated with
+            // minioadmin/minioadmin instead of failing loud (audit § 2, finding 11).
+            var minioConfigured = MinioCredentials.IsConfigured(minioEndpoint, minioAccessKey, minioSecretKey);
+
+            if (!minioConfigured)
+            {
+                var environmentName = configuration["ASPNETCORE_ENVIRONMENT"];
+
+                if (!MinioCredentials.TolerateUnconfigured(environmentName))
+                {
+                    // Fail loud at startup, consistent with how an empty DB connection string is treated.
+                    // Running on default credentials is the defect, not a warning.
+                    throw new InvalidOperationException(
+                        MinioCredentials.NotConfiguredMessage(minioAccessKey, minioSecretKey));
+                }
+
+                // Development only: the tracked appsettings.json is Cloud mode, docker-compose runs MinIO as
+                // minioadmin, and Development.json has no override — so failing here would break `dotnet run`
+                // on a fresh clone for every developer (AC-10.5). Warn once and carry on.
+                Console.Error.WriteLine(
+                    "[warn] MinIO is using default or missing credentials. Acceptable in Development only — "
+                    + "a non-Development environment will refuse to start. "
+                    + MinioCredentials.NotConfiguredMessage(minioAccessKey, minioSecretKey));
+            }
+
             if (!string.IsNullOrWhiteSpace(minioEndpoint) &&
                 !string.IsNullOrWhiteSpace(minioAccessKey) &&
                 !string.IsNullOrWhiteSpace(minioSecretKey))

@@ -11,7 +11,7 @@
 | P2 Backup output posture | **done** — committed |
 | P3 Auth & session | **done** — US-4 and US-5 closed (client IP, rate limiter, per-source lockout, token revocation, R-4, short lifetime + silent renewal) |
 | P4 Authorization | in progress — **P4.1–P4.4, P4.6, AC-9.3 done; P4.5 partial** (procedure types + recall settings gated; clinic doctors/billing controls still open) |
-| P5 Hygiene | not started — **but its blocker is cleared** (see the `DoctorCachetTests` triage below) |
+| P5 Hygiene | in progress — **P5.1 done** (MinIO fail-loud); remaining **P5.2** upload validation, **P5.3** headers + CSP, **P5.4** exception leaks |
 
 > **Suite baseline is now 4 failures, not 8.** Four of the eight pre-existing failures were a stale test fixture and are fixed. Use **4** as the reference point from here — and still judge against repeated runs, because the PDF-render tests remain order-sensitive.
 
@@ -311,6 +311,24 @@ Also fixed a stray untranslated label while in there — "Add Procedure Type" �
 |---|---|
 | Frontend typecheck | 0 errors |
 | Frontend production build | Compiled successfully, 27/27 static pages |
+
+### 2026-07-27 — Part 5, step 1 (MinIO fail-loud)
+
+US-10 closed. New `Infrastructure/Storage/MinioCredentials` makes the rule a testable unit rather than inline DI logic.
+
+- **"Configured" now means present AND not the published default.** The old check was merely non-empty, so a Cloud deploy that forgot its env vars authenticated with `minioadmin`/`minioadmin`. Setting the env var *to* the default was equally invisible — case-insensitively rejected now, so `MinioAdmin` is not an escape hatch either.
+- `appsettings.json` scrubbed to empty + `// SECRET` comments, matching the convention the other retired secrets use.
+- **Fails loud at startup** outside Development, consistent with how an empty DB connection string is already treated. A missing environment name reads as *not* Development — failing closed, matching the `?? "Production"` convention the console verbs already use.
+- **The Development carve-out is required, not a convenience** (AC-10.5): tracked `appsettings.json` is `Auth:Mode=Cloud`, `docker-compose.yml` runs MinIO as `minioadmin`, and `appsettings.Development.json` has no override — so failing unconditionally would break `dotnet run` on a fresh clone for **every** developer. This was the Critical caught during `/challenge-spec`; the spec's AC-10.5 exists because of it.
+- The failure message distinguishes *default* credentials from *missing* ones, and tells the operator to **rotate** in the former case — a deployment that ran on `minioadmin` is compromised by that fact alone (AC-10.6).
+
+| Gate | Result |
+|---|---|
+| Backend build | 0 errors |
+| New tests | **25/25** incl. the existing `InfrastructureFileStorageWiringTests`, which calls `AddInfrastructure` and still passes — the new throw did not break the wiring path |
+| Full suite | **940 passed / 4 failed** — the 4 known pre-existing |
+
+**Not verified:** that a real Cloud/Production start actually refuses. The rule is unit-tested and the throw is wired, but no Production boot was attempted here.
 
 ### Triage of the pre-existing failures (P5 blocker cleared)
 
