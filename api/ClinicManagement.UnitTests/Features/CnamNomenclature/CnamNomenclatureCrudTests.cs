@@ -92,7 +92,7 @@ public class CnamNomenclatureCrudTests
         _repo.Setup(r => r.GetByIdAsync(entry.Id, It.IsAny<CancellationToken>())).ReturnsAsync(entry);
         _repo.Setup(r => r.CodeActeExistsAsync("DETART", entry.Id, It.IsAny<CancellationToken>())).ReturnsAsync(false);
 
-        var handler = new UpdateCnamEntryCommandHandler(_repo.Object, _uow.Object, NullLogger<UpdateCnamEntryCommandHandler>.Instance);
+        var handler = new UpdateCnamEntryCommandHandler(_repo.Object, _clinicResolver.Object, _uow.Object, NullLogger<UpdateCnamEntryCommandHandler>.Instance);
         var result = await handler.Handle(new UpdateCnamEntryCommand
         {
             Id = entry.Id, CodeActe = "DETART", DesignationFr = "Détartrage complet", LettreCle = "D", Coefficient = 12, Category = "Soins conservateurs",
@@ -110,7 +110,7 @@ public class CnamNomenclatureCrudTests
     {
         _repo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync((CnamNomenclatureEntry?)null);
 
-        var handler = new UpdateCnamEntryCommandHandler(_repo.Object, _uow.Object, NullLogger<UpdateCnamEntryCommandHandler>.Instance);
+        var handler = new UpdateCnamEntryCommandHandler(_repo.Object, _clinicResolver.Object, _uow.Object, NullLogger<UpdateCnamEntryCommandHandler>.Instance);
         var result = await handler.Handle(new UpdateCnamEntryCommand
         {
             Id = Guid.NewGuid(), CodeActe = "X", DesignationFr = "Y", LettreCle = "D", Coefficient = 1, Category = "Consultation",
@@ -128,7 +128,7 @@ public class CnamNomenclatureCrudTests
         _repo.Setup(r => r.GetByIdAsync(entry.Id, It.IsAny<CancellationToken>())).ReturnsAsync(entry);
         _repo.Setup(r => r.CodeActeExistsAsync("DETART", entry.Id, It.IsAny<CancellationToken>())).ReturnsAsync(true);
 
-        var handler = new UpdateCnamEntryCommandHandler(_repo.Object, _uow.Object, NullLogger<UpdateCnamEntryCommandHandler>.Instance);
+        var handler = new UpdateCnamEntryCommandHandler(_repo.Object, _clinicResolver.Object, _uow.Object, NullLogger<UpdateCnamEntryCommandHandler>.Instance);
         var result = await handler.Handle(new UpdateCnamEntryCommand
         {
             Id = entry.Id, CodeActe = "DETART", DesignationFr = "Y", LettreCle = "D", Coefficient = 1, Category = "Consultation",
@@ -157,7 +157,7 @@ public class CnamNomenclatureCrudTests
         Assert.True(entry.IsActive);
         _repo.Setup(r => r.GetByIdAsync(entry.Id, It.IsAny<CancellationToken>())).ReturnsAsync(entry);
 
-        var handler = new DeactivateCnamEntryCommandHandler(_repo.Object, _uow.Object, NullLogger<DeactivateCnamEntryCommandHandler>.Instance);
+        var handler = new DeactivateCnamEntryCommandHandler(_repo.Object, _clinicResolver.Object, _uow.Object, NullLogger<DeactivateCnamEntryCommandHandler>.Instance);
         var result = await handler.Handle(new DeactivateCnamEntryCommand { Id = entry.Id }, CancellationToken.None);
 
         Assert.True(result.IsSuccess);

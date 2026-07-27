@@ -10,7 +10,7 @@
 | P1 Installer filesystem posture | **done** — committed `43fe6d5` |
 | P2 Backup output posture | **done** — committed |
 | P3 Auth & session | **done** — US-4 and US-5 closed (client IP, rate limiter, per-source lockout, token revocation, R-4, short lifetime + silent renewal) |
-| P4 Authorization | pending |
+| P4 Authorization | in progress — **P4.1–P4.3 done, P4.4 6 of 10**; remaining: 4 catalog commands, P4.5 frontend gating, P4.6 guard test, AC-9.3 tenant tests |
 | P5 Hygiene | pending |
 
 ## Working tree note (start of session, 2026-07-27)
@@ -242,5 +242,33 @@ US-5 closed. Two token kinds, and the cookie no longer carries a working API cre
 **Test-harness gap fixed in lock-step:** three login success-path tests began failing because the handler now calls `GenerateRefreshToken` and the mock returned `null`, which the handler's catch-all turned into a failure. Fixed with a default setup in a new test constructor, plus a test asserting the two tokens are issued and are **different** values — if they were the same, the cookie would carry a working API bearer and the separation would be cosmetic.
 
 **Not verified end-to-end.** Renewal, the 401-retry and hub reconnection are unit- and build-verified only; AC-5.4 (never bounced), AC-5.8 (hub survives expiry) and EC-8 (a form open past expiry submits fine) need a running stack with a shortened lifetime. `use-auth-token` still caches in component state — flagged in the file; prefer the shared client, which now renews.
+
+### 2026-07-27 — Part 4, partial (authorization)
+
+**Done:** P4.1, P4.2, P4.3, and **6 of the 10** P4.4 catalog tenant checks.
+
+- **P4.2** `AdminOnly` on `PUT /api/clinics/doctors`, all four procedure-type writes, and `PUT /api/patients/recalls/settings` — the last finally matching its own doc comment, which claimed "Admin-editable" while enforcing nothing.
+- **P4.3** Own-or-admin in `SetDoctorWorkingHoursCommand`, copied from the sibling `UpdateDoctorProfileCommand` that already got it right. Now resolves the user (not just the clinic) so it can compare `doctor.UserId`; cross-clinic still reads as "not found".
+- **P4.1** The clinic billing gate extended to matricule fiscal, TVA applicable/rate and timbre fiscal, following the desired-vs-current pattern the TTN check already used. Per-**field** rather than closing the endpoint, for a concrete reason: the settings form submits the whole card, so a secretary correcting the phone re-sends matricule fiscal and TVA at their existing values — comparing against the stored value means only an *actual* edit is refused (EC-11). Refused before the logo upload, so an unauthorized caller never writes to storage.
+- **P4.4** `Update`/`Deactivate` × DentalActs, CnamNomenclature, Medications — 6 commands now resolve the clinic from the **DB** and fold the check into the existing null guard, so a cross-clinic row reads as "not found".
+
+Applied by script rather than by hand, and the script writes only on *full* success — the first run patched 2 and warned on 4 without modifying them, because those spell the guard `is null` rather than `== null`. Widening the pattern and re-running got the rest. That fail-safe is why the tree never held a partly-patched file.
+
+**Constructor cascade handled in lock-step:** the 4 new resolver parameters broke `CnamNomenclatureCrudTests` and `MedicationCrudTests`, which construct the handlers directly. Both harnesses already mocked `ICurrentClinicResolver` for the `Create` handlers, so the fix was inserting the existing mock — and those tests passing now also demonstrates the same-clinic happy path still works.
+
+**Still open in P4** (do not assume US-6–US-9 are closed):
+
+| Item | Note |
+|---|---|
+| `UpdateCnamLetterValueCommand` | Not patched — letter values are keyed by letter, not id, so it has a different shape |
+| `ConfirmDentalActsCommand`, `ConfirmCnamDataCommand`, `ConfirmMedicationDataCommand` | Not patched. They call `GetProvisionalAsync()` and iterate, with **no id lookup to guard** — with the filter inactive they would confirm *every* clinic's provisional rows. Needs a `ClinicId` filter on the returned set, not a single-row check. This is the bulk-write path and arguably the worst of the ten. |
+| P4.5 frontend gating | The newly admin-only controls still render for non-admins, who will now get a 403 |
+| P4.6 role-policy coverage guard | Not written |
+| AC-9.3 tenant tests | **The tests that matter most for P4.4 do not exist yet** — the existing CRUD tests pass with the query filter *active*, which proves nothing about the finding. A test with no `clinic_id` claim is what actually pins it. |
+
+| Gate | Result |
+|---|---|
+| Backend build | 0 errors |
+| Full suite | **897 passed / 8 failed**, twice — same 8 pre-existing |
 
 **Testing note.** The ordering assertion (AC-14.2) is proved indirectly but soundly: the dummy `pg_dump` is a real file (so the existence check passes) but not a real executable, so the dump throws. The hardening is still recorded — which is only possible if it ran *first*. If it ran after the dump it would never be recorded at all.
