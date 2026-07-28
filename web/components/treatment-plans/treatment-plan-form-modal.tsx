@@ -28,6 +28,8 @@ import { ApiError } from "@/lib/api/client"
 import type { TreatmentPlanDto, PatientDto, DentalActDto, ProcedureTypeDto } from "@/lib/api/types"
 import { formatDT } from "@/lib/format"
 import { ToothMultiSelect } from "@/components/tooth-multiselect"
+import { conditionStyle } from "@/components/odontogram-conditions"
+import { cn } from "@/lib/utils"
 import { planItemState } from "@/components/treatment-plans/plan-next-action"
 
 interface LineRow {
@@ -46,6 +48,13 @@ interface LineRow {
    */
   procedureTypeId: string | null
   designationFr: string
+  /**
+   * The charted diagnosis this row was seeded from, e.g. « Carie — dent 15 ». Display only — it is a reason to
+   * treat, not an act, so it is never sent to the server. Empty for a hand-added row.
+   */
+  diagnosisLabel?: string
+  /** The condition behind that label, so the hint can use its own colour from the odontogram palette. */
+  diagnosisCondition?: string
   plannedCost: string
   toothNumbers: number[]
 }
@@ -77,7 +86,12 @@ const emptyLine = (): LineRow => ({
 /** A draft act line pre-filled from the odontogram ("Créer un plan depuis l'odontogramme"). */
 export interface TreatmentPlanSeedLine {
   toothNumbers: number[]
+  /** The act to perform. Blank when the charted condition names no single procedure — the dentist picks. */
   designationFr: string
+  /** The charted diagnosis, shown as context under the field. Display only, never persisted. */
+  diagnosisLabel?: string
+  /** The condition behind that label, for the hint's colour. */
+  diagnosisCondition?: string
   /** Prefilled planned cost from the matching procedure-type default (omitted when no catalog match). */
   plannedCost?: number
   /**
@@ -241,6 +255,8 @@ export function TreatmentPlanFormModal({
               // Carried when the odontogram could tie the charted condition to exactly one procedure.
               procedureTypeId: s.procedureTypeId ?? null,
               designationFr: s.designationFr,
+              diagnosisLabel: s.diagnosisLabel,
+              diagnosisCondition: s.diagnosisCondition,
               // Prefill the fee from the matching procedure-type default (odontogram match); blank otherwise.
               plannedCost: s.plannedCost != null && s.plannedCost > 0 ? String(s.plannedCost) : "",
               toothNumbers: s.toothNumbers,
@@ -572,10 +588,9 @@ export function TreatmentPlanFormModal({
             <Label>Actes</Label>
             <div className="space-y-3">
               {lines.map((line, index) => {
-                // In amend mode an act already on the accepted devis is fixed: the endpoint only adds and
-                // removes, so an edited designation or cost would be silently discarded. Locking the fields is
-                // honest; « Retirer » + « Ajouter un acte » is how you change one.
-                const isExistingAct = isAmending && !!line.id
+                // Every field of an existing act is editable in amend mode — the endpoint now takes in-place
+                // edits, and a réalisé or booked act is precisely the one whose price cannot be corrected any
+                // other way, since it refuses removal. Only *removal* is still gated (`removalBlocked`).
                 const removalBlocked = line.id ? removalBlockers.get(line.id) : undefined
                 return (
                 <div key={index} className="rounded-lg border p-3 space-y-2">
@@ -586,7 +601,7 @@ export function TreatmentPlanFormModal({
                           value={line.designationFr}
                           onChange={(e) => updateLine(index, { designationFr: e.target.value })}
                           placeholder="Désignation de l'acte (ou choisir au catalogue)"
-                          disabled={loading || isExistingAct}
+                          disabled={loading}
                         />
                         <Popover
                           open={pickerOpenIndex === index}
@@ -599,7 +614,7 @@ export function TreatmentPlanFormModal({
                               variant="outline"
                               size="sm"
                               className="h-9 px-3 shrink-0"
-                              disabled={loading || isExistingAct}
+                              disabled={loading}
                               title="Choisir un acte du catalogue"
                             >
                               <Search className="h-4 w-4" />
@@ -649,6 +664,23 @@ export function TreatmentPlanFormModal({
                           </PopoverContent>
                         </Popover>
                       </div>
+
+                      {/* The diagnosis that motivated this line — context, not content. It used to BE the
+                          designation, so the devis billed « Carie — dent 15 » as an act. Now the field opens
+                          empty for a pathology and this says what to treat. */}
+                      {line.diagnosisLabel && (
+                        <div className="flex items-center gap-1.5 pt-0.5">
+                          <span className="text-xs text-muted-foreground">Diagnostic :</span>
+                          <span
+                            className={cn(
+                              "rounded border px-1.5 py-0.5 text-xs font-medium",
+                              conditionStyle(line.diagnosisCondition ?? "").box,
+                            )}
+                          >
+                            {line.diagnosisLabel}
+                          </span>
+                        </div>
+                      )}
                       {line.codeActe && (
                         <Badge variant="secondary" className="gap-1 font-mono text-xs">
                           {line.codeActe}
@@ -684,7 +716,7 @@ export function TreatmentPlanFormModal({
                     <ToothMultiSelect
                       value={line.toothNumbers}
                       onChange={(teeth) => updateLine(index, { toothNumbers: teeth })}
-                      disabled={loading || isExistingAct}
+                      disabled={loading}
                     />
                     <div className="flex items-center gap-1.5">
                       <span className="text-xs text-muted-foreground">Coût (DT)</span>
@@ -695,7 +727,7 @@ export function TreatmentPlanFormModal({
                         value={line.plannedCost}
                         onChange={(e) => updateLine(index, { plannedCost: e.target.value })}
                         className="w-32"
-                        disabled={loading || isExistingAct}
+                        disabled={loading}
                       />
                     </div>
                   </div>

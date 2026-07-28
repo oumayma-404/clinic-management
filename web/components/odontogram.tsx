@@ -43,7 +43,23 @@ const isDiagnosis = (entry: ToothStateDto) => entry.source === "Diagnosis"
 /** One draft plan line seeded from an open diagnosis (consumed by the treatment-plan editor). */
 export interface OdontogramPlanSeed {
   toothNumbers: number[]
+  /**
+   * The act to perform — a PROCEDURE, never the diagnosis.
+   *
+   * Filled with the matched procedure's name when the charted condition named exactly one, and left **empty**
+   * otherwise, which is every pathology (Carie, À traiter…). It used to be the condition label
+   * (« Carie — dent 15 »), so a devis built from the odontogram billed the diagnosis as if it were an act and
+   * the dentist had to notice and retype every line.
+   */
   designationFr: string
+  /**
+   * What was charted, for display only — « Carie — dent 15 ». Shown under the designation field so the
+   * dentist can see what they are treating while choosing the act. Never persisted: a diagnosis is not a
+   * billable line, and medical secrecy keeps it off the devis.
+   */
+  diagnosisLabel: string
+  /** The charted condition itself, so the UI can colour the hint with that condition's own palette. */
+  diagnosisCondition: string
   /** Prefilled planned cost from the matching procedure-type default (omitted when no catalog match). */
   plannedCost?: number
   /**
@@ -135,7 +151,13 @@ export function Odontogram({ patientId, onCreatePlan }: OdontogramProps) {
       const soleProcedure = conditions.length === 1 ? procedureByCondition.get(conditions[0]) : undefined
       seeds.push({
         toothNumbers: [tooth],
-        designationFr: `${labels.join(", ")} — dent ${tooth}`,
+        // The PROCEDURE, when the condition named exactly one — and its name, not the condition's label, so
+        // it agrees with the procedureTypeId and plannedCost carried alongside. Blank for a pathology, which
+        // is the whole point: the dentist chooses how to treat a carie; the app must not choose for them.
+        designationFr: soleProcedure?.name ?? "",
+        // The diagnosis travels separately, as context rather than as content.
+        diagnosisLabel: `${labels.join(", ")} — dent ${tooth}`,
+        diagnosisCondition: conditions.length === 1 ? conditions[0] : "",
         plannedCost: matchedCost > 0 ? matchedCost : undefined,
         procedureTypeId: soleProcedure?.id,
       })
