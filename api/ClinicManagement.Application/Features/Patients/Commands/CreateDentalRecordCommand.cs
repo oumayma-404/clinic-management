@@ -6,6 +6,7 @@ using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Patients;
 using ClinicManagement.Domain.Entities;
+using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 
 namespace ClinicManagement.Application.Features.Patients.Commands;
@@ -170,11 +171,29 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
                 return; // cross-clinic or unknown id → leave everything unchanged
             }
 
-            appointment.MarkVisitCompleted(); // idempotent no-op if already terminal
-            // The appointment is change-tracked from GetByIdAsync, so SaveChanges persists MarkVisitCompleted().
-            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            // AC-P1.12: three outcomes, not two. `Contradicted` means the fiche documents a visit the schedule
+            // says was cancelled or missed — logged as a Warning so it is discoverable, and the appointment is
+            // deliberately NOT reopened (silently un-cancelling a visit is the invisible state change this part
+            // exists to remove).
+            var outcome = appointment.MarkVisitCompleted();
+            if (outcome == VisitCompletionOutcome.Contradicted)
+            {
+                _logger.LogWarning(
+                    "Fiche de soins recorded against appointment {AppointmentId}, which is {Status}. The "
+                    + "appointment was left unchanged; its post-visit review is cleared regardless.",
+                    appointmentId, appointment.Status);
+            }
 
-            // The review is fulfilled — remove it so the popup/panel stops prompting.
+            // Only Completed actually changed the row; the other two outcomes have nothing to persist, so the
+            // save is skipped rather than issuing an UPDATE that sets nothing.
+            if (outcome == VisitCompletionOutcome.Completed)
+            {
+                // Change-tracked from GetByIdAsync, so SaveChanges persists MarkVisitCompleted().
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+            }
+
+            // The review is fulfilled either way — including on AlreadyCompleted (idempotent) and on
+            // Contradicted, where leaving the prompt up would nag about a visit that is not going to happen.
             await _notificationGenerator.CancelPostVisitReviewAsync(appointment.ClinicId, appointmentId, cancellationToken);
 
             // This command broadcasts "patients"; also tell "appointments" consumers so the calendar reflects

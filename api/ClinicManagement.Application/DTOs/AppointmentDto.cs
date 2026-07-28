@@ -12,6 +12,15 @@ public class AppointmentDto
     public TimeSpan Duration { get; set; }
     public string? Notes { get; set; }
     public string Status { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The statuses this appointment may legally move to right now, from the domain's declared transition table
+    /// (AC-P1.6). The status control offers exactly these, and « Annuler le rendez-vous » derives its
+    /// <c>disabled</c> state from whether <c>Cancelled</c> is in the list — instead of the client re-deriving a
+    /// second copy of the rules that could disagree with the server (and did: the button was disabled on a
+    /// completed appointment, which is now a legal cancellation).
+    /// </summary>
+    public List<string> AllowedNextStatuses { get; set; } = new();
     public Guid? ProcedureTypeId { get; set; }
     public string? ProcedureTypeName { get; set; }
     public string? ProcedureColorHex { get; set; }

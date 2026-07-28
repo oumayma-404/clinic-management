@@ -46,6 +46,17 @@ public class UpdateAppointmentCommand : IRequest<Result<AppointmentDto>>
     public int? DurationMinutes { get; set; }
     public string? Status { get; set; }
 
+    /// <summary>
+    /// Why the appointment was cancelled. Only read when <see cref="Status"/> moves to <c>Cancelled</c>.
+    /// <para>
+    /// The cancel path called <c>appointment.Cancel()</c> with no argument, so <c>CancellationReason</c> was
+    /// **always null** on every cancellation made through the UI — even though the column exists, the entity
+    /// accepts a reason, and `CancelRecurringSeriesCommand` records one. Now that cancelling a *completed*
+    /// visit is possible (AC-P1.5), knowing why matters more, not less.
+    /// </para>
+    /// </summary>
+    public string? CancellationReason { get; set; }
+
     /// <summary>The plan the linked act belongs to — required whenever <see cref="TreatmentPlanItemId"/> is set.</summary>
     public Guid? TreatmentPlanId { get; set; }
 
@@ -292,57 +303,57 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                     return Result<AppointmentDto>.Failure($"Statut de rendez-vous invalide : « {request.Status} ».");
                 }
 
+                if (appointment.Status != newStatus)
                 {
-                    // Only update if status is different
-                    if (appointment.Status != newStatus)
+                    // AC-P1.2 / AC-P1.3: ask the domain's declared transition set instead of the fall-through
+                    // `switch` that used to live here. Every arm of that switch was a silent no-op guard, so
+                    // an illegal transition — « Terminé » on a Scheduled appointment, « En cours » on a
+                    // cancelled one — returned **HTTP 200 having changed nothing**. The user saw a success
+                    // toast and a status that had not moved.
+                    if (!Appointment.CanTransition(appointment.Status, newStatus))
                     {
-                        switch (newStatus)
-                        {
-                            case AppointmentStatus.Scheduled:
-                                // If currently cancelled, reactivate it (Reschedule forbids a cancelled appt).
-                                if (appointment.Status == AppointmentStatus.Cancelled)
-                                {
-                                    appointment.Reactivate(appointment.AppointmentDateTime);
-                                }
-                                // If status is already scheduled, no change needed
-                                break;
-                            case AppointmentStatus.Confirmed:
-                                if (appointment.Status != AppointmentStatus.Confirmed)
-                                {
-                                    appointment.Confirm();
-                                }
-                                break;
-                            case AppointmentStatus.Completed:
-                                if (appointment.Status == AppointmentStatus.InProgress)
-                                {
-                                    appointment.Complete();
-                                }
-                                // Note: Can't directly set to Completed from other states
-                                break;
-                            case AppointmentStatus.Cancelled:
-                                if (appointment.Status != AppointmentStatus.Cancelled && 
-                                    appointment.Status != AppointmentStatus.Completed)
-                                {
-                                    _logger.LogInformation("Cancelling appointment {AppointmentId}. Current GoogleCalendarEventId: {GoogleEventId}", 
-                                        appointment.Id, appointment.GoogleCalendarEventId ?? "(none)");
-                                    appointment.Cancel();
-                                }
-                                break;
-                            case AppointmentStatus.InProgress:
-                                if (appointment.Status == AppointmentStatus.Confirmed || 
-                                    appointment.Status == AppointmentStatus.Scheduled)
-                                {
-                                    appointment.Start();
-                                }
-                                break;
-                            case AppointmentStatus.NoShow:
-                                if (appointment.Status != AppointmentStatus.Completed && 
-                                    appointment.Status != AppointmentStatus.Cancelled)
-                                {
-                                    appointment.MarkAsNoShow();
-                                }
-                                break;
-                        }
+                        return Result<AppointmentDto>.Failure(
+                            $"Transition impossible : un rendez-vous « {Appointment.FrenchLabel(appointment.Status)} » "
+                            + $"ne peut pas passer à « {Appointment.FrenchLabel(newStatus)} ».");
+                    }
+
+                    // The transition is legal — route it to the mutator that owns the extra state each one
+                    // carries (a cancellation reason, clearing one on reactivation). The domain re-checks the
+                    // same table, so these calls cannot disagree with the guard above.
+                    switch (newStatus)
+                    {
+                        case AppointmentStatus.Scheduled:
+                            // Two legal sources, per the table: Cancelled (reactivation) and NoShow (rebooking).
+                            // Reschedule() refuses a cancelled appointment by design, so un-cancelling routes
+                            // through Reactivate() — which also clears the reason and the cancelled-at stamp.
+                            // From NoShow, Reschedule() is what drops the absence (AC-P1.9).
+                            if (appointment.Status == AppointmentStatus.Cancelled)
+                            {
+                                appointment.Reactivate(appointment.AppointmentDateTime);
+                            }
+                            else
+                            {
+                                appointment.Reschedule(appointment.AppointmentDateTime);
+                            }
+                            break;
+                        case AppointmentStatus.Confirmed:
+                            appointment.Confirm();
+                            break;
+                        case AppointmentStatus.InProgress:
+                            appointment.Start();
+                            break;
+                        case AppointmentStatus.Completed:
+                            appointment.Complete();
+                            break;
+                        case AppointmentStatus.Cancelled:
+                            _logger.LogInformation(
+                                "Cancelling appointment {AppointmentId} (from {FromStatus}). Current GoogleCalendarEventId: {GoogleEventId}",
+                                appointment.Id, appointment.Status, appointment.GoogleCalendarEventId ?? "(none)");
+                            appointment.Cancel(request.CancellationReason);
+                            break;
+                        case AppointmentStatus.NoShow:
+                            appointment.MarkAsNoShow();
+                            break;
                     }
                 }
             }
@@ -507,6 +518,7 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                 DoctorName = appointment.DoctorName,
                 Notes = appointment.Notes,
                 Status = appointment.Status.ToString(),
+                AllowedNextStatuses = Appointment.NextStatusesFrom(appointment.Status).Select(s => s.ToString()).ToList(),
                 CreatedAt = appointment.CreatedAt.Kind == DateTimeKind.Utc
                     ? appointment.CreatedAt
                     : DateTime.SpecifyKind(appointment.CreatedAt, DateTimeKind.Utc),

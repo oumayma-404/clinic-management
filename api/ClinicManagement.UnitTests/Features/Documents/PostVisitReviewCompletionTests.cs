@@ -21,7 +21,17 @@ public class PostVisitReviewCompletionTests
     private static readonly Guid ClinicId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
     private static readonly Guid OtherClinicId = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
 
-    // ---- Appointment.MarkVisitCompleted domain transition (AC-7) ----
+    // ---- Appointment.MarkVisitCompleted domain transition ----
+    //
+    // [AC-P1.13] **Rewritten.** The two theories that used to live here pinned the *silent-no-op* contract:
+    // both asserted only "the status did not change" for Cancelled/Completed/NoShow, which is still true and
+    // is exactly why they would have kept passing — a test that survives AC-P1.12 unchanged was pinning the
+    // defect. What AC-P1.12 changed is that the three cases are no longer indistinguishable: the method now
+    // returns a `VisitCompletionOutcome`, so the caller can tell "already closed" from "a fiche was filed
+    // against a visit the schedule says never happened".
+    //
+    // The exhaustive per-state matrix now lives in Domain/AppointmentStatusTransitionTests.cs alongside the
+    // rest of the machine; what remains here is the outcome contract this file's handler tests depend on.
 
     private static Appointment ApptInStatus(AppointmentStatus status)
     {
@@ -32,6 +42,7 @@ public class PostVisitReviewCompletionTests
         {
             case AppointmentStatus.Scheduled: break;
             case AppointmentStatus.Confirmed: appt.Confirm(); break;
+            // Start() requires Scheduled or Confirmed; Complete() is now reachable from either (AC-P1.1).
             case AppointmentStatus.InProgress: appt.Start(); break;
             case AppointmentStatus.Completed: appt.Start(); appt.Complete(); break;
             case AppointmentStatus.Cancelled: appt.Cancel(); break;
@@ -40,32 +51,46 @@ public class PostVisitReviewCompletionTests
         return appt;
     }
 
-    // [AC-7] Record-fill completes an appointment that is still active.
+    // Record-fill closes an appointment that is still open, and says so.
     [Theory]
     [InlineData(AppointmentStatus.Scheduled)]
     [InlineData(AppointmentStatus.Confirmed)]
     [InlineData(AppointmentStatus.InProgress)]
-    public void MarkVisitCompleted_From_Active_State_Completes(AppointmentStatus status)
+    public void MarkVisitCompleted_From_Active_State_Completes(AppointmentStatus status) // [AC-P1.12]
     {
         var appt = ApptInStatus(status);
 
-        appt.MarkVisitCompleted();
+        var outcome = appt.MarkVisitCompleted();
 
+        Assert.Equal(VisitCompletionOutcome.Completed, outcome);
         Assert.Equal(AppointmentStatus.Completed, appt.Status);
     }
 
-    // [AC-7] A terminal appointment (Cancelled/Completed/NoShow) is left unchanged — an idempotent no-op so a
-    // second staff member filling a record is harmless.
+    // Already closed: still a no-op on the status, but now reported as *idempotent* rather than as the same
+    // silence a contradiction produced. The handler relies on this to still clear the post-visit review.
+    [Fact]
+    public void MarkVisitCompleted_From_Completed_Reports_Idempotent() // [AC-P1.12 / AC-P1.13]
+    {
+        var appt = ApptInStatus(AppointmentStatus.Completed);
+
+        var outcome = appt.MarkVisitCompleted();
+
+        Assert.Equal(VisitCompletionOutcome.AlreadyCompleted, outcome);
+        Assert.Equal(AppointmentStatus.Completed, appt.Status);
+    }
+
+    // The case the old test collapsed into "no-op": a record filed against a cancelled or missed visit. The
+    // status is still left alone — a cancelled visit is never silently reopened — but it is now *reported*.
     [Theory]
     [InlineData(AppointmentStatus.Cancelled)]
-    [InlineData(AppointmentStatus.Completed)]
     [InlineData(AppointmentStatus.NoShow)]
-    public void MarkVisitCompleted_From_Terminal_State_Is_No_Op(AppointmentStatus status)
+    public void MarkVisitCompleted_From_Cancelled_Or_NoShow_Reports_A_Contradiction(AppointmentStatus status)
     {
         var appt = ApptInStatus(status);
 
-        appt.MarkVisitCompleted();
+        var outcome = appt.MarkVisitCompleted();
 
+        Assert.Equal(VisitCompletionOutcome.Contradicted, outcome);
         Assert.Equal(status, appt.Status);
     }
 

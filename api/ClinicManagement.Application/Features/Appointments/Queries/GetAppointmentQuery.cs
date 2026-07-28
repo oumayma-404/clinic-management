@@ -3,6 +3,7 @@ using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 
 namespace ClinicManagement.Application.Features.Appointments.Queries;
@@ -69,6 +70,7 @@ public class GetAppointmentQueryHandler : IRequestHandler<GetAppointmentQuery, R
                 DoctorName = appointment.DoctorName,
                 Notes = appointment.Notes,
                 Status = appointment.Status.ToString(),
+                AllowedNextStatuses = Appointment.NextStatusesFrom(appointment.Status).Select(s => s.ToString()).ToList(),
                 CreatedAt = appointment.CreatedAt.Kind == DateTimeKind.Utc
                     ? appointment.CreatedAt
                     : DateTime.SpecifyKind(appointment.CreatedAt, DateTimeKind.Utc),

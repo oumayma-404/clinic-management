@@ -288,12 +288,28 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
                 return; // cross-clinic or unknown id → leave everything unchanged
             }
 
-            appointment.MarkVisitCompleted(); // idempotent no-op if already terminal
-            // No explicit UpdateAsync: the appointment is change-tracked from GetByIdAsync, so SaveChanges
-            // persists MarkVisitCompleted() on its own (repo "rely on EF change tracking" convention).
-            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            // AC-P1.12: `Contradicted` means this document was filed against a visit the schedule says was
+            // cancelled or missed. Logged as a Warning rather than swallowed, and the appointment is left
+            // as-is — a cancelled visit is never silently reopened by a document.
+            var outcome = appointment.MarkVisitCompleted();
+            if (outcome == VisitCompletionOutcome.Contradicted)
+            {
+                _logger.LogWarning(
+                    "Medical document recorded against appointment {AppointmentId}, which is {Status}. The "
+                    + "appointment was left unchanged; its post-visit review is cleared regardless.",
+                    appointmentId, appointment.Status);
+            }
 
-            // The review is fulfilled — remove it so the popup/panel stops prompting.
+            // Only Completed changed anything, so the other two outcomes skip the save rather than issuing an
+            // UPDATE that sets nothing. No explicit UpdateAsync: the appointment is change-tracked from
+            // GetByIdAsync (repo "rely on EF change tracking" convention).
+            if (outcome == VisitCompletionOutcome.Completed)
+            {
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+            }
+
+            // The review is fulfilled in all three outcomes — on AlreadyCompleted because it is idempotent, and
+            // on Contradicted because prompting for a visit that will not happen is worse than clearing it.
             await _notificationGenerator.CancelPostVisitReviewAsync(appointment.ClinicId, appointmentId, cancellationToken);
 
             // The completion is driven from the "documents" command, so RealtimeBroadcastBehavior only tells

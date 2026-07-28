@@ -3,6 +3,7 @@ using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 
 namespace ClinicManagement.Application.Features.Appointments.Queries;
@@ -70,6 +71,7 @@ public class GetAppointmentsQueryHandler : IRequestHandler<GetAppointmentsQuery,
                 Duration = a.Duration,
                 Notes = a.Notes,
                 Status = a.Status.ToString(),
+                AllowedNextStatuses = Appointment.NextStatusesFrom(a.Status).Select(s => s.ToString()).ToList(),
                 ProcedureTypeId = a.ProcedureTypeId,
                 ProcedureTypeName = a.ProcedureType?.Name,
                 ProcedureColorHex = a.ProcedureColorHex,
