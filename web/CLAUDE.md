@@ -77,7 +77,9 @@ web/
     format.ts          fr-TN locale date/number/currency formatting (formatDT, formatDate, ...)
     download.ts, errors.ts, phone.ts, working-hours.ts, utils.ts (cn())
     -> see lib/CLAUDE.md for the full data layer
-  contexts/            sidebar-context.tsx (collapse state, persisted to localStorage)
+  contexts/            sidebar-context.tsx (desktop collapse — persisted to localStorage; plus the
+                       below-`md:` drawer state, which is deliberately NOT persisted so a phone
+                       session never overwrites the desktop rail preference. Closes on navigation.)
   types/               ambient .d.ts (speech-recognition)
   middleware.ts        dual-mode (Auth0 / local cookie) route gate
 ```
@@ -123,5 +125,8 @@ All app pages are client components (`"use client"`) that render `DashboardSideb
 - Lists refresh by bumping a `refreshKey` state passed to child tables; peer mutations refresh live via `useClinicRealtime(RealtimeResource.X, refetch)`.
 - Admin-only screens gate client-side on `useSession().user?.role === "admin"` (Lock card + back link otherwise).
 - Import alias `@/*` -> project root (`tsconfig.json`). UI alias `@/components/ui`, utils `@/lib/utils`.
-- FR labels throughout; dates/currency via `lib/format.ts` (fr-TN). Branding strings via `lib/brand.ts`.
+- FR labels throughout; dates/currency/file sizes via `lib/format.ts` (fr-TN — `formatDT`, `formatDate`, `formatDateTime`, **`formatFileSize`** which renders « o / Ko / Mo »). Branding strings via `lib/brand.ts`.
+- **English storage key + French display map** is the standing convention for closed value sets whose keys are persisted or snapshotted: `lib/specialties.ts` (`specialtyLabel`), `lib/working-hours.ts`' weekday keys, `components/appointment-labels.ts`, `components/factures/invoice-labels.ts`, `components/treatment-plans/treatment-plan-labels.ts`. Map at display time; never rename a key, and always pass unknown values through so historical rows keep rendering.
+- **Responsive shell** — the chrome, not every screen, is responsive. Below `md:` the rail becomes a `Sheet` drawer (`useSidebar().isMobileOpen`), the header reflows, page gutters drop to `p-4`, and the two fixed-width offenders (the AI panel, the document editor's 420 px form column) go viewport-relative. Wide content scrolls **inside its own container** — `ui/table.tsx` already wraps every table in `overflow-x-auto`, so the body never scrolls horizontally. A full responsive pass over the calendar grid and the wide data tables is explicitly *not* done.
+- **Feedback and accessibility floor** for any new interactive surface: disabled while in flight with a single effect on double-submit; success via a French `sonner` toast (sonner's container is the app's live region, so toasts announce); failure via `showErrorToast` with the dialog left open and its input intact; a real `<Label htmlFor>` rather than a placeholder standing in for one; an `aria-label` on every icon-only control; `role="button"` + `tabIndex={0}` + Enter/Space on any clickable `Card`; and `role="status"` on an inline async result. `:focus-visible` in `globals.css` gives every keyboard-reachable element a ring floor.
 - The in-app **notification center** is API-wired: the header bell + `notification-panel.tsx` in `dashboard-header.tsx`, driven by `useNotifications()` over `notificationsApi`, refreshed on the `"notifications"` realtime key. Dashboard stats, `appointment-list.tsx`, and `stock-table.tsx` are also API-wired. Header search is a live patient lookup.

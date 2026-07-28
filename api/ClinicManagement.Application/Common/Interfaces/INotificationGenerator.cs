@@ -53,4 +53,21 @@ public interface INotificationGenerator
     /// <summary>Removes the post-visit review notification for an appointment, if one exists (cancel / fulfilled).</summary>
     Task CancelPostVisitReviewAsync(
         Guid clinicId, Guid appointmentId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// An outbound SMS/WhatsApp row reached <c>Failed</c> (AC-P3.7). Visible to <b>all</b> clinic staff — no
+    /// actor exclusion — because the person who needs to pick up the phone is whoever is at the desk, not only
+    /// an admin looking at the reminder-status card (AC-P3.8).
+    ///
+    /// <paramref name="appointmentId"/> is the discriminator, exactly as it is on the outbox row itself: a
+    /// booking reminder always carries one and deep-links to that appointment; a recall never does and
+    /// deep-links to the relance list, where <c>Patient.ClearRecallSnooze</c> has just put the patient back.
+    /// Passing a flag alongside the id would let the two disagree.
+    ///
+    /// <paramref name="patientRequiresRecontact"/> adds the explicit « à recontacter » sentence for the recall
+    /// case (AC-P3.5), which is only true once every channel of that send has failed.
+    /// </summary>
+    Task ReminderDeliveryFailedAsync(
+        Guid clinicId, Guid? appointmentId, string patientName, string channel, string? reason,
+        bool patientRequiresRecontact, CancellationToken cancellationToken = default);
 }

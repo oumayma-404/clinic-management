@@ -35,6 +35,7 @@ import { CalendarIcon, Clock, User, Stethoscope, FileText, X, Save } from "lucid
 import { cn, parseDurationToMinutes } from "@/lib/utils"
 import { appointmentsApi } from "@/lib/api/appointments"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
+import { getErrorMessage } from "@/lib/errors"
 import type { AppointmentDto, ProcedureTypeDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import { useDoctors } from "@/lib/hooks/use-doctors"
@@ -74,6 +75,8 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
   const [procedureTypes, setProcedureTypes] = useState<ProcedureTypeDto[]>([])
   const [selectedProcedureTypeId, setSelectedProcedureTypeId] = useState<string | undefined>(undefined)
   const [loadingProcedureTypes, setLoadingProcedureTypes] = useState(false)
+  // AC-P3.31 — why the acte list is empty (C-4: this dialog swallowed the failure without even a comment).
+  const [procedureTypesError, setProcedureTypesError] = useState<string | null>(null)
 
   // Time state
   const [startHour, setStartHour] = useState("09")
@@ -152,10 +155,13 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
   const loadProcedureTypes = async () => {
     try {
       setLoadingProcedureTypes(true)
+      setProcedureTypesError(null)
       const data = await procedureTypesApi.list(false) // Only active procedure types
       setProcedureTypes(data || [])
     } catch (err) {
-      console.error("Failed to load procedure types:", err)
+      // AC-P3.31 / C-4 — the audit's missing sixth swallow. This one had not even a comment: the list
+      // silently rendered « Aucun type d'acte disponible » on a failed call, which is a different fact.
+      setProcedureTypesError(getErrorMessage(err, "La liste des actes n'a pas pu être chargée."))
       setProcedureTypes([]) // Ensure it's always an array
     } finally {
       setLoadingProcedureTypes(false)
@@ -646,7 +652,11 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                     </SelectTrigger>
                     <SelectContent className="max-h-[200px]">
                       {procedureTypes.length === 0 && !loadingProcedureTypes ? (
-                        <div className="px-2 py-1.5 text-sm text-muted-foreground">Aucun type d'acte disponible</div>
+                        <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                          {procedureTypesError
+                            ? "Liste indisponible"
+                            : "Aucun type d'acte disponible"}
+                        </div>
                       ) : (
                         procedureTypes.map((procedureType) => (
                           <SelectItem key={procedureType.id} value={procedureType.id}>
@@ -662,6 +672,18 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                       )}
                     </SelectContent>
                   </Select>
+                  {procedureTypesError && (
+                    <p role="status" className="mt-1 flex flex-wrap items-center gap-2 text-xs text-destructive">
+                      <span>{procedureTypesError}</span>
+                      <button
+                        type="button"
+                        onClick={() => void loadProcedureTypes()}
+                        className="underline underline-offset-2 hover:no-underline"
+                      >
+                        Réessayer
+                      </button>
+                    </p>
+                  )}
                   {selectedProcedureTypeId && (
                     <div className="flex items-center gap-2 mt-1">
                       <p className="text-xs text-muted-foreground">
@@ -733,10 +755,10 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                 className="sm:mr-auto"
               >
                 <X className="h-4 w-4 mr-2" />
-                Cancel Appointment
+                Annuler le rendez-vous
               </Button>
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
-                Close
+                Fermer
               </Button>
               <Button type="submit" disabled={loading || overlapBlocking}>
                 <Save className="h-4 w-4 mr-2" />

@@ -46,6 +46,16 @@ export interface ReminderStatusDto {
   failureReason: string | null;
   scheduledAt: string;
   sentAt: string | null;
+  /**
+   * The patient's name (AC-P3.9). The row used to carry a masked phone and nothing else, so a failure read
+   * « •••• 56 — Échec » and named nobody. The phone stays masked (AC-P3.10) — it is the name, not the number,
+   * that makes the row actionable.
+   */
+  patientName: string | null;
+  /** The appointment the reminder is for; null for a recall (« relance »), which carries no appointment. */
+  appointmentAt: string | null;
+  /** True when the row is a recall rather than a booking reminder. */
+  isRecall: boolean;
 }
 
 /** Payload posted after a successful Meta Embedded-Signup run (Cloud onboarding). */

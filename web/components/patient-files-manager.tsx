@@ -41,6 +41,9 @@ import {
 } from "@/components/ui/alert-dialog"
 import { cn } from "@/lib/utils"
 import { patientFilesApi } from "@/lib/api/patient-files"
+import { formatDate, formatFileSize } from "@/lib/format"
+import { getErrorMessage } from "@/lib/errors"
+import { Label } from "@/components/ui/label"
 import type { PatientFileDto, PatientFolderDto } from "@/lib/api/types"
 import { toast } from "sonner"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
@@ -56,6 +59,7 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
   const [isDragging, setIsDragging] = useState(false)
   const [isNewFolderOpen, setIsNewFolderOpen] = useState(false)
   const [newFolderName, setNewFolderName] = useState("")
+  const [creatingFolder, setCreatingFolder] = useState(false)
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
   const [deletingFileId, setDeletingFileId] = useState<string | null>(null)
@@ -176,25 +180,31 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
     setIsDragging(false)
   }
 
+  // AC-P3.34 — one folder per double-click. `creatingFolder` guards the handler itself, not just the button,
+  // because the Enter key in the name field calls the same function and would otherwise still double-fire.
+  // AC-P3.45 — on failure the dialog stays open with the typed name intact, so the user retries rather than
+  // retypes.
   const handleCreateFolder = async () => {
-    if (!newFolderName.trim()) return
+    const name = newFolderName.trim()
+    if (!name || creatingFolder) return
 
     try {
-      await patientFilesApi.createFolder(patientId, newFolderName.trim(), currentFolderId || undefined)
+      setCreatingFolder(true)
+      await patientFilesApi.createFolder(patientId, name, currentFolderId || undefined)
       toast.success("Dossier créé avec succès", {
-        description: `Le dossier "${newFolderName.trim()}" a été créé${currentFolder ? ` dans "${currentFolder.name}"` : ""}`,
+        description: `Le dossier « ${name} » a été créé${currentFolder ? ` dans « ${currentFolder.name} »` : ""}`,
         duration: 3000,
       })
       setNewFolderName("")
       setIsNewFolderOpen(false)
       await loadData()
     } catch (error) {
-      console.error("Failed to create folder:", error)
-      const errorMessage = error instanceof Error ? error.message : "Une erreur s'est produite"
       toast.error("Échec de la création du dossier", {
-        description: errorMessage,
+        description: getErrorMessage(error),
         duration: 4000,
       })
+    } finally {
+      setCreatingFolder(false)
     }
   }
 
@@ -347,11 +357,18 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
     return <File className="h-4 w-4" />
   }
 
-  const formatFileSize = (bytes: number) => {
-    if (bytes < 1024) return bytes + " B"
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB"
-    return (bytes / (1024 * 1024)).toFixed(1) + " MB"
+  // AC-P3.39 — the file/folder cards are the click target, so they must also be a keyboard target: Enter and
+  // Space, a visible focus ring, and an accessible name. Kept as one helper so a card added later cannot be
+  // wired half-way.
+  const activateOnKey = (action: () => void) => (event: React.KeyboardEvent) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault()
+      action()
+    }
   }
+
+  const CARD_FOCUS_CLASSES =
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
 
   if (loading) {
     return (
@@ -474,8 +491,15 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
               {folders.map((folder) => (
                 <Card
                   key={folder.id}
-                  className="p-4 cursor-pointer hover:shadow-md transition-all duration-200 hover:scale-105 border-border hover:border-blue-300 dark:hover:border-blue-700 bg-gradient-to-br from-card to-blue-50/30 dark:to-blue-950/10 relative group"
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Ouvrir le dossier ${folder.name}`}
+                  className={cn(
+                    "p-4 cursor-pointer hover:shadow-md transition-all duration-200 hover:scale-105 border-border hover:border-blue-300 dark:hover:border-blue-700 bg-gradient-to-br from-card to-blue-50/30 dark:to-blue-950/10 relative group",
+                    CARD_FOCUS_CLASSES
+                  )}
                   onClick={() => setCurrentFolderId(folder.id)}
+                  onKeyDown={activateOnKey(() => setCurrentFolderId(folder.id))}
                 >
                   <div className="flex flex-col items-center gap-2 text-center">
                     <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/30">
@@ -483,7 +507,7 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
                     </div>
                     <p className="text-sm font-semibold truncate w-full text-foreground">{folder.name}</p>
                     <p className="text-xs text-muted-foreground">
-                      {folder.fileCount} {folder.fileCount === 1 ? "file" : "files"}
+                      {folder.fileCount} {folder.fileCount === 1 ? "fichier" : "fichiers"}
                     </p>
                   </div>
                   <Button
@@ -496,6 +520,7 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
                       handleDeleteFolder(folder.id)
                     }}
                     title="Supprimer le dossier"
+                    aria-label={`Supprimer le dossier ${folder.name}`}
                   >
                     <X className="h-4 w-4" />
                   </Button>
@@ -525,10 +550,15 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
             {currentFiles.map((file) => (
               <Card
                 key={file.id}
+                role="button"
+                tabIndex={0}
+                aria-label={`Ouvrir ${file.fileName}`}
                 className={cn(
-                  "p-3 hover:shadow-sm transition-all duration-200 hover:border-blue-300 dark:hover:border-blue-700 bg-card cursor-pointer"
+                  "p-3 hover:shadow-sm transition-all duration-200 hover:border-blue-300 dark:hover:border-blue-700 bg-card cursor-pointer",
+                  CARD_FOCUS_CLASSES
                 )}
                 onClick={() => handlePreviewFile(file)}
+                onKeyDown={activateOnKey(() => void handlePreviewFile(file))}
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3 flex-1 min-w-0">
@@ -538,7 +568,7 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold truncate text-foreground">{file.fileName}</p>
                       <p className="text-xs text-muted-foreground">
-                        {formatFileSize(file.fileSize)} • {new Date(file.uploadedAt).toLocaleDateString("fr-FR")}
+                        {formatFileSize(file.fileSize)} • {formatDate(file.uploadedAt)}
                       </p>
                     </div>
                   </div>
@@ -552,6 +582,11 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
                         isPreviewableFile(file) ? handlePreviewFile(file) : handleDownloadFile(file)
                       }}
                       title={isPreviewableFile(file) ? "Aperçu du fichier" : "Télécharger le fichier"}
+                      aria-label={
+                        isPreviewableFile(file)
+                          ? `Aperçu de ${file.fileName}`
+                          : `Télécharger ${file.fileName}`
+                      }
                     >
                       {isPreviewableFile(file) ? (
                         <FileText className="h-4 w-4" />
@@ -565,6 +600,10 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
                       className="h-8 w-8 p-0 text-destructive hover:text-destructive hover:bg-red-100 dark:hover:bg-red-900/20"
                       onClick={() => handleDeleteFile(file.id)}
                       disabled={deletingFileId === file.id}
+                      // AC-P3.40 — icon-only, and previously with neither label nor title, while the
+                      // download button beside it at least had a title. A screen reader read « button ».
+                      title="Supprimer le fichier"
+                      aria-label={`Supprimer ${file.fileName}`}
                     >
                       {deletingFileId === file.id ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
@@ -587,23 +626,32 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
             <DialogTitle>Créer un dossier</DialogTitle>
             <DialogDescription>Saisissez un nom pour le nouveau dossier</DialogDescription>
           </DialogHeader>
-          <Input
-            placeholder="Nom du dossier"
-            value={newFolderName}
-            onChange={(e) => setNewFolderName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") handleCreateFolder()
-            }}
-          />
+          <div className="space-y-2">
+            <Label htmlFor="new-folder-name">Nom du dossier</Label>
+            <Input
+              id="new-folder-name"
+              placeholder="Radiographies"
+              value={newFolderName}
+              onChange={(e) => setNewFolderName(e.target.value)}
+              disabled={creatingFolder}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault()
+                  void handleCreateFolder()
+                }
+              }}
+            />
+          </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsNewFolderOpen(false)}>
+            <Button variant="outline" onClick={() => setIsNewFolderOpen(false)} disabled={creatingFolder}>
               Annuler
             </Button>
-            <Button 
-              onClick={handleCreateFolder}
+            <Button
+              onClick={() => void handleCreateFolder()}
+              disabled={creatingFolder || !newFolderName.trim()}
               className="bg-blue-600 hover:bg-blue-700 text-white"
             >
-              Créer le dossier
+              {creatingFolder ? "Création…" : "Créer le dossier"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -617,7 +665,7 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
               <DialogHeader className="px-6 pt-6 pb-4 flex-shrink-0 border-b bg-gradient-to-r from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
                 <DialogTitle className="truncate text-lg font-semibold">{previewFile.fileName}</DialogTitle>
                 <DialogDescription className="mt-1">
-                  {formatFileSize(previewFile.fileSize)} • {new Date(previewFile.uploadedAt).toLocaleDateString("fr-FR")}
+                  {formatFileSize(previewFile.fileSize)} • {formatDate(previewFile.uploadedAt)}
                 </DialogDescription>
               </DialogHeader>
               <div className={`relative flex items-start justify-center flex-1 min-h-0 ${previewFile && isPdfFile(previewFile) ? 'bg-slate-100 dark:bg-slate-900 p-6 overflow-auto' : 'bg-black/5 p-6 overflow-auto'}`}>

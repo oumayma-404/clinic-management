@@ -75,7 +75,7 @@ export default function DocumentsPage() {
         <DashboardSidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
           <DashboardHeader />
-          <main className="flex-1 overflow-y-auto p-6">
+          <main className="flex-1 overflow-y-auto p-4 md:p-6">
           <div className="mx-auto max-w-7xl space-y-6">
         {/* Header */}
         <div className="text-center space-y-4 mb-12">
@@ -92,19 +92,27 @@ export default function DocumentsPage() {
           </p>
         </div>
 
-        {/* Template Grid */}
+        {/* Template Grid. AC-P3.38 — every clickable Card is keyboard-operable: it is the click target, so
+            it has to be a tab stop with Enter/Space and a visible focus ring, not a mouse-only div. */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 max-w-6xl mx-auto">
           {documentTemplates.map((template) => {
             const Icon = template.icon
+            const open = () =>
+              template.type === "honoraires" ? setHonorairesOpen(true) : openTemplate(template.type)
             return (
               <Card
                 key={template.type}
-                className="group cursor-pointer transition-all duration-300 hover:shadow-xl hover:scale-105 hover:ring-2 hover:ring-blue-200 dark:hover:ring-blue-800 overflow-hidden"
-                onClick={() =>
-                  template.type === "honoraires"
-                    ? setHonorairesOpen(true)
-                    : openTemplate(template.type)
-                }
+                role="button"
+                tabIndex={0}
+                aria-label={`Créer : ${template.title}`}
+                className="group cursor-pointer transition-all duration-300 hover:shadow-xl hover:scale-105 hover:ring-2 hover:ring-blue-200 dark:hover:ring-blue-800 overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                onClick={open}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault()
+                    open()
+                  }
+                }}
               >
                 <div className="p-6 space-y-4 flex flex-col h-full">
                   {/* Icon */}

@@ -10,12 +10,12 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { Users, Flag, FileText, Folder, Trash2 } from "lucide-react"
+import { Users, Flag, FileText, Folder, Trash2, Pencil } from "lucide-react"
 import { toast } from "sonner"
 import { patientsApi } from "@/lib/api/patients"
 import { dentalRecordsApi } from "@/lib/api/dental-records"
 import type { PatientDto, DentalRecordDto, PatientDeletionCheckDto } from "@/lib/api/types"
-import { ApiError } from "@/lib/api/client"
+import { getErrorMessage, showErrorToast } from "@/lib/errors"
 import { EditPatientDialog } from "@/components/edit-patient-dialog"
 import { PatientSummaryModal } from "@/components/patient-summary-modal"
 import { useSession } from "@/lib/auth/session"
@@ -25,6 +25,12 @@ interface PatientsTableProps {
   searchQuery: string
   showFlaggedOnly: boolean
 }
+
+/**
+ * Column widths the loading skeleton mirrors, in the table's own order — Nom, Date de naissance, Téléphone,
+ * Email, Signalements, Actions. Kept beside the table so the two cannot drift into different shapes.
+ */
+const PATIENT_COLUMN_WIDTHS = ["w-[22%]", "w-[16%]", "w-[16%]", "w-[22%]", "w-[14%]", "w-[10%]"] as const
 
 export function PatientsTable({ searchQuery, showFlaggedOnly }: PatientsTableProps) {
   const router = useRouter()
@@ -75,7 +81,7 @@ export function PatientsTable({ searchQuery, showFlaggedOnly }: PatientsTablePro
       toast.success(`Patient « ${patientToDelete.firstName} ${patientToDelete.lastName} » supprimé`)
       setPatientToDelete(null)
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Échec de la suppression du patient")
+      showErrorToast(err, "Échec de la suppression du patient")
     } finally {
       setDeleting(false)
     }
@@ -91,7 +97,7 @@ export function PatientsTable({ searchQuery, showFlaggedOnly }: PatientsTablePro
       toast.success(`Patient « ${patientToDelete.firstName} ${patientToDelete.lastName} » archivé`)
       setPatientToDelete(null)
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Échec de l'archivage du patient")
+      showErrorToast(err, "Échec de l'archivage du patient")
     } finally {
       setDeleting(false)
     }
@@ -110,8 +116,7 @@ export function PatientsTable({ searchQuery, showFlaggedOnly }: PatientsTablePro
         const data = await patientsApi.list(term ? { searchTerm: term } : undefined)
         if (!ignore) setPatients(data)
       } catch (err) {
-        console.error("Failed to load patients:", err)
-        if (!ignore) setError(err instanceof ApiError ? err.message : "Échec du chargement des patients")
+        if (!ignore) setError(getErrorMessage(err, "Échec du chargement des patients"))
       } finally {
         if (!ignore) setLoading(false)
       }
@@ -162,15 +167,30 @@ export function PatientsTable({ searchQuery, showFlaggedOnly }: PatientsTablePro
     router.push(`/patients/${patient.id}`)
   }
 
-  const handleEditSuccess = () => {
-    // Reload patients after successful edit
+  // AC-P3.22 — the missing caller. `editDialogOpen`/`selectedPatient` existed and the dialog was mounted;
+  // nothing ever set them, so the patients list had no edit action at all.
+  const handleEdit = (patient: PatientDto) => {
+    setSelectedPatient(patient)
+    setEditDialogOpen(true)
+  }
+
+  // AC-P3.23 — refresh the edited ROW, not the page. The dialog hands back the saved patient, so the row is
+  // replaced in place; only if that is somehow missing do we fall back to re-reading the list.
+  const handleEditSuccess = (updated?: PatientDto | null) => {
+    setEditDialogOpen(false)
+    if (updated?.id) {
+      setPatients((prev) => prev.map((p) => (p.id === updated.id ? updated : p)))
+      return
+    }
+
     const loadPatients = async () => {
       try {
         const term = searchQuery.trim()
         const data = await patientsApi.list(term ? { searchTerm: term } : undefined)
         setPatients(data)
       } catch (err) {
-        console.error("Failed to reload patients:", err)
+        // The save itself succeeded; only the re-read failed. Say so instead of leaving a stale row silently.
+        showErrorToast(err, "Patient enregistré, mais la liste n'a pas pu être actualisée.")
       }
     }
     loadPatients()
@@ -184,8 +204,9 @@ export function PatientsTable({ searchQuery, showFlaggedOnly }: PatientsTablePro
       setSummaryDentalRecords(records)
       setSummaryModalOpen(true)
     } catch (err) {
-      console.error("Failed to load dental records:", err)
-      // Still open modal even if records fail to load
+      // Still open the modal — the patient's own details are worth showing — but say the records are
+      // missing rather than presenting an empty record list as though the patient had none (AC-P3.33).
+      showErrorToast(err, "Les fiches de soins de ce patient n'ont pas pu être chargées.")
       setSummaryDentalRecords([])
       setSummaryModalOpen(true)
     }
@@ -217,8 +238,22 @@ export function PatientsTable({ searchQuery, showFlaggedOnly }: PatientsTablePro
           </div>
         )}
         {loading ? (
-          <div className="h-24 flex items-center justify-center">
-            <p className="text-muted-foreground">Chargement des patients…</p>
+          // AC-P3.35/3.36 — a skeleton shaped like the table it is standing in for, so the page does not
+          // jump when the rows arrive. Follows the only existing precedent (`stats-card.tsx`):
+          // `animate-pulse rounded bg-muted`, announced once via aria-label rather than per cell.
+          <div className="space-y-3" role="status" aria-label="Chargement des patients">
+            <div className="flex gap-4 border-b pb-3">
+              {PATIENT_COLUMN_WIDTHS.map((width, i) => (
+                <div key={i} className={`h-4 animate-pulse rounded bg-muted ${width}`} />
+              ))}
+            </div>
+            {Array.from({ length: 6 }).map((_, row) => (
+              <div key={row} className="flex items-center gap-4">
+                {PATIENT_COLUMN_WIDTHS.map((width, i) => (
+                  <div key={i} className={`h-5 animate-pulse rounded bg-muted ${width}`} />
+                ))}
+              </div>
+            ))}
           </div>
         ) : (
           <Table>
@@ -293,8 +328,22 @@ export function PatientsTable({ searchQuery, showFlaggedOnly }: PatientsTablePro
                               handleOpenSummary(patient)
                             }}
                             title="Voir le résumé du patient"
+                            aria-label={`Voir le résumé de ${getPatientName(patient)}`}
                           >
                             <FileText className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 p-0"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleEdit(patient)
+                            }}
+                            title="Modifier le patient"
+                            aria-label={`Modifier ${getPatientName(patient)}`}
+                          >
+                            <Pencil className="h-4 w-4" />
                           </Button>
                           <Button
                             variant="ghost"
@@ -305,6 +354,7 @@ export function PatientsTable({ searchQuery, showFlaggedOnly }: PatientsTablePro
                               router.push(`/patients/${patient.id}/files`)
                             }}
                             title="Voir les fichiers du patient"
+                            aria-label={`Voir les fichiers de ${getPatientName(patient)}`}
                           >
                             <Folder className="h-4 w-4" />
                           </Button>
@@ -318,6 +368,7 @@ export function PatientsTable({ searchQuery, showFlaggedOnly }: PatientsTablePro
                                 setPatientToDelete(patient)
                               }}
                               title="Supprimer le patient"
+                              aria-label={`Supprimer ${getPatientName(patient)}`}
                             >
                               <Trash2 className="h-4 w-4" />
                             </Button>
@@ -335,7 +386,11 @@ export function PatientsTable({ searchQuery, showFlaggedOnly }: PatientsTablePro
 
       <EditPatientDialog
         open={editDialogOpen}
-        onOpenChange={setEditDialogOpen}
+        onOpenChange={(open) => {
+          setEditDialogOpen(open)
+          // Drop the selection on close so a later open cannot briefly show the previous patient.
+          if (!open) setSelectedPatient(null)
+        }}
         patient={selectedPatient}
         onSuccess={handleEditSuccess}
       />

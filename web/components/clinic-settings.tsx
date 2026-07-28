@@ -20,14 +20,12 @@ import {
   Plus,
   Trash2,
   Upload,
-  X,
   Edit,
   Save,
-  CheckCircle2,
-  AlertCircle,
   Info,
   ChevronDown,
 } from "lucide-react"
+import { toast } from "sonner"
 import Image from "next/image"
 import { clinicsApi, type ClinicDto } from "@/lib/api/clinics"
 import { useAuthToken } from "@/lib/hooks/use-auth-token"
@@ -151,7 +149,6 @@ export default function ClinicSettings() {
   const [isEditingClinicInfo, setIsEditingClinicInfo] = useState(false)
   const [isEditingDoctors, setIsEditingDoctors] = useState(false)
   const [isEditingHours, setIsEditingHours] = useState(false)
-  const [notification, setNotification] = useState<{ type: "success" | "error"; message: string } | null>(null)
 
   // Collapse State for Each Section
   const [isClinicInfoCollapsed, setIsClinicInfoCollapsed] = useState(false)
@@ -243,7 +240,7 @@ export default function ClinicSettings() {
         setClinicName(status.clinicName)
       }
     } catch (err: any) {
-      setNotification({ type: "error", message: "Échec du chargement des données de la clinique : " + (err.message || "Erreur inconnue") })
+      toast.error("Échec du chargement des données de la clinique : " + (err.message || "Erreur inconnue"))
     } finally {
       setIsLoading(false)
     }
@@ -283,13 +280,8 @@ export default function ClinicSettings() {
     setWorkingHours((prev) => prev.map((item) => (item.day === day ? { ...item, [field]: value } : item)))
   }
 
-  // Notification auto-dismiss
-  useEffect(() => {
-    if (notification) {
-      const timer = setTimeout(() => setNotification(null), 4000)
-      return () => clearTimeout(timer)
-    }
-  }, [notification])
+  // AC-P3.37 — the bespoke `fixed top-4 right-4` banner and this 4-second timer are gone; feedback goes
+  // through `sonner` like every other screen, so it stacks, dismisses and reads the same everywhere.
 
   // Real-time: reload clinic profile/doctors when another client of this clinic changes them — but not
   // while this admin is mid-edit, so a live refresh never clobbers unsaved form input.
@@ -357,10 +349,10 @@ export default function ClinicSettings() {
       }
       setLogoFile(null) // Clear file after successful upload
 
-      setNotification({ type: "success", message: "Informations de la clinique enregistrées." })
+      toast.success("Informations de la clinique enregistrées.")
       setIsEditingClinicInfo(false)
     } catch (error: any) {
-      setNotification({ type: "error", message: error.message || "Échec de l'enregistrement des informations de la clinique. Veuillez réessayer." })
+      toast.error(error.message || "Échec de l'enregistrement des informations de la clinique. Veuillez réessayer.")
     } finally {
       setIsSaving(false)
     }
@@ -413,7 +405,7 @@ export default function ClinicSettings() {
         })
 
       if (validDoctors.length === 0) {
-        setNotification({ type: "error", message: "Veuillez ajouter au moins un médecin avec un nom et une spécialité" })
+        toast.error("Veuillez ajouter au moins un médecin avec un nom et une spécialité")
         setIsSaving(false)
         return
       }
@@ -433,10 +425,10 @@ export default function ClinicSettings() {
         })),
       )
 
-      setNotification({ type: "success", message: "Informations des médecins enregistrées." })
+      toast.success("Informations des médecins enregistrées.")
       setIsEditingDoctors(false)
     } catch (error: any) {
-      setNotification({ type: "error", message: error.message || "Échec de l'enregistrement des informations des médecins. Veuillez réessayer." })
+      toast.error(error.message || "Échec de l'enregistrement des informations des médecins. Veuillez réessayer.")
     } finally {
       setIsSaving(false)
     }
@@ -479,10 +471,10 @@ export default function ClinicSettings() {
         ttnEnvironment,
       })
 
-      setNotification({ type: "success", message: "Paramètres de facturation enregistrés." })
+      toast.success("Paramètres de facturation enregistrés.")
       setIsEditingBilling(false)
     } catch (error: any) {
-      setNotification({ type: "error", message: error.message || "Échec de l'enregistrement des paramètres de facturation." })
+      toast.error(error.message || "Échec de l'enregistrement des paramètres de facturation.")
     } finally {
       setIsSaving(false)
     }
@@ -519,10 +511,10 @@ export default function ClinicSettings() {
         setWorkingHours(updated.workingHours.map((d) => ({ ...d })))
       }
 
-      setNotification({ type: "success", message: "Horaires enregistrés." })
+      toast.success("Horaires enregistrés.")
       setIsEditingHours(false)
     } catch (error: any) {
-      setNotification({ type: "error", message: error.message || "Échec de l'enregistrement des horaires." })
+      toast.error(error.message || "Échec de l'enregistrement des horaires.")
     } finally {
       setIsSaving(false)
     }
@@ -533,7 +525,7 @@ export default function ClinicSettings() {
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-slate-950">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-muted-foreground">Loading clinic settings...</p>
+          <p className="text-muted-foreground">Chargement des paramètres de la clinique…</p>
         </div>
       </div>
     )
@@ -573,28 +565,8 @@ export default function ClinicSettings() {
               </Badge>
             </div>
             <p className="text-[10px] text-blue-600 dark:text-blue-400 mt-1.5">
-              Share with coworkers to join this clinic
+              Communiquez ce code à vos collègues pour qu'ils rejoignent la clinique
             </p>
-          </div>
-        )}
-
-        {notification && (
-          <div
-            className={`fixed top-4 right-4 z-50 flex items-center gap-3 px-4 py-3 rounded-lg shadow-lg border animate-in slide-in-from-top-2 ${
-              notification.type === "success"
-                ? "bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800 text-green-800 dark:text-green-200"
-                : "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800 text-red-800 dark:text-red-200"
-            }`}
-          >
-            {notification.type === "success" ? (
-              <CheckCircle2 className="w-5 h-5 shrink-0" />
-            ) : (
-              <AlertCircle className="w-5 h-5 shrink-0" />
-            )}
-            <span className="text-sm font-medium">{notification.message}</span>
-            <Button variant="ghost" size="icon" className="h-6 w-6 ml-2" onClick={() => setNotification(null)}>
-              <X className="w-4 h-4" />
-            </Button>
           </div>
         )}
 
@@ -617,7 +589,7 @@ export default function ClinicSettings() {
               {!isEditingClinicInfo && (
                 <Button onClick={handleEditClinicInfo} variant="ghost" size="sm" className="h-7 text-xs">
                   <Edit className="w-3 h-3 mr-1" />
-                  Edit
+                  Modifier
                 </Button>
               )}
             </div>
@@ -627,7 +599,7 @@ export default function ClinicSettings() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <Label htmlFor="clinic-name" className="text-xs font-medium flex items-center gap-1">
-                    Clinic Name
+                    Nom de la clinique
                     <span className="text-red-500">*</span>
                   </Label>
                   <Input
@@ -666,7 +638,7 @@ export default function ClinicSettings() {
 
               <div className="space-y-1">
                 <Label htmlFor="address" className="text-xs font-medium">
-                  Full Address
+                  Adresse complète
                 </Label>
                 <Textarea
                   id="address"
@@ -682,7 +654,7 @@ export default function ClinicSettings() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <Label htmlFor="phone" className="text-xs font-medium flex items-center gap-1">
-                    Phone Number
+                    Numéro de téléphone
                     <span className="text-red-500">*</span>
                   </Label>
                   <Input
@@ -773,7 +745,7 @@ export default function ClinicSettings() {
                     className="h-7 text-xs"
                     disabled={isSaving}
                   >
-                    Cancel
+                    Annuler
                   </Button>
                   <Button
                     onClick={handleSaveClinicInfo}
@@ -809,7 +781,7 @@ export default function ClinicSettings() {
               {!isEditingDoctors && (
                 <Button onClick={handleEditDoctors} variant="ghost" size="sm" className="h-7 text-xs">
                   <Edit className="w-3 h-3 mr-1" />
-                  Edit
+                  Modifier
                 </Button>
               )}
             </div>
@@ -939,6 +911,7 @@ export default function ClinicSettings() {
                           size="icon"
                           onClick={() => removeDoctor(doctor.id)}
                           className="h-7 w-7 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/20 shrink-0"
+                          aria-label={doctor.name ? `Retirer ${doctor.name} de la liste` : "Retirer ce praticien de la liste"}
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </Button>
@@ -967,7 +940,7 @@ export default function ClinicSettings() {
                       className="h-7 text-xs"
                       disabled={isSaving}
                     >
-                      Cancel
+                      Annuler
                     </Button>
                     <Button
                       onClick={handleSaveDoctors}
@@ -1004,7 +977,7 @@ export default function ClinicSettings() {
               {!isEditingHours && (
                 <Button onClick={handleEditHours} variant="ghost" size="sm" className="h-7 text-xs">
                   <Edit className="w-3 h-3 mr-1" />
-                  Edit
+                  Modifier
                 </Button>
               )}
             </div>
@@ -1071,7 +1044,7 @@ export default function ClinicSettings() {
                     className="h-7 text-xs"
                     disabled={isSaving}
                   >
-                    Cancel
+                    Annuler
                   </Button>
                   <Button
                     onClick={handleSaveHours}
@@ -1225,7 +1198,7 @@ export default function ClinicSettings() {
                   </Button>
                   <Button onClick={handleSaveBilling} size="sm" className="h-7 text-xs bg-blue-600 hover:bg-blue-700" disabled={isSaving}>
                     <Save className="w-3 h-3 mr-1" />
-                    {isSaving ? "Enregistrement..." : "Enregistrer"}
+                    {isSaving ? "Enregistrement…" : "Enregistrer"}
                   </Button>
                 </div>
               )}

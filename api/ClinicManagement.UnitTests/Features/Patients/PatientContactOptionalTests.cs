@@ -225,6 +225,14 @@ public class PatientContactOptionalTests
         var patient = PatientWith(null, new PhoneNumber("20123456"));
         _patients.Setup(r => r.GetByIdAsync(patient.Id, It.IsAny<CancellationToken>())).ReturnsAsync(patient);
         var scheduler = new Mock<IReminderScheduler>();
+        // AC-P3.1 — the enqueue's outcome is now load-bearing, so a "recall works" test has to say that a
+        // channel was configured. Left unstubbed, Moq's default outcome is not Enqueued and the handler
+        // correctly refuses (which is the whole point of AC-P3.2).
+        scheduler
+            .Setup(s => s.ScheduleRecallAsync(
+                It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(RecallDispatchOutcome.Enqueued);
 
         var handler = new SendRecallCommandHandler(
             _patients.Object, scheduler.Object, _clinicResolver.Object, _uow.Object);

@@ -12,7 +12,7 @@ export default function MonProfilPage() {
         <DashboardSidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
           <DashboardHeader />
-          <main className="flex-1 overflow-y-auto p-6">
+          <main className="flex-1 overflow-y-auto p-4 md:p-6">
             <div className="mx-auto max-w-3xl space-y-6">
               <div>
                 <h1 className="text-3xl font-semibold">Mon profil</h1>

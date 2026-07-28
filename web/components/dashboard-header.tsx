@@ -22,11 +22,14 @@ import { useNotifications } from "@/lib/hooks/use-notifications"
 import { appointmentsApi } from "@/lib/api/appointments"
 import { patientsApi } from "@/lib/api/patients"
 import type { NotificationDto, PatientDto } from "@/lib/api/types"
-import { Bell, Search, LogOut, KeyRound, Loader2, UserCircle } from "lucide-react"
+import { useSidebar } from "@/contexts/sidebar-context"
+import { Bell, Search, LogOut, KeyRound, Loader2, UserCircle, Menu } from "lucide-react"
 
 export function DashboardHeader() {
   const { user, isLoading, mode, logout } = useSession()
   const router = useRouter()
+  // The mobile nav drawer's only opener (AC-P3.12) — the rail itself is hidden below `md:`.
+  const { setMobileOpen } = useSidebar()
 
   const [notifOpen, setNotifOpen] = useState(false)
   const { notifications, unreadCount, loading, error, markRead, markAllRead } = useNotifications(notifOpen)
@@ -118,6 +121,10 @@ export function DashboardHeader() {
     } else if (notification.targetKind === "StockItem" && notification.stockItemId) {
       router.push(`/stock?itemId=${notification.stockItemId}`)
       window.dispatchEvent(new CustomEvent("clinic:deeplink", { detail: { itemId: notification.stockItemId } }))
+    } else if (notification.targetKind === "Recall") {
+      // AC-P3.7 — a failed recall carries no appointment; the action it demands is re-contacting the
+      // patient, and AC-P3.5 has just put them back on this list.
+      router.push("/recalls")
     }
   }
 
@@ -138,9 +145,20 @@ export function DashboardHeader() {
   return (
     <>
     <PostVisitReviewPopup />
-    <header className="flex h-16 items-center justify-between border-b border-border bg-card px-6">
-      <div className="flex flex-1 items-center gap-4">
-        <div ref={searchBoxRef} className="relative w-full max-w-md">
+    {/* Reflows rather than overflows below `md:` (AC-P3.15): tighter padding and gaps, the nav opener
+        appears, and the user block drops its name/email text so the row fits 375 px. */}
+    <header className="flex h-16 items-center justify-between gap-2 border-b border-border bg-card px-4 md:px-6">
+      <div className="flex min-w-0 flex-1 items-center gap-2 md:gap-4">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="shrink-0 md:hidden"
+          onClick={() => setMobileOpen(true)}
+          aria-label="Ouvrir la navigation"
+        >
+          <Menu className="h-5 w-5" />
+        </Button>
+        <div ref={searchBoxRef} className="relative w-full min-w-0 max-w-md">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <input
             type="search"
@@ -184,7 +202,7 @@ export function DashboardHeader() {
         </div>
       </div>
 
-      <div className="flex items-center gap-4">
+      <div className="flex shrink-0 items-center gap-1 md:gap-4">
         <ConnectivityIndicator />
 
         <Popover open={notifOpen} onOpenChange={setNotifOpen}>
@@ -216,21 +234,28 @@ export function DashboardHeader() {
         {!isLoading && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="flex items-center gap-2">
+              <Button variant="ghost" className="flex items-center gap-2 px-2 md:px-3" aria-label="Mon compte">
                 <Avatar className="h-8 w-8">
                   {userPicture && <AvatarImage src={userPicture} alt={userName} />}
                   <AvatarFallback className="bg-primary text-primary-foreground text-sm">
                     {getInitials(userName)}
                   </AvatarFallback>
                 </Avatar>
-                <div className="text-left">
+                {/* Identity text is the first thing to go on a phone — the avatar still identifies the
+                    session, and the same name/email head the menu itself. */}
+                <div className="hidden text-left md:block">
                   <p className="text-sm font-medium">{userName}</p>
                   <p className="text-xs text-muted-foreground">{userEmail || "Utilisateur"}</p>
                 </div>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuLabel>Mon compte</DropdownMenuLabel>
+              <DropdownMenuLabel className="truncate">
+                {userName}
+                {userEmail && (
+                  <span className="block truncate text-xs font-normal text-muted-foreground">{userEmail}</span>
+                )}
+              </DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => router.push("/mon-profil")} className="flex items-center cursor-pointer">
                 <UserCircle className="mr-2 h-4 w-4" />

@@ -307,6 +307,27 @@ public class Patient : AggregateRoot<Guid>
         UpdatedAt = DateTime.UtcNow;
     }
 
+    /// <summary>
+    /// Undo a recall snooze because the contact never actually happened (AC-P3.5): the dispatch that the
+    /// « Relancer » action enqueued reached <c>Failed</c> on every configured channel. Returns the patient to
+    /// the « à relancer » list and clears <see cref="LastRecallContactedAt"/> — leaving that stamp would have
+    /// the list report a contact date for a message nobody received, which is the same lie one step later.
+    /// The reason label is kept: it still describes why the patient is being recalled.
+    /// Returns <c>false</c> when there was nothing to undo, so callers can tell a real recovery from a no-op.
+    /// </summary>
+    public bool ClearRecallSnooze()
+    {
+        if (RecallSnoozedUntil == null && LastRecallContactedAt == null)
+        {
+            return false;
+        }
+
+        RecallSnoozedUntil = null;
+        LastRecallContactedAt = null;
+        UpdatedAt = DateTime.UtcNow;
+        return true;
+    }
+
     /// <summary>Set (or clear, when blank) the patient's recall reason label.</summary>
     public void SetRecallReason(string? reason)
     {

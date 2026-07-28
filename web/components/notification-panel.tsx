@@ -10,6 +10,7 @@ import {
   ClipboardPlus,
   Clock,
   Loader2,
+  MessageSquareX,
   type LucideIcon,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -31,6 +32,8 @@ const CATEGORY_ICON: Record<string, LucideIcon> = {
   Reminder: Clock,
   LowStock: AlertTriangle,
   PostVisitReview: ClipboardPlus,
+  // AC-P3.7 — an SMS/WhatsApp reminder or recall that never reached the patient.
+  ReminderFailed: MessageSquareX,
 }
 
 function relativeTime(iso: string): string {

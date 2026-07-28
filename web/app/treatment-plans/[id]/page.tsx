@@ -88,7 +88,7 @@ export default function TreatmentPlanWorkspacePage() {
         <DashboardSidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
           <DashboardHeader />
-          <main className="flex-1 overflow-auto p-6">
+          <main className="flex-1 overflow-auto p-4 md:p-6">
             <PlanWorkspace plan={plan} onChanged={load} />
           </main>
         </div>

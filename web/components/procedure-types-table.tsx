@@ -15,10 +15,11 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { Stethoscope, Pencil, Trash2, Clock, Plus, DollarSign, ListPlus, Loader2 } from "lucide-react"
+import { Stethoscope, Pencil, Trash2, Clock, Plus, Coins, ListPlus, Loader2 } from "lucide-react"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
 import type { ProcedureTypeDto } from "@/lib/api/types"
-import { ApiError } from "@/lib/api/client"
+import { getErrorMessage, showErrorToast } from "@/lib/errors"
+import { formatDT } from "@/lib/format"
 import { useSession } from "@/lib/auth/session"
 import { toast } from "sonner"
 
@@ -49,12 +50,7 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
       const data = await procedureTypesApi.list(false) // Only active procedures
       setProcedures(data)
     } catch (err) {
-      console.error("Failed to load procedure types:", err)
-      if (err instanceof ApiError) {
-        setError(`Échec du chargement des types d'actes : ${err.message}`)
-      } else {
-        setError("Échec du chargement des types d'actes. Veuillez réessayer.")
-      }
+      setError(getErrorMessage(err, "Échec du chargement des types d'actes. Veuillez réessayer."))
     } finally {
       setLoading(false)
     }
@@ -81,7 +77,7 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
       }
       await loadProcedures() // Reload the list in place.
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Échec du chargement des actes courants.")
+      showErrorToast(err, "Échec du chargement des actes courants.")
     } finally {
       setSeeding(false)
     }
@@ -97,8 +93,7 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
       setDeleteDialogOpen(false)
       setProcedureToDelete(null)
     } catch (err) {
-      console.error("Failed to delete procedure type:", err)
-      toast.error(err instanceof ApiError ? err.message : "Échec de la suppression du type de procédure.")
+      showErrorToast(err, "Échec de la suppression du type d'acte.")
     } finally {
       setDeleting(false)
     }
@@ -108,7 +103,7 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
     return (
       <Card>
         <CardContent className="p-6">
-          <p className="text-center text-muted-foreground">Loading procedure types...</p>
+          <p className="text-center text-muted-foreground">Chargement des types d'actes…</p>
         </CardContent>
       </Card>
     )
@@ -121,7 +116,7 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
           <div className="flex items-center justify-between">
             <CardTitle className="flex items-center gap-2">
               <Stethoscope className="h-5 w-5" />
-              Procedure Types
+              Types d'actes
               <Badge variant="secondary" className="ml-2">
                 {procedures.length} {procedures.length === 1 ? "type" : "types"}
               </Badge>
@@ -210,8 +205,8 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
                       <TableCell>
                         {procedure.defaultCost != null && procedure.defaultCost > 0 ? (
                           <div className="flex items-center gap-2 text-muted-foreground">
-                            <DollarSign className="h-4 w-4" />
-                            <span>{procedure.defaultCost.toFixed(2)} DT</span>
+                            <Coins className="h-4 w-4" />
+                            <span>{formatDT(procedure.defaultCost)}</span>
                           </div>
                         ) : (
                           <span className="text-muted-foreground">-</span>

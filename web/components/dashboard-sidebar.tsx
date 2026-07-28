@@ -12,6 +12,7 @@ import { DEFAULT_WORKING_HOURS, summarizeWorkingHours } from "@/lib/working-hour
 import { PRODUCT_NAME } from "@/lib/brand"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet"
 
 type NavItem = { name: string; href: string; icon: LucideIcon }
 type NavSection = { title: string; items: NavItem[] }
@@ -57,7 +58,7 @@ const baseSections: NavSection[] = [
 
 export function DashboardSidebar() {
   const pathname = usePathname()
-  const { isCollapsed, toggleSidebar } = useSidebar()
+  const { isCollapsed, toggleSidebar, isMobileOpen, setMobileOpen } = useSidebar()
   const { user } = useSession()
   // Working hours shown in the footer come from the clinic's saved settings (AC-7); no redirect (ClinicGuard
   // owns that). Falls back to the shared default when nothing is saved.
@@ -95,25 +96,30 @@ export function DashboardSidebar() {
 
   const sections: NavSection[] = [...baseSections, { title: "Configuration", items: configItems }]
 
-  const renderItem = (item: NavItem) => {
+  // `collapsed` is passed rather than read from context: inside the mobile drawer the rail is always
+  // expanded (there is room, and a phone has no hover for the collapsed tooltips), while the desktop rail
+  // honours the persisted preference. One renderer, two callers — AC-P3.18.
+  const renderItem = (item: NavItem, collapsed: boolean) => {
     const isActive = pathname === item.href
     const linkContent = (
       <Link
         href={item.href}
         className={cn(
           "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card",
           isActive
             ? "bg-accent text-accent-foreground"
             : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-          isCollapsed && "justify-center"
+          collapsed && "justify-center"
         )}
+        aria-current={isActive ? "page" : undefined}
       >
         <item.icon className="h-5 w-5 shrink-0" />
-        {!isCollapsed && <span className="truncate">{item.name}</span>}
+        {collapsed ? <span className="sr-only">{item.name}</span> : <span className="truncate">{item.name}</span>}
       </Link>
     )
 
-    if (isCollapsed) {
+    if (collapsed) {
       return (
         <Tooltip key={item.href} delayDuration={0}>
           <TooltipTrigger asChild>{linkContent}</TooltipTrigger>
@@ -127,71 +133,104 @@ export function DashboardSidebar() {
     return <div key={item.href}>{linkContent}</div>
   }
 
-  return (
-    <aside
-      className={cn(
-        "flex flex-col border-r border-border bg-card transition-all duration-300 relative",
-        isCollapsed ? "w-16" : "w-64"
-      )}
-    >
-      {/* Header */}
-      <div className="flex h-16 items-center border-b border-border px-4">
-        <div className="flex items-center gap-2 flex-1 min-w-0">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary shrink-0">
-            <Stethoscope className="h-5 w-5 text-primary-foreground" />
-          </div>
-          {!isCollapsed && (
-            <span className="text-lg font-semibold text-foreground truncate">{brandName}</span>
-          )}
+  const brandHeader = (collapsed: boolean) => (
+    <div className="flex h-16 items-center border-b border-border px-4">
+      <div className="flex items-center gap-2 flex-1 min-w-0">
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary shrink-0">
+          <Stethoscope className="h-5 w-5 text-primary-foreground" />
         </div>
+        {!collapsed && (
+          <span className="text-lg font-semibold text-foreground truncate">{brandName}</span>
+        )}
       </div>
+    </div>
+  )
 
-      {/* Navigation — grouped sections. Section titles hide when collapsed (icon-only rail). */}
-      <nav className="flex-1 overflow-y-auto p-4">
-        <TooltipProvider>
-          {sections.map((section) => (
-            <div key={section.title} className="space-y-1 pb-2">
-              {!isCollapsed && (
-                <p className="px-3 pt-2 pb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">
-                  {section.title}
-                </p>
-              )}
-              {section.items.map((item) => renderItem(item))}
-            </div>
-          ))}
-        </TooltipProvider>
-      </nav>
-
-      {/* Footer — clinic hours from the saved settings (single source, AC-7). */}
-      {!isCollapsed && (
-        <div className="border-t border-border p-4">
-          <div className="text-xs text-muted-foreground">
-            <p className="font-medium">Horaires d&apos;ouverture</p>
-            {hoursSummary.map((line, i) => (
-              <p key={i} className={i === 0 ? "mt-1" : ""}>
-                {line}
+  // Navigation — grouped sections. Section titles hide when collapsed (icon-only rail).
+  const navigation = (collapsed: boolean) => (
+    <nav className="flex-1 overflow-y-auto p-4" aria-label="Navigation principale">
+      <TooltipProvider>
+        {sections.map((section) => (
+          <div key={section.title} className="space-y-1 pb-2">
+            {!collapsed && (
+              <p className="px-3 pt-2 pb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">
+                {section.title}
               </p>
-            ))}
+            )}
+            {section.items.map((item) => renderItem(item, collapsed))}
           </div>
-        </div>
-      )}
+        ))}
+      </TooltipProvider>
+    </nav>
+  )
 
-      {/* Toggle Button */}
-      <div className="border-t border-border p-2">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={toggleSidebar}
-          className="w-full justify-center"
-          aria-label={isCollapsed ? "Développer la barre latérale" : "Réduire la barre latérale"}
-        >
-          {isCollapsed ? (
-            <ChevronRight className="h-4 w-4" />
-          ) : (
-            <ChevronLeft className="h-4 w-4" />
-          )}
-        </Button>
+  // Footer — clinic hours from the saved settings (single source, AC-7).
+  const hoursFooter = (
+    <div className="border-t border-border p-4">
+      <div className="text-xs text-muted-foreground">
+        <p className="font-medium">Horaires d&apos;ouverture</p>
+        {hoursSummary.map((line, i) => (
+          <p key={i} className={i === 0 ? "mt-1" : ""}>
+            {line}
+          </p>
+        ))}
       </div>
-    </aside>
+    </div>
+  )
+
+  return (
+    <>
+      {/* Desktop rail — unchanged at `md:` and above, hidden below it (AC-P3.12). */}
+      <aside
+        className={cn(
+          "hidden md:flex flex-col border-r border-border bg-card transition-all duration-300 relative",
+          isCollapsed ? "w-16" : "w-64"
+        )}
+      >
+        {brandHeader(isCollapsed)}
+        {navigation(isCollapsed)}
+        {!isCollapsed && hoursFooter}
+
+        {/* Toggle Button */}
+        <div className="border-t border-border p-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={toggleSidebar}
+            className="w-full justify-center"
+            aria-label={isCollapsed ? "Développer la barre latérale" : "Réduire la barre latérale"}
+          >
+            {isCollapsed ? (
+              <ChevronRight className="h-4 w-4" />
+            ) : (
+              <ChevronLeft className="h-4 w-4" />
+            )}
+          </Button>
+        </div>
+      </aside>
+
+      {/* Mobile drawer — a shadcn Sheet over the already-installed Radix dialog, so Escape, the overlay
+          click, focus trapping and focus restore are the primitive's, not hand-rolled (AC-P3.13/3.44).
+          Opened from the header control; closed on navigation by the provider. */}
+      <Sheet open={isMobileOpen} onOpenChange={setMobileOpen}>
+        <SheetContent
+          side="left"
+          className="w-72 max-w-[85vw] p-0 md:hidden"
+          aria-label="Navigation principale"
+        >
+          {/* Radix requires a title/description for the dialog's accessible name; the rail shows its own
+              brand header, so these are screen-reader only. */}
+          <SheetTitle className="sr-only">Navigation</SheetTitle>
+          <SheetDescription className="sr-only">
+            Accédez aux différentes sections de l&apos;application.
+          </SheetDescription>
+          <div className="flex h-full flex-col">
+            {brandHeader(false)}
+            {navigation(false)}
+            {hoursFooter}
+          </div>
+        </SheetContent>
+      </Sheet>
+    </>
   )
 }

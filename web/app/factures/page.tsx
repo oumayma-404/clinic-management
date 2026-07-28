@@ -13,15 +13,41 @@ import { InvoicesTable } from "@/components/factures/invoices-table"
 import { invoicesApi } from "@/lib/api/invoices"
 import type { InvoiceRevenueDto } from "@/lib/api/types"
 import { formatDT } from "@/lib/format"
+import { getErrorMessage } from "@/lib/errors"
+import { AlertTriangle, Loader2 } from "lucide-react"
 import { INVOICE_STATUS_LABELS } from "@/components/factures/invoice-labels"
 
 const ALL_STATUSES = "all"
+
+/**
+ * One KPI figure, with the three states kept apart (AC-P3.28): still loading, failed to load, or a real
+ * amount. « — » is reserved for a figure that genuinely has no value — a failed read says « indisponible »
+ * so nobody reads a network error as "nothing was billed this month".
+ */
+function RevenueValue({ loading, failed, value }: { loading: boolean; failed: boolean; value?: number }) {
+  if (loading) {
+    return (
+      <span className="inline-flex items-center gap-2 text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+        <span className="sr-only">Chargement…</span>
+      </span>
+    )
+  }
+  if (failed) {
+    return <span className="text-base font-medium text-muted-foreground">Indisponible</span>
+  }
+  return <>{value === undefined ? "—" : formatDT(value)}</>
+}
 
 export default function FacturesPage() {
   const [from, setFrom] = useState("")
   const [to, setTo] = useState("")
   const [status, setStatus] = useState<string>(ALL_STATUSES)
   const [revenue, setRevenue] = useState<InvoiceRevenueDto | null>(null)
+  const [revenueLoading, setRevenueLoading] = useState(true)
+  // AC-P3.28 — the revenue read used to swallow its error without even a console.error, so a failed call and
+  // a genuinely-empty period both rendered « — ». On a money screen those must not look alike.
+  const [revenueError, setRevenueError] = useState<string | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
 
   const fromIso = from ? `${from}T00:00:00` : undefined
@@ -30,10 +56,15 @@ export default function FacturesPage() {
 
   const loadRevenue = useCallback(async () => {
     try {
+      setRevenueLoading(true)
+      setRevenueError(null)
       const data = await invoicesApi.revenue({ from: fromIso, to: toIso })
       setRevenue(data)
-    } catch {
+    } catch (err) {
       setRevenue(null)
+      setRevenueError(getErrorMessage(err, "Les recettes n'ont pas pu être chargées."))
+    } finally {
+      setRevenueLoading(false)
     }
   }, [fromIso, toIso])
 
@@ -55,21 +86,40 @@ export default function FacturesPage() {
         <DashboardSidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
           <DashboardHeader />
-          <main className="flex-1 overflow-auto p-6">
+          <main className="flex-1 overflow-auto p-4 md:p-6">
             <div className="mx-auto max-w-7xl space-y-6">
               <div>
                 <h1 className="text-2xl font-bold">Factures &amp; Recettes</h1>
                 <p className="text-muted-foreground">Notes d'honoraires, encaissements et suivi des recettes.</p>
               </div>
 
-              {/* Revenue summary */}
+              {/* Revenue summary. AC-P3.28 — three states, never conflated: loading, failed-to-load (with a
+                  retry), and a real figure. */}
+              {revenueError && (
+                <div
+                  role="status"
+                  className="flex flex-wrap items-center gap-3 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm"
+                >
+                  <AlertTriangle className="h-4 w-4 shrink-0 text-destructive" aria-hidden="true" />
+                  <span className="flex-1 min-w-0">{revenueError}</span>
+                  <Button size="sm" variant="outline" onClick={() => void loadRevenue()}>
+                    Réessayer
+                  </Button>
+                </div>
+              )}
               <div className="grid gap-4 sm:grid-cols-3">
                 <Card>
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm font-medium text-muted-foreground">Total facturé</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="text-2xl font-bold">{revenue ? formatDT(revenue.totalInvoiced) : "—"}</div>
+                    <div className="text-2xl font-bold">
+                      <RevenueValue
+                        loading={revenueLoading}
+                        failed={!!revenueError}
+                        value={revenue?.totalInvoiced}
+                      />
+                    </div>
                   </CardContent>
                 </Card>
                 <Card>
@@ -78,7 +128,11 @@ export default function FacturesPage() {
                   </CardHeader>
                   <CardContent>
                     <div className="text-2xl font-bold text-green-700 dark:text-green-400">
-                      {revenue ? formatDT(revenue.totalCollected) : "—"}
+                      <RevenueValue
+                        loading={revenueLoading}
+                        failed={!!revenueError}
+                        value={revenue?.totalCollected}
+                      />
                     </div>
                   </CardContent>
                 </Card>
@@ -88,7 +142,11 @@ export default function FacturesPage() {
                   </CardHeader>
                   <CardContent>
                     <div className="text-2xl font-bold text-amber-700 dark:text-amber-400">
-                      {revenue ? formatDT(revenue.outstanding) : "—"}
+                      <RevenueValue
+                        loading={revenueLoading}
+                        failed={!!revenueError}
+                        value={revenue?.outstanding}
+                      />
                     </div>
                   </CardContent>
                 </Card>

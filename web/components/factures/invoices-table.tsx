@@ -568,11 +568,17 @@ export function InvoicesTable({
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-1.5">
+            {/* AC-P3.41 — a real <Label htmlFor>, as the avoir dialog forty lines below already does. The
+                placeholder was the only thing naming this required field, and a placeholder disappears the
+                moment you type and is not an accessible name. */}
+            <Label htmlFor="cancelReason">Motif d&apos;annulation</Label>
             <Textarea
+              id="cancelReason"
               value={cancelReason}
               onChange={(e) => setCancelReason(e.target.value)}
-              placeholder="Motif d'annulation"
+              placeholder="Erreur de saisie, acte non réalisé…"
               rows={3}
+              required
             />
           </div>
           <DialogFooter className="gap-2">
@@ -581,10 +587,10 @@ export function InvoicesTable({
             </Button>
             <Button
               onClick={confirmCancel}
-              disabled={busyId === cancelTarget?.id}
+              disabled={busyId === cancelTarget?.id || !cancelReason.trim()}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              Confirmer l'annulation
+              {busyId === cancelTarget?.id ? "Annulation…" : "Confirmer l'annulation"}
             </Button>
           </DialogFooter>
         </DialogContent>

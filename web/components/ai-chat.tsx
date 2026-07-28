@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Card } from "@/components/ui/card"
 // Using div with overflow instead of ScrollArea
-import { Send, Bot, User, Loader2, X, Trash2, Mic, MicOff } from "lucide-react"
+import { Send, Bot, User, Loader2, X, Trash2, Mic, MicOff, Volume2, VolumeX, Square, WifiOff } from "lucide-react"
 import { aiChatApi, type ChatMessage } from "@/lib/api/ai-chat"
 import { patientsApi } from "@/lib/api/patients"
 import type { PatientDto } from "@/lib/api/types"
@@ -22,6 +22,14 @@ const AUTO_OPEN_MS = 5000
 
 /** Marks the post-login greeting as spent, so a refresh doesn't re-pop the panel. */
 const AUTO_OPEN_ONCE_KEY = "clinic:ai-chat-greeted"
+
+/**
+ * Whether the assistant reads its replies aloud. `localStorage`, not `sessionStorage`, because AC-P3.25
+ * requires the preference to survive a reload; **off** unless the value is exactly "1", so a corrupt or
+ * absent value lands on the quiet default (AC-P3.24 — reading every reply aloud in a shared consultation
+ * room, over a patient, was the § 7.4 complaint).
+ */
+const SPEECH_ENABLED_KEY = "clinic:ai-chat-speech"
 
 /**
  * Auth / onboarding routes the assistant must stay off. A path check is needed on top of the
@@ -49,6 +57,8 @@ export function AIChat({ className }: AIChatProps) {
   const [isListening, setIsListening] = useState(false)
   const [isSpeechSupported, setIsSpeechSupported] = useState(false)
   const [isSpeaking, setIsSpeaking] = useState(false)
+  // Off by default (AC-P3.24). Read from storage after mount so the server and client render the same thing.
+  const [isSpeechEnabled, setIsSpeechEnabled] = useState(false)
   const [patients, setPatients] = useState<PatientDto[]>([])
   const { currentUserDoctor } = useDoctors()
   // AI chat calls HuggingFace via the server, so it needs internet. In Local mode when the server has
@@ -94,6 +104,33 @@ export function AIChat({ className }: AIChatProps) {
       scrollAreaRef.current.scrollTop = scrollAreaRef.current.scrollHeight
     }
   }, [messages])
+
+  // AC-P3.25 — restore the saved preference. Storage being unavailable (private mode) simply keeps the
+  // quiet default rather than throwing on mount.
+  useEffect(() => {
+    try {
+      setIsSpeechEnabled(window.localStorage.getItem(SPEECH_ENABLED_KEY) === "1")
+    } catch {
+      // Keep the default.
+    }
+  }, [])
+
+  const toggleSpeech = useCallback(() => {
+    setIsSpeechEnabled((prev) => {
+      const next = !prev
+      try {
+        window.localStorage.setItem(SPEECH_ENABLED_KEY, next ? "1" : "0")
+      } catch {
+        // The toggle still applies for this session; only persistence is lost.
+      }
+      // Turning it off mid-sentence must silence the reply that is already playing, not just the next one.
+      if (!next && synthRef.current) {
+        synthRef.current.cancel()
+        setIsSpeaking(false)
+      }
+      return next
+    })
+  }, [])
 
   // Load patients list for autocorrect. Gated on visibility: hooks still run when the component
   // renders null, so without this the widget fired a guaranteed-401 patients call on every /login load.
@@ -296,9 +333,10 @@ export function AIChat({ className }: AIChatProps) {
 
       const assistantMessage = { role: "assistant" as const, content: response.message }
       setMessages([...newMessages, assistantMessage])
-      
-      // Speak the response if speech synthesis is available
-      if (synthRef.current) {
+
+      // AC-P3.24 — read aloud only when the user has asked for it. This used to fire on every reply for
+      // anyone whose browser has speech synthesis, i.e. everyone.
+      if (isSpeechEnabled && synthRef.current) {
         speakText(response.message)
       }
     } catch (error) {
@@ -673,7 +711,16 @@ export function AIChat({ className }: AIChatProps) {
   }
 
   return (
-    <Card className={cn("fixed bottom-4 right-4 w-96 h-[600px] flex flex-col shadow-2xl z-50", className)}>
+    // AC-P3.16 — viewport-relative below `md:`. A fixed `w-96 h-[600px]` panel is wider than a 375px phone
+    // and taller than its viewport, so on a phone the assistant covered the page and its input sat off-screen.
+    // At `md:` and above the original geometry is unchanged.
+    <Card
+      className={cn(
+        "fixed bottom-4 left-4 right-4 flex max-h-[calc(100dvh-2rem)] h-[70dvh] flex-col shadow-2xl z-50",
+        "md:left-auto md:h-[600px] md:max-h-none md:w-96",
+        className
+      )}
+    >
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b bg-primary text-primary-foreground rounded-t-lg">
         <div className="flex items-center gap-2">
@@ -681,6 +728,7 @@ export function AIChat({ className }: AIChatProps) {
           <h3 className="font-semibold">Assistant IA</h3>
         </div>
         <div className="flex items-center gap-1">
+          {/* AC-P3.26 — while a reply is playing, stopping it stays one click away. */}
           {isSpeaking && (
             <Button
               variant="ghost"
@@ -688,10 +736,24 @@ export function AIChat({ className }: AIChatProps) {
               className="h-8 w-8 p-0 text-primary-foreground hover:bg-primary-foreground/20"
               onClick={stopSpeaking}
               title="Arrêter la lecture"
+              aria-label="Arrêter la lecture"
             >
-              <MicOff className="h-4 w-4" />
+              <Square className="h-4 w-4" />
             </Button>
           )}
+          {/* AC-P3.25 — the persistent, discoverable control. `aria-pressed` states which way it is set,
+              since the icon alone cannot say so to a screen reader. */}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 w-8 p-0 text-primary-foreground hover:bg-primary-foreground/20"
+            onClick={toggleSpeech}
+            aria-pressed={isSpeechEnabled}
+            title={isSpeechEnabled ? "Désactiver la lecture à voix haute" : "Activer la lecture à voix haute"}
+            aria-label={isSpeechEnabled ? "Désactiver la lecture à voix haute" : "Activer la lecture à voix haute"}
+          >
+            {isSpeechEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+          </Button>
           <Button
             variant="ghost"
             size="sm"
@@ -763,9 +825,14 @@ export function AIChat({ className }: AIChatProps) {
       {/* Input */}
       <div className="p-4 border-t">
         {!internetReachable && (
-          <div className="mb-2 flex items-center gap-2 rounded-md bg-amber-50 dark:bg-amber-500/10 px-2 py-1.5 text-xs text-amber-700 dark:text-amber-400">
-            <MicOff className="h-3.5 w-3.5" />
-            Connexion internet requise — l'assistant IA est temporairement indisponible.
+          <div
+            role="status"
+            className="mb-2 flex items-center gap-2 rounded-md bg-amber-50 dark:bg-amber-500/10 px-2 py-1.5 text-xs text-amber-700 dark:text-amber-400"
+          >
+            {/* WifiOff, not MicOff — this banner is about connectivity, and the mic icon read as a
+                microphone problem right next to the real mic button. */}
+            <WifiOff className="h-3.5 w-3.5" />
+            Connexion internet requise — l&apos;assistant IA est temporairement indisponible.
           </div>
         )}
         <div className="flex gap-2">
@@ -807,6 +874,7 @@ export function AIChat({ className }: AIChatProps) {
             disabled={!input.trim() || isLoading || isListening || !internetReachable}
             size="icon"
             className="bg-primary hover:bg-primary/90"
+            aria-label="Envoyer le message"
           >
             {isLoading ? (
               <Loader2 className="h-4 w-4 animate-spin" />

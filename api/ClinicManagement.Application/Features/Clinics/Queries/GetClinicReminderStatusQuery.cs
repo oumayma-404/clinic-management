@@ -69,7 +69,9 @@ public class GetClinicReminderStatusQueryHandler
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<IReadOnlyList<ReminderStatusDto>>.Failure($"Error retrieving reminder status: {ex.Message}");
+            // French, and without the raw exception text — same A-8 class the P1/P2 sweep closed elsewhere.
+            return Result<IReadOnlyList<ReminderStatusDto>>.Failure(
+                "Erreur lors de la récupération de l'état d'envoi des rappels.");
         }
     }
 
@@ -78,6 +80,10 @@ public class GetClinicReminderStatusQueryHandler
         Id = n.Id,
         Channel = n.Type.ToString(),
         RecipientMasked = MaskRecipient(n.Patient?.PhoneNumber?.Value),
+        // AC-P3.9 — the name, so a failed row names someone; the phone above stays masked (AC-P3.10).
+        PatientName = n.Patient == null ? null : n.Patient.GetFullName(),
+        AppointmentAt = n.Appointment?.AppointmentDateTime,
+        IsRecall = n.AppointmentId == null,
         Status = n.Status switch
         {
             NotificationStatus.Sent => ReminderDeliveryStatus.Sent,

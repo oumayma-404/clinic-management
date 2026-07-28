@@ -1,5 +1,6 @@
 using System.Globalization;
 using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
@@ -78,7 +79,7 @@ public class ReminderScheduler : IReminderScheduler
             await _unitOfWork.SaveChangesAsync(cancellationToken);
         });
 
-    public Task ScheduleRecallAsync(
+    public Task<RecallDispatchOutcome> ScheduleRecallAsync(
         Guid clinicId, Guid patientId, string patientName, string? reason,
         CancellationToken cancellationToken = default) =>
         SafelyRecallAsync(patientId, async () =>
@@ -89,24 +90,37 @@ public class ReminderScheduler : IReminderScheduler
             {
                 _logger.LogInformation(
                     "Skipped a recall for patient {PatientId}: no deliverable phone number.", patientId);
-                return;
+                return RecallDispatchOutcome.NoDeliverablePhone;
             }
 
             // Which channels + custom wording is per-clinic (its toggles/settings, else the install default).
             var settings = await _settingsProvider.ResolveAsync(clinicId, cancellationToken);
-            if (settings.EnabledChannels.Count == 0)
+
+            // Enabled is not the same as sendable. A channel toggled on but missing its credentials leaves its
+            // row Pending for ever at dispatch (NotConfigured is deliberately not a failure), so enqueuing on
+            // it would keep the patient snoozed 30 days with no row that can ever resolve — the same silent
+            // suppression AC-P3.2 exists to remove, and « Rappel envoyé … when no channel is configured » is
+            // the audit's own wording. `SmsConfigured`/`WhatsAppConfigured` are the senders' own sendability
+            // predicate, so this cannot disagree with what the dispatcher will do.
+            var sendable = settings.EnabledChannels.Where(c => IsSendable(c, settings)).ToList();
+            if (sendable.Count == 0)
             {
-                return;
+                _logger.LogInformation(
+                    "Skipped a recall for patient {PatientId}: clinic {ClinicId} has no sendable reminder channel.",
+                    patientId, clinicId);
+                return RecallDispatchOutcome.NoChannelConfigured;
             }
 
             var clinic = await _clinics.GetByIdAsync(clinicId, cancellationToken);
             var message = BuildRecallMessage(patientName, reason, clinic?.Name ?? FallbackClinicName);
             var sendTime = DateTime.UtcNow; // due now → dispatched on the next connectivity-gated tick
 
-            foreach (var channel in settings.EnabledChannels)
+            foreach (var channel in sendable)
             {
                 // A recall carries no appointment id and its own subject, so it is distinguishable from a
-                // booking reminder in the outbox / reminder-status view.
+                // booking reminder in the outbox / reminder-status view. Every row of one « Relancer » click
+                // shares this exact ScheduledFor, which is what lets the dispatcher recognise the batch and
+                // decide the patient's state only once every channel has resolved (AC-P3.6).
                 var recall = new Notification(
                     Guid.NewGuid(), channel, RecallSubject, message, sendTime,
                     appointmentId: null, patientId: patientId, clinicId: clinicId);
@@ -114,6 +128,7 @@ public class ReminderScheduler : IReminderScheduler
             }
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return RecallDispatchOutcome.Enqueued;
         });
 
     // Adds one Pending reminder per configured channel at the computed send time. Stages the rows only
@@ -163,6 +178,19 @@ public class ReminderScheduler : IReminderScheduler
     }
 
     /// <summary>
+    /// Can this channel actually send right now? Reads the same `*Configured` predicates the senders and the
+    /// admin effective-status badge use, so enqueue, dispatch and UI cannot disagree. Only the recall path
+    /// consults this: an appointment reminder is enqueued hours ahead, so a channel configured in the meantime
+    /// should still send — a recall is due *now* and its caller is waiting for a yes/no.
+    /// </summary>
+    private static bool IsSendable(NotificationType channel, ResolvedReminderSettings settings) => channel switch
+    {
+        NotificationType.SMS => settings.SmsConfigured,
+        NotificationType.WhatsApp => settings.WhatsAppConfigured,
+        _ => false, // Email/Both have no sender at all
+    };
+
+    /// <summary>
     /// Can this patient actually be reached? Uses <see cref="PhoneNumber.IsDeliverable"/> — the same predicate
     /// the senders apply — so the answer here and at dispatch can never disagree. A patient that has gone
     /// missing is treated as unreachable rather than throwing: this whole class is best-effort.
@@ -195,15 +223,18 @@ public class ReminderScheduler : IReminderScheduler
         }
     }
 
-    private async Task SafelyRecallAsync(Guid patientId, Func<Task> work)
+    // Still best-effort — never throws back — but a fault now resolves to an explicit Failed outcome so the
+    // caller can refuse the action instead of reporting a send that did not happen (AC-P3.1).
+    private async Task<RecallDispatchOutcome> SafelyRecallAsync(Guid patientId, Func<Task<RecallDispatchOutcome>> work)
     {
         try
         {
-            await work();
+            return await work();
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to schedule a recall for patient {PatientId}.", patientId);
+            return RecallDispatchOutcome.Failed;
         }
     }
 

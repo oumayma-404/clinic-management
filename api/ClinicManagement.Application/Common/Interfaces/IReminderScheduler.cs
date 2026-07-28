@@ -35,9 +35,13 @@ public interface IReminderScheduler
     /// <summary>
     /// Enqueues one recall (« relance ») message per configured channel for a patient, due immediately (the
     /// next dispatcher tick sends it, connectivity-gated). Distinct from booking reminders (its own subject),
-    /// carries no appointment id. No-op when no channels are configured. Best-effort — never throws back.
+    /// carries no appointment id. Best-effort — never throws back.
+    ///
+    /// Unlike the appointment methods this one <b>reports its outcome</b> (AC-P3.1): the recall is a
+    /// user-initiated action whose whole point is that the patient gets a message, so its caller has to be
+    /// able to refuse rather than snooze the patient for 30 days having queued nothing.
     /// </summary>
-    Task ScheduleRecallAsync(
+    Task<RecallDispatchOutcome> ScheduleRecallAsync(
         Guid clinicId, Guid patientId, string patientName, string? reason,
         CancellationToken cancellationToken = default);
 }

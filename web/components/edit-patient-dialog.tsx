@@ -592,7 +592,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                     id="firstName"
                     value={firstName}
                     onChange={(e) => setFirstName(e.target.value)}
-                    placeholder="John"
+                    placeholder="Mohamed"
                     aria-invalid={!!errors.firstName}
                     className={cn(errors.firstName && "border-destructive")}
                   />
@@ -608,7 +608,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                     id="lastName"
                     value={lastName}
                     onChange={(e) => setLastName(e.target.value)}
-                    placeholder="Doe"
+                    placeholder="Ben Salah"
                     aria-invalid={!!errors.lastName}
                     className={cn(errors.lastName && "border-destructive")}
                   />
@@ -702,7 +702,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="john.doe@email.com"
+                    placeholder="mohamed.bensalah@email.tn"
                     aria-invalid={!!errors.email}
                     className={cn(errors.email && "border-destructive")}
                   />
@@ -716,7 +716,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                     id="addressStreet"
                     value={addressStreet}
                     onChange={(e) => setAddressStreet(e.target.value)}
-                    placeholder="123 Main Street"
+                    placeholder="12 rue de Carthage, Lafayette"
                   />
                 </div>
 
@@ -801,7 +801,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                     id="chronicDiseases"
                     value={chronicDiseases}
                     onChange={(e) => setChronicDiseases(e.target.value)}
-                    placeholder="Hypertension, Type 2 Diabetes"
+                    placeholder="Hypertension, diabète de type 2"
                     className="min-h-[60px] resize-none"
                   />
                 </div>
@@ -813,7 +813,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                     id="allergies"
                     value={allergies}
                     onChange={(e) => setAllergies(e.target.value)}
-                    placeholder="Penicillin, Shellfish"
+                    placeholder="Pénicilline, fruits de mer"
                     className="min-h-[60px] resize-none"
                   />
                 </div>
@@ -1010,7 +1010,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                     id="insuranceProvider"
                     value={insuranceProvider}
                     onChange={(e) => setInsuranceProvider(e.target.value)}
-                    placeholder="Blue Cross Blue Shield"
+                    placeholder="CNAM, STAR Assurances, GAT"
                   />
                 </div>
 
@@ -1021,7 +1021,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                     id="insuranceNumber"
                     value={insuranceNumber}
                     onChange={(e) => setInsuranceNumber(e.target.value)}
-                    placeholder="BCBS-123456789"
+                    placeholder="Ex. 12345678"
                   />
                 </div>
 
@@ -1032,7 +1032,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                     id="policyHolder"
                     value={policyHolder}
                     onChange={(e) => setPolicyHolder(e.target.value)}
-                    placeholder="Group-12345"
+                    placeholder="Ex. GRP-2026-014"
                   />
                 </div>
               </div>

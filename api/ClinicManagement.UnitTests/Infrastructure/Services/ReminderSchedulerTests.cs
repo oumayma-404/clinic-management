@@ -60,12 +60,23 @@ public class ReminderSchedulerTests
             SettingsProvider
                 .Setup(p => p.ResolveEnabledChannelsAsync(It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(ParseChannels(channels));
+            // Credentials are filled in because a channel a fixture "enables" is meant to represent a WORKING
+            // channel: the recall path enqueues only on a *sendable* channel (`SmsConfigured`/
+            // `WhatsAppConfigured`), since a toggled-on-but-unconfigured channel leaves its row Pending for
+            // ever and would keep the patient snoozed 30 days with nothing that can resolve (AC-P3.2).
             SettingsProvider
                 .Setup(p => p.ResolveAsync(It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(new ResolvedReminderSettings
                 {
                     EnabledChannels = ParseChannels(channels),
                     LeadTimeHours = new[] { 24, 6 },
+                    SmsApiUrl = "https://sms.example/send",
+                    SmsSenderId = "Clinique",
+                    SmsApiKey = "k",
+                    WhatsAppApiUrl = "https://graph.example/v20.0",
+                    WhatsAppPhoneNumberId = "1",
+                    WhatsAppTemplateName = "rappel",
+                    WhatsAppAccessToken = "t",
                 });
         }
 
@@ -281,8 +292,42 @@ public class ReminderSchedulerTests
         var patientId = Guid.NewGuid();
         h.PatientHasNoPhone(patientId);
 
-        await h.Scheduler().ScheduleRecallAsync(ClinicId, patientId, "Sans Téléphone", "contrôle");
+        var outcome = await h.Scheduler().ScheduleRecallAsync(ClinicId, patientId, "Sans Téléphone", "contrôle");
 
         Assert.Empty(h.Added);
+        // [AC-P3.1] and it says so, rather than returning void and letting the caller assume a send.
+        Assert.Equal(RecallDispatchOutcome.NoDeliverablePhone, outcome);
+    }
+
+    // [AC-P3.1/AC-P3.2] No channel enabled: nothing is enqueued AND the caller is told which of the two
+    // "nothing happened" cases it was, because the fix differs — configure a channel vs. fix a phone number.
+    [Fact]
+    public async Task Recall_Reports_No_Channel_Configured_When_The_Clinic_Has_None()
+    {
+        var h = new Harness(); // no channels at all — the defect's original trigger
+        var patientId = Guid.NewGuid();
+
+        var outcome = await h.Scheduler().ScheduleRecallAsync(ClinicId, patientId, "Jean Dupont", "contrôle");
+
+        Assert.Empty(h.Added);
+        Assert.Equal(RecallDispatchOutcome.NoChannelConfigured, outcome);
+    }
+
+    // [AC-P3.1/AC-P3.4] The happy path still enqueues one row per channel, and reports Enqueued so the
+    // command may stamp « contacté » and snooze.
+    [Fact]
+    public async Task Recall_Reports_Enqueued_And_Adds_One_Row_Per_Channel()
+    {
+        var h = new Harness("Sms", "WhatsApp");
+        var patientId = Guid.NewGuid();
+
+        var outcome = await h.Scheduler().ScheduleRecallAsync(ClinicId, patientId, "Jean Dupont", "contrôle");
+
+        Assert.Equal(RecallDispatchOutcome.Enqueued, outcome);
+        Assert.Equal(2, h.Added.Count);
+        // Every row of one send shares the same ScheduledFor — that is what lets the dispatcher recognise
+        // the batch and decide the patient's state only once all channels have resolved (AC-P3.6).
+        Assert.Single(h.Added.Select(n => n.ScheduledFor).Distinct());
+        Assert.All(h.Added, n => Assert.Null(n.AppointmentId));
     }
 }

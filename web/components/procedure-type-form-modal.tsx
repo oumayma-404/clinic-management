@@ -248,7 +248,7 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
                 type="number"
                 min="0"
                 step="0.01"
-                placeholder="e.g., 70.00"
+                placeholder="Ex. 70,000"
                 value={defaultCost}
                 onChange={(e) => setDefaultCost(e.target.value)}
                 className="pl-10"

@@ -12,5 +12,12 @@ public enum NotificationCategory
     AppointmentRescheduled = 3,
     Reminder = 4,
     LowStock = 5,
-    PostVisitReview = 6
+    PostVisitReview = 6,
+
+    /// <summary>
+    /// An outbound SMS/WhatsApp reminder or recall reached <see cref="NotificationStatus.Failed"/>
+    /// (AC-P3.7). Without this the outbox's failures were visible only in the admin reminder-status card,
+    /// so the secretary who booked the appointment never learned the patient was not reached.
+    /// </summary>
+    ReminderFailed = 7
 }

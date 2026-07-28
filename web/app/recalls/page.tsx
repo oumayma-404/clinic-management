@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react"
 import { format, parseISO } from "date-fns"
 import { fr } from "date-fns/locale"
 import { toast } from "sonner"
+import { getErrorMessage, showErrorToast } from "@/lib/errors"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { DashboardSidebar } from "@/components/dashboard-sidebar"
 import { ClinicGuard } from "@/components/clinic-guard"
@@ -24,7 +25,6 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { BellRing, CheckCircle2, Clock, Loader2, Send, Settings } from "lucide-react"
 import { recallsApi } from "@/lib/api/recalls"
-import { ApiError } from "@/lib/api/client"
 import type { RecallDto, RecallSettingsDto } from "@/lib/api/types"
 import { useSession } from "@/lib/auth/session"
 
@@ -75,7 +75,7 @@ function RecallSettingsDialog({
       onSaved(next)
       setOpen(false)
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Échec de l'enregistrement des paramètres")
+      showErrorToast(err, "Échec de l'enregistrement des paramètres")
     } finally {
       setSaving(false)
     }
@@ -150,7 +150,7 @@ export default function RecallsPage() {
       setRecalls(list)
       setSettings(currentSettings)
     } catch (err) {
-      const message = err instanceof ApiError ? err.message : "Échec du chargement des relances"
+      const message = getErrorMessage(err, "Échec du chargement des relances")
       setError(message)
       toast.error(message)
     } finally {
@@ -163,6 +163,11 @@ export default function RecallsPage() {
   }, [load])
 
   // Run a per-row action, then refetch the list. Shared by the three action buttons.
+  //
+  // AC-P3.3 — the failure path is the point here. « Relancer » used to be incapable of failing: the command
+  // returned success even when no channel was configured, so this toasted « Rappel envoyé à … » over a send
+  // that never happened. The server's refusal is now a French sentence naming what to do next, so it is shown
+  // for long enough to read and act on rather than the default couple of seconds.
   const runAction = useCallback(
     async (patientId: string, action: () => Promise<void>, successMessage: string, fallbackMessage: string) => {
       try {
@@ -171,7 +176,10 @@ export default function RecallsPage() {
         toast.success(successMessage)
         await load()
       } catch (err) {
-        toast.error(err instanceof ApiError ? err.message : fallbackMessage)
+        toast.error(getErrorMessage(err, fallbackMessage), { duration: 8000 })
+        // Refetch anyway: a refusal leaves the patient on the list, and the row's own state (« dernier
+        // contact ») may have been changed by a peer in the meantime.
+        await load()
       } finally {
         setBusyPatientId(null)
       }
@@ -211,7 +219,7 @@ export default function RecallsPage() {
         <div className="flex flex-1 flex-col overflow-hidden">
           <DashboardHeader />
 
-          <main className="flex-1 overflow-y-auto p-6">
+          <main className="flex-1 overflow-y-auto p-4 md:p-6">
             <div className="mx-auto max-w-7xl space-y-6">
               {/* Page Header */}
               <div className="flex items-center justify-between">

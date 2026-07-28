@@ -41,9 +41,22 @@ public class NotificationRepository : INotificationRepository
     {
         return await _context.Notifications
             .Include(n => n.Patient)
+            // The appointment too (AC-P3.9): the status row has to say which visit a failed reminder was for,
+            // not just that one failed.
+            .Include(n => n.Appointment)
             .Where(n => n.ClinicId == clinicId)
             .OrderByDescending(n => n.CreatedAt)
             .Take(take)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IEnumerable<Notification>> GetRecallBatchAsync(
+        Guid patientId, DateTime scheduledFor, CancellationToken cancellationToken = default)
+    {
+        return await _context.Notifications
+            .Where(n => n.PatientId == patientId
+                     && n.AppointmentId == null
+                     && n.ScheduledFor == scheduledFor)
             .ToListAsync(cancellationToken);
     }
 

@@ -28,6 +28,24 @@ export function roundMillimes(value: number): number {
 }
 
 /**
+ * Format a byte count with French units — « o / Ko / Mo », not « B / KB / MB » (AC-P3.51). Decimal separator
+ * is a comma, matching every other number the app prints.
+ *
+ * One shared function rather than a copy per screen: the patient page and the files manager each carried a
+ * byte-identical English `formatFileSize`, which is how the two drifted from the rest of the French UI in the
+ * first place.
+ */
+export function formatFileSize(bytes: number | null | undefined): string {
+  const value = bytes ?? 0;
+  if (!Number.isFinite(value) || value < 0) return "0 o";
+  if (value < 1024) return `${Math.round(value)} o`;
+
+  const unit = value < 1024 * 1024 ? "Ko" : "Mo";
+  const scaled = value < 1024 * 1024 ? value / 1024 : value / (1024 * 1024);
+  return `${new Intl.NumberFormat("fr-TN", { maximumFractionDigits: 1 }).format(scaled)} ${unit}`;
+}
+
+/**
  * True when an ISO date falls strictly before today — i.e. its calendar day has passed.
  *
  * Deliberately a CALENDAR-DAY comparison, not an instant one. Due dates are stored at midnight, so comparing

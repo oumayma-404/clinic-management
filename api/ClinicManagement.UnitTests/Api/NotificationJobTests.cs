@@ -92,7 +92,7 @@ public class NotificationJobTests
 
         return new NotificationJob(
             notifications.Object, patients.Object, appointments.Object, uow.Object, probe.Object, settingsProvider.Object, config, senders,
-            NullLogger<NotificationJob>.Instance);
+            new Mock<INotificationGenerator>().Object, NullLogger<NotificationJob>.Instance);
     }
 
     // [AC-5] Offline: send nothing, leave the row Pending, and do NOT increment the retry count.
@@ -296,7 +296,8 @@ public class NotificationJobTests
             .ReturnsAsync(new Appointment(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), null, DateTime.UtcNow, TimeSpan.FromMinutes(30)));
         var job = new NotificationJob(
             notifications.Object, patients.Object, appointments.Object, new Mock<IUnitOfWork>().Object, probe.Object, provider.Object,
-            config, new IReminderChannelSender[] { sender }, NullLogger<NotificationJob>.Instance);
+            config, new IReminderChannelSender[] { sender }, new Mock<INotificationGenerator>().Object,
+            NullLogger<NotificationJob>.Instance);
 
         await job.ProcessPendingNotifications();
 
@@ -340,7 +341,8 @@ public class NotificationJobTests
             .ReturnsAsync(new Appointment(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), null, DateTime.UtcNow, TimeSpan.FromMinutes(30)));
         var job = new NotificationJob(
             notifications.Object, patients.Object, appointments.Object, uow.Object, probe.Object, provider.Object,
-            config, new IReminderChannelSender[] { sender }, NullLogger<NotificationJob>.Instance);
+            config, new IReminderChannelSender[] { sender }, new Mock<INotificationGenerator>().Object,
+            NullLogger<NotificationJob>.Instance);
 
         await job.ProcessPendingNotifications();
 
@@ -389,7 +391,8 @@ public class NotificationJobTests
 
         var job = new NotificationJob(
             notifications.Object, patients.Object, appointments.Object, uow.Object, probe.Object,
-            settingsProvider.Object, config, new IReminderChannelSender[] { sender }, NullLogger<NotificationJob>.Instance);
+            settingsProvider.Object, config, new IReminderChannelSender[] { sender },
+            new Mock<INotificationGenerator>().Object, NullLogger<NotificationJob>.Instance);
 
         await job.ProcessPendingNotifications();
 

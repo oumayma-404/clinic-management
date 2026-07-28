@@ -12,17 +12,18 @@
 
 | Part | Delivers | Depends on | Status |
 |---|---|---|---|
-| **P1** Appointment lifecycle & booking | 3.1, 3.2, 3.4, 5.4, 6.1, 6.9, 8.1, 8.4 | — | **complete except the 3 migrations** (`02dcc17`, `a813268`, `767ecae`, `1574c2e`, `05183d2`). Open: migrations 1–3 + their pre-flight + `verify-schema` (all SAC-blocked), and the calendar row-trim (deferred, see below) |
+| **P1** Appointment lifecycle & booking | 3.1, 3.2, 3.4, 5.4, 6.1, 6.9, 8.1, 8.4 | — | **complete** (`02dcc17`, `a813268`, `767ecae`, `1574c2e`, `05183d2`, `6906f83`). Both migrations landed in `6906f83` — the exclusion constraint (+ pre-flight) and the `Type:`-prefix backfill; the third turned out not to be needed. Only deferral left: the calendar row-trim (AC-P1.33, see below) |
 | **P2** Finish what's built | 5.1–5.3, 5.5–5.9, 5.11, 5.12, 6.10, 6.11, 8.3 | — | **complete** — all 13 steps, AC-P2.1–2.45 |
-| **P3** UX, accessibility & French | 3.3, 6.3, 7.1–7.9, 8.2, 8.6 | — | not-started |
+| **P3** UX, accessibility & French | 3.3, 6.3, 7.1–7.9, 8.2, 8.6 | — | **complete** — all 13 steps, AC-P3.1–3.54. The manual walk (AC-P3.48) was done **statically**, not in a browser — stated plainly below |
 | **P4** Stock, realtime & schema | 6.6, 6.7, 6.12, 9.1–9.6 | — | not-started |
 | **P5** Build & tooling | 10.1–10.5 | warnings step **last in story** | not-started |
 | **P6** Money truth & timezone | 4.1, 4.2, 5.10, 6.2, 6.8, 8.5, 9.7 | — | not-started |
 | **P7** Audit trail, duplicate prevention, anonymize | 6.4 | P7a first | not-started |
 | **P8** CNAM claims & reconciliation | 6.5 | **Q-1…Q-6 unanswered** | blocked |
 
-**Bullets closed: 13 / 57 · ACs: 45 / 301** — all of P2 (§§ 5.1–5.3, 5.5–5.9, 5.11, 5.12, 6.10, 6.11, 8.3) plus
-adjacent defects **A-8**, **A-9**, **A-11**, **A-12**, **A-13**, **A-14**.
+**Bullets closed: 34 / 57 · ACs: ~180 / 301** — all of P1 (§§ 3.1, 3.2, 3.4, 5.4, 6.1, 6.9, 8.1, 8.4), all of P2
+(§§ 5.1–5.3, 5.5–5.9, 5.11, 5.12, 6.10, 6.11, 8.3) and all of P3 (§§ 3.3, 6.3, 7.1–7.9, 8.2, 8.6), plus adjacent
+defects **A-1 … A-14**.
 
 ## Working tree note (start of session, 2026-07-28)
 
@@ -37,7 +38,15 @@ explicitly by path — never `git add -A` / `git add .`:
 > Note for future sessions: an earlier merge into `feature/windows-desktop-app` used `git add -A` and swept this
 > feature's `exploration.md` into an unrelated commit (`b0c472e "claude files"`). Stage by path.
 
-## ⚠️ BLOCKER, partly resolved — Smart App Control (2026-07-28)
+## ⚠️ BLOCKER — Smart App Control (2026-07-28) · **not reproducing as of the P3 session**
+
+> **Update, P3 session.** The full suite ran end-to-end with **no** filtering: `dotnet build -p:OutDir=<scratch>/`
+> then `dotnet vstest <scratch>/ClinicManagement.UnitTests.dll` → **1209 passed / 0 failed**, including every
+> `UnitTests.Infrastructure.*` class that used to fail at load. SAC's verdict really is time-varying, so the
+> workaround below is still the documented path and the 279-blocked figure is **historical**, not current. Do not
+> attribute a red run to SAC without re-running after a `bin`/`obj` clean + `dotnet build-server shutdown`.
+
+## The original diagnosis (kept for the record)
 
 **Resolved for the test suite.** Clearing every `bin/`+`obj/` and running `dotnet build-server shutdown`
 makes freshly-built assemblies loadable again. Current state: **919 pass, 0 real failures**.
@@ -121,10 +130,37 @@ a line billing the act's own fiche. AC-P2.10 now holds as written, so the spec n
 because narrowing an approved AC is worse than adding a precedented projection — and `GetFilteredAsync`, the only
 alternative, is the over-fetch § 9.7 of this same spec exists to remove.
 
+### DEV-2: a failed **recall** deep-links to the relance list, not to the patient — **taken, not asked**
+**Date:** 2026-07-28 · **Story:** 1 (P3, step 2) · **Category:** Technical
+**Original Plan:** AC-P3.7 — the staff notification for a failed reminder "deep-links to the patient or appointment".
+**Actual Implementation:** the appointment case deep-links to the appointment as written (`StaffNotification`
+already has `AppointmentId`). The **recall** case gets a new `NotificationTargetKind.Recall` that carries no id and
+opens `/recalls`.
+**Why not the patient:** `StaffNotification` has `ClinicId`, `AppointmentId` and `StockItemId` — **no `PatientId`**.
+Deep-linking to the patient means a new nullable column, i.e. a migration. P3's own gate in the plan is
+`tsc --noEmit` + `npm run build` + the walk, with **no** `verify-schema` and no migration — decision #8 makes
+`verify-schema` the only gate for a schema change, so adding one here would put P3 outside the part boundary the
+plan drew for it, on the part with the flakiest tooling (`migrations add` is intermittently SAC-blocked).
+**Why `/recalls` is not a downgrade:** the action a failed recall demands is *re-contacting the patient*, and
+AC-P3.5 has just put that patient back on the relance list. The list is where the operator acts; the patient page
+is not. The notification text names the patient, so the row is still self-explanatory.
+**Impact:** none on P4–P8. If a later part adds `StaffNotification.PatientId` for its own reasons, this target can
+be narrowed to the patient page in one line.
+**Approved:** taken under the "surface a question only if proceeding would be unsafe or useless if wrong"
+instruction. Neither applies — this is a defensible reading of the AC that keeps P3 inside its stated gate.
+
 ## Auto-Approved Deviations
 
 | Deviation | Classification | Reason |
 |-----------|----------------|--------|
+| `ScheduleRecallAsync` gates on **sendable** channels, not merely *enabled* ones | Trivial (tightens the same check the AC names) | AC-P3.2 is « no channel is configured ». `EnabledChannels` answers a different question: a channel toggled on with no credentials is "enabled", and its row stays `Pending` for ever at dispatch (`NotConfigured` is deliberately not a failure). Enqueuing on it would leave the patient snoozed 30 days behind a row that can never resolve — the exact defect one step later. Now filtered through the senders' own `SmsConfigured`/`WhatsAppConfigured`, so enqueue, dispatch and the admin badge cannot disagree. |
+| `formatFileSize` extracted to `lib/format.ts` rather than fixed twice | Trivial (internal, no API change) | AC-P3.51 needs « o / Ko / Mo » in the files manager *and* the patient page, which each carried a byte-identical English copy. Fixing both in place is how they drifted from the French UI in the first place. |
+| `procedure-types-table.tsx`'s `toFixed(2)` → `formatDT` | Trivial (one expression) | § 6.8 is P6's, but `toFixed(2)` **drops the millime** on a Tunisian amount and sits on the same line as the `DollarSign` icon this sweep replaces. Touching that line twice, once per part, is worse than fixing it once. |
+| `MicOff` → `WifiOff` on the AI panel's offline banner | Trivial (one icon) | The banner is about connectivity and sat next to the real mic button, so a mic-off icon read as a microphone fault. Found while adding the speech toggle (AC-P3.25). |
+| `X` → `Square` for « Arrêter la lecture » | Trivial (one icon) | `MicOff` there meant "stop speaking" while the same icon on the mic button meant "stop listening". With a real speech toggle beside it (AC-P3.25) the collision became unreadable. |
+| `aria-pressed` + `aria-label` on the `tooth-multiselect` grid | Trivial (attributes only) | AC-P3.42/3.43. The tooth number was the button's accessible name, but nothing said whether it was *selected* — the grid was unusable without seeing the fill colour. |
+| The invoice-cancel « Confirmer » button now requires a non-empty motif | Trivial (mirrors the existing server rule) | The handler already refuses a blank motif and the dialog already says « Un motif est requis ». While adding AC-P3.41's `<Label htmlFor>` it was cheaper to disable the button than to leave the only way to discover the rule be a 400. |
+| Icon-only controls given `aria-label` in `ai-chat`, `appointment-calendar` (prev/next), `clinic-settings` (remove doctor), `document-editor-content` (remove bulletin act), and the patient page's file actions | Trivial (attributes only) | AC-P3.43's bar applied to the surfaces a brace-aware scan found unnamed, not only the ones § 7.8 listed. The scan is recorded under Learnings — a naive regex over `<Button …>` reports ~30 false positives because `=>` inside `onClick` ends the match early. |
 | `User.Update(role, email?, fullName?)` **deleted** rather than fixed in place | Trivial (internal, zero callers) | AC-P2.25 requires that a role change not null email/fullName. The method had **no caller anywhere** and was the exact trap the AC names, so it was replaced by the validated `ChangeRole`. Leaving a dead, wiping overload beside the safe one invites the next caller into the same defect. |
 | A-8's English + `ex.Message` leak fixed in **`SetUserActiveCommand`** and **`ResetUserPasswordCommand`** too | Trivial (same defect class, no API change) | Step 7 builds its sibling command on `SetUserActiveCommand`'s guards, and the plan's P2 "Done when" is *no `ex.Message` in any handler this part touched*. Fixing one of a pair and leaving the other is the drift the sweep exists to prevent. Same fix in `UpdateLabWorkOrderStatusCommand` (step 12), whose generic catch was the only thing that could see an illegal-transition message. |
 | `document-editor-content.tsx`'s `colorHex: "#3b82f6"` changed to a palette colour | Trivial (one literal, no API change) | Found while wiring AC-P2.36. `#3b82f6` is **not** on the `ColorHex` curated palette, so that create-procedure call threw `ArgumentException` every time it ran. Exactly the drift A-14 is about; leaving it would have been shipping a known crash next to its own fix. |
@@ -133,10 +169,52 @@ alternative, is the over-fetch § 9.7 of this same spec exists to remove.
 
 ## Test Regressions
 
-_None yet._ Expect `PostVisitReviewCompletionTests` to require rewriting in P1 — it currently pins the silent-no-op
-contract that AC-P1.12 supersedes. That is an intentional behaviour change, not an implementation bug.
+**P1** — `PostVisitReviewCompletionTests` was rewritten per AC-P1.13 (it pinned the silent-no-op contract AC-P1.12
+supersedes). Intentional behaviour change, not a defect.
+
+**P3** — three fixtures had to be updated for the recall behaviour change. All three are fixtures drifting behind a
+shipped AC, not implementation bugs; each is named in the P3 session log's closing paragraph. The suite is
+**1209 / 0 failed** after them.
 
 ## Learnings
+
+### "Learn the outcome" and "undo the wrong outcome" are one fix — shipping only the first moves the defect
+§ 3.3 reads as one bug ("the toast lies"), and AC-P3.1 alone would silence it for the clinic with no channel
+configured. But a clinic *with* a channel and a dead gateway still snoozed the patient 30 days on a message that
+never arrived — identical silence, one step later, and now harder to find because the UI's story is consistent.
+The spec caught this itself (AC-P3.5's « Enqueuing is not sending »), which is why it lands as one step.
+**Recommendation:** when an AC is "report the real outcome", ask what the *reported* outcome is a proxy for. If the
+report happens before the thing it describes (enqueue vs. send, accept vs. settle, submit vs. validate), the fix
+needs a second half at the point the truth arrives, or you have only moved the lie downstream.
+
+### A "partial success" needs a named resolution rule before the code, or the first branch you write becomes it
+Two channels, one fails: un-snooze, or not? Both are defensible, and whichever the first `if` happens to express
+becomes the product's rule silently. AC-P3.6 forced it to be stated — *left on the list unless at least one
+channel actually succeeded* — and that turned out to need a **third** state the AC does not name: a sibling still
+`Pending` has not resolved, so the decision must be *deferred*, not made. Without that, the first channel to fail
+un-snoozes a patient whose second message is still on its way.
+**Recommendation:** for any fan-out with per-branch outcomes, enumerate all-succeeded / all-failed / mixed /
+**not-yet-decided** before writing the handler, and put the rule in the code at the decision point.
+
+### A regex over `<Button …>` cannot find unlabelled icon buttons — `=>` inside `onClick` ends the match
+The obvious audit for AC-P3.43 is "find `<Button>` tags that look icon-only and carry no `aria-label`/`title`".
+A `[^>]*?>` regex reported **30** hits; a brace-aware scan (tracking `{}` and quotes to find the tag's real `>`)
+reported **8**, and the other 22 were tags whose `onClick={(e) => …}` arrow truncated the match before the
+attributes. Acting on the 30 would have meant re-adding labels that were already there and, worse, trusting the
+same broken scan to certify "0 remaining".
+**Recommendation:** any JSX-attribute audit needs a brace-aware tag scanner, not a regex. Ten lines, and it turns
+an unusable result into a defensible one — the "0 remaining" claim in this session's walk rests on it.
+
+### Fixing a string sweep with a broad `str.replace` corrupted the file — exactly as P1 warned
+Converting `clinic-settings.tsx`'s bespoke banner to `sonner` meant rewriting ten
+`setNotification({ type, message: … })` calls. A trailing ` })\n` → `)\n` pass to close the shortened calls also
+hit `setOriginalClinicData({ … })`, `clinicsApi.update({ … })` and `useClinicRealtime(…)` — five unrelated call
+sites left syntactically broken. Reverted and redone as ten fully-anchored replacements with a
+`count == 1` assertion each. This is the **second** session to lose time to exactly this
+(see P1's process note), which is why it is a Learning now rather than a note.
+**Recommendation:** never write a replacement whose left-hand side is shorter than the construct it belongs to.
+Anchor on the whole statement, assert the occurrence count, and prefer `Edit` — it fails loudly instead of
+half-applying.
 
 ### A "wire the uncalled endpoint" step is only cheap when the form the plan reuses matches the endpoint's shape
 Steps 5–6 were scoped as *wiring* — the endpoints were finished, validated and `AdminOrDoctor`-gated. But the
@@ -166,6 +244,99 @@ is, one map at the client's derivation point is the whole fix — and make the m
 through) so re-saving historical rows is safe.
 
 ## Session log
+
+### 2026-07-28 — **P3 complete**: UX, accessibility & French
+
+Closes **AC-P3.1–3.54** (§§ 3.3, 6.3, 7.1–7.9, 8.2, 8.6). All thirteen steps.
+
+| Step | Delivered | Where |
+|---|---|---|
+| 1 | **Recall truth.** `IReminderScheduler.ScheduleRecallAsync` now returns a `RecallDispatchOutcome`; `SendRecallCommand` refuses (French, naming the settings + « Marquer comme contacté ») and leaves the patient untouched unless a row was really queued. **And the part that matters** — the dispatcher undoes the snooze once *every* channel of that send has failed (`Patient.ClearRecallSnooze`), so a partial send resolves to a stated state | `RecallDispatchOutcome.cs`, `ReminderScheduler.cs`, `SendRecallCommand.cs`, `Patient.cs`, `NotificationJob.cs`, `recalls/page.tsx` |
+| 2 | **Failed reminders visible.** `INotificationGenerator.ReminderDeliveryFailedAsync` + `NotificationCategory.ReminderFailed` + `NotificationTargetKind.Recall`; all-staff (no actor exclusion) so the secretary who books sees it; `ReminderStatusDto` gains `patientName`/`appointmentAt`/`isRecall` (phone stays masked) | `INotificationGenerator.cs`, `NotificationGenerator.cs`, `ReminderStatusDto.cs`, `GetClinicReminderStatusQuery.cs`, `reminder-settings.tsx`, `notification-panel.tsx` |
+| 3 | **Mobile shell.** `sheet` + `radio-group` added (zero new deps); rail → drawer below `md:`, closed by default, closes on navigation/Escape/overlay; header reflows; AI panel and the editor's 420 px column go viewport-relative; page gutters `p-4 md:p-6` across 16 pages | `ui/sheet.tsx`, `sidebar-context.tsx`, `dashboard-sidebar.tsx`, `dashboard-header.tsx`, `ai-chat.tsx`, `document-editor-content.tsx`, 16 × `page.tsx` |
+| 4 | **ClinicGuard 404.** Redirect target derived from `useSession().mode` (`/login` in Local, `/auth/login` in Cloud); `returnTo` filtered so it can never point at `/auth/*` or `/bff/*` | `clinic-guard.tsx` |
+| 5 | **Patients list edit action** — the missing `setSelectedPatient`/`setEditDialogOpen` callers, and the row is replaced from the dialog's returned DTO (no reload) | `patients-table.tsx` |
+| 6 | **AI speech off by default** + a persistent `localStorage` toggle with `aria-pressed`; turning it off silences the reply already playing | `ai-chat.tsx` |
+| 7 | **The five swallows + the sixth.** Patient-files error state, the factures KPIs' three distinct states, download + preview toasts, and the procedure-type load failure in **both** appointment dialogs (the edit one had no comment at all — C-4) | `files/page.tsx`, `factures/page.tsx`, `patients/[id]/page.tsx`, `create-`/`edit-appointment-dialog.tsx` |
+| 8 | **In-flight + feedback.** « Créer le dossier » guards the *handler* (the Enter key calls the same function), dialog stays open with the typed name on failure. P1/P2's surfaces audited — all already carried in-flight state | `patient-files-manager.tsx` (+ audit) |
+| 9 | **`/patients` skeleton** matching the table's six columns, per the `stats-card.tsx` precedent | `patients-table.tsx` |
+| 10 | **Accessibility.** Keyboard-operable `Card`s in /documents + the files manager; `aria-label` on the icon-only delete and on every unnamed icon control found by a brace-aware scan; a real `<Label htmlFor>` on the invoice motif; a `:focus-visible` ring floor in `globals.css`; `role="status"` on each new async result; **`confirm-by-typing-dialog.tsx`** for AC-P3.47 so P7/P8 inherit one implementation | `documents/page.tsx`, `patient-files-manager.tsx`, `invoices-table.tsx`, `globals.css`, `ui/confirm-by-typing-dialog.tsx` |
+| 11 | **`clinic-settings.tsx` on `sonner`** — the bespoke `fixed top-4 right-4` banner, its 4 s timer, its state and its three now-unused icons deleted | `clinic-settings.tsx` |
+| 12 | **French.** The audit's list + the seven it missed + « o / Ko / Mo » (`formatFileSize`, shared) + Tunisian placeholders incl. the one at `:764` and the inline sub-form + « Push » → « Envoyer » + « Phone Number ID » decided **explicitly** with a French gloss | 9 files, `lib/format.ts` |
+| 13 | **The walk** — recorded below, and honestly labelled | this file |
+
+**Three load-bearing design points.**
+
+1. **Fixing only the command would have moved the defect, not removed it.** AC-P3.1 (learn the enqueue's outcome)
+   and AC-P3.5 (undo the snooze when the dispatch fails) are one feature. With only the first, a clinic *with* a
+   channel configured but a dead gateway still snoozed the patient 30 days on a message that never arrived — the
+   same silence, one step later. The batch check (`GetRecallBatchAsync` on `PatientId` + null `AppointmentId` +
+   the shared `ScheduledFor`) is what makes a partial send a **stated** state: a sibling still `Pending` defers to
+   a later tick, a sibling `Sent` means the patient really was reached, so the snooze stands.
+2. **The cancelled-appointment void is deliberately NOT surfaced.** It is the only `Failed` row this part leaves
+   silent. That row failing is the *correct* suppression of a reminder for a visit that is not happening, and
+   `AppointmentCancelledAsync` has already told the staff — a second « Rappel non envoyé » beside it is exactly
+   the noise that makes a feed stop being read. Stated in the code at `SurfaceFailureAsync`.
+3. **The mobile drawer must not write the desktop preference.** `sidebar-context` persists `isCollapsed` only;
+   `isMobileOpen` is per-visit. Sharing one persisted flag is the obvious implementation and would have let a
+   phone session silently expand a rail the user had collapsed on desktop (AC-P3.18). One `renderItem(item,
+   collapsed)` serves both, and the drawer always passes `false` — a phone has no hover for the collapsed rail's
+   tooltips.
+
+#### The manual walk (AC-P3.48) — **static, not in a browser**
+
+⚠️ **Stated plainly, per plan risk R-9.** This was a **markup-level** pass: every screen below was read and its
+responsive classes, tab order, accessible names and live regions checked against the AC bar. It was **not** driven
+in a real browser at 375 px, and it is **not** equivalent to one. There is no frontend test runner, so nothing here
+is automated either. **A human pass at 375 px and by keyboard is still owed** before the feature review.
+
+| Screen | Verified statically | Residual |
+|---|---|---|
+| Every page shell (28 routes) | Rail hidden `md:`-down; drawer opens from the header only; `flex-1 … overflow-hidden` on every main column (the patient-files page was the one missing it — fixed) | — |
+| `/` dashboard, `/patients`, `/stock`, `/factures`, `/creances`, `/caisse`, `/lab-orders`, `/waiting-list`, `/recalls`, `/recurring-series`, `/treatment-plans` | `p-4 md:p-6`; every `<Table>` is wrapped by `ui/table.tsx`'s own `overflow-x-auto`, so the **body** never scrolls horizontally | Tables are *cramped* at 375 px — a real responsive pass over wide tables is explicitly Out of Scope |
+| `/appointments` | Toolbar already `flex-wrap`; the grid is `grid-cols-7` with `overflow-x-hidden`, so it squeezes rather than overflowing | Week view at 375 px is legible but tight — calendar responsiveness is Out of Scope |
+| `/documents` | Cards `role="button"` + `tabIndex={0}` + Enter/Space + focus ring | — |
+| `/documents/[type]` | Columns stack below `md:`; one scroll container stacked, two side-by-side | — |
+| `/patients/[id]`, `/patients/[id]/files` | Error state replaces the manager; file actions named; « Retour au patient » French | — |
+| `/settings` (clinic + reminders + backup) | `sonner` only; every `Label` has `htmlFor`; « Phone Number ID » glossed | — |
+| AI assistant | Viewport-relative below `md:`; speech off by default; toggle + stop both named | — |
+| New/changed dialogs (folder, invoice-cancel, appointment ×2, patient) | In-flight disabled, single effect, French labels, real `<Label>`s | — |
+| Keyboard sweep | Brace-aware scan over every `.tsx`: **0** icon-only `<Button>`/`<button>` left without `aria-label` or `title` outside the vendored `ui/calendar.tsx` (react-day-picker supplies its own) | — |
+
+#### Repo-wide English sweep (AC-P3.53) — result recorded
+
+Ran three passes over `app/` + `components/`: JSX text nodes, `placeholder="…"`/`title="…"` attributes, and
+bare English lines. **Closed as a class**, not as a list of nine files.
+
+| Found | Resolution |
+|---|---|
+| `clinic-settings.tsx` — « Loading clinic settings… », « Share with coworkers… », 3 × « Edit », 3 × « Cancel », « Clinic Name », « Full Address », « Phone Number » | French |
+| `procedure-types-table.tsx` — « Loading procedure types… », « Procedure Types » | French |
+| `files/page.tsx` — « Back to Patient » | « Retour au patient » |
+| `appointment-calendar.tsx` — « Push » | « Envoyer » (+ a full sentence in `title`/`aria-label`) |
+| `patient-files-manager.tsx` — `"file" / "files"` | « fichier / fichiers » |
+| `create-appointment-dialog.tsx` — « Cancel », « Duration set to … minutes (you can change it) » | French |
+| `edit-appointment-dialog.tsx` — « Cancel Appointment », « Close » | French |
+| `procedure-type-form-modal.tsx` — `placeholder="e.g., 70.00"` | « Ex. 70,000 » |
+| `edit-patient-dialog.tsx` + `create-appointment-dialog.tsx` — 11 American placeholders | Tunisian |
+| **Kept English, deliberately** — `reminder-settings.tsx` « Phone Number ID » | AC-P3.52: it is the verbatim field name in Meta's dashboard, which the operator copies from. A French gloss sits beside it |
+| **Not user-visible, left alone** — `DOCTOR_SPECIALTIES` keys, weekday keys, `PaymentMethod`/status enum keys | These are storage keys with French display maps (`lib/specialties.ts` et al.). Renaming them orphans existing rows — the convention is now recorded in `web/CLAUDE.md` |
+
+| Gate | Result |
+|---|---|
+| Backend build (`--no-incremental`, full solution) | **0 errors**, 56 warnings — baseline unchanged, **0 in any file this part created or edited** (warning set grouped by filename and diffed) |
+| **Full unit suite** (`dotnet build -p:OutDir=…` + `dotnet vstest`) | **1209 passed, 0 failed.** SAC let the whole suite through this session — no filtering needed, nothing blocked |
+| New tests (+11) | `RecallDeliveryTruthTests` (**9** — the three no-send outcomes as a `[Theory]`, the refusal's wording, the happy path, all-channels-failed → un-snoozed + « à recontacter », a partial send keeping the snooze, a still-`Pending` sibling deferring, and a throwing generator not breaking the dispatch) + 2 on `ReminderSchedulerTests` (no-channel vs. enqueued outcomes, one `ScheduledFor` per batch) |
+| `npx tsc --noEmit` | 0 errors |
+| `npm run build` | clean, **27/27** static pages |
+| `npm run lint` | ⛔ **cannot run** — ESLint is not installed; that is P5 step 1. Unused-import check done with an ad-hoc scan instead (0 introduced) |
+| `verify-schema` | **not applicable** — P3 adds no migration. `NotificationCategory.ReminderFailed` and `NotificationTargetKind.Recall` are new members of `int`-converted enums, which is not a schema change (see DEV-2 for why no column was added) |
+
+**Test-fixture updates forced by the behaviour change** (not defects): `PatientContactOptionalTests`'
+« recall still works » test now has to stub `ScheduleRecallAsync` → `Enqueued`, because an unstubbed Moq outcome
+is *not* `Enqueued` and the handler correctly refuses — which is AC-P3.2 working. `NotificationJobTests`' four
+`new NotificationJob(...)` sites gained the `INotificationGenerator` argument. `ReminderSchedulerTests`' harness
+now supplies channel credentials, since the recall path enqueues only on a **sendable** channel.
 
 ### 2026-07-28 — P1 finished except migrations (commit `05183d2`)
 

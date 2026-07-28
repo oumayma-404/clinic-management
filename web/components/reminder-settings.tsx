@@ -24,6 +24,7 @@ import {
   RefreshCw,
 } from "lucide-react"
 import { useSession } from "@/lib/auth/session"
+import { formatDateTime } from "@/lib/format"
 import {
   reminderSettingsApi,
   type ReminderSettingsDto,
@@ -578,8 +579,15 @@ export function ReminderSettings() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
+                  {/* AC-P3.52 — decided explicitly, not overlooked: « Phone Number ID » is the verbatim name
+                      of a field in Meta's WhatsApp Business dashboard, so the operator has to match it
+                      character-for-character when copying the value across. Translating it would make that
+                      copy harder, not easier. The French gloss below carries the meaning. */}
                   <Label htmlFor="wa-phone-id" className="text-xs font-medium">
                     Phone Number ID
+                    <span className="ml-1 font-normal text-muted-foreground">
+                      (identifiant du numéro, tel qu&apos;affiché par Meta)
+                    </span>
                   </Label>
                   <Input
                     id="wa-phone-id"
@@ -727,13 +735,20 @@ export function ReminderSettings() {
                       className="flex items-start justify-between gap-2 rounded-md border border-gray-100 dark:border-slate-800 p-2"
                     >
                       <div className="min-w-0 space-y-0.5">
-                        <div className="flex items-center gap-2 text-xs font-medium">
+                        {/* AC-P3.9 — the patient's name first: it is what makes the row actionable. The
+                            masked phone stays (AC-P3.10) but is now secondary. */}
+                        <div className="flex flex-wrap items-center gap-2 text-xs font-medium">
+                          <span className="truncate">{row.patientName ?? "Patient introuvable"}</span>
+                          <span className="text-muted-foreground">·</span>
+                          <span>{row.isRecall ? "Relance" : "Rappel"}</span>
+                          <span className="text-muted-foreground">·</span>
                           <span>{row.channel}</span>
                           <span className="font-mono text-muted-foreground">{row.recipientMasked}</span>
                         </div>
                         <p className="text-[10px] text-muted-foreground">
-                          Prévu : {new Date(row.scheduledAt).toLocaleString("fr-FR")}
-                          {row.sentAt ? ` · Envoyé : ${new Date(row.sentAt).toLocaleString("fr-FR")}` : ""}
+                          {row.appointmentAt ? `RDV : ${formatDateTime(row.appointmentAt)} · ` : ""}
+                          Prévu : {formatDateTime(row.scheduledAt)}
+                          {row.sentAt ? ` · Envoyé : ${formatDateTime(row.sentAt)}` : ""}
                         </p>
                         {row.failureReason && (
                           <p className="text-[10px] text-red-600 dark:text-red-400">{row.failureReason}</p>

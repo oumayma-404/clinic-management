@@ -4,11 +4,36 @@ import { useEffect } from "react"
 import { usePathname } from "next/navigation"
 import { useClinicAccess } from "@/lib/hooks/use-clinic-access"
 import { useAuthToken } from "@/lib/hooks/use-auth-token"
+import { useSession } from "@/lib/auth/session"
 import UnauthorizedPage from "./unauthorized-page"
 
 interface ClinicGuardProps {
   children: React.ReactNode
   fallback?: React.ReactNode
+}
+
+/**
+ * Where a session expiry sends the user, per mode (AC-P3.19/3.21).
+ *
+ * `/auth/login` is an Auth0 route that only exists in Cloud — there is no `app/auth/login/page.tsx`. In Local
+ * mode the hardcoded redirect therefore dumped an expired session on a Next 404 (§ 7.2), which is also where
+ * `middleware.ts` would never have sent them: it redirects to `/login`. Deriving the target from the mode is
+ * what keeps the Cloud path byte-for-byte unchanged.
+ */
+const LOGIN_PATH: Record<"cloud" | "local", string> = {
+  cloud: "/auth/login",
+  local: "/login",
+}
+
+/**
+ * Routes with no page of their own must never be a `returnTo` target (AC-P3.20): signing in would land the
+ * user on a 404 immediately after authenticating. `/auth/*` is Auth0 plumbing and `/bff/*` is the frontend's
+ * own token/session API — neither renders anything.
+ */
+function safeReturnTo(pathname: string): string {
+  if (!pathname || !pathname.startsWith("/")) return "/"
+  if (pathname === "/login" || pathname.startsWith("/auth/") || pathname.startsWith("/bff/")) return "/"
+  return pathname
 }
 
 /**
@@ -22,17 +47,20 @@ export function ClinicGuard({
 }: ClinicGuardProps) {
   const pathname = usePathname()
   const { accessToken, isLoading: authLoading } = useAuthToken()
+  const { mode } = useSession()
   const { hasAccess, isLoading: clinicLoading, error, refresh } = useClinicAccess(false) // Don't auto-redirect
 
   // Don't show guard on setup/join/login pages
   const isSetupPage = pathname === "/setup" || pathname === "/join" || pathname === "/login"
 
-  // Redirect to login if not authenticated
+  // Redirect to login if not authenticated — to the login page that exists in THIS mode (AC-P3.19/3.21),
+  // carrying a returnTo that actually renders (AC-P3.20).
   useEffect(() => {
     if (!authLoading && !accessToken && !isSetupPage) {
-      window.location.href = `/auth/login?returnTo=${encodeURIComponent(pathname)}`
+      const returnTo = safeReturnTo(pathname)
+      window.location.href = `${LOGIN_PATH[mode]}?returnTo=${encodeURIComponent(returnTo)}`
     }
-  }, [authLoading, accessToken, isSetupPage, pathname])
+  }, [authLoading, accessToken, isSetupPage, pathname, mode])
 
   if (isSetupPage) {
     return <>{children}</>

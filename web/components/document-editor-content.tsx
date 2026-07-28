@@ -22,6 +22,7 @@ import { cnamNomenclatureApi, estimateReimbursement } from "@/lib/api/cnam-nomen
 import { medicationsApi } from "@/lib/api/medications"
 import type { PatientDto, MedicalDocumentDto, ProcedureTypeDto, DentalRecordDto, CnamNomenclatureEntryDto, MedicationDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
+import { getErrorMessage } from "@/lib/errors"
 import { useDoctors } from "@/lib/hooks/use-doctors"
 import { specialtyLabel } from "@/lib/specialties"
 import { format, parseISO } from "date-fns"
@@ -1550,8 +1551,14 @@ export function DocumentEditorContent() {
             duration: 4000,
           });
         } catch (error) {
-          console.error("Failed to queue PDF generation:", error);
-          // Don't show error to user - PDF generation is optional
+          // AC-P3.33 — "optional" was the wrong word: the toast above has just promised the user that the
+          // PDF will land in the patient's files. If the enqueue failed it never will, and staying silent
+          // means they go looking for a document that is not coming. The document itself IS saved, so this
+          // is a warning about the attachment, not a failure of the save.
+          toast.warning("Le PDF n'a pas pu être mis en file de génération", {
+            description: `${getErrorMessage(error)} Le document est enregistré ; relancez la génération du PDF depuis le document.`,
+            duration: 6000,
+          });
         }
       }
 
@@ -1652,10 +1659,13 @@ export function DocumentEditorContent() {
   return (
     <div className="flex h-screen bg-background">
       <div className="flex flex-1 flex-col overflow-hidden">
-        <div className="flex h-full">
+        {/* AC-P3.17 — the two columns stack below `md:`. A fixed 420px form beside a preview does not fit a
+            375px phone: the form was clipped and the preview unreachable. Stacked, the form is full-width and
+            the preview follows it; at `md:` and above the original side-by-side layout is unchanged. */}
+        <div className="flex h-full flex-col overflow-y-auto md:flex-row md:overflow-hidden">
         {/* Left Panel - Input Fields */}
-        <div className="w-[420px] border-r border-border bg-white/90 dark:bg-slate-950/90 backdrop-blur-xl overflow-y-auto">
-          <div className="p-8 space-y-6">
+        <div className="w-full shrink-0 border-b border-border bg-white/90 dark:bg-slate-950/90 backdrop-blur-xl md:w-[420px] md:border-b-0 md:border-r md:overflow-y-auto">
+          <div className="p-4 space-y-6 md:p-8">
             {/* Header */}
             <div className="space-y-4">
               <Button
@@ -2115,7 +2125,7 @@ export function DocumentEditorContent() {
                         <div key={index} className="p-3 border rounded-lg space-y-2">
                           <div className="flex items-center justify-between">
                             <span className="text-xs font-medium text-muted-foreground">Acte {index + 1}</span>
-                            <Button type="button" variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setBulletinFields((p) => ({ ...p, acts: p.acts.filter((_, i) => i !== index) }))}>
+                            <Button type="button" variant="ghost" size="sm" className="h-7 w-7 p-0" aria-label={`Retirer l'acte ${index + 1}`} onClick={() => setBulletinFields((p) => ({ ...p, acts: p.acts.filter((_, i) => i !== index) }))}>
                               <X className="w-4 h-4" />
                             </Button>
                           </div>
@@ -2243,8 +2253,9 @@ export function DocumentEditorContent() {
           </div>
         </div>
 
-        {/* Right Panel - Document Preview */}
-        <div className="flex-1 overflow-y-auto bg-gradient-to-br from-slate-100 to-blue-50 dark:from-slate-900 dark:to-slate-800 p-12">
+        {/* Right Panel - Document Preview. Its own scroll container only from `md:` up — stacked, the outer
+            column scrolls once instead of nesting two scrollers on a phone. */}
+        <div className="min-w-0 flex-1 bg-gradient-to-br from-slate-100 to-blue-50 dark:from-slate-900 dark:to-slate-800 p-4 md:overflow-y-auto md:p-12">
           <div className="max-w-4xl mx-auto">
             {documentType === "bulletin-cnam" ? (
               <>

@@ -124,4 +124,21 @@
   body {
     @apply bg-background text-foreground;
   }
+
+  /*
+   * AC-P3.42 — a visible focus indicator on everything reachable by keyboard.
+   *
+   * `outline-ring/50` above only sets the *colour* of an outline; most elements here render with
+   * `outline-none` or no outline width at all, so a keyboard user had nothing to follow on the plain
+   * elements — the shadcn primitives each ship their own `focus-visible:ring-*`, but a bare `<button>`,
+   * `<a>`, `<summary>` or a `tabIndex={0}` card did not. This is the floor: any component with its own
+   * richer ring still wins, because `:focus-visible` here is a single-class-specificity base rule and the
+   * primitives apply theirs through Tailwind utilities in the component layer.
+   *
+   * `:focus-visible`, not `:focus`, so a mouse click does not leave a ring behind.
+   */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
 }

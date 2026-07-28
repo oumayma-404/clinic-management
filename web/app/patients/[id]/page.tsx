@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Separator } from "@/components/ui/separator"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { formatDT, formatDateFr, formatDate, formatDateTime } from "@/lib/format"
+import { formatDT, formatDateFr, formatDate, formatDateTime, formatFileSize } from "@/lib/format"
 import {
   ArrowLeft,
   Flag,
@@ -87,6 +87,8 @@ import { HandCoins } from "lucide-react"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { appointmentStatusBadgeClass, appointmentStatusLabel, genderLabel } from "@/components/appointment-labels"
+import { showErrorToast } from "@/lib/errors"
+import { downloadBlob } from "@/lib/download"
 
 const calculateAge = (dob: string | undefined) => {
   if (!dob) return null
@@ -343,7 +345,9 @@ export default function PatientDetailsPage() {
         const filesData = await patientFilesApi.getFiles(patientId, currentFolderId || undefined).catch(() => [])
         setFiles(filesData)
       } catch (error) {
-        console.error("Failed to load files:", error)
+        // The inner `.catch(() => [])` already absorbs the API failure, so this arm is only reachable on a
+        // genuine render/state fault. Surface it rather than swallow (AC-P3.33).
+        showErrorToast(error, "Les fichiers de ce dossier n'ont pas pu être chargés.")
       }
     }
     loadFilesForFolder()
@@ -376,7 +380,9 @@ export default function PatientDetailsPage() {
         setFolders(foldersData)
         setTreatmentPlans(plansData)
       } catch (err) {
-        console.error("Failed to reload patient data:", err)
+        // The edit itself succeeded (the dialog already said so); this is the re-read failing. Saying so
+        // is what stops the user believing their change was lost (AC-P3.33).
+        showErrorToast(err, "Patient enregistré, mais le dossier n'a pas pu être rechargé.")
       }
     }
     loadPatientData()
@@ -514,11 +520,6 @@ export default function PatientDetailsPage() {
     ? files // All files loaded are for this folder
     : files.filter(f => !f.folderId) // Root files (not in any folder)
   
-  const formatFileSize = (bytes: number) => {
-    if (bytes < 1024) return bytes + " B"
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB"
-    return (bytes / (1024 * 1024)).toFixed(1) + " MB"
-  }
 
   const isImageFile = (file: PatientFileDto) => {
     return file.contentType.startsWith("image/")
@@ -547,7 +548,9 @@ export default function PatientDetailsPage() {
         setPreviewUrl(null)
       }
     } catch (error) {
-      console.error("Failed to preview file:", error)
+      // AC-P3.30 — the dialog used to close itself with no explanation, which reads as "the click did
+      // nothing". Say why, and offer the download as the way through.
+      showErrorToast(error, "Impossible d'afficher l'aperçu de ce fichier. Essayez de le télécharger.")
       setPreviewFile(null)
     } finally {
       setPreviewLoading(false)
@@ -566,16 +569,11 @@ export default function PatientDetailsPage() {
   const handleDownloadFile = async (file: PatientFileDto) => {
     try {
       const blob = await patientFilesApi.downloadFile(patientId, file.id)
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement("a")
-      a.href = url
-      a.download = file.fileName
-      document.body.appendChild(a)
-      a.click()
-      window.URL.revokeObjectURL(url)
-      document.body.removeChild(a)
+      downloadBlob(blob, file.fileName)
     } catch (error) {
-      console.error("Failed to download file:", error)
+      // AC-P3.29 — matches what the same action already does in `patient-files-manager.tsx`; a silent
+      // console.error made a failed download indistinguishable from a browser that blocked the save.
+      showErrorToast(error, `Impossible de télécharger « ${file.fileName} ».`)
     }
   }
   
@@ -596,7 +594,7 @@ export default function PatientDetailsPage() {
         <div className="flex flex-1 flex-col overflow-hidden">
           <DashboardHeader />
 
-        <main className="flex-1 overflow-y-auto p-6">
+        <main className="flex-1 overflow-y-auto p-4 md:p-6">
           <div className="mx-auto max-w-7xl space-y-6">
             {/* Back Button */}
             <Button variant="ghost" onClick={() => router.push("/patients")} className="gap-2">
@@ -1490,6 +1488,7 @@ export default function PatientDetailsPage() {
                                                   className="h-8 w-8 p-0"
                                                   onClick={() => handlePreviewFile(file)}
                                                   title="Aperçu du fichier"
+                                                  aria-label={`Aperçu de ${file.fileName}`}
                                                 >
                                                   <Eye className="h-4 w-4" />
                                                 </Button>
@@ -1500,6 +1499,7 @@ export default function PatientDetailsPage() {
                                                 className="h-8 w-8 p-0"
                                                 onClick={() => handleDownloadFile(file)}
                                                 title="Télécharger le fichier"
+                                                aria-label={`Télécharger ${file.fileName}`}
                                               >
                                                 <Download className="h-4 w-4" />
                                               </Button>

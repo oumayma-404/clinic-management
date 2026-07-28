@@ -233,6 +233,34 @@ public class NotificationGenerator : INotificationGenerator
         }, cancellationToken);
     }
 
+    public async Task ReminderDeliveryFailedAsync(
+        Guid clinicId, Guid? appointmentId, string patientName, string channel, string? reason,
+        bool patientRequiresRecontact, CancellationToken cancellationToken = default)
+    {
+        await SafelyAsync(clinicId, async () =>
+        {
+            var isRecall = appointmentId is null;
+            var what = isRecall ? "La relance" : "Le rappel de rendez-vous";
+            var why = string.IsNullOrWhiteSpace(reason) ? null : $" ({reason.Trim()})";
+            var recontact = patientRequiresRecontact
+                ? " Ce patient doit être recontacté."
+                : string.Empty;
+
+            var notification = new StaffNotification(
+                Guid.NewGuid(), clinicId, NotificationCategory.ReminderFailed,
+                isRecall ? "Relance non envoyée" : "Rappel non envoyé",
+                $"{what} de {patientName} par {channel} n'a pas pu être envoyé{why}.{recontact}",
+                DateTime.UtcNow,
+                isRecall ? NotificationTargetKind.Recall : NotificationTargetKind.Appointment,
+                actorUserId: null, // no actor to exclude — whoever is at the desk must see it (AC-P3.8)
+                appointmentId: appointmentId);
+
+            await _notifications.AddAsync(notification, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return true; // immediately visible → refetch is worthwhile
+        }, cancellationToken);
+    }
+
     // Resolves the post-visit target: the appointment's DoctorId (a Doctor id when set) → its linked User.
     // Any miss (no doctor id, unparsable, unknown doctor, or doctor with no linked user) → null = all staff.
     // The doctor must belong to the appointment's own clinic: the feed/pending queries filter on this clinic

@@ -25,6 +25,7 @@ public class NotificationJob
     private readonly IReminderSettingsProvider _settingsProvider;
     private readonly IConfiguration _configuration;
     private readonly IReadOnlyDictionary<NotificationType, IReminderChannelSender> _senders;
+    private readonly INotificationGenerator _notificationGenerator;
     private readonly ILogger<NotificationJob> _logger;
 
     public NotificationJob(
@@ -36,6 +37,7 @@ public class NotificationJob
         IReminderSettingsProvider settingsProvider,
         IConfiguration configuration,
         IEnumerable<IReminderChannelSender> senders,
+        INotificationGenerator notificationGenerator,
         ILogger<NotificationJob> logger)
     {
         _notificationRepository = notificationRepository;
@@ -46,6 +48,7 @@ public class NotificationJob
         _settingsProvider = settingsProvider;
         _configuration = configuration;
         _senders = senders.ToDictionary(s => s.Channel);
+        _notificationGenerator = notificationGenerator;
         _logger = logger;
     }
 
@@ -112,6 +115,7 @@ public class NotificationJob
         if (patient == null)
         {
             await FailAsync(notification, "Patient introuvable");
+            await SurfaceFailureAsync(notification, UnknownPatientName, "Patient introuvable");
             return;
         }
 
@@ -119,6 +123,7 @@ public class NotificationJob
         if (phone == null)
         {
             await FailAsync(notification, "Numéro de téléphone invalide");
+            await SurfaceFailureAsync(notification, patient.GetFullName(), "Numéro de téléphone invalide");
             return;
         }
 
@@ -153,14 +158,18 @@ public class NotificationJob
                     _logger.LogWarning(
                         "Reminder {NotificationId} failed permanently after {RetryCount} attempt(s): {Error}",
                         notification.Id, notification.RetryCount, result.Error);
+                    await SaveAsync(notification);
+                    // Only once the retry budget is spent — surfacing every transient attempt would put a
+                    // notification in the feed for a reminder that goes on to send fine on the next tick.
+                    await SurfaceFailureAsync(notification, patient.GetFullName(), result.Error);
                 }
                 else
                 {
                     _logger.LogWarning(
                         "Reminder {NotificationId} transient send failure (attempt {RetryCount}/{MaxRetries}): {Error}",
                         notification.Id, notification.RetryCount, maxRetries, result.Error);
+                    await SaveAsync(notification);
                 }
-                await SaveAsync(notification);
                 break;
 
             case ReminderSendOutcome.NotConfigured:
@@ -176,6 +185,89 @@ public class NotificationJob
         notification.MarkAsFailed(error);
         await SaveAsync(notification);
     }
+
+    /// <summary>
+    /// AC-P3.7/3.8 — put a failed row in front of the staff who can act on it, not only in the admin
+    /// reminder-status card. AC-P3.11 — best-effort in the strict sense: this method never throws, so a feed
+    /// write can neither abort the batch nor cause the row to be dispatched a second time.
+    ///
+    /// Deliberately <b>not</b> called for the cancelled/no-show void above. That row failing is the correct
+    /// suppression of a reminder for a visit that is not happening, and
+    /// <c>NotificationGenerator.AppointmentCancelledAsync</c> has already told the staff — a second
+    /// « Rappel non envoyé » row would be exactly the noise that makes a feed stop being read.
+    /// </summary>
+    private async Task SurfaceFailureAsync(Notification notification, string patientName, string? reason)
+    {
+        try
+        {
+            // Legacy/global rows predate per-clinic settings and carry no ClinicId, so there is no clinic
+            // feed to write to (and no clinic whose patient could be un-snoozed).
+            if (notification.ClinicId is not Guid clinicId)
+            {
+                return;
+            }
+
+            var requiresRecontact = false;
+            if (notification.AppointmentId is null && notification.PatientId is Guid patientId)
+            {
+                requiresRecontact = await TryReturnPatientToRecallListAsync(
+                    clinicId, patientId, notification.ScheduledFor);
+            }
+
+            await _notificationGenerator.ReminderDeliveryFailedAsync(
+                clinicId, notification.AppointmentId, patientName, ChannelLabel(notification.Type),
+                reason, requiresRecontact);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex, "Failed to surface the delivery failure of reminder {NotificationId}.", notification.Id);
+        }
+    }
+
+    /// <summary>
+    /// AC-P3.5/3.6 — <b>enqueuing is not sending.</b> A « Relancer » click stamps « contacté » and snoozes the
+    /// patient 30 days at enqueue time; if the message then never arrives, that snooze is the original defect
+    /// one step later. So once every channel of that one send has reached <c>Failed</c>, undo it and the patient
+    /// returns to the relance list.
+    ///
+    /// The batch check is what makes a partial send a <i>stated</i> state rather than an implicit one: a
+    /// sibling row still <c>Pending</c> means this send has not resolved yet (a later tick decides), and a
+    /// sibling <c>Sent</c> means the patient really was reached on that channel, so the snooze stands.
+    /// Returns whether the patient was actually put back, which is what the feed row then says out loud.
+    /// </summary>
+    private async Task<bool> TryReturnPatientToRecallListAsync(
+        Guid clinicId, Guid patientId, DateTime scheduledFor)
+    {
+        var batch = await _notificationRepository.GetRecallBatchAsync(patientId, scheduledFor);
+        if (batch.Any(n => n.Status != NotificationStatus.Failed))
+        {
+            return false;
+        }
+
+        var patient = await _patientRepository.GetByIdAsync(patientId);
+        if (patient == null || patient.ClinicId != clinicId || !patient.ClearRecallSnooze())
+        {
+            return false;
+        }
+
+        await _patientRepository.UpdateAsync(patient);
+        await _unitOfWork.SaveChangesAsync();
+        _logger.LogInformation(
+            "Patient {PatientId} returned to the recall list: every channel of their recall failed.", patientId);
+        return true;
+    }
+
+    // French channel label for the staff feed. "SMS" and "WhatsApp" are the two channels a reminder row can
+    // actually carry; the legacy Email/Both members have no sender, so such a row never reaches this method.
+    private static string ChannelLabel(NotificationType type) => type switch
+    {
+        NotificationType.SMS => "SMS",
+        NotificationType.WhatsApp => "WhatsApp",
+        _ => type.ToString(),
+    };
+
+    private const string UnknownPatientName = "un patient introuvable";
 
     // Commits after each row so a row leaves Pending on its own attempt's commit, and a crash mid-batch never
     // loses already-sent progress. Combined with [DisableConcurrentExecution] on the job, this stops one

@@ -36,6 +36,7 @@ import { cn } from "@/lib/utils"
 import { appointmentsApi } from "@/lib/api/appointments"
 import { patientsApi } from "@/lib/api/patients"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
+import { getErrorMessage } from "@/lib/errors"
 import type { PatientDto, ProcedureTypeDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import { useDoctors } from "@/lib/hooks/use-doctors"
@@ -108,6 +109,8 @@ export function CreateAppointmentDialog({
   const [procedureTypes, setProcedureTypes] = useState<ProcedureTypeDto[]>([])
   const [selectedProcedureTypeId, setSelectedProcedureTypeId] = useState<string | undefined>(undefined)
   const [loadingProcedureTypes, setLoadingProcedureTypes] = useState(false)
+  // AC-P3.31 — why the acte list is empty, so an unreachable server is not mistaken for an empty catalogue.
+  const [procedureTypesError, setProcedureTypesError] = useState<string | null>(null)
 
   // Inline "custom procedure" creation: pick the custom option in the dropdown, enter a name (+ optional
   // typical duration/amount); it's saved to the procedure catalog and selected. If no typical duration is
@@ -279,11 +282,15 @@ export function CreateAppointmentDialog({
   const loadProcedureTypes = async () => {
     try {
       setLoadingProcedureTypes(true)
+      setProcedureTypesError(null)
       const data = await procedureTypesApi.list(false) // Only active procedure types
       setProcedureTypes(data || [])
     } catch (err) {
-      console.error("Failed to load procedure types:", err)
-      // Don't show error to user, just log it - procedure types are optional
+      // AC-P3.31 — the old `// Don't show error to user` was wrong in the one way that matters: an empty
+      // list looks identical to a clinic that has no procedures configured, so the user retypes the act as
+      // a custom procedure instead of retrying. It is not blocking (the dialog still saves), so this is an
+      // inline explanation next to the empty list, not a form-level error.
+      setProcedureTypesError(getErrorMessage(err, "La liste des actes n'a pas pu être chargée."))
       setProcedureTypes([]) // Ensure it's always an array
     } finally {
       setLoadingProcedureTypes(false)
@@ -609,7 +616,7 @@ export function CreateAppointmentDialog({
                         </Label>
                         <Input
                           id="firstName"
-                          placeholder="John"
+                          placeholder="Mohamed"
                           value={newPatientFirstName}
                           onChange={(e) => setNewPatientFirstName(e.target.value)}
                           className="h-10"
@@ -622,7 +629,7 @@ export function CreateAppointmentDialog({
                         </Label>
                         <Input
                           id="lastName"
-                          placeholder="Doe"
+                          placeholder="Ben Salah"
                           value={newPatientLastName}
                           onChange={(e) => setNewPatientLastName(e.target.value)}
                           className="h-10"
@@ -978,10 +985,23 @@ export function CreateAppointmentDialog({
                     </SelectContent>
                   </Select>
 
+                  {procedureTypesError && (
+                    <p role="status" className="mt-1 flex flex-wrap items-center gap-2 text-xs text-destructive">
+                      <span>{procedureTypesError}</span>
+                      <button
+                        type="button"
+                        onClick={() => void loadProcedureTypes()}
+                        className="underline underline-offset-2 hover:no-underline"
+                      >
+                        Réessayer
+                      </button>
+                    </p>
+                  )}
+
                   {selectedProcedureTypeId && !customProcedureMode && (
                     <div className="flex items-center gap-2 mt-1">
                       <p className="text-xs text-muted-foreground">
-                        Duration set to {procedureTypes.find(p => p.id === selectedProcedureTypeId)?.defaultDurationMinutes} minutes (you can change it)
+                        Durée fixée à {procedureTypes.find(p => p.id === selectedProcedureTypeId)?.defaultDurationMinutes} minutes (vous pouvez la modifier)
                       </p>
                       <Button
                         type="button"
@@ -1104,7 +1124,7 @@ export function CreateAppointmentDialog({
 
           <DialogFooter className="gap-2 pt-2">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
-              Cancel
+              Annuler
             </Button>
             <Button type="submit" disabled={loading || overlapBlocking}>
               {loading ? "Création…" : "Créer le rendez-vous"}

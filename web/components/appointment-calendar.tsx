@@ -156,10 +156,17 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
             onClick={() => handlePushToGoogle(appointment)}
             disabled={!internetReachable || pushingId === appointment.id}
             title={internetReachable ? "Envoyer vers Google Agenda" : "Connexion internet requise"}
-            className="inline-flex h-4 items-center gap-0.5 rounded bg-white/60 px-1 text-[9px] leading-none hover:bg-white disabled:cursor-not-allowed disabled:opacity-50 dark:bg-background/60"
+            aria-label={
+              internetReachable
+                ? `Envoyer le rendez-vous de ${appointment.patientName} vers Google Agenda`
+                : "Connexion internet requise pour envoyer vers Google Agenda"
+            }
+            className="inline-flex h-4 items-center gap-0.5 rounded bg-white/60 px-1 text-[9px] leading-none hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 dark:bg-background/60"
           >
             <UploadCloud className="h-2.5 w-2.5" />
-            {pushingId === appointment.id ? "..." : "Push"}
+            {/* AC-P3.49 — « Push » was the audit's own example. « Envoyer » at this size, with the full
+                sentence in the title/aria-label. */}
+            {pushingId === appointment.id ? "…" : "Envoyer"}
           </button>
         )}
       </div>
@@ -635,10 +642,10 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
       <div className="mb-3 flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1">
-            <Button variant="outline" size="icon" className="h-9 w-9 bg-transparent" onClick={handlePrevious}>
+            <Button variant="outline" size="icon" className="h-9 w-9 bg-transparent" onClick={handlePrevious} aria-label="Période précédente">
               <ChevronLeft className="h-4 w-4" />
             </Button>
-            <Button variant="outline" size="icon" className="h-9 w-9 bg-transparent" onClick={handleNext}>
+            <Button variant="outline" size="icon" className="h-9 w-9 bg-transparent" onClick={handleNext} aria-label="Période suivante">
               <ChevronRight className="h-4 w-4" />
             </Button>
           </div>
