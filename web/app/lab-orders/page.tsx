@@ -3,6 +3,8 @@
 import type React from "react"
 
 import { useCallback, useEffect, useState } from "react"
+import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
+import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { format, parseISO } from "date-fns"
 import { fr } from "date-fns/locale"
 import { toast } from "sonner"
@@ -361,6 +363,11 @@ export default function LabOrdersPage() {
     loadOrders()
     loadPatients()
   }, [loadOrders, loadPatients])
+
+  // AC-P4.21/4.26 — a bon de prothèse has a status lifecycle two people drive: the assistant sends it, the
+  // dentist marks it received. `laborders` was emitted by the backend from the start with nothing listening,
+  // so each of them worked from a snapshot taken when their page loaded.
+  useClinicRealtime(RealtimeResource.LabOrders, loadOrders)
 
   const handleAddNew = () => {
     setEditingOrder(null)

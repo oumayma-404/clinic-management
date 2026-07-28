@@ -196,21 +196,7 @@ public class UpdateProcedureTypeCommandHandler : IRequestHandler<UpdateProcedure
 
             _logger.LogInformation("Updated procedure type {ProcedureTypeId}", procedureType.Id);
 
-            var dto = new ProcedureTypeDto
-            {
-                Id = procedureType.Id,
-                Name = procedureType.Name,
-                DefaultDurationMinutes = procedureType.DefaultDurationMinutes,
-                DefaultCost = procedureType.DefaultCost,
-                ColorHex = procedureType.Color.Value,
-                Description = procedureType.Description,
-                ResultingCondition = procedureType.ResultingCondition?.ToString(),
-                IsActive = procedureType.IsActive,
-                CreatedAt = procedureType.CreatedAt,
-                UpdatedAt = procedureType.UpdatedAt
-            };
-
-            return Result<ProcedureTypeDto>.Success(dto);
+            return Result<ProcedureTypeDto>.Success(procedureType.ToDto());
         }
         catch (Exception ex) when (ex is not ConflictException)
         {

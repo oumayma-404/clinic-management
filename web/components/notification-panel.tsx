@@ -11,6 +11,7 @@ import {
   Clock,
   Loader2,
   MessageSquareX,
+  Hourglass,
   type LucideIcon,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -34,6 +35,9 @@ const CATEGORY_ICON: Record<string, LucideIcon> = {
   PostVisitReview: ClipboardPlus,
   // AC-P3.7 — an SMS/WhatsApp reminder or recall that never reached the patient.
   ReminderFailed: MessageSquareX,
+  // AC-P4.6 — a lot is about to expire. Distinct from LowStock's AlertTriangle: low stock means "order more",
+  // this means "use it or lose it", and the two land in the same feed for the same item.
+  StockExpiringSoon: Hourglass,
 }
 
 function relativeTime(iso: string): string {

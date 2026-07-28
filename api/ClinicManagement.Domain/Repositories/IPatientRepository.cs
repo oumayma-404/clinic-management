@@ -48,6 +48,27 @@ public sealed record PatientArchiveBlockers(
     public bool Any => TotalOutstanding > 0m || FutureAppointments > 0;
 }
 
+/// <summary>
+/// One row of the bounded « patients à relancer » read (AC-P4.41). A projection, not a <see cref="Patient"/>:
+/// the relance list needs six scalars and the patient's last completed visit, and materialising whole
+/// aggregates plus every appointment in the clinic to derive them is what the finding was about.
+///
+/// <para><paramref name="RecallAnchorUtc"/> is the date the due date is measured from — the last
+/// <c>Completed</c> appointment, or the patient's creation date when they have never been seen. It is returned
+/// rather than resolved into a due date because <c>AddMonths</c>'s end-of-month clamping is not reproducible as
+/// an inverted SQL comparison, so the caller applies the interval itself (see the repository implementation).
+/// </para>
+/// </summary>
+public sealed record RecallCandidate(
+    Guid PatientId,
+    string FirstName,
+    string LastName,
+    string? PhoneNumber,
+    DateTime RecallAnchorUtc,
+    DateTime? LastCompletedVisitUtc,
+    string? RecallReason,
+    DateTime? LastRecallContactedAt);
+
 public interface IPatientRepository
 {
     Task<Patient?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
@@ -60,6 +81,20 @@ public interface IPatientRepository
     /// direct navigation — opt in.
     /// </param>
     Task<IEnumerable<Patient>> GetByClinicIdAsync(Guid clinicId, bool includeArchived = false, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The bounded candidate set for « patients à relancer » (AC-P4.41–4.43). Everything expressible in SQL is
+    /// applied in SQL — clinic scope, archived exclusion, active snooze, a future Scheduled/Confirmed booking,
+    /// the last completed visit per patient, and an upper bound on the recall anchor — so the handler no longer
+    /// reads every patient and every appointment in the clinic.
+    /// </summary>
+    /// <param name="anchorOnOrBeforeUtc">
+    /// Conservative upper bound on <see cref="RecallCandidate.RecallAnchorUtc"/>. Deliberately a <b>superset</b>
+    /// of the real rule: the exact <c>anchor + interval &lt;= now</c> test is applied by the caller, because
+    /// inverting <c>AddMonths</c> into SQL would change which patients qualify at month boundaries (AC-P4.42).
+    /// </param>
+    Task<IReadOnlyList<RecallCandidate>> GetRecallCandidatesAsync(
+        Guid clinicId, DateTime anchorOnOrBeforeUtc, DateTime nowUtc, CancellationToken cancellationToken = default);
 
     /// <summary>Counts everything attached to a patient, so a refusal can name what actually blocks it.</summary>
     Task<PatientLinkedDataCounts> GetLinkedDataCountsAsync(Guid patientId, CancellationToken cancellationToken = default);

@@ -55,19 +55,7 @@ public class GetProcedureTypesQueryHandler : IRequestHandler<GetProcedureTypesQu
 
             procedureTypes = procedureTypes.Where(pt => pt.ClinicId == clinicId);
 
-            var dtos = procedureTypes.Select(pt => new ProcedureTypeDto
-            {
-                Id = pt.Id,
-                Name = pt.Name,
-                DefaultDurationMinutes = pt.DefaultDurationMinutes,
-                DefaultCost = pt.DefaultCost,
-                ColorHex = pt.Color.Value,
-                Description = pt.Description,
-                ResultingCondition = pt.ResultingCondition?.ToString(),
-                IsActive = pt.IsActive,
-                CreatedAt = pt.CreatedAt,
-                UpdatedAt = pt.UpdatedAt
-            }).ToList();
+            var dtos = procedureTypes.Select(pt => pt.ToDto()).ToList();
 
             return Result<IEnumerable<ProcedureTypeDto>>.Success(dtos);
         }

@@ -15,15 +15,15 @@
 | **P1** Appointment lifecycle & booking | 3.1, 3.2, 3.4, 5.4, 6.1, 6.9, 8.1, 8.4 | — | **complete** (`02dcc17`, `a813268`, `767ecae`, `1574c2e`, `05183d2`, `6906f83`). Both migrations landed in `6906f83` — the exclusion constraint (+ pre-flight) and the `Type:`-prefix backfill; the third turned out not to be needed. Only deferral left: the calendar row-trim (AC-P1.33, see below) |
 | **P2** Finish what's built | 5.1–5.3, 5.5–5.9, 5.11, 5.12, 6.10, 6.11, 8.3 | — | **complete** — all 13 steps, AC-P2.1–2.45 |
 | **P3** UX, accessibility & French | 3.3, 6.3, 7.1–7.9, 8.2, 8.6 | — | **complete** — all 13 steps, AC-P3.1–3.54. The manual walk (AC-P3.48) was done **statically**, not in a browser — stated plainly below |
-| **P4** Stock, realtime & schema | 6.6, 6.7, 6.12, 9.1-9.6 | - | **partial - stopped at a safe boundary.** Its gate `verify-schema` landed first (`edecd23`). **Done:** steps 1, 3, 4, 7, 8, 9, 10 + step 2's backend & table, **all 1 migration applied**, `verify-schema` **exit 0**. **Open:** step 2's restock-dialog capture (AC-P4.2), the approaching-expiry notification (AC-P4.6), step 4's material-list editor UI (AC-P4.14), steps **5-6** (realtime) and step **11** (recall bounds) - none of which touch schema |
+| **P4** Stock, realtime & schema | 6.6, 6.7, 6.12, 9.1-9.6 | - | **complete** — all 11 steps, AC-P4.1–4.43. Landed in two halves: the schema half (steps 1, 3, 4, 7, 8, 9, 10 + step 2's backend, the one migration) after its gate `verify-schema` (`edecd23`), then the code-only half (step 2's restock dialog, the approaching-expiry notification, step 4's material-list editor, steps **5-6** realtime, step **11** recall bounds). `verify-schema` **exit 0** across both |
 | **P5** Build & tooling | 10.1–10.5 | warnings step **last in story** | not-started |
 | **P6** Money truth & timezone | 4.1, 4.2, 5.10, 6.2, 6.8, 8.5, 9.7 | — | not-started |
 | **P7** Audit trail, duplicate prevention, anonymize | 6.4 | P7a first | not-started |
 | **P8** CNAM claims & reconciliation | 6.5 | **Q-1…Q-6 unanswered** | blocked |
 
-**Bullets closed: 34 / 57 · ACs: ~180 / 301** — all of P1 (§§ 3.1, 3.2, 3.4, 5.4, 6.1, 6.9, 8.1, 8.4), all of P2
-(§§ 5.1–5.3, 5.5–5.9, 5.11, 5.12, 6.10, 6.11, 8.3) and all of P3 (§§ 3.3, 6.3, 7.1–7.9, 8.2, 8.6), plus adjacent
-defects **A-1 … A-14**.
+**Bullets closed: 43 / 57 · ACs: ~224 / 301** — all of P1 (§§ 3.1, 3.2, 3.4, 5.4, 6.1, 6.9, 8.1, 8.4), all of P2
+(§§ 5.1–5.3, 5.5–5.9, 5.11, 5.12, 6.10, 6.11, 8.3), all of P3 (§§ 3.3, 6.3, 7.1–7.9, 8.2, 8.6) and all of P4
+(§§ 6.6, 6.7, 6.12, 9.1–9.6), plus adjacent defects **A-1 … A-19**.
 
 ## Working tree note (start of session, 2026-07-28)
 
@@ -346,6 +346,152 @@ through) so re-saving historical rows is safe.
 
 ## Session log
 
+### 2026-07-28 — **P4 COMPLETE**: part 2 of 2 — the six code-only items (no schema touched)
+
+All six items the previous session left open are closed. **No migration, no model change, so the schema gate was
+re-run only to prove it had not moved** — `verify-schema` stayed **exit 0**.
+
+| # | Item | AC | What landed |
+|---|---|---|---|
+| 1 | Restock dialog captures expiry + batch | AC-P4.2 | Two optional inputs on the entrée branch of `stock-table.tsx`'s adjust dialog, sent as `null` rather than `""` when blank (AC-P4.7). Only the entrée branch: a sortie draws down existing lots FEFO, so it has nothing to date or number |
+| 2 | Approaching-expiry notification | AC-P4.6 | `NotificationCategory.StockExpiringSoon`, `EnsureStockExpiringSoonAsync` / `ClearStockExpiringSoonAsync` on `INotificationGenerator`, `GetStockExpiringSoonByItemAsync` on the repo, `StaffNotification.RestateStockExpiry`, the daily **`StockExpiryJob`**, an inline edge-trigger on restock, and the `Hourglass` icon in `notification-panel.tsx` |
+| 3 | Material-list editor in the act catalog | AC-P4.14 | `SetProcedureTypeMaterialsCommand` + `PUT /api/procedure-types/{id}/materials` (admin-only), `Materials` on `ProcedureTypeDto` via a **single** new `ToDto()`, `Include(Materials)` on the two list reads, and `procedure-type-materials-dialog.tsx` reached from a « Consommables » row action |
+| 4 | Realtime contract test rewritten | AC-P4.23–4.25 | `RealtimeResourceResolverTests` is now reflection-derived on the backend side and **parses `clinic-hub.ts`** on the frontend side, asserting the two sets are equal **in both directions**, with two named allow-lists pinned empty |
+| 5 | The orphan keys wired | AC-P4.20–4.22, 4.26 | `doctors`, `laborders`, `recall`, `waitinglist` declared; subscriptions added to /waiting-list, /lab-orders, /recalls, /recurring-series and « Mon profil »; `documents` given its missing subscriber on the patient page (A-15) |
+| 6 | Recall query bounded | AC-P4.41–4.43 | `IPatientRepository.GetRecallCandidatesAsync` + the `RecallCandidate` projection; every filter pushed to SQL; the handler no longer takes `IAppointmentRepository` at all |
+
+**Five things worth knowing.**
+
+1. **The contract test caught the orphans before I wired them — which is the whole point.** Written first, it
+   failed naming exactly `doctors`, `laborders`, `recall`, `waitinglist`. The version it replaced was a
+   hand-written 16-row `[InlineData]` table that had been green throughout the entire period those five keys were
+   broadcast into the void (§ 9.1): a table can only fail on the rows someone remembered to write, never on the
+   new area, which is the only case a guard exists for. Both allow-lists (`EmitOnlyAllowList`,
+   `ListenOnlyAllowList`) are **empty and asserted empty** (AC-P4.25), so widening the contract has to be a
+   deliberate edit with a stated reason. It finds the frontend file via **`[CallerFilePath]`**, not
+   `AppContext.BaseDirectory` — the suite is routinely built to a scratch OutDir outside the repo (the SAC
+   workaround), where a walk-up from the binary would find nothing; and it **throws** rather than skipping when
+   the file is missing, because a contract test that skips reports green while the contract goes unchecked.
+
+2. **The expiry notification needed a job, not just a write hook — and that is a deviation (DEV-P4-1 below).**
+   The resume note said to follow the edge-triggered low-stock precedent. Low stock is crossed *by a write*
+   (someone consumes the last unit), so firing inline from the command works. An expiry is crossed *by the
+   passage of time*: the box nobody has touched for six months is precisely the case the alert exists for, and no
+   write happens on the day it enters the lead window. A write-triggered-only implementation would have been a
+   notification that never fires for its main case — the exact "reports success while doing nothing" class this
+   feature exists to remove. So: a daily `StockExpiryJob` **plus** the inline call on restock (short-dated
+   deliveries are routine, and that is the one moment a new expiry date enters the system). The job is
+   deliberately **not** connectivity-gated, unlike its two siblings — the alert is in-app, so it must work on an
+   offline LAN install.
+
+3. **The alert is an *ensure*, not a fire-once, and the idempotency key is the message prefix.** A daily re-scan
+   of the same item must write nothing and broadcast nothing, or one short-dated box produces a notification
+   every day until it is used up. Comparing the **whole** message would have differed every single day, because
+   the message carries a countdown — so the comparison is on the item+date prefix only. `Clear` is what lets the
+   item's *next* batch alert; without it the first lot's row would sit there forever and suppress the second.
+
+4. **The recall bound is a deliberate superset, and that is not a shortcut.** The rule is
+   `anchor.AddMonths(interval) <= now`. The obvious way to make it SQL is `anchor <= now.AddMonths(-interval)` —
+   and it is **not equivalent**, because `AddMonths` clamps to the end of a shorter month and the clamp does not
+   survive inversion: 31 January + 1 month is 28 February, so on 28 February that patient *is* due, while
+   28 February − 1 month is 28 January and 31 January is not ≤ 28 January. The inverted form silently drops them,
+   which is the behaviour change AC-P4.42 forbids. So SQL gets the bound widened by three days (the largest
+   possible clamp, 31 → 28) and the handler applies the exact test. `Widened_Bound_Never_Excludes_A_Patient_Who_Is_Actually_Due`
+   checks the superset property for **every day across four years × every interval 1–60**, because "at most three
+   days" is an argument and arguments belong in tests.
+
+5. **A mocked-repository test cannot tell "pushed to SQL" from "filtered in memory" — so
+   `RecallQueryTranslationTests` compiles the real query.** § 9.6 is a finding about the *read*, not the result,
+   and every other test here mocks the repository, so all of them would pass just as happily if the new method
+   pulled every row and filtered client-side. Worse, an untranslatable LINQ expression does not fail at build
+   time: EF Core throws at **runtime, on the request**, so the relance page would break for a real clinic and
+   nowhere else — and the optional owned `PhoneNumber` and the correlated `MAX` are exactly the shapes providers
+   reject. The test calls `ToQueryString()` (no connection opened, no database touched — the provider is needed
+   only because SQL generation is provider-specific) and asserts `EXISTS`, `MAX(`, `IsArchived`,
+   `RecallSnoozedUntil` and `PhoneNumber` are all in the generated SQL. To stop it becoming a *parallel copy* that
+   keeps passing after production changes, the expression tree was extracted to
+   `PatientRepository.RecallCandidateQuery` and **both** the repository and the test compile that one method.
+
+**R-14 needed no edit, and here is why that is not a miss.** `AdminSurfaceCoverageTests`'s hardcoded arrays are
+`CatalogControllers` and `GatedActions()`. The new endpoint is a **new action on `ProcedureTypesController`**,
+which is already in `CatalogControllers`, and that test's rule is reflection-derived *within* those controllers —
+`Every_mutating_catalog_action_is_admin_gated` enumerates every `[HttpPut]`/`[HttpPost]`/… on them. So
+`PUT {id}/materials` was covered the moment it was written, and would have failed the build had it not carried
+`[Authorize(Policy = AdminOnly)]`. R-14's risk is a **new controller**; this part added none.
+
+**`MoneyReadConsistencyTests.Wire()` needed no edit either — checked, not assumed.** The carried-forward warning
+says to mirror any repository filter change into it. `Wire()` mocks `IPatientRepository.GetByIdAsync`,
+`CountByClinicIdAsync` and `CountFlaggedByClinicIdAsync`; it does **not** mock `GetByClinicIdAsync`, and the three
+money handlers do not read recall data at all. The new `GetRecallCandidatesAsync` has exactly one caller. Nothing
+in that fixture mirrors a filter this part changed.
+
+#### Deviations
+
+##### DEV-P4-1: the approaching-expiry alert is driven by a daily job, not only by a write hook
+**Date:** 2026-07-28 · **Category:** Technical · **Approved:** proceeded under a stated assumption (the user asked
+for the six items to be finished without interruption)
+**Original plan:** "Follow the edge-triggered low-stock precedent in `INotificationGenerator`" (resume note),
+i.e. fire inline from a command handler.
+**Actual implementation:** an `Ensure`/`Clear` pair on `INotificationGenerator`, called from a new daily
+`RecurringJob` (`StockExpiryJob`, 06:00 UTC) **and** inline from `RestockStockItemCommand`.
+**Justification:** the low-stock precedent works because a write is what crosses the threshold. Expiry is crossed
+by time, so a write-only trigger would never fire for an untouched item — the main case. AC-P4.6 would have been
+nominally "done" and functionally inert.
+**Impact:** one new recurring job registration in `Program.cs` (not connectivity-gated, deliberately) and one new
+notification category. No schema change: the category is stored as `int` and 8 is a new value, not a new column.
+
+##### DEV-P4-2: the material-list editor is its own dialog, not a section of the procedure-type form
+**Date:** 2026-07-28 · **Category:** Technical · **Approved:** proceeded under a stated assumption
+**Original plan:** "Needs a command + the procedure-type form modal" (resume note).
+**Actual implementation:** `procedure-type-materials-dialog.tsx`, opened from a « Consommables » row action.
+**Justification:** the list is saved by its own **replace-semantics** endpoint, while every field of
+`UpdateProcedureTypeCommand` is null-means-unchanged. Folding it into the form's save would mean two sequential
+requests — and for a list whose *empty* state is a meaningful value (the AC-P4.11 opt-out), a window where one
+request succeeded and the other did not silently clears it. It also only applies to an act that already has an id.
+The repo has an explicit precedent for exactly this reasoning: `doctor-document-identity-dialog.tsx` is
+"deliberately separate from the « Médecins » roster save".
+**Impact:** one new component; the procedure-type form is untouched. The catalogue table gains a « Consommables »
+column so a list is discoverable rather than hidden behind a dialog nobody knows to open.
+
+#### Auto-approved deviations
+
+| Deviation | Classification | Reason |
+|---|---|---|
+| `ProcedureTypeDto` gained a shared `ToDto()`, replacing four hand-built copies | Trivial | Same outputs; internal to the mapping. Done because adding `Materials` to three of four sites would have left the list silently empty on the fourth — indistinguishable from the AC-P4.11 opt-out |
+| `Include(pt => pt.Materials)` added to `GetAllAsync`/`GetActiveAsync` | Trivial | Same shape of result, one extra join on a small per-clinic catalog. Without it the list read returns empty material lists, i.e. the same confusable-with-opt-out failure |
+| `DoctorWorkingHoursCard` gained an optional `reloadKey` prop | Trivial | Additive with a default; no caller has to change. The subscription stays in the host because the card renders once per practitioner in Paramètres → Médecins, and one hub connection per row is not a subscription model |
+| Unused `using ClinicManagement.Domain.Enums;` removed from `GetPatientsToRecallQuery.cs` | Trivial | Became unused when the status filtering moved into SQL |
+
+#### Gates
+
+| Gate | Result |
+|---|---|
+| Backend build (`--no-incremental`, full solution) | **0 errors**, **56 warnings** — identical to the baseline, and **0 in any file this part created or edited** (verified by grepping the full warning list for each changed filename) |
+| **Full unit suite** | **1286 passed, 0 failed.** SAC did not block; the OutDir + `vstest` workaround was used |
+| Test delta | **+22 new** (5 approaching-expiry generator, 7 material-list command, 8 recall bounds, 2 recall SQL-translation) **−11 retired** with the `[InlineData]` realtime table, which 9 derived tests replace |
+| **`verify-schema`** (live DB) | **exit 0** — "schema matches the model". Re-run to prove the gate had **not moved**: this part added no migration and no model change |
+| `npx tsc --noEmit` | 0 errors |
+| `npm run build` | clean, **27/27** static pages |
+| `npm run lint` | **cannot run** — ESLint is still not a dependency until P5 step 1. Substituted an ad-hoc unused-import scan over all 12 changed/new frontend files: **0 unused imports** |
+| Manual browser pass | **not done** (no frontend test runner). Carried forward with P3's — see the open items |
+
+#### Working tree note
+
+Four files were already modified when this session started and are **not** part of this part; they were excluded
+from the commit (staged by path, never `git add -A`): `LoginResultDto.cs`, `LoginCommand.cs`,
+`web/app/bff/auth/local-login/route.ts`, `web/app/bff/auth/token/route.ts` — an in-progress change adding
+`RefreshExpiresAt` so the BFF cookie outlives the 30-minute access token. A separate auth/session concern.
+
+#### Learning
+
+**A guard's own reach is worth checking before you widen it by hand.** The plan's **R-14** says
+`AdminSurfaceCoverageTests` is "a hardcoded array — add any new admin surface by hand", and the resume note
+repeated it. Taken at face value that meant editing the test. Reading it instead showed the hardcoded part is the
+*list of controllers*, and the rule inside them is reflective — so a new action on an existing catalog controller
+was already covered, and hand-adding it would have been noise implying coverage that was already there. The
+mirror-image of the `verify-schema` lesson: **check what a guard actually derives before trusting a risk
+register's one-line summary of it, in either direction.**
+
 ### 2026-07-28 - P4 part 1 of 2: per-batch stock, act-driven consumption, and the whole schema batch
 
 **Stopped at a safe boundary, not at the part boundary.** Everything schema-touching is done, applied and
@@ -414,16 +560,7 @@ and required - the § 1 hazard is `AddColumn<uint>("xmin")` on an **existing** t
 | `npm run build` | clean, **27/27** static pages |
 | `npm run lint` | cannot run - ESLint is not a dependency until P5 step 1 |
 
-#### Still open in P4 (all pure code - no schema, no migration)
-
-| Item | AC | Note |
-|---|---|---|
-| Restock dialog captures expiry + batch | AC-P4.2 | The API accepts both (`stockApi.restock`) and the model stores them per lot; only the dialog's two inputs are missing |
-| Approaching-expiry notification | AC-P4.6 | `Clinic.StockExpiryLeadDays` + `HasStockExpiringSoon` + `isExpiringSoon` all exist and the table already highlights it; nothing **generates** the notification yet |
-| Material-list editor in the act catalog | AC-P4.14 | `ProcedureType.SetMaterials` + the table exist; no admin UI and no command to call it, so lists can only be seeded directly |
-| **Step 5** - realtime contract test rewrite | AC-P4.23-4.25 | Reflection-derived exact set, both directions, parsing `clinic-hub.ts`. `verify-schema` is now the worked example of doing this right |
-| **Step 6** - wire the orphan keys | AC-P4.20-4.22, 4.26 | Missing from `clinic-hub.ts`: `doctors`, `laborders`, `recall`, `waitinglist`. Declared with no subscriber: `documents` (A-15) |
-| **Step 11** - recall query bounded | AC-P4.41-4.43 | Mirror any repository filter change into `MoneyReadConsistencyTests.Wire()` |
+#### Still open in P4 — **all six closed** in part 2 of 2 (see the next entry). Nothing outstanding.
 
 ### 2026-07-28 — **`verify-schema` built** (P4's gate; a carried-forward P1 step)
 

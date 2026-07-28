@@ -40,6 +40,18 @@ export const procedureTypesApi = {
   },
 
   /**
+   * AC-P4.14 — replaces the act's material list wholesale. An empty array is a real value meaning « this act
+   * consumes nothing » (the opt-out, AC-P4.11), which is why this is a separate call from `update`, whose
+   * every field means "unchanged" when omitted. Admin-only server-side.
+   */
+  setMaterials: async (
+    id: string,
+    materials: { stockItemId: string; quantityPerAct: number }[],
+  ): Promise<ProcedureTypeDto> => {
+    return apiPut<ProcedureTypeDto>(`/procedure-types/${id}/materials`, { materials });
+  },
+
+  /**
    * AC-P2.36: the palette the backend `ColorHex` value object actually accepts. Returns **bare hex strings with
    * no names** (A-14), which is why the French labels stay client-side — the endpoint is the authority on
    * *which* colours are valid, not on how they are called.

@@ -398,8 +398,19 @@ export interface ProcedureTypeDto {
   /** ToothCondition name this procedure produces on the odontogram, or null. */
   resultingCondition?: string | null;
   isActive: boolean;
+  /**
+   * AC-P4.9/4.14 — the stock this act consumes each time it is performed. Empty means the act has opted out
+   * and consumes nothing (AC-P4.11), which is the default.
+   */
+  materials: ProcedureTypeMaterialDto[];
   createdAt: string;
   updatedAt?: string;
+}
+
+/** One line of an act's material list. */
+export interface ProcedureTypeMaterialDto {
+  stockItemId: string;
+  quantityPerAct: number;
 }
 
 // A single act line on a dental record. A record can carry many acts.

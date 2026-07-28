@@ -3,6 +3,8 @@
 import type React from "react"
 
 import { useCallback, useEffect, useState } from "react"
+import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
+import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { useRouter } from "next/navigation"
 import { format } from "date-fns"
 import { fr } from "date-fns/locale"
@@ -471,6 +473,10 @@ export default function RecurringSeriesPage() {
   useEffect(() => {
     loadSeries()
   }, [loadSeries])
+
+  // AC-P4.21/4.26 — a series and its expanded rendez-vous are the same data seen two ways, and both live under
+  // Features/Appointments/Commands, so creating or cancelling a series anywhere emits `appointments`.
+  useClinicRealtime(RealtimeResource.Appointments, loadSeries)
 
   // Reference data for the create form — fetched once. Failures are non-blocking (the list still shows).
   useEffect(() => {

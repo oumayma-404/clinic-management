@@ -124,6 +124,14 @@ public class StaffNotificationRepository : IStaffNotificationRepository
                 cancellationToken);
     }
 
+    public async Task<StaffNotification?> GetStockExpiringSoonByItemAsync(Guid stockItemId, CancellationToken cancellationToken = default)
+    {
+        return await _context.StaffNotifications
+            .FirstOrDefaultAsync(
+                n => n.StockItemId == stockItemId && n.Category == NotificationCategory.StockExpiringSoon,
+                cancellationToken);
+    }
+
     public async Task<IReadOnlyList<StaffNotification>> GetPendingReviewsForUserAsync(
         Guid clinicId, string userId, DateTime userCreatedAtUtc, DateTime nowUtc, CancellationToken cancellationToken = default)
     {

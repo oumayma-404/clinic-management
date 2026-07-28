@@ -48,6 +48,10 @@ export function StockTable({ refreshKey, onEdit, highlightItemId }: StockTablePr
   const [adjustTarget, setAdjustTarget] = useState<StockItemDto | null>(null)
   const [adjustMode, setAdjustMode] = useState<"consume" | "restock">("consume")
   const [adjustQty, setAdjustQty] = useState("")
+  // AC-P4.2 — an entrée creates a LOT, so the dialog captures that lot's own expiry and batch number.
+  // Both stay optional (AC-P4.7): a delivery with neither behaves exactly as before.
+  const [adjustExpiry, setAdjustExpiry] = useState("")
+  const [adjustBatch, setAdjustBatch] = useState("")
   const [adjusting, setAdjusting] = useState(false)
   // Movement-history dialog state (finding #14).
   const [historyTarget, setHistoryTarget] = useState<StockItemDto | null>(null)
@@ -141,6 +145,8 @@ export function StockTable({ refreshKey, onEdit, highlightItemId }: StockTablePr
     setAdjustTarget(item)
     setAdjustMode(mode)
     setAdjustQty("")
+    setAdjustExpiry("")
+    setAdjustBatch("")
   }
 
   const confirmAdjust = async () => {
@@ -156,7 +162,13 @@ export function StockTable({ refreshKey, onEdit, highlightItemId }: StockTablePr
         await stockApi.consume(adjustTarget.id, qty)
         toast.success(`Sortie enregistrée (${qty})`)
       } else {
-        await stockApi.restock(adjustTarget.id, { quantity: qty })
+        // AC-P4.2 — expiry and batch travel with the lot. Empty inputs are sent as null, not "", so an
+        // entrée without them creates a lot carrying no expiry (AC-P4.7) rather than an unparseable date.
+        await stockApi.restock(adjustTarget.id, {
+          quantity: qty,
+          expiryDate: adjustExpiry || null,
+          batchNumber: adjustBatch.trim() || null,
+        })
         toast.success(`Entrée enregistrée (${qty})`)
       }
       setAdjustTarget(null)
@@ -364,6 +376,32 @@ export function StockTable({ refreshKey, onEdit, highlightItemId }: StockTablePr
               <p className="text-xs text-muted-foreground">Stock actuel : {adjustTarget.currentStock}</p>
             )}
           </div>
+
+          {/* AC-P4.2 — only an entrée creates a lot; a sortie draws down the existing ones (FEFO), so it has
+              nothing to date or number. Both fields are optional (AC-P4.7). */}
+          {adjustMode === "restock" && (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="adjustExpiry">Date de péremption (optionnel)</Label>
+                <Input
+                  id="adjustExpiry"
+                  type="date"
+                  value={adjustExpiry}
+                  onChange={(e) => setAdjustExpiry(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="adjustBatch">N° de lot (optionnel)</Label>
+                <Input
+                  id="adjustBatch"
+                  type="text"
+                  value={adjustBatch}
+                  onChange={(e) => setAdjustBatch(e.target.value)}
+                  placeholder="ex. L-2026-04"
+                />
+              </div>
+            </div>
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setAdjustTarget(null)} disabled={adjusting}>
               Annuler

@@ -29,6 +29,12 @@ interface DoctorWorkingHoursCardProps {
   doctorName?: string
   /** Rendered as a plain block rather than its own Card, for embedding inside an existing card. */
   embedded?: boolean
+  /**
+   * Bumped by the host to force a refetch — « Mon profil » drives it from the `doctors` realtime key
+   * (AC-P4.21). The subscription lives in the host rather than here because this card is rendered once per
+   * practitioner in « Paramètres → Médecins », and one hub connection per row is not a subscription model.
+   */
+  reloadKey?: number
 }
 
 /**
@@ -43,7 +49,12 @@ interface DoctorWorkingHoursCardProps {
  * The empty state is stated explicitly rather than left blank (AC-P1.26): an empty `PUT` silently means "clear
  * the override" server-side, and nothing told the user that the clinic-wide hours would take over.
  */
-export function DoctorWorkingHoursCard({ doctorId, doctorName, embedded = false }: DoctorWorkingHoursCardProps) {
+export function DoctorWorkingHoursCard({
+  doctorId,
+  doctorName,
+  embedded = false,
+  reloadKey = 0,
+}: DoctorWorkingHoursCardProps) {
   const [days, setDays] = useState<WorkingDay[]>([])
   /** True when the practitioner has no override, so the clinic-wide hours apply. */
   const [inherited, setInherited] = useState(true)
@@ -70,7 +81,7 @@ export function DoctorWorkingHoursCard({ doctorId, doctorName, embedded = false 
     } finally {
       setLoading(false)
     }
-  }, [doctorId])
+  }, [doctorId, reloadKey])
 
   useEffect(() => {
     load()

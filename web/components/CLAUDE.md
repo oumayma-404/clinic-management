@@ -17,7 +17,7 @@ Feature/screen components for the clinic frontend; `components/ui/` holds shadcn
 
 | File | What it renders / does |
 |------|------------------------|
-| `notification-panel.tsx` | Presentational feed popover (props-driven): 50 newest rows with category icon, title, message, relative French time (`n.createdAt`), unread styling, empty/loading/error states, "Tout marquer comme lu", row deep-link. |
+| `notification-panel.tsx` | Presentational feed popover (props-driven): 50 newest rows with category icon, title, message, relative French time (`n.createdAt`), unread styling, empty/loading/error states, "Tout marquer comme lu", row deep-link. `CATEGORY_ICON` covers all eight `NotificationCategory` values — `StockExpiringSoon` uses `Hourglass`, deliberately distinct from `LowStock`'s `AlertTriangle`: low stock means « order more », expiry means « use it or lose it », and both can land for the same item. |
 | `post-visit-review-popup.tsx` | Modal prompting staff to record a finished visit. Polls `notificationsApi.pendingReviews` (60s) + realtime; "Ajouter le dossier médical" → `/documents?appointmentId=`; "Plus tard" snoozes client-side (localStorage). Mounted once in the header. |
 
 ## Appointments
@@ -98,9 +98,10 @@ Feature/screen components for the clinic frontend; `components/ui/` holds shadcn
 
 | File | What it renders / does |
 |------|------------------------|
-| `stock-table.tsx` | Inventory (`stockApi`) with search/category/low-stock filters + delete confirm; scroll-to/highlight a deep-linked low-stock row (`clinic:deeplink`). |
+| `stock-table.tsx` | Inventory (`stockApi`) with search/category/low-stock filters + delete confirm; scroll-to/highlight a deep-linked low-stock row (`clinic:deeplink`); an « expiration » column highlighting the earliest relevant lot (périmé vs. expire bientôt). The **entrée** branch of the adjust dialog captures that lot's own **expiry date + n° de lot** (AC-P4.2) — both optional, sent as `null` rather than `""` when blank (AC-P4.7). Only the entrée branch: a **sortie** draws down existing lots FEFO server-side, so it has nothing to date or number. |
 | `stock-item-form-modal.tsx` | Create/edit stock item via `stockApi`. |
-| `procedure-types-table.tsx` / `procedure-type-form-modal.tsx` | Procedure-types CRUD (`procedureTypesApi`) + "seed defaults"; form has color, duration, cost, resulting condition. |
+| `procedure-types-table.tsx` / `procedure-type-form-modal.tsx` | Procedure-types CRUD (`procedureTypesApi`) + "seed defaults"; form has color, duration, cost, resulting condition. The table also shows a **« Consommables »** column (how many stock items the act consumes) so a material list is discoverable rather than hidden behind a dialog nobody knows to open. |
+| `procedure-type-materials-dialog.tsx` | **Admin**. An act's **material list** — the stock a fiche de soins draws down when it records that act (AC-P4.14) → `PUT /procedure-types/{id}/materials`. The missing caller for `ProcedureType.SetMaterials`, which shipped with the join table and no UI, so a list could only be seeded directly into the database. Deliberately its own dialog rather than a section of the form modal, for the same reason as `doctor-document-identity-dialog.tsx`: the endpoint has **replace** semantics (an empty list is the meaningful "consumes nothing" opt-out), it only applies to an act that already has an id, and folding it into the form's save would create a window where one of two requests succeeded — which for this list silently clears it. Refuses duplicates client-side by not offering an already-listed item, and keeps rendering an item since removed from the catalogue so saving an unrelated line cannot drop it. |
 | `setup-wizard.tsx` | First-run clinic creation (FR; Tunisian governorates; `clinicsApi.create`); local mode also collects the admin account → `/auth/setup`. |
 | `join-wizard.tsx` | Join-by-code (role, specialty; `clinicsApi.join`); local mode self-registers via `clinicsApi.register` → `/auth/register`. |
 | `ai-chat.tsx` | Floating AI assistant (mounted globally). Calls `aiChatApi.chat`; consumes `useConnectivity()` to disable + banner offline and map `ApiError.status===0` to a retryable toast. |

@@ -25,18 +25,24 @@ public class RestockStockItemCommandHandler : IRequestHandler<RestockStockItemCo
 {
     private readonly IStockItemRepository _stockItemRepository;
     private readonly IStockMovementRepository _stockMovementRepository;
+    private readonly IClinicRepository _clinicRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
+    private readonly INotificationGenerator _notificationGenerator;
     private readonly IUnitOfWork _unitOfWork;
 
     public RestockStockItemCommandHandler(
         IStockItemRepository stockItemRepository,
         IStockMovementRepository stockMovementRepository,
+        IClinicRepository clinicRepository,
         ICurrentClinicResolver clinicResolver,
+        INotificationGenerator notificationGenerator,
         IUnitOfWork unitOfWork)
     {
         _stockItemRepository = stockItemRepository;
         _stockMovementRepository = stockMovementRepository;
+        _clinicRepository = clinicRepository;
         _clinicResolver = clinicResolver;
+        _notificationGenerator = notificationGenerator;
         _unitOfWork = unitOfWork;
     }
 
@@ -66,6 +72,21 @@ public class RestockStockItemCommandHandler : IRequestHandler<RestockStockItemCo
 
             await _stockItemRepository.UpdateAsync(item, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            // AC-P4.6 — a delivery can arrive ALREADY inside the expiry lead window (short-dated stock is
+            // routine), so flag it now rather than leaving it to the next daily StockExpiryJob run. Post-commit
+            // and best-effort, exactly like the low-stock crossing: the generator swallows its own failures.
+            var clinicRecord = await _clinicRepository.GetByIdAsync(clinic.Value, cancellationToken);
+            var leadDays = clinicRecord?.StockExpiryLeadDays ?? Domain.Entities.Clinic.DefaultStockExpiryLeadDays;
+            if (leadDays > 0 && item.HasStockExpiringSoon(DateTime.UtcNow, leadDays))
+            {
+                var earliest = item.EarliestRelevantExpiry();
+                if (earliest.HasValue)
+                {
+                    await _notificationGenerator.EnsureStockExpiringSoonAsync(
+                        clinic.Value, item.Id, item.Name, earliest.Value, cancellationToken);
+                }
+            }
 
             return Result<StockItemDto>.Success(item.ToDto());
         }

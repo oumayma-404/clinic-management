@@ -30,9 +30,13 @@ public class ProcedureTypeRepository : IProcedureTypeRepository
             .FirstOrDefaultAsync(pt => pt.Name.ToLower() == name.ToLower(), cancellationToken);
     }
 
+    // The list reads Include the material list for the same reason GetByIdAsync does (AC-P4.14): the catalog
+    // screen shows which acts consume stock, and a silently-empty list is indistinguishable from an act that
+    // has opted out (AC-P4.11). This is a small per-clinic catalog, so the extra join is not a concern.
     public async Task<IEnumerable<ProcedureType>> GetAllAsync(CancellationToken cancellationToken = default)
     {
         return await _context.ProcedureTypes
+            .Include(pt => pt.Materials)
             .OrderBy(pt => pt.Name)
             .ToListAsync(cancellationToken);
     }
@@ -40,6 +44,7 @@ public class ProcedureTypeRepository : IProcedureTypeRepository
     public async Task<IEnumerable<ProcedureType>> GetActiveAsync(CancellationToken cancellationToken = default)
     {
         return await _context.ProcedureTypes
+            .Include(pt => pt.Materials)
             .Where(pt => pt.IsActive)
             .OrderBy(pt => pt.Name)
             .ToListAsync(cancellationToken);

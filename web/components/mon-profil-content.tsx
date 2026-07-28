@@ -1,6 +1,8 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
+import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
+import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import Image from "next/image"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -24,6 +26,10 @@ export function MonProfilContent() {
   const [cachetFile, setCachetFile] = useState<File | null>(null)
   const [cachetPreview, setCachetPreview] = useState<string | null>(null) // object URL of the current/selected cachet
   const [removeCachet, setRemoveCachet] = useState(false)
+  // AC-P4.21 — `doctors` was emitted from the start with nothing listening. An admin can set THIS
+  // practitioner's ordre CNOMDT and cachet from « Paramètres → Médecins » (doctor-document-identity-dialog),
+  // so the person whose identity it is watched it change on someone else's screen and not on their own.
+  const [reloadKey, setReloadKey] = useState(0)
 
   // Tracks the currently-set object URL (loaded OR later selected via handleFile) so it can be revoked on
   // unmount — the load effect's local closure only knew the initially-loaded URL, leaking any later one.
@@ -65,7 +71,14 @@ export function MonProfilContent() {
       cancelled = true
       if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
-  }, [])
+  }, [reloadKey])
+
+  // Skipped while a save is in flight: a broadcast landing between the PUT and its response would refetch the
+  // pre-save row and put the old ordre number back into the field the user just submitted. The save's own
+  // response already updates the form, so nothing is lost by ignoring the signal for that moment.
+  useClinicRealtime(RealtimeResource.Doctors, () => {
+    if (!saving) setReloadKey((k) => k + 1)
+  })
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -197,7 +210,7 @@ export function MonProfilContent() {
       </Card>
 
       {/* § 5.4 / AC-P1.25 — a doctor edits their own hours. `profile.id` is the doctorId the endpoint wants. */}
-      <DoctorWorkingHoursCard doctorId={profile.id} />
+      <DoctorWorkingHoursCard doctorId={profile.id} reloadKey={reloadKey} />
 
       <div className="rounded-lg border border-border bg-muted/40 px-4 py-3 text-xs text-muted-foreground">
         <span className="font-medium text-foreground">Administrateur :</span> un admin peut définir le cachet et le

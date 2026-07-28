@@ -179,6 +179,61 @@ public class NotificationGenerator : INotificationGenerator
         }, cancellationToken);
     }
 
+    public async Task EnsureStockExpiringSoonAsync(
+        Guid clinicId, Guid stockItemId, string itemName, DateTime earliestExpiryUtc,
+        CancellationToken cancellationToken = default)
+    {
+        await SafelyAsync(clinicId, async () =>
+        {
+            var title = StockExpiringSoonTitle;
+            var message = StockExpiringSoonMessage(itemName, earliestExpiryUtc, DateTime.UtcNow);
+
+            var existing = await _notifications.GetStockExpiringSoonByItemAsync(stockItemId, cancellationToken);
+            if (existing != null)
+            {
+                // Already flagged. Restate only when the batch it is about actually changed — matched on the
+                // item+date prefix, not the whole message, so the daily countdown alone is not a change.
+                if (existing.Message.StartsWith(StockExpiringSoonKey(itemName, earliestExpiryUtc), StringComparison.Ordinal))
+                {
+                    return false;
+                }
+
+                existing.RestateStockExpiry(title, message);
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+                return true;
+            }
+
+            var notification = new StaffNotification(
+                Guid.NewGuid(), clinicId, NotificationCategory.StockExpiringSoon,
+                title, message,
+                DateTime.UtcNow,
+                NotificationTargetKind.StockItem,
+                actorUserId: null, // nobody "did" an expiry → visible to all staff, like low stock
+                stockItemId: stockItemId);
+
+            await _notifications.AddAsync(notification, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return true; // immediately visible to all staff
+        }, cancellationToken);
+    }
+
+    public async Task ClearStockExpiringSoonAsync(
+        Guid clinicId, Guid stockItemId, CancellationToken cancellationToken = default)
+    {
+        await SafelyAsync(clinicId, async () =>
+        {
+            var existing = await _notifications.GetStockExpiringSoonByItemAsync(stockItemId, cancellationToken);
+            if (existing == null)
+            {
+                return false; // nothing flagged — the overwhelmingly common case on a daily scan
+            }
+
+            await _notifications.RemoveAsync(existing, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return true; // the row left the feed → clients refetch
+        }, cancellationToken);
+    }
+
     public async Task EnsurePostVisitReviewAsync(
         Guid clinicId, Guid appointmentId, Guid? doctorId, string patientName, DateTime appointmentEndUtc,
         CancellationToken cancellationToken = default)
@@ -306,6 +361,27 @@ public class NotificationGenerator : INotificationGenerator
     private static string PostVisitReviewMessage(string patientName) =>
         $"La visite de {patientName} est terminée. Ajoutez son dossier médical.";
 
+    private const string StockExpiringSoonTitle = "Péremption proche";
+
+    // States the date AND the days remaining: the date is what the operator checks on the shelf, the count is
+    // what tells them whether to act today. The count is derived here rather than passed in, so it can never
+    // disagree with the date. Deliberately NOT part of the idempotency comparison — see below.
+    private static string StockExpiringSoonMessage(string itemName, DateTime earliestExpiryUtc, DateTime nowUtc)
+    {
+        var days = (earliestExpiryUtc.Date - nowUtc.Date).Days;
+        var remaining = days <= 0
+            ? "aujourd'hui"
+            : $"dans {days} jour{(days == 1 ? "" : "s")}";
+        return $"Péremption proche : {itemName} — un lot expire le {FormatFrDate(earliestExpiryUtc)} ({remaining}).";
+    }
+
+    // The stable part of the message — item name + expiry date, everything except the countdown. Two messages
+    // sharing this prefix are about the same batch, so the daily re-scan restates nothing and makes nobody
+    // refetch. Comparing the WHOLE message would differ every single day (the countdown ticks down), which
+    // would turn the "ensure" into a daily broadcast — the exact churn this alert is meant not to cause.
+    private static string StockExpiringSoonKey(string itemName, DateTime earliestExpiryUtc) =>
+        $"Péremption proche : {itemName} — un lot expire le {FormatFrDate(earliestExpiryUtc)} (";
+
     private const string ReminderTitle = "Rappel de rendez-vous";
 
     private static string ReminderMessage(string patientName, DateTime appointmentDateTimeUtc) =>
@@ -321,6 +397,14 @@ public class NotificationGenerator : INotificationGenerator
             NotificationTargetKind.Appointment,
             actorUserId: null,
             appointmentId: appointmentId);
+
+    // An expiry is a calendar date, not a moment — no time-of-day, but still read in clinic-local time so a
+    // batch expiring just after midnight UTC is not shown as the previous day.
+    private static string FormatFrDate(DateTime utc)
+    {
+        var local = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), TunisiaTimeZone);
+        return local.ToString("dd/MM/yyyy", FrCulture);
+    }
 
     private static string FormatFr(DateTime utc)
     {

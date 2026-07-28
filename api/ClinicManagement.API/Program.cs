@@ -549,6 +549,16 @@ try
         job => job.DispatchQueuedInvoices(),
         Cron.Minutely);
 
+    // Approaching-expiry stock alerts (AC-P4.6) — daily, deliberately NOT connectivity-gated: the alert is
+    // in-app, so it has to work on an offline LAN install. An expiry is crossed by the passage of time rather
+    // than by a write, so without this scan the notification would never fire for the case it exists for (a
+    // box nobody has touched). Runs at 06:00 UTC — before the clinic opens, so the alert is already in the
+    // feed when the first person looks at the bell, rather than appearing mid-morning.
+    RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.StockExpiryJob>(
+        "flag-expiring-stock",
+        job => job.FlagExpiringStock(),
+        Cron.Daily(6));
+
     // Google→App calendar sync never runs on a schedule: the recurring job and its GoogleCalendarSyncJob
     // class were removed as dead scaffolding. App→Google sync runs inline on appointment create/update, and
     // Google→App stays manual-only (GoogleCalendarController). Defensively drop any stale recurring

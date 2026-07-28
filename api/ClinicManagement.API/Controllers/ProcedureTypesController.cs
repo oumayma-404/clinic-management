@@ -95,6 +95,27 @@ public class ProcedureTypesController : ApiControllerBase
     }
 
     /// <summary>
+    /// Replace an act's material list — the stock performing it consumes (AC-P4.14). A separate endpoint from
+    /// the PUT above because the list has replace semantics (an empty list clears it, which is the opt-out)
+    /// while every field of the update command is null-means-unchanged.
+    /// </summary>
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [HttpPut("{id}/materials")]
+    public async Task<ActionResult<Application.DTOs.ProcedureTypeDto>> SetMaterials(
+        Guid id, [FromBody] SetProcedureTypeMaterialsCommand command)
+    {
+        command.Id = id;
+        var result = await _mediator.Send(command);
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+
+        return Ok(result.Value);
+    }
+
+    /// <summary>
     /// Delete (soft delete) a procedure type
     /// </summary>
     [Authorize(Policy = AuthorizationPolicies.AdminOnly)]

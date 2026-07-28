@@ -15,7 +15,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { Stethoscope, Pencil, Trash2, Clock, Plus, Coins, ListPlus, Loader2 } from "lucide-react"
+import { Stethoscope, Pencil, Trash2, Clock, Plus, Coins, ListPlus, Loader2, Boxes } from "lucide-react"
+import { ProcedureTypeMaterialsDialog } from "@/components/procedure-type-materials-dialog"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
 import type { ProcedureTypeDto } from "@/lib/api/types"
 import { getErrorMessage, showErrorToast } from "@/lib/errors"
@@ -42,6 +43,8 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
   const [error, setError] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [seeding, setSeeding] = useState(false)
+  // AC-P4.14 — the act whose material list is being edited (« Consommables »), or null.
+  const [materialsTarget, setMaterialsTarget] = useState<ProcedureTypeDto | null>(null)
 
   const loadProcedures = async () => {
     try {
@@ -150,13 +153,14 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
                   <TableHead>Durée</TableHead>
                   <TableHead>Coût par défaut</TableHead>
                   <TableHead>Description</TableHead>
+                  <TableHead>Consommables</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {procedures.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="h-24 text-center">
+                    <TableCell colSpan={7} className="h-24 text-center">
                       <p className="text-muted-foreground">
                         {isAdmin
                           ? "Aucun type d'acte défini"
@@ -213,12 +217,35 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
                         )}
                       </TableCell>
                       <TableCell className="text-muted-foreground">{procedure.description || "-"}</TableCell>
+                      <TableCell>
+                        {/* AC-P4.14 — an act that draws down stock says so in the catalogue, so the list is
+                            discoverable rather than hidden behind a dialog nobody knows to open. */}
+                        {procedure.materials.length > 0 ? (
+                          <div className="flex items-center gap-2 text-muted-foreground">
+                            <Boxes className="h-4 w-4" aria-hidden="true" />
+                            <span>
+                              {procedure.materials.length} article{procedure.materials.length === 1 ? "" : "s"}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </TableCell>
                       <TableCell className="text-right">
                         {isAdmin && (
                           <div className="flex justify-end gap-2">
                             <Button variant="ghost" size="sm" onClick={() => onEdit(procedure)} className="h-8 gap-1">
                               <Pencil className="h-3 w-3" />
                               Modifier
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setMaterialsTarget(procedure)}
+                              className="h-8 gap-1"
+                            >
+                              <Boxes className="h-3 w-3" />
+                              Consommables
                             </Button>
                             <Button
                               variant="ghost"
@@ -240,6 +267,13 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
           </div>
         </CardContent>
       </Card>
+
+      {/* AC-P4.14 — material-list editor for one act. */}
+      <ProcedureTypeMaterialsDialog
+        procedureType={materialsTarget}
+        onOpenChange={(open) => { if (!open) setMaterialsTarget(null) }}
+        onSaved={loadProcedures}
+      />
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>

@@ -59,6 +59,83 @@ public class PatientRepository : IPatientRepository
         return await query.ToListAsync(cancellationToken);
     }
 
+    /// <summary>
+    /// AC-P4.41 — the bounded relance read. The handler previously loaded <b>every</b> patient and <b>every</b>
+    /// appointment in the clinic and did all the work in memory, so a clinic with 4 000 patients and 30 000
+    /// appointments paid for both full scans every time somebody opened the page.
+    ///
+    /// <para><b>What is in SQL:</b> clinic scope, the archived exclusion (AC-P4.43), the active snooze, the
+    /// future-booking exclusion (as an <c>EXISTS</c>, so no appointment rows come back), the last completed
+    /// visit (as a correlated <c>MAX</c>), and an upper bound on the recall anchor.</para>
+    ///
+    /// <para><b>Why the anchor bound is a superset, not the rule (AC-P4.42).</b> The rule is
+    /// <c>anchor.AddMonths(interval) &lt;= now</c>. Rewriting that as <c>anchor &lt;= now.AddMonths(-interval)</c>
+    /// so it can be a plain SQL comparison is <b>not</b> equivalent: <c>AddMonths</c> clamps to the end of the
+    /// shorter month, and the clamp does not survive inversion. 31 January + 1 month is 28 February, so on
+    /// 28 February that patient IS due — but 28 February − 1 month is 28 January, and 31 January is not
+    /// ≤ 28 January, so the inverted form would drop them. The clamp can move a date by at most three days
+    /// (31 → 28), so this bound subtracts the interval and then adds three days back, guaranteeing a superset;
+    /// the handler applies the exact <c>AddMonths</c> test to what comes back. Identical results, bounded read.
+    /// </para>
+    /// </summary>
+    public async Task<IReadOnlyList<RecallCandidate>> GetRecallCandidatesAsync(
+        Guid clinicId, DateTime anchorOnOrBeforeUtc, DateTime nowUtc, CancellationToken cancellationToken = default)
+    {
+        return await RecallCandidateQuery(_context, clinicId, anchorOnOrBeforeUtc, nowUtc)
+            .ToListAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// The relance query as an un-executed <see cref="IQueryable{T}"/>. Split out of
+    /// <see cref="GetRecallCandidatesAsync"/> so <c>RecallQueryTranslationTests</c> can compile <b>this</b>
+    /// expression tree to SQL rather than a copy of it — a test holding its own copy would keep passing after
+    /// this one changed, which is the failure mode it is meant to catch. Nothing else should call it.
+    /// </summary>
+    public static IQueryable<RecallCandidate> RecallCandidateQuery(
+        ApplicationDbContext context, Guid clinicId, DateTime anchorOnOrBeforeUtc, DateTime nowUtc)
+    {
+        var completed = AppointmentStatus.Completed;
+
+        return context.Patients
+            .Where(p => p.ClinicId == clinicId)
+            // AC-P4.43 — relancing someone the clinic has archived is exactly what archiving is meant to stop.
+            .Where(p => !p.IsArchived)
+            // An active snooze temporarily removes the patient from the list.
+            .Where(p => p.RecallSnoozedUntil == null || p.RecallSnoozedUntil <= nowUtc)
+            // A patient with a future booked appointment does not need a recall. `Any` becomes EXISTS, so the
+            // appointment rows are never materialised — that was half the original cost.
+            .Where(p => !context.Appointments.Any(a =>
+                a.PatientId == p.Id
+                && a.AppointmentDateTime > nowUtc
+                && (a.Status == AppointmentStatus.Scheduled || a.Status == AppointmentStatus.Confirmed)))
+            .Select(p => new
+            {
+                p.Id,
+                p.FirstName,
+                p.LastName,
+                Phone = p.PhoneNumber != null ? p.PhoneNumber.Value : null,
+                p.CreatedAt,
+                p.RecallReason,
+                p.LastRecallContactedAt,
+                // Completed appointments only — the deliberate consequence of the Completed → Cancelled
+                // transition (AC-P1.11): a cancelled visit did not happen, so it must not postpone a recall.
+                LastCompletedVisit = context.Appointments
+                    .Where(a => a.PatientId == p.Id && a.Status == completed)
+                    .Max(a => (DateTime?)a.AppointmentDateTime),
+            })
+            // The date bound, applied to the same anchor the handler will measure from.
+            .Where(x => (x.LastCompletedVisit ?? x.CreatedAt) <= anchorOnOrBeforeUtc)
+            .Select(x => new RecallCandidate(
+                x.Id,
+                x.FirstName,
+                x.LastName,
+                x.Phone,
+                x.LastCompletedVisit ?? x.CreatedAt,
+                x.LastCompletedVisit,
+                x.RecallReason,
+                x.LastRecallContactedAt));
+    }
+
     public async Task<PatientLinkedDataCounts> GetLinkedDataCountsAsync(
         Guid patientId,
         CancellationToken cancellationToken = default)

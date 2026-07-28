@@ -40,6 +40,27 @@ public interface INotificationGenerator
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Ensures a stock item holding a batch inside the clinic's expiry lead window carries exactly one live
+    /// approaching-expiry alert, restated to that batch's date (AC-P4.6). Visible to all staff, like
+    /// <see cref="LowStockAsync"/>, and deep-links to the item on the stock screen.
+    ///
+    /// <b>Ensure, not fire-once</b>, because expiry is crossed by the passage of time rather than by a write:
+    /// the daily scan re-evaluates every item, so a fire-once call would write a duplicate row every day.
+    /// Pair with <see cref="ClearStockExpiringSoonAsync"/> — an item whose expiring batch has been used up
+    /// must stop being flagged, and clearing the row is also what lets the item's *next* batch alert.
+    /// </summary>
+    Task EnsureStockExpiringSoonAsync(
+        Guid clinicId, Guid stockItemId, string itemName, DateTime earliestExpiryUtc,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Removes a stock item's approaching-expiry alert if one exists — the batch was consumed, discarded or
+    /// re-dated, so the item is no longer expiring soon (AC-P4.6). No-op when there is nothing to clear.
+    /// </summary>
+    Task ClearStockExpiringSoonAsync(
+        Guid clinicId, Guid stockItemId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Ensures a "post-visit review" notification for an appointment matches its current state — created if
     /// missing, otherwise moved. It becomes visible at the appointment's end (<paramref name="appointmentEndUtc"/> =
     /// start + duration; deferred visibility). The target user is resolved from <paramref name="doctorId"/>

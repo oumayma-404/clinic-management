@@ -225,6 +225,10 @@ export default function PatientDetailsPage() {
       RealtimeResource.Files,
       RealtimeResource.TreatmentPlans,
       RealtimeResource.Invoices,
+      // AC-P4.22 (A-15) — `documents` was declared and emitted with NO subscriber anywhere, and this is the
+      // one screen that lists saved medical documents (the Documents tab). `Files` is a different key for a
+      // different thing (uploaded blobs), which is how the gap survived: the page looked subscribed.
+      RealtimeResource.Documents,
     ],
     () => setRefreshKey((k) => k + 1),
   )

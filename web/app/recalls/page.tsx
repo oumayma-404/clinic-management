@@ -1,6 +1,8 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
+import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
+import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { format, parseISO } from "date-fns"
 import { fr } from "date-fns/locale"
 import { toast } from "sonner"
@@ -161,6 +163,12 @@ export default function RecallsPage() {
   useEffect(() => {
     load()
   }, [load])
+
+  // AC-P4.21/4.26 — the relance list is derived, so it moves without anyone touching this page: a snooze or a
+  // « contacté » removes a row (`recall`), booking the patient removes them too (`appointments`), and the
+  // dispatcher putting a failed recall's patient BACK on the list (AC-P3.5) is the case a stale list hides
+  // worst — the row reappears and nobody sees it.
+  useClinicRealtime([RealtimeResource.Recall, RealtimeResource.Appointments, RealtimeResource.Patients], load)
 
   // Run a per-row action, then refetch the list. Shared by the three action buttons.
   //

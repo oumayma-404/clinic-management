@@ -3,6 +3,8 @@
 import type React from "react"
 
 import { useCallback, useEffect, useState } from "react"
+import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
+import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { format } from "date-fns"
 import { fr } from "date-fns/locale"
 import { toast } from "sonner"
@@ -140,6 +142,12 @@ export default function WaitingListPage() {
     loadEntries()
     loadPatients()
   }, [loadEntries, loadPatients])
+
+  // AC-P4.21/4.26 — the salle d'attente is the canonical two-user screen: one person adds a walk-in at the
+  // desk while another works from the same queue. It had no subscription, so both saw a stale list until
+  // somebody reloaded. `waitinglist` covers the queue itself; `appointments` because promoting an entry
+  // creates a rendez-vous and removes the row, which the other viewer must see too.
+  useClinicRealtime([RealtimeResource.WaitingList, RealtimeResource.Appointments], loadEntries)
 
   // Reset the form whenever the dialog opens (create) or the edited entry changes.
   useEffect(() => {

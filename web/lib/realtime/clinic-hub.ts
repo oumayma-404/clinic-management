@@ -30,6 +30,14 @@ export const RealtimeResource = {
   // The server has always broadcast this key — RealtimeResourceResolver derives it from the
   // Features.Expenses namespace — and no client listened. La caisse is the screen that needs it.
   Expenses: "expenses",
+  // AC-P4.20 — the last four orphans of audit § 9.1. Each was already emitted by its
+  // Features/<Area>/Commands folder with nothing on this side able to name it, so the screens below
+  // never live-refreshed. RealtimeResourceResolverTests now asserts this map and the backend's emitted
+  // set are EQUAL in both directions, so neither side can grow alone again.
+  Doctors: "doctors",         // « Mon profil » / Paramètres → Médecins (profile, cachet, working hours)
+  LabOrders: "laborders",     // /lab-orders — bons de prothèse, a two-user status lifecycle
+  Recall: "recall",           // /recalls — snooze, « contacté », send; the list changes under the viewer
+  WaitingList: "waitinglist", // /waiting-list — the canonical two-user screen (salle d'attente)
 } as const
 
 export type RealtimeResourceKey = (typeof RealtimeResource)[keyof typeof RealtimeResource]

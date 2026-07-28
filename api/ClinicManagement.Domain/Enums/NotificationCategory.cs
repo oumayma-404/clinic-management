@@ -19,5 +19,12 @@ public enum NotificationCategory
     /// (AC-P3.7). Without this the outbox's failures were visible only in the admin reminder-status card,
     /// so the secretary who booked the appointment never learned the patient was not reached.
     /// </summary>
-    ReminderFailed = 7
+    ReminderFailed = 7,
+
+    /// <summary>
+    /// A stock item holds a batch whose expiry falls inside the clinic's configured lead window
+    /// (<see cref="Entities.Clinic.StockExpiryLeadDays"/>, default 30 days) — AC-P4.6. The counterpart to
+    /// <see cref="LowStock"/>: low stock is "you will run out", this is "you will have to throw it away".
+    /// </summary>
+    StockExpiringSoon = 8
 }
