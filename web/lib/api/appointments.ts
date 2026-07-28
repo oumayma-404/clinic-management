@@ -13,6 +13,8 @@ export interface CreateRecurringSeriesPayload {
   doctorName?: string | null;
   procedureTypeId?: string | null;
   notes?: string | null;
+  /** Create out-of-hours occurrences instead of skipping them (AC-P1.31). */
+  allowOutsideWorkingHours?: boolean;
 }
 
 export const appointmentsApi = {
@@ -56,6 +58,8 @@ export const appointmentsApi = {
     doctorId?: string;
     doctorName?: string;
     notes?: string;
+    /** Confirmed out-of-hours override (AC-P1.31). Recorded on the appointment, never silently allowed. */
+    allowOutsideWorkingHours?: boolean;
     procedureTypeId?: string;
     treatmentPlanId?: string | null;
     treatmentPlanItemId?: string | null;
@@ -68,6 +72,7 @@ export const appointmentsApi = {
       doctorName: data.doctorName,
       notes: data.notes,
       procedureTypeId: data.procedureTypeId,
+      allowOutsideWorkingHours: data.allowOutsideWorkingHours,
       treatmentPlanId: data.treatmentPlanId || null,
       treatmentPlanItemId: data.treatmentPlanItemId || null,
     });
@@ -96,6 +101,10 @@ export const appointmentsApi = {
     /** `null` clears the notes. */
     notes?: string | null;
     status?: string;
+    /** Recorded when the status moves to `Cancelled` — previously always null on this path. */
+    cancellationReason?: string;
+    /** Confirmed out-of-hours override for a move (AC-P1.31). */
+    allowOutsideWorkingHours?: boolean;
     /** `null` clears the booked act along with its snapshot duration and colour. */
     procedureTypeId?: string | null;
     /** Required alongside `treatmentPlanItemId` when linking — the server validates the pair. */

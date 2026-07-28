@@ -3,6 +3,7 @@
 import type React from "react"
 
 import { useCallback, useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
 import { format } from "date-fns"
 import { fr } from "date-fns/locale"
 import { toast } from "sonner"
@@ -107,7 +108,26 @@ function NewSeriesDialog({ open, onOpenChange, patients, procedureTypes, onCreat
   const [procedureTypeId, setProcedureTypeId] = useState(NO_PROCEDURE)
   const [notes, setNotes] = useState("")
   const [errors, setErrors] = useState<Record<string, string>>({})
+  const router = useRouter()
   const [saving, setSaving] = useState(false)
+  /**
+   * What the last create actually did, when some occurrences were skipped (AC-P1.36). Held instead of closing
+   * so the dates survive; null = the form is showing.
+   */
+  const [outcome, setOutcome] = useState<SeriesOutcome | null>(null)
+
+  /**
+   * « Replanifier » for one skipped occurrence (AC-P1.37): close this dialog and open the ordinary create
+   * dialog pre-filled with that date, so the dentist picks a new slot with the patient and act already set.
+   * Deep-linked through the appointments page rather than mounting a second create dialog here — that page
+   * already owns `CreateAppointmentDialog` and its `?patientId=` entry point.
+   */
+  const onReschedule = (iso: string) => {
+    const params = new URLSearchParams({ patientId, at: iso })
+    setOutcome(null)
+    onOpenChange(false)
+    router.push(`/appointments?${params.toString()}`)
+  }
 
   // Reset the form whenever the dialog is (re)opened.
   useEffect(() => {
@@ -159,11 +179,23 @@ function NewSeriesDialog({ open, onOpenChange, patients, procedureTypes, onCreat
       setSaving(true)
       const result = await appointmentsApi.createRecurring(payload)
       toast.success(`${result.createdCount} rendez-vous créés`)
-      if (result.skippedPastCount > 0 || result.conflicts.length > 0) {
-        toast.warning(`${result.skippedPastCount} ignorés (passé), ${result.conflicts.length} conflits`)
-      }
-      onOpenChange(false)
       onCreated()
+
+      // AC-P1.36/1.37: the skipped dates used to be reduced to a COUNT in a toast, and the dialog closed
+      // immediately — so the one piece of information the dentist needs (which dates did not get booked) was
+      // discarded. Keep the dialog open on the outcome panel instead, listing each date with a « Replanifier »
+      // action; close only when nothing was skipped.
+      const skipped = [...(result.conflicts ?? []), ...(result.outsideWorkingHours ?? [])]
+      if (skipped.length === 0) {
+        onOpenChange(false)
+        return
+      }
+      setOutcome({
+        createdCount: result.createdCount,
+        skippedPastCount: result.skippedPastCount,
+        conflicts: result.conflicts ?? [],
+        outsideWorkingHours: result.outsideWorkingHours ?? [],
+      })
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Échec de la création de la série")
     } finally {
@@ -179,6 +211,64 @@ function NewSeriesDialog({ open, onOpenChange, patients, procedureTypes, onCreat
           <DialogDescription>Planifiez une série de rendez-vous répétés pour un patient.</DialogDescription>
         </DialogHeader>
 
+        {/*
+          AC-P1.36/1.37 — the outcome panel. `conflicts` came back from the API and the UI reduced it to a
+          count in a toast, then closed the dialog: the dates were thrown away, so a dentist could not act on
+          them. Conflicts and out-of-hours dates are listed separately because the remedies differ — a clash
+          needs another slot, a closed day needs different hours or a confirmed override.
+        */}
+        {outcome ? (
+          <div className="space-y-4" role="status" aria-live="polite">
+            <p className="text-sm">
+              <span className="font-semibold">{outcome.createdCount}</span> rendez-vous créés.
+              {outcome.skippedPastCount > 0 && (
+                <> {outcome.skippedPastCount} ignoré(s) car déjà passé(s).</>
+              )}
+            </p>
+
+            {outcome.conflicts.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-sm font-medium">
+                  {outcome.conflicts.length} créneau(x) déjà réservé(s) pour ce praticien :
+                </p>
+                <ul className="space-y-1">
+                  {outcome.conflicts.map((iso) => (
+                    <li key={iso} className="flex items-center justify-between gap-2 rounded-md border px-3 py-1.5">
+                      <span className="text-sm">{formatDateTime(iso)}</span>
+                      <Button type="button" variant="outline" size="sm" onClick={() => onReschedule(iso)}>
+                        Replanifier
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {outcome.outsideWorkingHours.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-sm font-medium">
+                  {outcome.outsideWorkingHours.length} date(s) en dehors des horaires d&apos;ouverture :
+                </p>
+                <ul className="space-y-1">
+                  {outcome.outsideWorkingHours.map((iso) => (
+                    <li key={iso} className="flex items-center justify-between gap-2 rounded-md border px-3 py-1.5">
+                      <span className="text-sm">{formatDateTime(iso)}</span>
+                      <Button type="button" variant="outline" size="sm" onClick={() => onReschedule(iso)}>
+                        Replanifier
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <DialogFooter>
+              <Button type="button" onClick={() => { setOutcome(null); onOpenChange(false) }}>
+                Terminé
+              </Button>
+            </DialogFooter>
+          </div>
+        ) : (
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="patient">
@@ -334,12 +424,23 @@ function NewSeriesDialog({ open, onOpenChange, patients, procedureTypes, onCreat
             </Button>
           </DialogFooter>
         </form>
+        )}
       </DialogContent>
     </Dialog>
   )
 }
 
 // ---- Page ------------------------------------------------------------------------------------------
+
+/** The per-occurrence result of a series create, kept so skipped dates can be listed and re-booked. */
+interface SeriesOutcome {
+  createdCount: number
+  skippedPastCount: number
+  /** ISO dates that clashed with an existing booking — need a different slot. */
+  conflicts: string[]
+  /** ISO dates outside the practitioner's working hours — need different hours, or a confirmed override. */
+  outsideWorkingHours: string[]
+}
 
 export default function RecurringSeriesPage() {
   const [series, setSeries] = useState<RecurringAppointmentDto[]>([])

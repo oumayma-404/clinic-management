@@ -208,6 +208,13 @@ export interface AppointmentDto {
   doctorName?: string;
   notes?: string;
   status: string;
+  /**
+   * The statuses this appointment may legally move to, from the domain's transition table (AC-P1.6). The status
+   * Select offers exactly these, and « Annuler » derives its disabled state from whether `Cancelled` is present
+   * — instead of the client re-deriving rules that could disagree with the server (and did: the button was
+   * disabled on a completed appointment, which is now a legal cancellation).
+   */
+  allowedNextStatuses?: string[];
   createdAt: string;
   procedureTypeId?: string;
   procedureTypeName?: string;
@@ -690,6 +697,8 @@ export interface RecurringSeriesResultDto {
   createdCount: number;
   skippedPastCount: number;
   conflicts: string[];
+  /** Occurrences skipped because they fell outside the practitioner's working hours (AC-P1.28/1.36). */
+  outsideWorkingHours?: string[];
 }
 
 // A treatment plan / devis for a patient. `status` is a TreatmentPlanStatus enum name: Draft | Accepted |

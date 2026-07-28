@@ -40,7 +40,11 @@ import { ApiError } from "@/lib/api/client"
 import { useDoctors } from "@/lib/hooks/use-doctors"
 import { useAppointmentOverlap } from "@/lib/hooks/use-appointment-overlap"
 import { specialtyLabel } from "@/lib/specialties"
-import { appointmentStatusBadgeClass, appointmentStatusLabel } from "@/components/appointment-labels"
+import {
+  APPOINTMENT_STATUSES,
+  appointmentStatusBadgeClass,
+  appointmentStatusLabel,
+} from "@/components/appointment-labels"
 
 /**
  * Sentinel for "no practitioner" in the Radix Select, which cannot hold an empty-string value. Mapped to `""`
@@ -104,6 +108,20 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
     if (hours > 0) return `${hours}h`
     return `${mins}m`
   }, [calculatedDuration])
+
+  /**
+   * The statuses this appointment may move to, plus its current one so the Select always has a value for what
+   * it is showing. Falls back to the full set only when the server did not send the field (an older cached
+   * payload) — never to a client-side re-derivation of the rules.
+   */
+  const statusOptions = useMemo(() => {
+    const current = appointment?.status
+    const allowed = appointment?.allowedNextStatuses
+    if (!allowed || allowed.length === 0) {
+      return [...APPOINTMENT_STATUSES]
+    }
+    return current && !allowed.includes(current) ? [current, ...allowed] : allowed
+  }, [appointment?.status, appointment?.allowedNextStatuses])
 
   // Advisory overlap warning (AC-3): excludes the appointment being edited; non-blocking.
   const { warning: overlapWarning, blocking: overlapBlocking } = useAppointmentOverlap({
@@ -417,10 +435,11 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Date Picker */}
                 <div className="space-y-2">
-                  <Label className="text-sm">Date *</Label>
+                  <Label htmlFor="edit-appt-date" className="text-sm">Date *</Label>
                   <Popover modal>
                     <PopoverTrigger asChild>
                       <Button
+                        id="edit-appt-date"
                         variant="outline"
                         className={cn(
                           "w-full h-10 justify-start text-left font-normal",
@@ -440,10 +459,10 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
 
                 {/* Start Time */}
                 <div className="space-y-2">
-                  <Label className="text-sm">Heure de début *</Label>
+                  <Label htmlFor="edit-appt-start-time" className="text-sm">Heure de début *</Label>
                   <div className="flex gap-2">
                     <Select value={startHour} onValueChange={setStartHour} disabled={loading}>
-                      <SelectTrigger className="h-10">
+                      <SelectTrigger id="edit-appt-start-time" className="h-10">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent className="max-h-[200px]">
@@ -512,10 +531,10 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
               <div className="space-y-2">
                 {useEndTime ? (
                   <div className="space-y-2">
-                    <Label className="text-sm">Heure de fin *</Label>
+                    <Label htmlFor="edit-appt-end-time" className="text-sm">Heure de fin *</Label>
                     <div className="flex gap-2">
                       <Select value={endHour} onValueChange={setEndHour} disabled={loading}>
-                        <SelectTrigger className="h-10">
+                        <SelectTrigger id="edit-appt-end-time" className="h-10">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent className="max-h-[200px]">
@@ -681,12 +700,15 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="scheduled">Planifié</SelectItem>
-                      <SelectItem value="confirmed">Confirmé</SelectItem>
-                      <SelectItem value="inprogress">En cours</SelectItem>
-                      <SelectItem value="completed">Terminé</SelectItem>
-                      <SelectItem value="cancelled">Annulé</SelectItem>
-                      <SelectItem value="noshow">Absence</SelectItem>
+                      {/* AC-P1.6/1.43: the options come from the server's declared transition table, so the
+                          control can no longer offer a move the API refuses. The six hardcoded options were
+                          also the only French status copy in the app — that now lives in appointment-labels.ts.
+                          Values stay lower-cased because this dialog posts the selection back verbatim. */}
+                      {statusOptions.map((s) => (
+                        <SelectItem key={s} value={s.toLowerCase()}>
+                          {appointmentStatusLabel(s)}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>

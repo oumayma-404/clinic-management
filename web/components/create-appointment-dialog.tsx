@@ -737,10 +737,11 @@ export function CreateAppointmentDialog({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Date Picker */}
               <div className="space-y-2">
-                <Label className="text-sm">Date *</Label>
+                <Label htmlFor="create-appt-date" className="text-sm">Date *</Label>
                 <Popover modal>
                   <PopoverTrigger asChild>
                     <Button
+                      id="create-appt-date"
                       variant="outline"
                       className={cn(
                         "w-full h-10 justify-start text-left font-normal",
@@ -759,10 +760,10 @@ export function CreateAppointmentDialog({
 
               {/* Start Time */}
               <div className="space-y-2">
-                <Label className="text-sm">Heure de début *</Label>
+                <Label htmlFor="create-appt-start-time" className="text-sm">Heure de début *</Label>
                 <div className="flex gap-2">
                   <Select value={startHour} onValueChange={setStartHour} required>
-                    <SelectTrigger className="h-10">
+                    <SelectTrigger id="create-appt-start-time" className="h-10">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent className="max-h-[200px]">
@@ -830,10 +831,10 @@ export function CreateAppointmentDialog({
             <div className="space-y-2">
               {useEndTime ? (
                 <div className="space-y-2">
-                  <Label className="text-sm">Heure de fin *</Label>
+                  <Label htmlFor="create-appt-end-time" className="text-sm">Heure de fin *</Label>
                   <div className="flex gap-2">
                     <Select value={endHour} onValueChange={setEndHour} required>
-                      <SelectTrigger className="h-10">
+                      <SelectTrigger id="create-appt-end-time" className="h-10">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent className="max-h-[200px]">
