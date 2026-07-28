@@ -15,7 +15,7 @@
 | **P1** Appointment lifecycle & booking | 3.1, 3.2, 3.4, 5.4, 6.1, 6.9, 8.1, 8.4 | — | **complete** (`02dcc17`, `a813268`, `767ecae`, `1574c2e`, `05183d2`, `6906f83`). Both migrations landed in `6906f83` — the exclusion constraint (+ pre-flight) and the `Type:`-prefix backfill; the third turned out not to be needed. Only deferral left: the calendar row-trim (AC-P1.33, see below) |
 | **P2** Finish what's built | 5.1–5.3, 5.5–5.9, 5.11, 5.12, 6.10, 6.11, 8.3 | — | **complete** — all 13 steps, AC-P2.1–2.45 |
 | **P3** UX, accessibility & French | 3.3, 6.3, 7.1–7.9, 8.2, 8.6 | — | **complete** — all 13 steps, AC-P3.1–3.54. The manual walk (AC-P3.48) was done **statically**, not in a browser — stated plainly below |
-| **P4** Stock, realtime & schema | 6.6, 6.7, 6.12, 9.1–9.6 | — | not-started |
+| **P4** Stock, realtime & schema | 6.6, 6.7, 6.12, 9.1–9.6 | — | **not-started.** Its gate — the `verify-schema` verb — was built first and landed separately (`5586295`+1); see the session log. Design pre-work for steps 1–4 is recorded below so the next session does not re-derive it |
 | **P5** Build & tooling | 10.1–10.5 | warnings step **last in story** | not-started |
 | **P6** Money truth & timezone | 4.1, 4.2, 5.10, 6.2, 6.8, 8.5, 9.7 | — | not-started |
 | **P7** Audit trail, duplicate prevention, anonymize | 6.4 | P7a first | not-started |
@@ -102,7 +102,7 @@ Until then the backend gate is `dotnet build --no-incremental` only, which prove
 | 5 | **Audit trail is one `AuditEntry` table**, inline per handler, mutation fails on audit-write failure | spec AC-P7.5–7.6 |
 | 6 | **Duplicate matching = persisted normalized column** (no extension, no functional index) | spec AC-P7.22 |
 | 7 | **Decimal precision = full normalization** — convention + 26 deletions, not the convention alone | spec AC-P4.37 |
-| 8 | **`verify-schema` console verb** is the only gate for schema-level changes | plan Testing Strategy |
+| 8 | **`verify-schema` console verb** is the only gate for schema-level changes | plan Testing Strategy — **built 2026-07-28**, see the session log; it was scoped to P1 and silently never landed |
 | 9 | **CI is in scope** (AC-P5.4) unless explicitly declined | spec Q-9 |
 
 ## Deviations
@@ -178,6 +178,39 @@ shipped AC, not implementation bugs; each is named in the P3 session log's closi
 
 ## Learnings
 
+### A step that is a *gate* for later parts must be verified as delivered, not inferred from the part's status
+`verify-schema` was a P1 step. P1's commit declared the part COMPLETE, its progress row listed only the calendar
+row-trim as outstanding, and P2 and P3 both wrote « `verify-schema`: not applicable — this part adds no
+migration » in their gate tables. Three sessions in a row therefore *referenced* the verb without anyone noticing
+it had never been written — and the one part that needs it (P4, eleven migrations) is the one where its absence
+does real damage.
+**Recommendation:** when a plan names a tool as the gate for a class of change, the session that lands the tool
+must prove it *runs* — invoke it and paste the output into `progress.md`. And when a later part records a gate as
+"not applicable", that is the moment to confirm the gate exists at all: "not applicable" and "not implemented"
+look identical in a table and mean completely different things.
+
+### A verification tool must derive its expectations from the model, or it rots exactly like the tests it replaces
+My first `verify-schema` draft hardcoded the indexes and FKs to check — including P4's, which do not exist yet, so
+it would have reported drift for unbuilt work *and* silently stopped growing the moment someone added an index
+without editing it. That is the same defect this feature's plan already flags three times (**R-9**, **R-13**,
+**R-14**: a "contract" test with a hand-maintained list that can never fail on a new case). Rewriting it to read
+the EF model and diff against PostgreSQL's catalog made it shorter, self-maintaining, and immediately capable of
+finding a real defect nobody had listed (`StockItems.UnitPrice`).
+**Recommendation:** before writing any assertion over a schema, a route table, or a key set, ask what the
+authoritative source already is and read *that*. Reserve the hand-written list for the things the source genuinely
+cannot express — and comment why each one is there.
+
+### A gate that cries wolf gets switched off — so a false positive is a defect in the gate, not noise
+`verify-schema`'s first live run reported 7 missing foreign keys that PostgreSQL cannot have: the identity links
+of owned types and table splitting (`Patients(Id) -> Patients`). Shipping that would have made the operator's
+first experience of the tool "it reports seven problems that aren't real", after which its exit code means
+nothing. The fix had to be **narrow** — `fk.IsOwnership` plus a same-table/own-primary-key test — because the
+lazy version ("ignore self-references") would also have stopped verifying
+`PatientFolder.ParentFolderId`.
+**Recommendation:** run a new gate against real data before committing it, and treat every false positive as
+blocking. Then check the fix does not widen into the real cases: an exclusion that silences a true positive is
+worse than the false one it removed.
+
 ### "Learn the outcome" and "undo the wrong outcome" are one fix — shipping only the first moves the defect
 § 3.3 reads as one bug ("the toast lies"), and AC-P3.1 alone would silence it for the clinic with no channel
 configured. But a clinic *with* a channel and a dead gateway still snoozed the patient 30 days on a message that
@@ -244,6 +277,83 @@ is, one map at the client's derivation point is the whole fix — and make the m
 through) so re-saving historical rows is safe.
 
 ## Session log
+
+### 2026-07-28 — **`verify-schema` built** (P4's gate; a carried-forward P1 step)
+
+**This session was scoped to P4 and deliberately re-scoped.** P4's own "Done when" requires
+`verify-schema`, and decision #8 makes it the **only** gate for a schema-level change — but the verb **did not
+exist**. It was listed in P1's remaining steps, P1's final commit declared the part COMPLETE without it, and the
+P1 row said only the calendar row-trim was outstanding. It had silently fallen off. P4 lands **11 migrations**, so
+building its gate first was confirmed with the user rather than assumed.
+
+| Delivered | Where |
+|---|---|
+| `ISchemaVerificationReader` + the fact records (`SchemaFacts`, `SchemaSide`, `IndexFact`, `ForeignKeyFact`, `DecimalColumnFact`, `MappedDecimalFact`, `TableConstraintFact`, `DataMigrationCounts`) | `Application/Common/Interfaces/` |
+| `SchemaVerificationService` — the assertions, unit-testable against a mocked reader | `Application/Common/Maintenance/` |
+| `SchemaVerificationReader` — the EF-model side + the PostgreSQL catalog side | `Infrastructure/Persistence/` |
+| `VerifySchemaCommand` + the `Program.cs` verb interception | `API/Maintenance/`, `API/Program.cs` |
+| 24 service tests + 4 wrapper tests | `UnitTests/Common/Maintenance/`, `UnitTests/Api/Maintenance/` |
+
+**Three design points that matter.**
+
+1. **Model-driven, not a hand-maintained expectation list.** My first draft hardcoded the indexes and FKs to
+   check. That is *precisely* the shape of bug this feature's own plan flags three times (**R-9** the realtime
+   "contract" test that never fails on a new area, **R-13** `ConcurrencyConflictTests`' hardcoded DTO lists,
+   **R-14** `AdminSurfaceCoverageTests`' hardcoded array) — and it would have rotted identically: P4 adds five
+   indexes and two FKs, and nothing would have forced the list to grow. Rewritten to read the expected indexes,
+   FKs and decimal precisions **from the EF model** and diff them against `pg_index`/`pg_constraint`/
+   `information_schema`. A schema object added in a configuration file is now verified for free. Only what the
+   model *cannot* express is named in the service: `btree_gist`, the exclusion constraint's partiality, the two
+   rate columns, and the data-migration row counts.
+2. **Indexes are matched on table + ordered columns, never on name.** EF's generated name and a hand-written
+   migration's name legitimately differ (P1's exclusion constraint is hand-written), and it is the covered
+   columns that decide whether a query is actually served. Name-matching would have reported every hand-written
+   index as missing. Column *order* is part of the identity — `(A, B)` does not serve what `(B, A)` does.
+3. **An unbuilt part reports « not applicable », not drift.** The backfill counts are nullable and each is guarded
+   on its table/column existing. Two reasons: work that has not been implemented is not a regression, and a gate
+   that exits non-zero for unbuilt parts trains the operator to ignore its exit code — the one thing a gate must
+   never do. Reporting `0` instead would be worse still: it would claim a backfill succeeded when it never ran.
+
+**It found a real defect on its first run.** 167 checks ok, **2 drift** — and both are the same true positive:
+`StockItems.UnitPrice` is `(18,2)` on the database **and** `numeric(18,2)` in the model. That is exactly § 9.5 /
+AC-P4.36, which P4 step 10 fixes. The verb currently exits **2**, correctly, and that output is the "before"
+baseline P4 diffs against.
+
+**A false-positive class found and closed while validating it.** The first live run reported 7 missing foreign
+keys — `Patients(Id) -> Patients` ×6 and `ProcedureTypes(Id) -> ProcedureTypes`. Those are the identity links of
+**owned types and table splitting** (`Patient.Address`/`InsuranceInfo`/`CnamInfo` live in the `Patients` row);
+PostgreSQL has no such constraint. Filtered on `fk.IsOwnership` **plus** a same-table/own-primary-key check, so a
+genuine self-reference like `PatientFolder.ParentFolderId` is still verified. Worth recording because a gate that
+cries wolf 7 times gets ignored — and the fix had to be *narrow*, not "skip self-references".
+
+| Gate | Result |
+|---|---|
+| Backend build (`--no-incremental`, full solution) | **0 errors**, 56 warnings (baseline) — **0 in any file this session created** (warning set grepped for both new type names) |
+| **Full unit suite** | **1237 passed, 0 failed** (+28 on the 1209 baseline). SAC did not block |
+| `verify-schema` (live DB) | runs; **167 ok / 2 drift**, exit **2** — the 2 are the genuine § 9.5 defect. Report saved for the P4 before/after diff |
+| `reconcile-money` (live DB) | exit **0**, output **byte-identical** to the pre-session run — this session touched no money path |
+| Frontend | **not touched** this session; no `tsc`/`build` run needed |
+
+**Not started: P4 itself.** Steps 1–11 and the 11 migrations are next session's work, now against a working gate.
+
+#### P4 design pre-work (explored, then reverted — do not re-derive)
+
+I built and then reverted P4's stock domain model to keep this commit clean and green (the tree was red once
+`StockItemDto` lost `ExpiryDate`). The code is saved at
+`<scratchpad>/p4-prework/` (`StockBatch.cs`, `ProcedureTypeMaterial.cs`, `StockItem.cs`, both configurations, and
+`p4-model-edits.patch` for the five edited files). **Three findings are the valuable part:**
+
+1. **The material list can only hang off `ProcedureType`, not `DentalActCode`.** AC-P4.9 says "ProcedureType
+   and/or DentalActCode". Only one is reachable from a saved fiche: `DentalRecordAct` carries a nullable
+   `ProcedureTypeId` and **no** `DentalActCodeId`. A list on `DentalActCode` could never be consumed on fiche save
+   (AC-P4.10) — it would be a second finished-but-uncallable capability, the exact class P2 existed to remove.
+2. **`SetCurrentStock` must return the signed delta.** AC-P4.15 needs a `StockMovement` whenever `CurrentStock`
+   changes, and the method returned `void` — which is *why* its only caller wrote no movement and Σ movements
+   stopped reconciling. It also has to reconcile the batch rows to the new total, or a stock-take leaves the lots
+   and the on-hand total disagreeing.
+3. **`AddStock` must return its batch, and the backfill needs a separate door.** The opening batch the migration
+   creates is *already* counted in `CurrentStock`, so it cannot go through `AddStock` (which increments). Hence
+   `AttachExistingBatch`, which deliberately does not touch the total.
 
 ### 2026-07-28 — **P3 complete**: UX, accessibility & French
 

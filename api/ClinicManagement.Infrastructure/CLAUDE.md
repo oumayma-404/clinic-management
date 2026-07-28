@@ -36,6 +36,15 @@ self-generated HTTPS trust material, and per-clinic reference-catalog seeding. A
     noise from filtering roots but not their children).
 - **`ApplicationDbContextFactory.cs`** — `IDesignTimeDbContextFactory` for `dotnet ef` (reads the API project's
   connection string).
+- **`MoneyReconciliationReader.cs`** / **`SchemaVerificationReader.cs`** — the read sides of the two console
+  report verbs (`reconcile-money`, `verify-schema`). Both are read-only and cross-clinic: their verbs build a
+  container from `AddInfrastructure` alone, so no `ICurrentClinicProvider` exists, the context's optional provider
+  is null and every global clinic filter is inactive — no `IgnoreQueryFilters()` needed. `SchemaVerificationReader`
+  is the only class here that queries **PostgreSQL's own catalog** (`pg_extension`, `pg_constraint`, `pg_index`,
+  `information_schema.columns`) over raw ADO, because those views are not in the EF model at all; it also projects
+  the **model's** declared indexes/FKs/precisions so the service can diff the two sides. Note it excludes owned-type
+  and table-splitting identity "foreign keys" (`Patients(Id) -> Patients`) — PostgreSQL has no such constraint and
+  reporting them produced 7 false positives on the first run.
 - **`UnitOfWork.cs`** — `IUnitOfWork`: wraps `SaveChangesAsync` + `BeginTransaction/Commit/Rollback`.
   Repositories only stage changes; callers commit via the UoW.
 - **Reference-catalog seeds + seeder** — `CnamCatalogSeed`, `MedicationCatalogSeed`, `DentalActCatalogSeed`

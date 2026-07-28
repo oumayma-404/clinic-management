@@ -104,6 +104,14 @@ Implemented in **Infrastructure** unless noted. Grouped:
   attribution old-vs-new, orphans, sentinels, over-credited invoices, duplicate bridge invoices). Like
   `AdminPasswordRecoveryService` it is **deliberately not DI-registered**: there is no HTTP-reachable money
   report, and it lives here so `UnitTests` can exercise it.
+- **`Common/Maintenance/SchemaVerificationService`** — the core of the **`verify-schema`** console verb, and the
+  only gate for a schema-level change (nothing in `UnitTests` touches a database, so a migration is the one class
+  of change the suite structurally cannot verify). Reads both sides through `ISchemaVerificationReader` — what the
+  **EF model** declares vs. what PostgreSQL's catalog **has** — and diffs them, so an index or FK added in a
+  configuration file is checked without editing this service. Only what the model cannot express is named in it:
+  `btree_gist`, the exclusion constraint's **partiality**, the two `(5,2)` rate-column exceptions, and the
+  data-migration row counts (each nullable, so a part that has not run yet reports « not applicable » rather than
+  a misleading `0`). Same not-DI-registered rule as the two services above.
 
 ## Gotchas
 - **No FluentValidation validators exist** — `ValidationBehavior` finds none; validation is inline via `Result.Failure`.

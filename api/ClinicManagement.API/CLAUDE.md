@@ -65,9 +65,13 @@ PostgreSQL storage (same `DefaultConnection`) + a Hangfire server. Dashboard at 
 ## `Program.cs` startup pipeline
 Reads the auth mode from an early `ConfigurationBuilder` **before** `WebApplication.CreateBuilder` (the Serilog log path + the outer startup-failure catch both need it early). In Local the log file is anchored to `LocalInstallPaths.BaseDirectory/logs/` (a Windows service's CWD is `System32`); Cloud keeps relative `logs/`.
 
-**Two console verbs are intercepted before the web host boots** (both Local-only, direct-DB/no-web, exit code):
+**Console verbs are intercepted before the web host boots** (all Local-only, direct-DB/no-web, exit code):
 - `reset-admin-password [email]` → `Maintenance/AdminPasswordResetCommand` (offline admin lockout recovery, wraps Application's `AdminPasswordRecoveryService`).
 - `provision-cert` → `Maintenance/ProvisionCertCommand` (idempotently mints/reuses the CA + server cert into `.local/` and exits; the installer runs it before starting the service so first boot reuses the cert under the SCM timeout).
+- `harden-permissions <dir>…` → `Maintenance/HardenPermissionsCommand`; `protect-credential`/`read-credential` → `Maintenance/CredentialProtectionCommand`.
+- **The two read-only report verbs**, which share exit codes (`0` clean / `1` couldn't run / `2` **ran and found drift**) so they can be scripted identically, and are both meant to be run **before and after a migration batch and diffed**:
+  - `reconcile-money [months]` → `Maintenance/ReconcileMoneyCommand` (wraps `MoneyReconciliationService`).
+  - `verify-schema` → `Maintenance/VerifySchemaCommand` (wraps `SchemaVerificationService`). The **only** gate for a schema-level change — nothing in the test project touches a database. Both build their container from `AddInfrastructure` **only**, never `AddApplication`, so no `ICurrentClinicProvider` is registered, the global clinic query filters stay inactive, and the reads span every clinic without `IgnoreQueryFilters()`.
 
 Service registration order:
 1. **Serilog** (console + daily rolling file, 7-day retention); `UseSerilog()`.

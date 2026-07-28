@@ -97,6 +97,20 @@ Frontend talks to the API via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
   closed month), orphan and sentinel counts, over-credited invoices and duplicate bridge invoices. Exit code
   **0** clean / **1** couldn't run / **2** drift found; it never mutates. Run it before and after the migration
   batch and diff.
+- **`verify-schema` (Local-mode console verb)**: the sibling gate for **schema** changes, added by
+  `audit-sections-3-to-10`. Nothing in the test project touches a database, so a migration is the one class of
+  change unit tests structurally cannot verify — an index can be missing, an exclusion constraint can be
+  non-partial, a backfill can cover zero rows, and the whole suite still passes. `dotnet run -- verify-schema`
+  reads the **EF model** (its declared indexes, FKs and decimal precisions) and diffs it against PostgreSQL's own
+  catalog, so a schema object added in a configuration file is verified for free — deliberately **not** a
+  hand-maintained expectation list, which is the failure mode the plan's R-9/R-13/R-14 all describe. On top of the
+  diff it asserts what the model cannot express: `btree_gist` is installed, the appointment exclusion constraint
+  exists **and is partial** (a non-partial one makes a cancelled slot permanently unbookable), the two VAT-rate
+  columns keep `(5,2)` while every other decimal is `(18,3)`, and the per-migration backfill row counts. Indexes
+  are matched on **table + ordered columns, never on name** (a hand-written migration's name legitimately differs
+  from EF's). Same exit codes and the same before/after-and-diff workflow as `reconcile-money`; read-only.
+  Logic in `Application/Common/Maintenance/SchemaVerificationService.cs`, both-sides reader in
+  `Infrastructure/Persistence/SchemaVerificationReader.cs`.
 
 - **Multi-tenancy**: every request is scoped to a clinic. The **authoritative** check is per-request in the handlers — the clinic is resolved from the DB user record (`ICurrentClinicResolver`/`IClinicContext` → DB lookup of the `sub`, not purely from the JWT claim) and each loaded aggregate's `ClinicId` is re-verified. Since `cloud-security-and-tenant-isolation` (PR #11) there is **also** a defense-in-depth backstop: EF Core **global query filters** on ~15 clinic-owned aggregate roots, fed the JWT `clinic_id` via `ICurrentClinicProvider` (fail-open — inactive when no clinic is in scope, so jobs/CLI/auth flows still work). See `Infrastructure/Persistence/ApplicationDbContext.cs`. Tenant-isolation is pinned by `*TenantIsolationTests` in the test project.
 - **Pluggable auth (`Auth:Mode` = `Cloud` | `Local`)**: Cloud is the original Auth0 path; **Local** (for offline Windows/LAN installs) issues its own HS256 JWTs against local email+password accounts. Backend seam: `ILocalAuthService`/`LocalAuthService` (+ per-install signing key via `LocalAuthConfig`), a mode-branched JWT setup in `Program.cs`, and `AuthController` (`login`/`setup`/`register`/`mode`/`change-password`). `CreateClinicCommand`/`JoinClinicCommand` branch to a Local path when a `Password` is present. Frontend seam: a single `useSession()` context (`web/lib/auth/session.tsx`) backed by either `CloudSessionProvider` (Auth0) or `LocalSessionProvider` (HttpOnly cookie), gated on `AUTH_MODE`. All Local behavior is additive; the Cloud path is unchanged. Offline admin lockout recovery is a console command (`dotnet run -- reset-admin-password`), not a web endpoint. *All 5 phases of the offline-Windows repackaging are complete — see `features/windows-desktop-app/`.*

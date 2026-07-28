@@ -44,6 +44,18 @@ if (args.Length > 0 && string.Equals(args[0], ReconcileMoneyCommand.CommandName,
     return await ReconcileMoneyCommand.RunAsync(args);
 }
 
+// Schema verification (audit §§ 3–10, plan Testing Strategy): asserts the database actually has the schema the
+// EF model describes — indexes, foreign keys, decimal precision — plus the exclusion constraint's partiality,
+// btree_gist, and the row counts that prove each data migration covered its rows. Nothing in the test project
+// touches a database, so this is the ONLY gate for a schema-level change. Same before/after-and-diff workflow
+// as reconcile-money, and read-only. Usage:
+//   ClinicManagement.API.exe verify-schema
+// Exit codes: 0 = matches the model, 1 = could not run, 2 = ran and found drift.
+if (args.Length > 0 && string.Equals(args[0], VerifySchemaCommand.CommandName, StringComparison.OrdinalIgnoreCase))
+{
+    return await VerifySchemaCommand.RunAsync(args);
+}
+
 // Install-time permission hardening (security-hardening, audit § 2 findings 1–3): tightens NTFS ACLs on the
 // install's data directories so no other local account can read the patient database, the uploaded files,
 // the logs, or the .local/ trust store. The installer calls this instead of running icacls itself, so the
