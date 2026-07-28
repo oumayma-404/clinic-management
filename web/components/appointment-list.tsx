@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Clock, Loader2 } from "lucide-react"
 import { useAppointments } from "@/lib/hooks/use-appointments"
+import { appointmentStatusBadgeClass, appointmentStatusLabel } from "@/components/appointment-labels"
 
 function getInitials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean)
@@ -66,11 +67,8 @@ export function AppointmentList() {
                   <span className="text-sm font-medium text-foreground">
                     {format(new Date(appointment.appointmentDateTime), "HH:mm")}
                   </span>
-                  <Badge
-                    variant={appointment.status === "Confirmed" ? "default" : "secondary"}
-                    className="capitalize"
-                  >
-                    {appointment.status}
+                  <Badge variant="secondary" className={appointmentStatusBadgeClass(appointment.status)}>
+                    {appointmentStatusLabel(appointment.status)}
                   </Badge>
                 </div>
               </div>

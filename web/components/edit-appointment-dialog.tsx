@@ -40,6 +40,7 @@ import { ApiError } from "@/lib/api/client"
 import { useDoctors } from "@/lib/hooks/use-doctors"
 import { useAppointmentOverlap } from "@/lib/hooks/use-appointment-overlap"
 import { specialtyLabel } from "@/lib/specialties"
+import { appointmentStatusBadgeClass, appointmentStatusLabel } from "@/components/appointment-labels"
 
 /**
  * Sentinel for "no practitioner" in the Radix Select, which cannot hold an empty-string value. Mapped to `""`
@@ -361,16 +362,9 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
 
   if (!appointment) return null
 
-  const statusColors: Record<string, string> = {
-    scheduled: "bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-500/20 dark:text-blue-400",
-    confirmed: "bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-500/20 dark:text-blue-400",
-    completed: "bg-green-100 text-green-700 border-green-300 dark:bg-green-500/20 dark:text-green-400",
-    cancelled: "bg-gray-100 text-gray-700 border-gray-300 dark:bg-gray-800 dark:text-gray-400",
-    inprogress: "bg-yellow-100 text-yellow-700 border-yellow-300 dark:bg-yellow-500/20 dark:text-yellow-400",
-    noshow: "bg-orange-100 text-orange-700 border-orange-300 dark:bg-orange-500/20 dark:text-orange-400",
-  }
 
-  const statusDisplay = status.charAt(0).toUpperCase() + status.slice(1).replace(/([A-Z])/g, ' $1').trim()
+  // AC-P1.41/1.44: was a string-mangler whose ([A-Z]) branch was dead (the value is lower-cased at
+  // hydration), so « Inprogress » and « Noshow » reached the screen. One shared map now.
 
   return (
     <>
@@ -382,8 +376,8 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                 <DialogTitle className="text-2xl">Modifier le rendez-vous</DialogTitle>
                 <DialogDescription>Mettez à jour les détails du rendez-vous ou changez son statut</DialogDescription>
               </div>
-              <Badge className={cn("border", statusColors[status] || statusColors.scheduled)}>
-                {statusDisplay}
+              <Badge variant="secondary" className={appointmentStatusBadgeClass(status)}>
+                {appointmentStatusLabel(status)}
               </Badge>
             </div>
           </DialogHeader>

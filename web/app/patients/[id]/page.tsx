@@ -86,6 +86,7 @@ import type { PatientBillingSummaryDto } from "@/lib/api/types"
 import { HandCoins } from "lucide-react"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
+import { appointmentStatusBadgeClass, appointmentStatusLabel, genderLabel } from "@/components/appointment-labels"
 
 const calculateAge = (dob: string | undefined) => {
   if (!dob) return null
@@ -1303,19 +1304,12 @@ export default function PatientDetailsPage() {
                                       )}
                                     </TableCell>
                                     <TableCell>
-                                      <Badge 
-                                        variant={
-                                          appointment.status === "Scheduled" || appointment.status === "Confirmed" 
-                                            ? "default" 
-                                            : appointment.status === "Completed"
-                                            ? "secondary"
-                                            : appointment.status === "Cancelled"
-                                            ? "outline"
-                                            : "outline"
-                                        }
-                                        className={isCanceled ? "bg-muted text-muted-foreground" : undefined}
+                                      {/* AC-P1.42: printed the raw English enum name. */}
+                                      <Badge
+                                        variant="secondary"
+                                        className={appointmentStatusBadgeClass(appointment.status)}
                                       >
-                                        {appointment.status}
+                                        {appointmentStatusLabel(appointment.status)}
                                       </Badge>
                                     </TableCell>
                                 <TableCell className="max-w-xs">
@@ -1590,7 +1584,7 @@ export default function PatientDetailsPage() {
                   <Separator />
                   <div>
                     <p className="text-xs font-medium text-muted-foreground">Sexe</p>
-                    <p className="text-sm text-foreground">{patient.gender || "Non renseigné"}</p>
+                    <p className="text-sm text-foreground">{genderLabel(patient.gender)}</p>
                   </div>
                   <Separator />
                   <div>

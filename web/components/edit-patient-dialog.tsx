@@ -30,6 +30,7 @@ import { patientFamilyHistoryApi } from "@/lib/api/patient-family-history"
 import type { PatientDto, PatientMedicalHistoryDto, PatientFamilyHistoryDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import { isDeliverablePhone, PHONE_ERROR_FR } from "@/lib/phone"
+import { SELECTABLE_GENDERS, genderLabel } from "@/components/appointment-labels"
 
 interface EditPatientDialogProps {
   open: boolean
@@ -624,9 +625,17 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                       <SelectValue placeholder="Sélectionner le sexe" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="Male">Homme</SelectItem>
-                      <SelectItem value="Female">Femme</SelectItem>
-                      <SelectItem value="Other">Autre</SelectItem>
+                      {/* AC-P1.45: values stay the English storage keys; labels come from the shared map. */}
+                      {SELECTABLE_GENDERS.map((g) => (
+                        <SelectItem key={g} value={g}>
+                          {genderLabel(g)}
+                        </SelectItem>
+                      ))}
+                      {/* AC-P1.46: an existing "Unknown" row hydrated the Select with a value no option
+                          matched, so the trigger fell back to the placeholder and looked unset. */}
+                      {gender && !SELECTABLE_GENDERS.includes(gender as (typeof SELECTABLE_GENDERS)[number]) && (
+                        <SelectItem value={gender}>{genderLabel(gender)}</SelectItem>
+                      )}
                     </SelectContent>
                   </Select>
                   {errors.gender && <p className="text-sm text-destructive">{errors.gender}</p>}

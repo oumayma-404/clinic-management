@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import type { PatientDto, DentalRecordDto } from "@/lib/api/types"
 import { formatDT, formatDate } from "@/lib/format"
 import { User, Phone, Mail, Calendar, MapPin, CreditCard, FileText, ChevronDown, ChevronUp } from "lucide-react"
+import { genderLabel } from "@/components/appointment-labels"
 
 interface PatientSummaryModalProps {
   open: boolean
@@ -103,7 +104,7 @@ export function PatientSummaryModal({ open, onOpenChange, patient, dentalRecords
 
                 <div>
                   <p className="text-sm font-medium text-muted-foreground mb-1">Sexe</p>
-                  <p className="text-base">{patient.gender || "Non renseigné"}</p>
+                  <p className="text-base">{genderLabel(patient.gender)}</p>
                 </div>
 
                 <div>

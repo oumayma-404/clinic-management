@@ -110,6 +110,12 @@ public class AppointmentStatusTransitionTests
     }
 
     // And the mirror: anything the table does NOT declare must be refused, not silently ignored.
+    //
+    // One documented exclusion. `Reschedule` is a **movement** operation, not a status transition: since the
+    // A-2 fix it deliberately *preserves* `Confirmed`/`InProgress`, so calling it on one of those never attempts
+    // to reach `Scheduled` and correctly does not throw. `Confirmed/InProgress → Scheduled` is still refused —
+    // by the table, enforced at the command layer via `CanTransition` before any mutator runs, which
+    // `Undeclared_Transitions_To_Scheduled_Are_Refused_By_The_Table` below asserts directly.
     [Fact]
     public void Every_Undeclared_Transition_Is_Refused() // [AC-P1.2 / AC-P1.3]
     {
@@ -123,11 +129,40 @@ public class AppointmentStatusTransitionTests
                     continue;
                 }
 
+                if (to == AppointmentStatus.Scheduled
+                    && (from == AppointmentStatus.Confirmed || from == AppointmentStatus.InProgress))
+                {
+                    continue; // see the note above — asserted by the next test instead
+                }
+
                 var appointment = AppointmentAt(from);
                 Assert.Throws<InvalidOperationException>(() => MoveTo(appointment, to));
                 Assert.Equal(from, appointment.Status);
             }
         }
+    }
+
+    // The command layer refuses these before reaching a mutator, so the table is where the rule lives.
+    [Theory]
+    [InlineData(AppointmentStatus.Confirmed)]
+    [InlineData(AppointmentStatus.InProgress)]
+    public void Undeclared_Transitions_To_Scheduled_Are_Refused_By_The_Table(AppointmentStatus from)
+    {
+        Assert.False(Appointment.CanTransition(from, AppointmentStatus.Scheduled));
+    }
+
+    // ...and rescheduling one of them keeps its status rather than quietly demoting it to Scheduled, which is
+    // the whole point of the A-2 fix and the reason the exclusion above exists.
+    [Theory]
+    [InlineData(AppointmentStatus.Confirmed)]
+    [InlineData(AppointmentStatus.InProgress)]
+    public void Rescheduling_Does_Not_Demote_To_Scheduled(AppointmentStatus from)
+    {
+        var appointment = AppointmentAt(from);
+
+        appointment.Reschedule(SlotStart.AddDays(2));
+
+        Assert.Equal(from, appointment.Status);
     }
 
     // [AC-P1.2] A refusal names BOTH statuses, in French. The old messages were English and named neither
