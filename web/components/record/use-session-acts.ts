@@ -14,6 +14,13 @@ export interface ActDraft {
   procedureName: string
   /** The single editable price: per treated tooth when `perTooth`, otherwise the act's flat total. */
   unitCost: string
+  /**
+   * True once the dentist has TYPED in the price field. Every other way `unitCost` gets filled — a
+   * catalogue default, a saved act reopened, a plan step's quote — is a suggestion belonging to whichever
+   * act is currently named, so choosing a different act must replace it. Without this flag the reducer only
+   * saw "the field is not empty" and kept the previous act's tariff after « Ce n'est pas cet acte ».
+   */
+  unitCostLocked: boolean
   perTooth: boolean
   /**
    * True once the dentist has used the `/dent ↔ forfait` switch on this draft. While false, `perTooth` is
@@ -37,6 +44,7 @@ const emptyDraft = (): ActDraft => ({
   procedureTypeId: null,
   procedureName: "",
   unitCost: "",
+  unitCostLocked: false,
   perTooth: false,
   perToothLocked: false,
   resultingCondition: null,
@@ -129,6 +137,10 @@ function actFromDto(a: DentalRecordActDto, key: string): SessionAct {
     procedureName: a.procedureName,
     toothNumbers: teeth,
     unitCost: String(perTooth && unit != null ? unit : a.cost),
+    // Whether the stored amount was typed or taken from a tariff is not recorded, so it is not treated as
+    // typed: replacing the act re-prices from the act now chosen. The figure is only a default until saved
+    // again, and the card shows the new total before anything is committed.
+    unitCostLocked: false,
     perTooth,
     // A saved act's pricing intent is authoritative and must never be re-derived from its selection.
     perToothLocked: true,
@@ -176,6 +188,8 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
 
     case "patchDraft": {
       const draft = { ...state.draft, ...action.patch }
+      // Typing a price is the one thing that makes it the dentist's own, so a later act change keeps it.
+      if (action.patch.unitCost !== undefined) draft.unitCostLocked = true
       // Touching the switch itself locks the intent; changing the resulting condition re-derives it.
       if (action.patch.perTooth !== undefined) draft.perToothLocked = true
       else if (action.patch.resultingCondition !== undefined) {
@@ -190,11 +204,15 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
         ...state.draft,
         procedureTypeId: pt.id,
         procedureName: pt.name,
-        // Only prefill an untouched price, so a typed amount is never overwritten.
-        unitCost:
-          state.draft.unitCost.trim() === "" && pt.defaultCost != null
+        // The price follows the act unless the dentist typed one. Testing "is the field empty?" instead was
+        // the « Ce n'est pas cet acte » bug: the field still held the PREVIOUS act's tariff, so the new act
+        // was billed at the old act's price. An act with no tariff clears the field rather than inheriting
+        // one that belongs to the act just replaced ("Sans tarif — à compléter plus tard").
+        unitCost: state.draft.unitCostLocked
+          ? state.draft.unitCost
+          : pt.defaultCost != null
             ? String(pt.defaultCost)
-            : state.draft.unitCost,
+            : "",
         // A fresh pick re-opens the pricing question, so the switch un-locks.
         perToothLocked: false,
         resultingCondition: pt.resultingCondition ?? null,
