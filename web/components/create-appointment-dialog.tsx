@@ -122,7 +122,9 @@ export function CreateAppointmentDialog({
   // Appointment details
   const [date, setDate] = useState<Date | undefined>(defaultDate || new Date())
   const [selectedDoctorId, setSelectedDoctorId] = useState<string>("")
-  const [appointmentType, setAppointmentType] = useState("")
+  // `appointmentType` removed with the `Type: ` prefix (AC-P1.51). It had no input control of its own — it was
+  // only ever set from `presetProcedureName` when scheduling a plan act, purely to build that prefix. The act
+  // reaches the appointment through `procedureTypeId`, which `presetProcedureTypeId` already preselects.
   
   // Load doctors list
   const { doctors, currentUserDoctor, isLoading: loadingDoctors } = useDoctors()
@@ -174,15 +176,15 @@ export function CreateAppointmentDialog({
     }
   }, [open])
 
-  // When opened to schedule a plan step, fix the patient and record the act name in the notes.
+  // When opened to schedule a plan step, fix the patient. The act name no longer goes into the notes
+  // (AC-P1.51) — the effect below preselects `procedureTypeId`, which is where the act belongs.
   useEffect(() => {
     if (open && isPlanScheduling) {
       setIsBusySlot(false)
       setIsNewPatient(false)
       if (presetPatientId) setSelectedPatientId(presetPatientId)
-      if (presetProcedureName) setAppointmentType(presetProcedureName)
     }
-  }, [open, isPlanScheduling, presetPatientId, presetProcedureName])
+  }, [open, isPlanScheduling, presetPatientId])
 
   // Preselect the plan act's procedure once the catalog has loaded (it arrives async, so this cannot live in
   // the effect above). Guarded on the id actually being in the loaded list — a stale or cross-clinic id must
@@ -235,7 +237,6 @@ export function CreateAppointmentDialog({
       setNewPatientLastName("")
       setNewPatientPhone("")
       setSelectedDoctorId("")
-      setAppointmentType("")
       setSelectedProcedureTypeId(undefined)
       setCustomProcedureMode(false)
       setCustomProcedureName("")
@@ -426,13 +427,13 @@ export function CreateAppointmentDialog({
         return
       }
 
-      // Combine appointment type and notes if both exist
-      let appointmentNotes = notes.trim()
-      if (appointmentType && notes.trim()) {
-        appointmentNotes = `Type: ${appointmentType}\n${notes.trim()}`
-      } else if (appointmentType) {
-        appointmentNotes = `Type: ${appointmentType}`
-      }
+      // AC-P1.51: the `Type: ` prefix writer is gone — the act is carried by `procedureTypeId` alone.
+      //
+      // This dialog was the source of the divergence: when scheduling a plan step it wrote
+      // `Type: <presetProcedureName>` unconditionally, while `procedureTypeId` was filled by a *separate*
+      // guarded effect that could no-op (a stale or cross-clinic id) or bail (the user had already picked
+      // something). The note then said one act and the column another.
+      const appointmentNotes = notes.trim()
 
       // Create appointment
       const created = await appointmentsApi.create({

@@ -64,7 +64,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
   const [patientName, setPatientName] = useState("")
   const [date, setDate] = useState<Date | undefined>(new Date())
   const [selectedDoctorId, setSelectedDoctorId] = useState<string>("")
-  const [appointmentType, setAppointmentType] = useState("")
+  // `appointmentType` removed with the `Type: ` prefix (AC-P1.51) — the act is `procedureTypeId` alone.
   const [status, setStatus] = useState<string>("scheduled")
   
   // Load doctors list
@@ -217,17 +217,14 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
       setEndHour(String(newEndHour).padStart(2, "0"))
       setEndMinute(String(newEndMinute).padStart(2, "0"))
 
-      // Parse notes to extract appointment type if present
+      // AC-P1.51: the `Type: ` prefix READER is gone, in the same change as the writer below. The act now
+      // lives only in `procedureTypeId` (the `MigrateAppointmentTypePrefix` migration moved it there), so the
+      // notes are just the notes. The old parser also had two latent bugs worth not carrying forward:
+      // `.replace('Type: ', '')` was a first-occurrence-anywhere replace rather than an anchored strip, and the
+      // filter dropped EVERY line beginning "Type: ", so a user who legitimately typed a second such line lost
+      // it on the next edit round-trip.
       if (appointment.notes) {
-        const notesLines = appointment.notes.split('\n')
-        const typeLine = notesLines.find(line => line.startsWith('Type: '))
-        if (typeLine) {
-          setAppointmentType(typeLine.replace('Type: ', '').trim())
-          const remainingNotes = notesLines.filter(line => !line.startsWith('Type: ')).join('\n').trim()
-          setNotes(remainingNotes)
-        } else {
-          setNotes(appointment.notes)
-        }
+        setNotes(appointment.notes)
       } else {
         setNotes("")
       }
@@ -288,13 +285,10 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
         return
       }
 
-      // Combine appointment type and notes
-      let appointmentNotes = notes.trim()
-      if (appointmentType && notes.trim()) {
-        appointmentNotes = `Type: ${appointmentType}\n${notes.trim()}`
-      } else if (appointmentType) {
-        appointmentNotes = `Type: ${appointmentType}`
-      }
+      // AC-P1.51: the `Type: ` prefix WRITER is gone. The act is carried by `procedureTypeId` alone — writing
+      // the name into the notes as well is what let the two disagree, and the divergence was persisted forward
+      // on every save.
+      const appointmentNotes = notes.trim()
 
       // Update appointment via API.
       // Every nullable field here is tri-state on the server: omitting a key leaves the field untouched, an
