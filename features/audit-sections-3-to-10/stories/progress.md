@@ -12,7 +12,7 @@
 
 | Part | Delivers | Depends on | Status |
 |---|---|---|---|
-| **P1** Appointment lifecycle & booking | 3.1, 3.2, 3.4, 5.4, 6.1, 6.9, 8.1, 8.4 | — | not-started |
+| **P1** Appointment lifecycle & booking | 3.1, 3.2, 3.4, 5.4, 6.1, 6.9, 8.1, 8.4 | — | **in progress** — steps 1–3 done (status machine, `02dcc17`); ⚠️ suite unverified, see the blocker below |
 | **P2** Finish what's built | 5.1–5.3, 5.5–5.9, 5.11, 5.12, 6.10, 6.11, 8.3 | — | **complete** — all 13 steps, AC-P2.1–2.45 |
 | **P3** UX, accessibility & French | 3.3, 6.3, 7.1–7.9, 8.2, 8.6 | — | not-started |
 | **P4** Stock, realtime & schema | 6.6, 6.7, 6.12, 9.1–9.6 | — | not-started |
@@ -36,6 +36,28 @@ explicitly by path — never `git add -A` / `git add .`:
 
 > Note for future sessions: an earlier merge into `feature/windows-desktop-app` used `git add -A` and swept this
 > feature's `exploration.md` into an unrelated commit (`b0c472e "claude files"`). Stage by path.
+
+## ⛔ BLOCKER — the unit-test gate stopped working mid-session (2026-07-28)
+
+**Windows Smart App Control now blocks every freshly-built test assembly** with `0x800711C7`, including the
+project's own `bin/Debug/net8.0/`. The documented workaround —
+`dotnet build -p:OutDir=<scratch>/ ` then `dotnet vstest` — **worked earlier the same day** (it produced the
+verified 1160-pass behind the P2 commit `ec1f6ff`) and then stopped, on the same paths and every new path tried
+(scratch dir, a fresh scratch dir, the user profile, the project's own `bin/`).
+
+**The trap to avoid.** `dotnet test --no-build` *appears* to pass — it reports the same **1160** as before P1 —
+because it is loading the last SAC-approved DLL, which predates the new tests. That is precisely the stale-DLL
+false negative `UnitTests/CLAUDE.md` warns about. A run whose count has not moved after adding tests is not a
+pass.
+
+**To unblock** (one of):
+- Turn Smart App Control off (Windows Security → App & browser control → Smart App Control). It is one-way:
+  Windows cannot re-enable it without a reinstall.
+- Or run the suite somewhere SAC does not apply (WSL, CI — which is exactly what **AC-P5.4** exists to add).
+
+Until then the backend gate is `dotnet build --no-incremental` only, which proves compilation but not behaviour.
+**Do not build further parts on top of unverified work** — P4 and P7 in particular carry 11 migrations and a
+~38-handler retrofit that must not be written blind.
 
 ## Decisions carried in from planning
 
@@ -121,6 +143,67 @@ is, one map at the client's derivation point is the whole fix — and make the m
 through) so re-saving historical rows is safe.
 
 ## Session log
+
+### 2026-07-28 — P1 steps 1–3: one appointment status machine (partial P1)
+
+Commit `02dcc17`. Closes **AC-P1.1–1.9, AC-P1.12–1.13** + **A-1**, **A-2**. Stopped here because the test gate
+died (see the blocker at the top) — not at a natural part boundary, but at a **safe** one: this slice adds **no
+migration**, so nothing is half-applied. The dangerous stopping points the plan names (R-1) are *inside* the
+schema work, which has not started.
+
+| Delivered | Where |
+|---|---|
+| `AllowedTransitions` + `NextStatusesFrom`/`CanTransition`/`FrenchLabel`; one guard every mutator funnels through | `Domain/Entities/Appointment.cs` |
+| The fall-through `switch` replaced by a table lookup returning `Result.Failure` | `UpdateAppointmentCommand` |
+| `AllowedNextStatuses` on the DTO, populated at all 4 mapping sites | `AppointmentDto` + 4 handlers |
+| `VisitCompletionOutcome` (Completed / AlreadyCompleted / **Contradicted**) + both callers updated | `Domain/Enums/`, dental-record + medical-document handlers |
+| `CancellationReason` finally reaches `Cancel()` | `UpdateAppointmentCommand` |
+| New `AppointmentStatusTransitionTests` (there was **no** `Appointment` domain test file); `PostVisitReviewCompletionTests` rewritten per AC-P1.13 | `UnitTests/Domain/`, `UnitTests/Features/Documents/` |
+
+**Three design points worth keeping.**
+
+1. **`Confirmed → Scheduled` is deliberately absent from the table.** "Withdrawing a confirmation" has no
+   clinical meaning and was already unreachable (the old switch's `Scheduled` arm only acted on a *cancelled*
+   appointment). Including it would also have needed a domain method that does not exist, because `Reschedule`
+   now *preserves* `Confirmed` — which is the entire point of the A-2 fix. Caught while writing the command
+   layer: the first draft called `Reschedule` for that edge and would have silently not changed the status.
+2. **`NoShow → Cancelled` is kept.** `CancelRecurringSeriesCommand` voids a whole series without skipping missed
+   occurrences, so dropping that edge would have made it throw on rows it cancels today.
+3. **`MarkVisitCompleted` returns rather than throws**, and `Contradicted` does **not** reopen the appointment.
+   Throwing would jump over `CancelPostVisitReviewAsync` and leave the post-visit prompt nagging forever;
+   reopening would silently un-cancel a visit, which is the invisible state change this story exists to remove.
+
+| Gate | Result |
+|---|---|
+| Backend build (`--no-incremental`) | **0 errors**, 56 warnings (baseline), **0 in changed files** |
+| Unit suite | ⛔ **could not run** — Smart App Control. See the blocker section. |
+
+**Remaining in P1** (13 of 16 steps): working-hours validation + the per-doctor editor (A-5, A-10, § 5.4), hours
+enforcement + the non-HTTP-writer rules, the calendar grid, the recurring conflict list (A-7), the exclusion
+constraint + pre-flight + `23P01` translation, the `Type:`-prefix migration, `appointment-labels.ts` (A-6), the
+dialog a11y/French pass, and the `verify-schema` verb.
+
+**Groundwork already done for the rest of P1** (findings, not code):
+- The dev DB was **6 migrations behind the code** and has been brought current (`dotnet ef database update`) —
+  the app would have applied these on next start anyway.
+- **R-4 pre-flight is clean: 0 pre-existing overlapping pairs** with the correct predicate
+  (`Status NOT IN (5,6)` — Cancelled=5, NoShow=6; a first pass using `(4,5)` was wrong and was redone).
+- The generated end-column expression is **verified against real rows**:
+  `Duration * interval '1 microsecond' / 10` turns 18000000000 ticks into `00:30:00`.
+- `btree_gist` **1.7 is available and not installed**, confirming the plan's superuser correction.
+- **Both `Type:`-prefix rows in the DB carry trailing free text** the plan did not anticipate —
+  `Type: Prothèse amovible (partielle / complète) (dents 21, 22, 23, 24)`. A naive strip would destroy the
+  teeth list, so the migration must match the **longest** catalog name the note starts with and keep the
+  remainder.
+- Premise corrections for AC-P1.29: **`PromoteWaitingListEntryCommand` does not create appointments** (it
+  promotes against a caller-supplied id, so it inherits `CreateAppointmentCommand`'s rule), and
+  `GoogleCalendarSyncService` is the **only** true repository-level bypass (create at `:707`, reschedule at
+  `:519`, both inner-swallowed, `doctorId` hardcoded `null` on create).
+- There is **no effective-hours resolver anywhere** (exhaustive grep), and `getWorkingHours`/`setWorkingHours`
+  have **zero callers** — the per-doctor feature is backend-complete and unreachable from the product.
+- `WorkingHoursSerializer.Normalize` validates only JSON well-formedness: **`"[]"` is "valid"** and wipes a
+  clinic's hours through `UpdateClinicCommand`, and `SetDoctorWorkingHoursCommand` silently *clears* the
+  override when `Normalize` returns null (it never checks, unlike `UpdateClinicCommand:137-140`).
 
 ### 2026-07-28 — P2 steps 4–13: **P2 complete**
 
