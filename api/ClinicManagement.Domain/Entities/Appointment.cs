@@ -26,6 +26,24 @@ public class Appointment : AggregateRoot<Guid>
     /// <summary>Optional link to the treatment-plan step this appointment schedules (null for ad-hoc visits).</summary>
     public Guid? TreatmentPlanItemId { get; private set; }
 
+    /// <summary>
+    /// True when this appointment was booked <b>outside</b> the practitioner's resolved working hours and the
+    /// booker explicitly confirmed the override (AC-P1.31).
+    /// <para>
+    /// Recorded rather than silently allowed, and available to <b>any role that can book</b> — a secretary
+    /// handling an emergency Sunday call must have a path, or the guard simply gets worked around by
+    /// falsifying the time, which is worse than an audited exception.
+    /// </para>
+    /// </summary>
+    public bool BookedOutsideWorkingHours { get; private set; }
+
+    /// <summary>Record that this booking was an explicitly-confirmed out-of-hours exception.</summary>
+    public void MarkBookedOutsideWorkingHours()
+    {
+        BookedOutsideWorkingHours = true;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
     // Navigation properties
     public Clinic Clinic { get; private set; } = null!;
     public Patient? Patient { get; private set; }

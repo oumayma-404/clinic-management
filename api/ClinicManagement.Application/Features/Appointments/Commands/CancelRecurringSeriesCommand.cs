@@ -107,7 +107,8 @@ public class CancelRecurringSeriesCommandHandler : IRequestHandler<CancelRecurri
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<int>.Failure($"Erreur lors de l'annulation de la série : {ex.Message}");
+            // A-7 (second copy).
+            return Result<int>.Failure("Erreur lors de l'annulation de la série. Veuillez réessayer.");
         }
     }
 }

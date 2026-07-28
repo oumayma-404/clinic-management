@@ -153,7 +153,8 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<DentalRecordDto>.Failure($"Error creating dental record: {ex.Message}");
+            _logger.LogError(ex, "Unhandled failure creating a dental record");
+            return Result<DentalRecordDto>.Failure("Erreur lors de l'enregistrement de la fiche de soins. Veuillez réessayer.");
         }
     }
 

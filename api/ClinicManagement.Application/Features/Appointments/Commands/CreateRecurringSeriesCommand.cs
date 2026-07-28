@@ -1,4 +1,5 @@
 using MediatR;
+using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
@@ -17,6 +18,9 @@ namespace ClinicManagement.Application.Features.Appointments.Commands;
 /// </summary>
 public class CreateRecurringSeriesCommand : IRequest<Result<RecurringSeriesResultDto>>
 {
+    /// <summary>Confirmed override so out-of-hours occurrences are created instead of skipped (AC-P1.31).</summary>
+    public bool AllowOutsideWorkingHours { get; set; }
+
     public Guid PatientId { get; set; }
     public DateTime StartDateTime { get; set; }
     public int DurationMinutes { get; set; }
@@ -39,6 +43,7 @@ public class CreateRecurringSeriesCommandHandler : IRequestHandler<CreateRecurri
     private readonly IAppointmentRepository _appointmentRepository;
     private readonly IPatientRepository _patientRepository;
     private readonly IDoctorRepository _doctorRepository;
+    private readonly IClinicRepository _clinicRepository;
     private readonly IProcedureTypeRepository _procedureTypeRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IClinicContext _clinicContext;
@@ -47,23 +52,28 @@ public class CreateRecurringSeriesCommandHandler : IRequestHandler<CreateRecurri
     private readonly IReminderScheduler _reminderScheduler;
     private readonly IAppointmentGoogleSyncDispatcher _googleSyncDispatcher;
 
+    private readonly ILogger<CreateRecurringSeriesCommandHandler> _logger;
+
     public CreateRecurringSeriesCommandHandler(
         IRecurringAppointmentRepository recurringRepository,
         IAppointmentRepository appointmentRepository,
         IPatientRepository patientRepository,
         IDoctorRepository doctorRepository,
+        IClinicRepository clinicRepository,
         IProcedureTypeRepository procedureTypeRepository,
         ICurrentClinicResolver clinicResolver,
         IClinicContext clinicContext,
         IUnitOfWork unitOfWork,
         INotificationGenerator notificationGenerator,
         IReminderScheduler reminderScheduler,
-        IAppointmentGoogleSyncDispatcher googleSyncDispatcher)
+        IAppointmentGoogleSyncDispatcher googleSyncDispatcher,
+        ILogger<CreateRecurringSeriesCommandHandler> logger)
     {
         _recurringRepository = recurringRepository;
         _appointmentRepository = appointmentRepository;
         _patientRepository = patientRepository;
         _doctorRepository = doctorRepository;
+        _clinicRepository = clinicRepository;
         _procedureTypeRepository = procedureTypeRepository;
         _clinicResolver = clinicResolver;
         _clinicContext = clinicContext;
@@ -71,6 +81,7 @@ public class CreateRecurringSeriesCommandHandler : IRequestHandler<CreateRecurri
         _notificationGenerator = notificationGenerator;
         _reminderScheduler = reminderScheduler;
         _googleSyncDispatcher = googleSyncDispatcher;
+        _logger = logger;
     }
 
     public async Task<Result<RecurringSeriesResultDto>> Handle(CreateRecurringSeriesCommand request, CancellationToken cancellationToken)
@@ -169,6 +180,7 @@ public class CreateRecurringSeriesCommandHandler : IRequestHandler<CreateRecurri
             var now = DateTime.UtcNow;
             var skippedPast = 0;
             var conflicts = new List<DateTime>();
+            var outsideHours = new List<DateTime>();
             var createdAppointments = new List<Appointment>();
 
             foreach (var occ in occurrences)
@@ -179,9 +191,36 @@ public class CreateRecurringSeriesCommandHandler : IRequestHandler<CreateRecurri
                     continue;
                 }
 
+                // AC-P1.38/1.39: one shared predicate. This copy excluded only `Cancelled`, so a series
+                // refused to book over a NoShow slot the single-appointment path considered free.
                 var collides = request.DoctorId.HasValue && existing.Any(e =>
-                    e.Status != AppointmentStatus.Cancelled &&
-                    Overlaps(e.AppointmentDateTime, e.Duration, occ, duration));
+                    AppointmentScheduling.OccupiesSlot(e.Status) &&
+                    AppointmentScheduling.Overlaps(e.AppointmentDateTime, e.Duration, occ, duration));
+
+                // ...and against the occurrences THIS call has already accepted. `existing` is loaded once
+                // before the loop, so a series whose interval is shorter than its own duration used to
+                // cheerfully double-book itself — and now that the database enforces the constraint
+                // (AC-P1.19), that would abort the whole series instead of skipping one occurrence.
+                if (!collides && request.DoctorId.HasValue)
+                {
+                    collides = createdAppointments.Any(a =>
+                        AppointmentScheduling.Overlaps(a.AppointmentDateTime, a.Duration, occ, duration));
+                }
+
+                // Working hours (AC-P1.28) apply to every occurrence, and a refusal skips that occurrence
+                // rather than the series — same skip-and-report contract as a conflict.
+                if (!collides && !request.AllowOutsideWorkingHours)
+                {
+                    var hoursCheck = await AppointmentScheduling.CheckWorkingHoursAsync(
+                        _doctorRepository, _clinicRepository, clinicId, request.DoctorId,
+                        occ, duration, cancellationToken);
+                    if (hoursCheck.IsFailure)
+                    {
+                        outsideHours.Add(occ);
+                        continue;
+                    }
+                }
+
                 if (collides)
                 {
                     conflicts.Add(occ);
@@ -192,6 +231,11 @@ public class CreateRecurringSeriesCommandHandler : IRequestHandler<CreateRecurri
                     Guid.NewGuid(), clinicId, patient.Id, request.DoctorId, occ, duration,
                     request.DoctorName, request.Notes, series.Id,
                     request.ProcedureTypeId, procedureDurationMinutes, procedureColorHex, null);
+                if (request.AllowOutsideWorkingHours)
+                {
+                    appointment.MarkBookedOutsideWorkingHours();
+                }
+
                 await _appointmentRepository.AddAsync(appointment, cancellationToken);
                 createdAppointments.Add(appointment);
             }
@@ -223,12 +267,15 @@ public class CreateRecurringSeriesCommandHandler : IRequestHandler<CreateRecurri
                 RecurringAppointmentId = series.Id,
                 CreatedCount = createdAppointments.Count,
                 SkippedPastCount = skippedPast,
-                Conflicts = conflicts
+                Conflicts = conflicts,
+                OutsideWorkingHours = outsideHours
             });
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<RecurringSeriesResultDto>.Failure($"Erreur lors de la création de la série récurrente : {ex.Message}");
+            // A-7: the raw exception reached the clinic. Detail goes to the log.
+            _logger.LogError(ex, "Unhandled failure creating a recurring series");
+            return Result<RecurringSeriesResultDto>.Failure("Erreur lors de la création de la série récurrente. Veuillez réessayer.");
         }
     }
 

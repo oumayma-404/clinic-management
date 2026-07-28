@@ -57,6 +57,7 @@ public class AppointmentReactivationTests
             .ReturnsAsync(Result<Guid>.Success(ClinicId));
         return new UpdateAppointmentCommandHandler(
             repo.Object, new Mock<IProcedureTypeRepository>().Object, new Mock<IDoctorRepository>().Object,
+            new Mock<IClinicRepository>().Object,
             new Mock<ITreatmentPlanRepository>().Object, clinicResolver.Object,
             new Mock<IClinicContext>().Object, new Mock<IUnitOfWork>().Object, new Mock<IAppointmentGoogleSyncDispatcher>().Object,
             new Mock<INotificationGenerator>().Object, new Mock<IReminderScheduler>().Object,

@@ -54,6 +54,7 @@ public class AppointmentPartialUpdateTests
         _appointments.Object,
         _procedureTypes.Object,
         _doctors.Object,
+        new Mock<IClinicRepository>().Object,
         new Mock<ITreatmentPlanRepository>().Object,
         _clinicResolver.Object,
         new Mock<IClinicContext>().Object,

@@ -46,7 +46,7 @@ public class GetDoctorWorkingHoursQueryHandler : IRequestHandler<GetDoctorWorkin
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<List<WorkingDayDto>>.Failure($"Erreur lors de la récupération des horaires du praticien : {ex.Message}");
+            return Result<List<WorkingDayDto>>.Failure("Erreur lors de la récupération des horaires du praticien.");
         }
     }
 }

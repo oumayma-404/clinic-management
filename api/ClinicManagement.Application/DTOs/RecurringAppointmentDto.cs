@@ -30,6 +30,13 @@ public class RecurringSeriesResultDto
     public int CreatedCount { get; set; }
     public int SkippedPastCount { get; set; }
     public List<DateTime> Conflicts { get; set; } = new();
+
+    /// <summary>
+    /// Occurrences skipped because they fell outside the practitioner's working hours (AC-P1.28/1.36).
+    /// Reported separately from <see cref="Conflicts"/> so the UI can offer the right remedy: a conflict needs
+    /// a different slot, an out-of-hours date needs either different hours or a confirmed override.
+    /// </summary>
+    public List<DateTime> OutsideWorkingHours { get; set; } = new();
 }
 
 public static class RecurringAppointmentMappingExtensions

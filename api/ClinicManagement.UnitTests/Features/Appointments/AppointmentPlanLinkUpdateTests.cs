@@ -43,6 +43,7 @@ public class AppointmentPlanLinkUpdateTests
         _appointments.Object,
         new Mock<IProcedureTypeRepository>().Object,
         new Mock<IDoctorRepository>().Object,
+        new Mock<IClinicRepository>().Object,
         _plans.Object,
         _clinicResolver.Object,
         new Mock<IClinicContext>().Object,

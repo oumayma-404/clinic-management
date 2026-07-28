@@ -16,6 +16,13 @@ public class CreateAppointmentCommand : IRequest<Result<AppointmentDto>>
     public Guid? DoctorId { get; set; }
     public DateTime AppointmentDateTime { get; set; }
     public int DurationMinutes { get; set; }
+
+    /// <summary>
+    /// Confirmed override for a booking outside the practitioner's working hours (AC-P1.31). Available to any
+    /// role that can book; the acceptance is recorded on the appointment via
+    /// <c>MarkBookedOutsideWorkingHours()</c>, never silently allowed.
+    /// </summary>
+    public bool AllowOutsideWorkingHours { get; set; }
     public string? DoctorName { get; set; }
     public string? Notes { get; set; }
     public Guid? ProcedureTypeId { get; set; }
@@ -30,6 +37,7 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
     private readonly IAppointmentRepository _appointmentRepository;
     private readonly IPatientRepository _patientRepository;
     private readonly IDoctorRepository _doctorRepository;
+    private readonly IClinicRepository _clinicRepository;
     private readonly IProcedureTypeRepository _procedureTypeRepository;
     private readonly ITreatmentPlanRepository _treatmentPlanRepository;
     private readonly IUserRepository _userRepository;
@@ -44,6 +52,7 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
         IAppointmentRepository appointmentRepository,
         IPatientRepository patientRepository,
         IDoctorRepository doctorRepository,
+        IClinicRepository clinicRepository,
         IProcedureTypeRepository procedureTypeRepository,
         ITreatmentPlanRepository treatmentPlanRepository,
         IUserRepository userRepository,
@@ -57,6 +66,7 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
         _appointmentRepository = appointmentRepository;
         _patientRepository = patientRepository;
         _doctorRepository = doctorRepository;
+        _clinicRepository = clinicRepository;
         _procedureTypeRepository = procedureTypeRepository;
         _treatmentPlanRepository = treatmentPlanRepository;
         _userRepository = userRepository;
@@ -151,23 +161,30 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
 
             var duration = TimeSpan.FromMinutes(request.DurationMinutes);
 
-            // Hard double-booking guard: reject an overlapping, still-active appointment for the SAME
-            // practitioner in this clinic. Only enforced when a doctor is assigned — patient-less/no-doctor
-            // "busy slots" don't clash. Mirrors the conflict logic in CreateRecurringSeriesCommand.
-            if (request.DoctorId.HasValue)
+            // Double-booking guard. Now one shared helper (AC-P1.39) rather than the third of three drifted
+            // copies, and its scan window no longer misses an appointment that started >24 h earlier (A-3).
+            // The database's exclusion constraint is the real guarantee (AC-P1.15) — this exists to produce a
+            // readable French refusal naming the clash instead of a raw 23P01.
+            var collision = await AppointmentScheduling.FindCollisionAsync(
+                _appointmentRepository, clinicId, request.DoctorId,
+                request.AppointmentDateTime, duration, excludeAppointmentId: null, cancellationToken);
+            if (collision != null)
             {
-                var newStart = NormalizeUtc(request.AppointmentDateTime);
-                var windowStart = newStart.AddDays(-1);
-                var windowEnd = newStart + duration;
-                var sameDoctor = await _appointmentRepository.GetByClinicIdAsync(
-                    clinicId, windowStart, windowEnd, request.DoctorId, cancellationToken);
-                var collides = sameDoctor.Any(e =>
-                    e.Status != AppointmentStatus.Cancelled &&
-                    e.Status != AppointmentStatus.NoShow &&
-                    Overlaps(e.AppointmentDateTime, e.Duration, newStart, duration));
-                if (collides)
+                return Result<AppointmentDto>.Failure(AppointmentScheduling.SlotTakenMessage(collision));
+            }
+
+            // Working hours (AC-P1.28). Unrestricted when nothing is configured, so a clinic that never opened
+            // the settings screen is unaffected (R-12). A refusal can be overridden by ANY role that can book
+            // (AC-P1.31) — the alternative is the guard being worked around by falsifying the time — and the
+            // override is recorded on the appointment rather than silently allowed.
+            if (!request.AllowOutsideWorkingHours)
+            {
+                var hoursCheck = await AppointmentScheduling.CheckWorkingHoursAsync(
+                    _doctorRepository, _clinicRepository, clinicId, request.DoctorId,
+                    request.AppointmentDateTime, duration, cancellationToken);
+                if (hoursCheck.IsFailure)
                 {
-                    return Result<AppointmentDto>.Failure("Ce créneau est déjà réservé pour ce praticien.");
+                    return Result<AppointmentDto>.Failure(hoursCheck.Error!);
                 }
             }
 
@@ -185,6 +202,11 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
                 procedureDurationMinutes,
                 procedureColorHex,
                 request.TreatmentPlanItemId);
+
+            if (request.AllowOutsideWorkingHours)
+            {
+                appointment.MarkBookedOutsideWorkingHours();
+            }
 
             await _appointmentRepository.AddAsync(appointment, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);

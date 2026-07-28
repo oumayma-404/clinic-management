@@ -3,6 +3,7 @@ using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Features.Appointments;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Domain.Enums;
@@ -56,6 +57,12 @@ public class UpdateAppointmentCommand : IRequest<Result<AppointmentDto>>
     /// </para>
     /// </summary>
     public string? CancellationReason { get; set; }
+
+    /// <summary>
+    /// Confirmed override for moving an appointment outside the practitioner's working hours (AC-P1.31).
+    /// Recorded on the appointment rather than silently allowed.
+    /// </summary>
+    public bool AllowOutsideWorkingHours { get; set; }
 
     /// <summary>The plan the linked act belongs to — required whenever <see cref="TreatmentPlanItemId"/> is set.</summary>
     public Guid? TreatmentPlanId { get; set; }
@@ -118,6 +125,7 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
     private readonly IAppointmentRepository _appointmentRepository;
     private readonly IProcedureTypeRepository _procedureTypeRepository;
     private readonly IDoctorRepository _doctorRepository;
+    private readonly IClinicRepository _clinicRepository;
     private readonly ITreatmentPlanRepository _treatmentPlanRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IClinicContext _clinicContext;
@@ -131,6 +139,7 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
         IAppointmentRepository appointmentRepository,
         IProcedureTypeRepository procedureTypeRepository,
         IDoctorRepository doctorRepository,
+        IClinicRepository clinicRepository,
         ITreatmentPlanRepository treatmentPlanRepository,
         ICurrentClinicResolver clinicResolver,
         IClinicContext clinicContext,
@@ -143,6 +152,7 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
         _appointmentRepository = appointmentRepository;
         _procedureTypeRepository = procedureTypeRepository;
         _doctorRepository = doctorRepository;
+        _clinicRepository = clinicRepository;
         _treatmentPlanRepository = treatmentPlanRepository;
         _clinicResolver = clinicResolver;
         _clinicContext = clinicContext;
@@ -394,18 +404,30 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                 && appointment.Status != AppointmentStatus.Completed
                 && appointment.Status != AppointmentStatus.NoShow)
             {
-                var windowStart = appointment.AppointmentDateTime.AddDays(-1);
-                var windowEnd = appointment.AppointmentDateTime + appointment.Duration;
-                var others = await _appointmentRepository.GetByClinicIdAsync(
-                    clinicResult.Value, windowStart, windowEnd, appointment.DoctorId, cancellationToken);
-                var collides = others.Any(e =>
-                    e.Id != appointment.Id &&
-                    e.Status != AppointmentStatus.Cancelled &&
-                    e.Status != AppointmentStatus.NoShow &&
-                    Overlaps(e.AppointmentDateTime, e.Duration, appointment.AppointmentDateTime, appointment.Duration));
-                if (collides)
+                // AC-P1.20/1.39: the same shared guard the create path uses, with the widened scan window (A-3).
+                var collision = await AppointmentScheduling.FindCollisionAsync(
+                    _appointmentRepository, clinicResult.Value, appointment.DoctorId,
+                    appointment.AppointmentDateTime, appointment.Duration,
+                    excludeAppointmentId: appointment.Id, cancellationToken);
+                if (collision != null)
                 {
-                    return Result<AppointmentDto>.Failure("Ce créneau est déjà réservé pour ce praticien.");
+                    return Result<AppointmentDto>.Failure(AppointmentScheduling.SlotTakenMessage(collision));
+                }
+
+                // AC-P1.20/1.28: moving an appointment is subject to the same working-hours rule as booking it.
+                if (!request.AllowOutsideWorkingHours)
+                {
+                    var hoursCheck = await AppointmentScheduling.CheckWorkingHoursAsync(
+                        _doctorRepository, _clinicRepository, clinicResult.Value, appointment.DoctorId,
+                        appointment.AppointmentDateTime, appointment.Duration, cancellationToken);
+                    if (hoursCheck.IsFailure)
+                    {
+                        return Result<AppointmentDto>.Failure(hoursCheck.Error!);
+                    }
+                }
+                else
+                {
+                    appointment.MarkBookedOutsideWorkingHours();
                 }
             }
 
