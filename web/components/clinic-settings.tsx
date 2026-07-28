@@ -35,6 +35,7 @@ import { useSession } from "@/lib/auth/session"
 import { BackupSettings } from "@/components/backup-settings"
 import { ReminderSettings } from "@/components/reminder-settings"
 import { DoctorDocumentIdentityDialog } from "@/components/doctor-document-identity-dialog"
+import { DoctorWorkingHoursCard } from "@/components/doctor-working-hours-card"
 import { DEFAULT_WORKING_HOURS } from "@/lib/working-hours"
 import { DOCTOR_SPECIALTIES, specialtyLabel } from "@/lib/specialties"
 
@@ -87,6 +88,17 @@ interface WorkingHoursInput {
   enabled: boolean
   from: string
   to: string
+}
+
+/** French labels for the (English) weekday storage keys — the `weekdayLabelsFr` convention. */
+const WEEKDAY_LABELS_FR: Record<string, string> = {
+  Monday: "Lundi",
+  Tuesday: "Mardi",
+  Wednesday: "Mercredi",
+  Thursday: "Jeudi",
+  Friday: "Vendredi",
+  Saturday: "Samedi",
+  Sunday: "Dimanche",
 }
 
 export default function ClinicSettings() {
@@ -908,7 +920,20 @@ export default function ClinicSettings() {
                           </div>
                         </div>
                       </div>
-                      {isEditingDoctors && doctors.length > 1 && (
+                      {/* § 5.4 / AC-P1.25 — an admin sets any practitioner's own hours. Only for a doctor
+                          that exists server-side: an unsaved roster row has a client-side placeholder id the
+                          endpoint could not resolve. */}
+                      {isClinicAdmin && !isEditingDoctors && doctor.id && !doctor.id.startsWith("doctor-") && (
+                        <details className="mt-2 w-full">
+                          <summary className="cursor-pointer text-xs font-medium text-muted-foreground hover:text-foreground">
+                            Horaires de ce praticien
+                          </summary>
+                          <div className="mt-2">
+                            <DoctorWorkingHoursCard doctorId={doctor.id} embedded />
+                          </div>
+                        </details>
+                      )}
+                                            {isEditingDoctors && doctors.length > 1 && (
                         <Button
                           variant="ghost"
                           size="icon"
@@ -932,7 +957,7 @@ export default function ClinicSettings() {
                     className="w-full h-8 text-xs border-dashed bg-transparent"
                   >
                     <Plus className="w-3 h-3 mr-1" />
-                    Add Doctor
+                    Ajouter un médecin
                   </Button>
                   <div className="flex justify-end gap-2 pt-2 border-t">
                     <Button
@@ -995,25 +1020,38 @@ export default function ClinicSettings() {
                       : "border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900/50"
                   }`}
                 >
+                  {/* AC-P1.54: the day name labelled nothing and both time inputs were nameless to a screen
+                      reader, in a card where every other field is wired. The separator also read « to ». */}
                   <div className="flex items-center gap-2 w-32">
                     <Checkbox
+                      id={`clinic-hours-${item.day}-enabled`}
                       checked={item.enabled}
                       onCheckedChange={() => toggleWorkingDay(item.day)}
                       disabled={!isEditingHours}
                       className="h-4 w-4"
                     />
-                    <Label className="text-xs font-medium">{item.day}</Label>
+                    <Label htmlFor={`clinic-hours-${item.day}-enabled`} className="text-xs font-medium">
+                      {WEEKDAY_LABELS_FR[item.day] ?? item.day}
+                    </Label>
                   </div>
                   <div className="flex-1 flex items-center gap-2">
+                    <Label htmlFor={`clinic-hours-${item.day}-from`} className="sr-only">
+                      {`Heure d'ouverture — ${WEEKDAY_LABELS_FR[item.day] ?? item.day}`}
+                    </Label>
                     <Input
+                      id={`clinic-hours-${item.day}-from`}
                       type="time"
                       value={item.from}
                       onChange={(e) => updateWorkingHours(item.day, "from", e.target.value)}
                       disabled={!isEditingHours || !item.enabled}
                       className={`h-7 text-xs ${!isEditingHours || !item.enabled ? "bg-gray-50 dark:bg-slate-900/50" : ""}`}
                     />
-                    <span className="text-xs text-muted-foreground">to</span>
+                    <span className="text-xs text-muted-foreground">à</span>
+                    <Label htmlFor={`clinic-hours-${item.day}-to`} className="sr-only">
+                      {`Heure de fermeture — ${WEEKDAY_LABELS_FR[item.day] ?? item.day}`}
+                    </Label>
                     <Input
+                      id={`clinic-hours-${item.day}-to`}
                       type="time"
                       value={item.to}
                       onChange={(e) => updateWorkingHours(item.day, "to", e.target.value)}

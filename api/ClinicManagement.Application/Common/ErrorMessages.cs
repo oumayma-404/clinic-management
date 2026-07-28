@@ -26,4 +26,16 @@ public static class ErrorMessages
     public const string RepeatedConflict =
         "L'enregistrement a encore été modifié pendant votre saisie. Quelqu'un travaille probablement "
         + "dessus en même temps — coordonnez-vous avant de réessayer.";
+
+    /// <summary>
+    /// AC-P1.14/1.18: the database's appointment exclusion constraint refused an overlapping booking.
+    /// <para>
+    /// Distinct wording from <see cref="Conflict"/> on purpose. Both surface as a 409, but they are different
+    /// events and telling a user to "reload and re-apply your change" would be wrong advice here — the slot is
+    /// genuinely taken, so the remedy is a different time, not a retry.
+    /// </para>
+    /// </summary>
+    public const string SlotAlreadyBooked =
+        "Ce créneau vient d'être réservé pour ce praticien par quelqu'un d'autre. "
+        + "Choisissez un autre horaire.";
 }

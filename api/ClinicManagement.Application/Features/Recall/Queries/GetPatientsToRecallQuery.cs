@@ -78,6 +78,15 @@ public class GetPatientsToRecallQueryHandler : IRequestHandler<GetPatientsToReca
                 if (patient.RecallSnoozedUntil.HasValue && patient.RecallSnoozedUntil.Value > now)
                     continue;
 
+                // AC-P1.11 — the stated effect of the new Completed → Cancelled transition. `lastVisit` is
+                // derived from Completed appointments only, so cancelling one removes it from this calculation
+                // and the patient's recall due-date falls back to their previous completed visit (or, with
+                // none, to their creation date). They may therefore REAPPEAR on the relance list.
+                //
+                // That is correct rather than unfortunate: a visit that was cancelled did not happen, so it is
+                // not a contact that should postpone a recall. The alternative — keeping a cancelled visit as
+                // the last one — would silently suppress a relance for a patient nobody actually saw, which is
+                // precisely the class of invisible state this part exists to remove.
                 var completedDates = appts
                     .Where(a => a.Status == AppointmentStatus.Completed)
                     .Select(a => a.AppointmentDateTime)

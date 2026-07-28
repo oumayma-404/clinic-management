@@ -12,6 +12,7 @@ import { doctorsApi } from "@/lib/api/doctors"
 import { ApiError } from "@/lib/api/client"
 import type { DoctorProfileDto } from "@/lib/api/types"
 import { specialtyLabel } from "@/lib/specialties"
+import { DoctorWorkingHoursCard } from "@/components/doctor-working-hours-card"
 
 export function MonProfilContent() {
   const [profile, setProfile] = useState<DoctorProfileDto | null>(null)
@@ -194,6 +195,9 @@ export function MonProfilContent() {
           </Button>
         </div>
       </Card>
+
+      {/* § 5.4 / AC-P1.25 — a doctor edits their own hours. `profile.id` is the doctorId the endpoint wants. */}
+      <DoctorWorkingHoursCard doctorId={profile.id} />
 
       <div className="rounded-lg border border-border bg-muted/40 px-4 py-3 text-xs text-muted-foreground">
         <span className="font-medium text-foreground">Administrateur :</span> un admin peut définir le cachet et le

@@ -17,6 +17,8 @@ import { useConnectivity } from "@/lib/connectivity/connectivity"
 import { useSession } from "@/lib/auth/session"
 import type { AppointmentDto } from "@/lib/api/types"
 import { cn, parseDurationToMinutes } from "@/lib/utils"
+import { clinicsApi } from "@/lib/api/clinics"
+import { WEEKDAYS, type WorkingDay } from "@/lib/working-hours"
 
 // Generate all 24 hours with hourly intervals
 const generateHourlyTimeSlots = (): string[] => {
@@ -27,6 +29,21 @@ const generateHourlyTimeSlots = (): string[] => {
   return slots
 }
 const timeSlots = generateHourlyTimeSlots()
+
+/**
+ * The open window for one calendar day, from the clinic's saved hours. Returns null when nothing is configured
+ * or the day is closed — the caller shades accordingly.
+ */
+function openWindowFor(day: Date, hours: WorkingDay[] | null): { fromHour: number; toHour: number } | null {
+  if (!hours || hours.length === 0) return null
+  const name = WEEKDAYS[(day.getDay() + 6) % 7] // WEEKDAYS starts Monday; Date.getDay() starts Sunday
+  const match = hours.find((h) => h.day?.trim().toLowerCase() === name.toLowerCase())
+  if (!match || !match.enabled) return null
+  const from = Number.parseInt(match.from?.slice(0, 2) ?? "", 10)
+  const to = Number.parseInt(match.to?.slice(0, 2) ?? "", 10)
+  if (!Number.isFinite(from) || !Number.isFinite(to) || from >= to) return null
+  return { fromHour: from, toHour: to }
+}
 
 // Fixed pixel height of one hour row; appointment blocks are positioned/sized against it.
 const HOUR_HEIGHT = 35
@@ -55,6 +72,35 @@ interface AppointmentCalendarProps {
 
 export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSlotClick, onAppointmentClick, onSelectDay, showCancelled = false, showCompleted = false, onShowCancelledChange, onShowCompletedChange, onChanged, doctorId }: AppointmentCalendarProps) {
   const { internetReachable } = useConnectivity()
+
+  /**
+   * The clinic's saved working hours, used to shade closed periods (AC-P1.33).
+   *
+   * The shading was `hour >= 8 && hour < 18` — hardcoded, and blind to the day of week, so Sunday shaded
+   * identically to Monday and a clinic open 07:00–20:00 saw its real hours greyed out. Now read from the
+   * clinic's own configuration; null/absent means nothing is configured, which per AC-P1.30 is *unrestricted*,
+   * so nothing is shaded rather than everything.
+   *
+   * NOTE: the grid still renders 0..23 rows. Trimming it to the open hours only would require re-basing the
+   * appointment overlay, which positions blocks from midnight against the fixed `HOUR_HEIGHT` (see the
+   * load-bearing comment below) — deliberately left for a follow-up rather than risked here.
+   */
+  const [clinicHours, setClinicHours] = useState<WorkingDay[] | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    clinicsApi
+      .getUserStatus()
+      .then((status) => {
+        if (!cancelled) setClinicHours(status.clinic?.workingHours ?? null)
+      })
+      // Best-effort: a failure means no shading, never a broken calendar.
+      .catch(() => {
+        if (!cancelled) setClinicHours(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
   // The "Push to Google" endpoint is AdminOnly — only admins get the action (finding #9); everyone still
   // sees the "non synchronisé" status badge.
   const { user } = useSession()
@@ -624,6 +670,14 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
               <div className="h-3 w-3 rounded bg-gray-400" />
               <span className="text-muted-foreground">Annulé</span>
             </div>
+            {/* The grey shading had no legend entry at all, so a closed period looked like a rendering
+                artefact. Only shown when hours are actually configured (AC-P1.33). */}
+            {clinicHours && clinicHours.length > 0 && (
+              <div className="flex items-center gap-2">
+                <div className="h-3 w-3 rounded border bg-gray-100 dark:bg-muted/50" />
+                <span className="text-muted-foreground">Hors horaires d&apos;ouverture</span>
+              </div>
+            )}
           </div>
 
           {/* Filters */}
@@ -744,7 +798,11 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
               <div className={cn("grid min-w-full", view === "week" ? "grid-cols-[60px_repeat(7,minmax(0,1fr))]" : "grid-cols-[60px_1fr]")}>
                 {timeSlots.map((time) => {
                   const hour = Number.parseInt(time.split(":")[0])
-                  const isWorkingHours = hour >= 8 && hour < 18
+                  // The label column has no single day in week view, so it reflects the focused date; each day
+                  // cell below shades against its OWN window (Sunday no longer shades like Monday).
+                  const labelWindow = openWindowFor(selectedDate, clinicHours)
+                  const isWorkingHours =
+                    labelWindow === null || (hour >= labelWindow.fromHour && hour < labelWindow.toHour)
 
                   return (
                     <div key={time} className="contents">
@@ -766,17 +824,23 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
 
                       {/* Day columns (empty — appointments render in the overlay below) */}
                       {view === "week"
-                        ? weekDays.map((day) => (
-                            <div
-                              key={`${day.toISOString()}-${time}`}
-                              className={cn(
-                                "min-h-[35px] cursor-pointer border-b border-r transition-colors hover:bg-blue-50/30 dark:hover:bg-muted/50 last:border-r-0 min-w-0",
-                                !isWorkingHours && "bg-gray-50/50 dark:bg-muted/30 opacity-70",
-                              )}
-                              onClick={() => onTimeSlotClick?.(day, time)}
-                              data-time-slot={time}
-                            />
-                          ))
+                        ? weekDays.map((day) => {
+                            // Each day shades against its OWN window — Sunday no longer shades like Monday.
+                            const dayWindow = openWindowFor(day, clinicHours)
+                            const dayOpen =
+                              dayWindow === null || (hour >= dayWindow.fromHour && hour < dayWindow.toHour)
+                            return (
+                              <div
+                                key={`${day.toISOString()}-${time}`}
+                                className={cn(
+                                  "min-h-[35px] cursor-pointer border-b border-r transition-colors hover:bg-blue-50/30 dark:hover:bg-muted/50 last:border-r-0 min-w-0",
+                                  !dayOpen && "bg-gray-50/50 dark:bg-muted/30 opacity-70",
+                                )}
+                                onClick={() => onTimeSlotClick?.(day, time)}
+                                data-time-slot={time}
+                              />
+                            )
+                          })
                         : (
                             <div
                               className={cn(

@@ -1,4 +1,5 @@
 using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.Common.Services;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
@@ -713,6 +714,27 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                 duration,
                 ExtractDoctorNameFromLocation(googleEvent.Location),
                 googleEvent.Description);
+
+            // AC-P1.29 — the stated rule for this writer: **import-with-override-flag, never skip.**
+            //
+            // This service writes appointments straight through the repository, bypassing both MediatR handlers
+            // and therefore the working-hours guard. Two options were available and one is clearly wrong:
+            // refusing an out-of-hours Google event would SILENTLY DROP the Sunday appointment the dentist
+            // typed into their own calendar — the inner catch here only logs — which is worse than importing
+            // it, because the clinic would believe Google and the app agreed when they did not.
+            //
+            // So the event is always imported and flagged as an out-of-hours exception when it is one, which is
+            // exactly the same record an in-app override leaves. `doctorId` is null on this path, so only the
+            // clinic-wide hours can ever apply.
+            var clinic = await _clinicRepository.GetByIdAsync(patient.ClinicId, cancellationToken);
+            var hours = WorkingHoursResolver.Resolve(null, clinic?.WorkingHoursJson);
+            if (!WorkingHoursResolver.IsWithin(hours, appointmentDateTime, duration, out var outsideReason))
+            {
+                appointment.MarkBookedOutsideWorkingHours();
+                _logger.LogWarning(
+                    "Google event {EventId} imported outside working hours for clinic {ClinicId}: {Reason}",
+                    googleEvent.Id, patient.ClinicId, outsideReason);
+            }
 
             appointment.SetGoogleCalendarEventId(googleEvent.Id);
             await _appointmentRepository.AddAsync(appointment, cancellationToken);
