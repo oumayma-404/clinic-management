@@ -636,6 +636,13 @@ export interface LabWorkOrderDto {
   receivedDate?: string | null;
   cost?: number | null;
   status: string;
+  /**
+   * The stages this order may legally move to from its current one, derived server-side from
+   * `LabWorkOrder`'s transition table. The status control offers exactly these, so the client never
+   * re-implements the rules — and a legacy row in a state the table cannot produce simply gets an empty list
+   * and no transitions offered, rather than failing to load.
+   */
+  allowedNextStatuses?: string[];
   notes?: string | null;
   createdAt: string;
   updatedAt?: string | null;

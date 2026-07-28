@@ -20,8 +20,23 @@ public class User : AggregateRoot<string> // Using Auth0 sub as ID (Cloud) or "l
     // How long an account stays locked after too many failed attempts.
     public static readonly TimeSpan LockoutDuration = TimeSpan.FromMinutes(15);
 
+    public const string RoleAdmin = "admin";
+    public const string RoleDoctor = "doctor";
+    public const string RoleSecretary = "secretary";
+
+    /// <summary>
+    /// The closed set of roles a clinic user may hold — the single authority for "is this a real role".
+    /// <para>
+    /// Until now the set existed only as a comment on <see cref="Role"/> and as three literals repeated across
+    /// the authorization policies and the two self-registration commands, so nothing validated a role coming
+    /// from a request (audit adjacent defect A-11): any string, empty included, was accepted and the account
+    /// silently matched no policy at all.
+    /// </para>
+    /// </summary>
+    public static readonly IReadOnlyList<string> AssignableRoles = new[] { RoleAdmin, RoleDoctor, RoleSecretary };
+
     public Guid ClinicId { get; private set; }
-    public string Role { get; private set; } // "doctor", "secretary", "admin"
+    public string Role { get; private set; } // one of AssignableRoles
     public string? Email { get; private set; }
     public string? FullName { get; private set; }
     public DateTime CreatedAt { get; private set; }
@@ -97,18 +112,59 @@ public class User : AggregateRoot<string> // Using Auth0 sub as ID (Cloud) or "l
         return user;
     }
 
-    public void Update(string role, string? email = null, string? fullName = null)
+    /// <summary>
+    /// Move this account to another clinic role.
+    /// <para>
+    /// Replaces the former <c>Update(string role, string? email = null, string? fullName = null)</c>, which had
+    /// **no caller** and was a live trap: the one-argument call every role-change site would naturally have made
+    /// assigned the two defaulted nulls, silently wiping the user's email and full name (adjacent defect A-11).
+    /// A role change touches the role and nothing else.
+    /// </para>
+    /// <para>
+    /// Returns <c>false</c> when the account already holds that role, so the caller can distinguish a no-op
+    /// from a real change rather than bumping <see cref="TokenVersion"/> — and logging the user out — for a
+    /// re-selection of the role they already had.
+    /// </para>
+    /// </summary>
+    public bool ChangeRole(string role)
     {
-        Role = role;
-        Email = email;
-        FullName = fullName;
+        var normalized = NormalizeRole(role)
+            ?? throw new ArgumentException(
+                "Rôle invalide. Les rôles autorisés sont : admin, doctor, secretary.", nameof(role));
+
+        if (Role.Equals(normalized, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        Role = normalized;
+        // The JWT is stateless and carries the role, so without this the OLD role stays live for the token's
+        // whole remaining lifetime — a demoted admin keeps every admin surface until it expires, and a promoted
+        // one cannot reach any of them (AC-P2.27). Same reason SetPassword/Deactivate bump it.
+        TokenVersion++;
         UpdatedAt = DateTime.UtcNow;
+        return true;
+    }
+
+    /// <summary>
+    /// The canonical spelling of <paramref name="role"/>, or <c>null</c> when it is not a real role. Callers that
+    /// must reject rather than throw (request validation) use this; <see cref="ChangeRole"/> throws.
+    /// </summary>
+    public static string? NormalizeRole(string? role)
+    {
+        if (string.IsNullOrWhiteSpace(role))
+        {
+            return null;
+        }
+
+        var trimmed = role.Trim();
+        return AssignableRoles.FirstOrDefault(r => r.Equals(trimmed, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>Promote this user to the clinic "admin" role, preserving email/full name (Cloud admin backfill).</summary>
     public void PromoteToAdmin()
     {
-        Role = "admin";
+        Role = RoleAdmin;
         UpdatedAt = DateTime.UtcNow;
     }
 
@@ -193,7 +249,7 @@ public class User : AggregateRoot<string> // Using Auth0 sub as ID (Cloud) or "l
         UpdatedAt = DateTime.UtcNow;
     }
 
-    public bool IsDoctor() => Role.Equals("doctor", StringComparison.OrdinalIgnoreCase);
-    public bool IsSecretary() => Role.Equals("secretary", StringComparison.OrdinalIgnoreCase);
-    public bool IsAdmin() => Role.Equals("admin", StringComparison.OrdinalIgnoreCase);
+    public bool IsDoctor() => Role.Equals(RoleDoctor, StringComparison.OrdinalIgnoreCase);
+    public bool IsSecretary() => Role.Equals(RoleSecretary, StringComparison.OrdinalIgnoreCase);
+    public bool IsAdmin() => Role.Equals(RoleAdmin, StringComparison.OrdinalIgnoreCase);
 }

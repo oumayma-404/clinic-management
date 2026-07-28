@@ -1,4 +1,5 @@
 using System.Reflection;
+using MediatR;
 using ClinicManagement.API.Controllers;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
@@ -42,6 +43,7 @@ public class GoogleCalendarControllerHardeningTests
             resolver.Object,
             new Mock<IUnitOfWork>().Object,
             cache,
+            new Mock<IMediator>().Object,
             NullLogger<GoogleCalendarController>.Instance);
         controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
         return controller;
@@ -60,6 +62,7 @@ public class GoogleCalendarControllerHardeningTests
     [InlineData(nameof(GoogleCalendarController.GetSyncStatus))]
     [InlineData(nameof(GoogleCalendarController.SyncAppointmentToGoogle))]
     [InlineData(nameof(GoogleCalendarController.Connect))]
+    [InlineData(nameof(GoogleCalendarController.Disconnect))]
     public void Ajax_Endpoints_Are_Not_Anonymous(string methodName) // [AC-4]
     {
         var method = typeof(GoogleCalendarController).GetMethod(methodName);
@@ -71,6 +74,8 @@ public class GoogleCalendarControllerHardeningTests
     [InlineData(nameof(GoogleCalendarController.SyncFromGoogleCalendar))]
     [InlineData(nameof(GoogleCalendarController.SyncAppointmentToGoogle))]
     [InlineData(nameof(GoogleCalendarController.Connect))]
+    // AC-P2.34: the disconnect joins the same class — it revokes the clinic's whole Google connection.
+    [InlineData(nameof(GoogleCalendarController.Disconnect))]
     public void Mutating_Google_Endpoints_Are_Admin_Only(string methodName) // [#4 admin-gate]
     {
         var method = typeof(GoogleCalendarController).GetMethod(methodName);

@@ -41,11 +41,15 @@ import { ApiError } from "@/lib/api/client"
 import { useDoctors } from "@/lib/hooks/use-doctors"
 import { useAppointmentOverlap } from "@/lib/hooks/use-appointment-overlap"
 import { isDeliverablePhone, PHONE_ERROR_FR } from "@/lib/phone"
+import { specialtyLabel } from "@/lib/specialties"
 
 // Sentinel value for the "custom procedure" option inside the procedure-type Select.
 const CUSTOM_PROCEDURE_VALUE = "__custom__"
-// Default colors for on-the-fly custom procedures — MUST be values the backend ColorHex value object
-// accepts (same curated palette as the procedure-type form). Rotated by catalog size for variety.
+// Seed colours rotated by catalog size when a dentist types a procedure that does not exist yet. These are a
+// subset of the palette the backend ColorHex value object accepts — `GET /api/procedure-types/colors` is the
+// authority (the procedure-type form reads it), but this is a rotation seed rather than a picker, so it does
+// not fetch: the dentist is booking an appointment, and one extra round-trip to choose a colour they never see
+// is not worth it. Any value here must stay on that palette or the create is refused.
 const CUSTOM_PROCEDURE_COLORS = ["#4F83CC", "#2A9D8F", "#6BAA75", "#9B8EDC", "#E9A23B", "#E76F51"]
 
 interface CreateAppointmentDialogProps {
@@ -919,7 +923,7 @@ export function CreateAppointmentDialog({
                     ) : (
                       doctors.map((doctor) => (
                         <SelectItem key={doctor.id || doctor.name} value={doctor.id || ""}>
-                          {doctor.name} {doctor.specialty ? `- ${doctor.specialty}` : ""}
+                          {doctor.name} {doctor.specialty ? `- ${specialtyLabel(doctor.specialty)}` : ""}
                         </SelectItem>
                       ))
                     )}

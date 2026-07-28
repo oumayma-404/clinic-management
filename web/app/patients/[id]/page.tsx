@@ -35,6 +35,7 @@ import {
   Pencil,
   X,
   Loader2,
+  Trash2,
 } from "lucide-react"
 import {
   Dialog,
@@ -44,6 +45,18 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import { toast } from "sonner"
+import { useSession } from "@/lib/auth/session"
 import { patientsApi } from "@/lib/api/patients"
 import { useConnectivity } from "@/lib/connectivity/connectivity"
 import { appointmentsApi } from "@/lib/api/appointments"
@@ -136,10 +149,17 @@ export default function PatientDetailsPage() {
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set())
   // Dental records already tied to a non-cancelled invoice (guards against double-invoicing).
   const [invoicedDentalRecordIds, setInvoicedDentalRecordIds] = useState<Set<string>>(new Set())
+  // The note d'honoraires that bills each of those records, so the delete confirmation can NAME it
+  // (AC-P2.17) instead of vaguely warning that the fiche is billed. Same pass as the set above.
+  const [invoicingNumberByRecordId, setInvoicingNumberByRecordId] = useState<Map<string, string>>(new Map())
   const [billingSummary, setBillingSummary] = useState<PatientBillingSummaryDto | null>(null)
   const [unarchiving, setUnarchiving] = useState(false)
   // The dental record being invoiced (drives the pre-filled invoice modal); null = closed.
   const [billingRecord, setBillingRecord] = useState<DentalRecordDto | null>(null)
+  // Pending destructive confirmations (AC-P2.16 / AC-P2.20). null = dialog closed.
+  const [recordToDelete, setRecordToDelete] = useState<DentalRecordDto | null>(null)
+  const [documentToDelete, setDocumentToDelete] = useState<MedicalDocumentDto | null>(null)
+  const [deleting, setDeleting] = useState(false)
   const [previewFile, setPreviewFile] = useState<PatientFileDto | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
@@ -154,6 +174,10 @@ export default function PatientDetailsPage() {
   const [planSeeds, setPlanSeeds] = useState<TreatmentPlanSeedLine[]>([])
   const [seededPlanOpen, setSeededPlanOpen] = useState(false)
   const { internetReachable } = useConnectivity()
+  // Both delete endpoints are AdminOrDoctor (A-12). Offer the action only to those roles so a secretary is
+  // never sent into a guaranteed 403 — the same rationale procedure-types-table.tsx documents for its writes.
+  const { user: sessionUser } = useSession()
+  const canDeleteClinicalRecords = sessionUser?.role === "admin" || sessionUser?.role === "doctor"
 
   // Real AI summary (HuggingFace via GET /patients/{id}/ai-summary). Offline (Local) → skip + FR fallback.
   const loadAiSummary = async () => {
@@ -239,14 +263,23 @@ export default function PatientDetailsPage() {
         // multi-record note d'honoraires links each billed record at the line level). Safe degradation:
         // a failed invoices fetch yields an empty set, so the Facturer action stays available.
         const invoicedIds = new Set<string>()
+        // Same walk records WHICH invoice bills each fiche, so the delete confirmation can name it. A draft
+        // has no number yet, so fall back to « brouillon » rather than printing an empty string.
+        const invoicingNumbers = new Map<string, string>()
         for (const inv of invoicesData) {
           if (inv.status === "Cancelled") continue
-          if (inv.dentalRecordId) invoicedIds.add(inv.dentalRecordId)
+          const label = inv.number?.trim() || "brouillon"
+          const remember = (recordId: string) => {
+            invoicedIds.add(recordId)
+            if (!invoicingNumbers.has(recordId)) invoicingNumbers.set(recordId, label)
+          }
+          if (inv.dentalRecordId) remember(inv.dentalRecordId)
           for (const line of inv.lines ?? []) {
-            if (line.dentalRecordId) invoicedIds.add(line.dentalRecordId)
+            if (line.dentalRecordId) remember(line.dentalRecordId)
           }
         }
         setInvoicedDentalRecordIds(invoicedIds)
+        setInvoicingNumberByRecordId(invoicingNumbers)
       } catch (err) {
         console.error("Failed to load patient data:", err)
         setError(err instanceof ApiError ? err.message : "Échec du chargement des données du patient")
@@ -346,6 +379,50 @@ export default function PatientDetailsPage() {
       }
     }
     loadPatientData()
+  }
+
+  /**
+   * Every devis act whose « réalisé » state is evidenced by this fiche. Deleting the fiche returns each of
+   * them to « prévu » and reopens its plan (AC-P2.13), so the confirmation has to say so *before* the user
+   * commits — being told afterwards is the defect this closes (AC-P2.18).
+   */
+  const planActsEvidencedBy = (recordId: string) =>
+    treatmentPlans.flatMap((plan) =>
+      plan.items
+        .filter((item) => item.linkedDentalRecordId === recordId)
+        .map((item) => ({ planTitle: plan.title, designation: item.designationFr })),
+    )
+
+  const confirmDeleteRecord = async () => {
+    if (!recordToDelete) return
+    try {
+      setDeleting(true)
+      await dentalRecordsApi.delete(patientId, recordToDelete.id)
+      toast.success("Fiche de soins supprimée.")
+      setRecordToDelete(null)
+      // Refresh through the page's single loader: the delete also detaches invoice lines and plan acts, so
+      // the invoices, the plans and the « Facturé » badges all have to be re-read, not just the fiche list.
+      setRefreshKey((k) => k + 1)
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Échec de la suppression de la fiche de soins.")
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  const confirmDeleteDocument = async () => {
+    if (!documentToDelete) return
+    try {
+      setDeleting(true)
+      await medicalDocumentsApi.delete(documentToDelete.id)
+      toast.success("Document supprimé.")
+      setDocumentToDelete(null)
+      setRefreshKey((k) => k + 1)
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Échec de la suppression du document.")
+    } finally {
+      setDeleting(false)
+    }
   }
 
   if (loading) {
@@ -927,6 +1004,17 @@ export default function PatientDetailsPage() {
                                     >
                                       <Pencil className="h-4 w-4" />
                                     </Button>
+                                    {canDeleteClinicalRecords && (
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                                        onClick={() => setRecordToDelete(record)}
+                                        title="Supprimer la fiche de soins"
+                                      >
+                                        <Trash2 className="h-4 w-4" />
+                                      </Button>
+                                    )}
                                   </div>
                                 </TableCell>
                               </TableRow>
@@ -1108,6 +1196,18 @@ export default function PatientDetailsPage() {
                                     <Eye className="h-4 w-4" />
                                     Ouvrir
                                   </Button>
+                                  {canDeleteClinicalRecords && (
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="gap-1 text-destructive hover:text-destructive"
+                                      onClick={() => setDocumentToDelete(doc)}
+                                      title="Supprimer le document"
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                      Supprimer
+                                    </Button>
+                                  )}
                                 </TableCell>
                               </TableRow>
                             ))}
@@ -1716,6 +1816,97 @@ export default function PatientDetailsPage() {
         dentalRecordId={billingRecord?.id}
         onSuccess={() => setRefreshKey((k) => k + 1)}
       />
+
+      {/*
+        Supprimer une fiche de soins (AC-P2.16). The copy is built from what the page already knows, because
+        a fiche is never just a fiche: it can be the provenance of an invoice line (AC-P2.17) and the evidence
+        for a devis act (AC-P2.18). Both consequences are named here, before the user confirms.
+      */}
+      <AlertDialog
+        open={!!recordToDelete}
+        onOpenChange={(open) => { if (!open) setRecordToDelete(null) }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Supprimer cette fiche de soins ?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                <p>
+                  {recordToDelete
+                    ? `Fiche du ${formatDate(recordToDelete.interventionDate)} — ${recordToDelete.procedureType}. Cette action est irréversible.`
+                    : "Cette action est irréversible."}
+                </p>
+                {recordToDelete && invoicedDentalRecordIds.has(recordToDelete.id) && (
+                  <p>
+                    Cette fiche est facturée sur la note d&apos;honoraires{" "}
+                    <span className="font-semibold">
+                      {invoicingNumberByRecordId.get(recordToDelete.id) ?? "en cours"}
+                    </span>
+                    . La note d&apos;honoraires, son numéro et son montant ne changent pas : seul le lien vers
+                    la fiche est retiré.
+                  </p>
+                )}
+                {recordToDelete && planActsEvidencedBy(recordToDelete.id).length > 0 && (
+                  <p>
+                    {planActsEvidencedBy(recordToDelete.id).length === 1
+                      ? "L'acte suivant repassera à « prévu » et son devis sera réouvert : "
+                      : "Les actes suivants repasseront à « prévu » et leur devis sera réouvert : "}
+                    <span className="font-semibold">
+                      {planActsEvidencedBy(recordToDelete.id)
+                        .map((act) => `${act.designation} (${act.planTitle})`)
+                        .join(", ")}
+                    </span>
+                    .
+                  </p>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                void confirmDeleteRecord()
+              }}
+              disabled={deleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? "Suppression…" : "Supprimer"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Supprimer un document médical (AC-P2.20) — same AlertDialog pattern. */}
+      <AlertDialog
+        open={!!documentToDelete}
+        onOpenChange={(open) => { if (!open) setDocumentToDelete(null) }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Supprimer ce document ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {documentToDelete
+                ? `${documentTypeLabel(documentToDelete.documentType)} du ${formatDate(documentToDelete.documentDate)}. Le document et son PDF enregistré seront supprimés. Cette action est irréversible.`
+                : "Cette action est irréversible."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                void confirmDeleteDocument()
+              }}
+              disabled={deleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? "Suppression…" : "Supprimer"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* File Preview Dialog */}
       <Dialog open={!!previewFile} onOpenChange={handleClosePreview}>

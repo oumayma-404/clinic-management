@@ -11,7 +11,8 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog"
 import {
-  ArrowLeft, Ban, CreditCard, FileDown, Loader2, ReceiptText, CheckCheck, ClipboardCheck,
+  ArrowLeft, Ban, CreditCard, FileDown, Loader2, ReceiptText, CheckCheck, ClipboardCheck, FilePen,
+  CalendarClock,
 } from "lucide-react"
 import { toast } from "sonner"
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
@@ -27,6 +28,8 @@ import { PlanProgressBar } from "./plan-progress-bar"
 import { PlanActRow } from "./plan-act-row"
 import { PlanTimeline } from "./plan-timeline"
 import { InstallmentPaymentModal } from "./installment-payment-modal"
+import { ReviseInstallmentsModal } from "./revise-installments-modal"
+import { TreatmentPlanFormModal } from "./treatment-plan-form-modal"
 import { CreateAppointmentDialog } from "@/components/create-appointment-dialog"
 
 interface PlanWorkspaceProps {
@@ -47,6 +50,10 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
   const [cancelOpen, setCancelOpen] = useState(false)
   const [cancelReason, setCancelReason] = useState("")
   const [procedureTypes, setProcedureTypes] = useState<ProcedureTypeDto[]>([])
+  const [amendOpen, setAmendOpen] = useState(false)
+  const [reviseOpen, setReviseOpen] = useState(false)
+  /** The act whose « réalisé » state is being corrected (AC-P2.11); null = dialog closed. */
+  const [undoTarget, setUndoTarget] = useState<TreatmentPlanItemDto | null>(null)
 
   // Only needed to resolve an act's procedure when booking it (below). Failure is silent — it degrades to the
   // previous free-text behaviour rather than blocking the workspace.
@@ -89,6 +96,18 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
   // Reordering is cosmetic, so it stays available on a Completed plan too — only a cancelled devis (and a
   // one-act plan, where there is nothing to move) hides the controls.
   const canReorder = plan.status !== "Cancelled" && plan.items.length > 1
+  /**
+   * Amending (acts or échéancier) needs the same conditions as « Facturer le devis » — an active plan not yet
+   * represented by an invoice (AC-P2.2). Both server handlers apply `EnsureAmendable` (Accepted/InProgress)
+   * plus the billed-plan block, so this mirrors the server rather than inventing a rule.
+   */
+  const canAmend = isActive && !billed
+  /**
+   * Correcting a réalisé act is *not* gated on `isActive`: marking the last act done auto-completes the plan,
+   * so requiring an active plan would lock out the exact mistake the correction exists for. The server's
+   * `EnsureCorrectable` admits Accepted / InProgress / **Completed** — mirrored here.
+   */
+  const canCorrectActs = plan.status !== "Draft" && plan.status !== "Cancelled"
 
   const run = async (action: () => Promise<unknown>, success: string, failure: string) => {
     setBusy(true)
@@ -223,6 +242,22 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                   Facturer le devis
                 </Button>
               )}
+              {/* AC-P2.1 — `POST /amend` has been fully implemented and validated since
+                  `treatment-plan-workspace` with no caller, so a typo on an accepted devis forced cancelling
+                  it and losing its number. Called unconditionally within the amendable window and the 403 is
+                  surfaced, matching the other financial-reversal actions rather than gating on role. */}
+              {canAmend && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-2"
+                  disabled={busy}
+                  onClick={() => setAmendOpen(true)}
+                >
+                  <FilePen className="h-4 w-4" />
+                  Modifier le devis
+                </Button>
+              )}
               {isActive && (
                 <Button
                   size="sm"
@@ -333,6 +368,7 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                       plan={plan}
                       item={item}
                       onSchedule={setScheduleTarget}
+                      onUndo={canCorrectActs ? setUndoTarget : undefined}
                       reorder={
                         canReorder
                           ? {
@@ -352,7 +388,8 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
           )}
           <p className="mt-2 text-xs text-muted-foreground">
             Un acte passe à « Réalisé » à l&apos;enregistrement de la fiche de soins liée — il n&apos;y a pas de
-            bascule manuelle.
+            bascule manuelle. Un acte coché par erreur se corrige avec « Détacher la fiche », qui le ramène à
+            « Prévu » et réouvre le devis si celui-ci s&apos;était clos dessus.
           </p>
         </CardContent>
       </Card>
@@ -360,7 +397,23 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
       {/* ---- Échéancier ---------------------------------------------------------------------------- */}
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Échéancier</CardTitle>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle className="text-base">Échéancier</CardTitle>
+            {/* AC-P2.5 — `PUT /installments` was equally callerless, so a patient who could no longer pay on
+                the agreed dates had to have the devis cancelled and retyped. Same window as the amendment. */}
+            {canAmend && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-2"
+                disabled={busy}
+                onClick={() => setReviseOpen(true)}
+              >
+                <CalendarClock className="h-4 w-4" />
+                Modifier l&apos;échéancier
+              </Button>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
           {plan.installments.length === 0 ? (
@@ -529,6 +582,70 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
               }}
             >
               Confirmer l&apos;annulation
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* AC-P2.1–2.4 — the plan form in amend mode. Refusals land in its own FormErrorBanner rather than a
+          toast, which would fire behind the open dialog. */}
+      <TreatmentPlanFormModal
+        open={amendOpen}
+        onOpenChange={setAmendOpen}
+        editingPlan={plan}
+        amendMode
+        presetPatientId={plan.patientId}
+        presetPatientName={plan.patientName ?? "Patient"}
+        onSuccess={() => {
+          setAmendOpen(false)
+          onChanged()
+        }}
+      />
+
+      {/* AC-P2.5–2.7 — re-spread the échéancier without touching the acts. */}
+      <ReviseInstallmentsModal
+        open={reviseOpen}
+        onOpenChange={setReviseOpen}
+        plan={plan}
+        onSuccess={() => {
+          setReviseOpen(false)
+          onChanged()
+        }}
+      />
+
+      {/*
+        AC-P2.11 — « Détacher la fiche ». Confirmed rather than immediate: it reopens a devis that may have
+        auto-completed and returns the act to « Prévu », which is not what a mis-click should do silently. The
+        server refuses outright once the plan or the act's own fiche is billed, and that French sentence is
+        surfaced by `run()`'s toast — this dialog is a normal action, not one that needs an in-form banner.
+      */}
+      <Dialog open={!!undoTarget} onOpenChange={(open) => { if (!open) setUndoTarget(null) }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Détacher la fiche de cet acte ?</DialogTitle>
+            <DialogDescription>
+              « {undoTarget?.designationFr} » repassera à « Prévu » et sa fiche de soins sera détachée. La fiche
+              elle-même n&apos;est pas supprimée. Si ce devis s&apos;était clos sur cet acte, il sera réouvert.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" disabled={busy} onClick={() => setUndoTarget(null)}>
+              Retour
+            </Button>
+            <Button
+              disabled={busy}
+              onClick={async () => {
+                const target = undoTarget
+                if (!target) return
+                await run(
+                  () => treatmentPlansApi.markItemUndone(plan.id, target.id),
+                  "Acte ramené à « Prévu »",
+                  "Échec de la correction de l'acte.",
+                )
+                setUndoTarget(null)
+              }}
+            >
+              Détacher la fiche
             </Button>
           </DialogFooter>
         </DialogContent>

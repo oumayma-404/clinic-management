@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using MediatR;
+using ClinicManagement.Application.Common.Authorization;
 using ClinicManagement.Application.Features.Documents.Commands;
 using ClinicManagement.Application.Features.Documents.Queries;
 using ClinicManagement.API.Models;
@@ -221,7 +222,14 @@ public class MedicalDocumentsController : ApiControllerBase
         return Ok(result.Value);
     }
 
+    /// <summary>
+    /// Delete a medical document (ordonnance, certificat, lettre de liaison…) and its stored blob.
+    /// `AdminOrDoctor` — the document is a signed clinical instrument issued in a practitioner's name; the
+    /// class-level <c>[Authorize]</c> was the only gate (audit adjacent defect A-12), so a secretary could
+    /// destroy an ordonnance.
+    /// </summary>
     [HttpDelete("{id}")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
     public async Task<IActionResult> DeleteDocument(
         Guid id,
         CancellationToken cancellationToken = default)

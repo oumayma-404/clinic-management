@@ -58,7 +58,7 @@ const baseSections: NavSection[] = [
 export function DashboardSidebar() {
   const pathname = usePathname()
   const { isCollapsed, toggleSidebar } = useSidebar()
-  const { user, mode } = useSession()
+  const { user } = useSession()
   // Working hours shown in the footer come from the clinic's saved settings (AC-7); no redirect (ClinicGuard
   // owns that). Falls back to the shared default when nothing is saved.
   const { status } = useClinicAccess(false)
@@ -73,7 +73,13 @@ export function DashboardSidebar() {
   const isAdmin = user?.role === "admin"
 
   // Configuration group: procedure catalog + admin-only reference catalogs + clinic settings. CNAM /
-  // médicaments / actes dentaires are any-admin; Utilisateurs is local-mode admin only.
+  // médicaments / actes dentaires and Utilisateurs are all any-admin, in both modes.
+  //
+  // « Utilisateurs » used to carry an extra `mode === "local" &&` (AC-P2.28). Nothing else was mode-gated:
+  // the page itself only checks `role === "admin"`, and `UsersController` (list / status / role) works
+  // identically in Cloud — so a Cloud admin had no way to see who could reach their clinic's patient data, or
+  // to revoke a departed colleague. The one genuinely Local-only action inside, « Réinitialiser le mot de
+  // passe », is gated in `user-management.tsx` where it lives (AC-P2.29).
   const configItems: NavItem[] = [
     { name: "Types de procédures", href: "/procedure-types", icon: Stethoscope },
     ...(isAdmin
@@ -83,7 +89,7 @@ export function DashboardSidebar() {
           { name: "Actes dentaires", href: "/dental-acts", icon: ScrollText },
         ]
       : []),
-    ...(mode === "local" && isAdmin ? [{ name: "Utilisateurs", href: "/users", icon: UserCog }] : []),
+    ...(isAdmin ? [{ name: "Utilisateurs", href: "/users", icon: UserCog }] : []),
     { name: "Paramètres", href: "/settings", icon: Settings },
   ]
 

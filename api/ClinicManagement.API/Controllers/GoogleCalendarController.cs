@@ -1,8 +1,10 @@
 using System.Security.Cryptography;
+using MediatR;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using ClinicManagement.Application.Common.Authorization;
 using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.Features.Clinics.Commands;
 using ClinicManagement.Domain.Repositories;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
@@ -34,6 +36,7 @@ public class GoogleCalendarController : ApiControllerBase
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IMemoryCache _cache;
+    private readonly IMediator _mediator;
     private readonly ILogger<GoogleCalendarController> _logger;
 
     public GoogleCalendarController(
@@ -43,6 +46,7 @@ public class GoogleCalendarController : ApiControllerBase
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
         IMemoryCache cache,
+        IMediator mediator,
         ILogger<GoogleCalendarController> logger)
     {
         _syncService = syncService;
@@ -51,7 +55,26 @@ public class GoogleCalendarController : ApiControllerBase
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
         _cache = cache;
+        _mediator = mediator;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// Disconnect the caller's clinic from Google Calendar (AC-P2.33/2.34). `AdminOnly`, matching every other
+    /// mutating action here.
+    /// <para>
+    /// Unlike the rest of this controller — whose OAuth plumbing legitimately works the repositories directly —
+    /// this is an ordinary clinic mutation with an admin guard, so it goes through MediatR like every other one:
+    /// that is what makes it unit-testable (the test project references Application, not this controller's
+    /// internals) and what gets the realtime broadcast for free.
+    /// </para>
+    /// </summary>
+    [HttpPost("disconnect")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<IActionResult> Disconnect(CancellationToken cancellationToken)
+    {
+        var result = await _mediator.Send(new DisconnectGoogleCalendarCommand(), cancellationToken);
+        return result.IsFailure ? HandleFailure(result) : Ok(new { disconnected = true });
     }
 
     /// <summary>

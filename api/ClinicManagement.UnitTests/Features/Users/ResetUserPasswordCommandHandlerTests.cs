@@ -2,6 +2,7 @@ using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Features.Users.Commands;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Xunit;
 
@@ -17,7 +18,9 @@ public class ResetUserPasswordCommandHandlerTests
     private readonly Mock<ILocalAuthService> _auth = new();
     private readonly Mock<IUnitOfWork> _uow = new();
 
-    private ResetUserPasswordCommandHandler Handler() => new(_users.Object, _context.Object, _auth.Object, _uow.Object);
+    private ResetUserPasswordCommandHandler Handler() =>
+        new(_users.Object, _context.Object, _auth.Object, _uow.Object,
+            NullLogger<ResetUserPasswordCommandHandler>.Instance);
 
     private static User Local(string role, Guid clinicId) =>
         User.CreateLocalUser(clinicId, role, $"{role}@clinic.com", "OLD-HASH", $"{role} name");

@@ -23,6 +23,7 @@ import { medicationsApi } from "@/lib/api/medications"
 import type { PatientDto, MedicalDocumentDto, ProcedureTypeDto, DentalRecordDto, CnamNomenclatureEntryDto, MedicationDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import { useDoctors } from "@/lib/hooks/use-doctors"
+import { specialtyLabel } from "@/lib/specialties"
 import { format, parseISO } from "date-fns"
 import { fr } from "date-fns/locale"
 import { toast } from "sonner"
@@ -467,7 +468,20 @@ export function DocumentEditorContent() {
   
   const formData = {
     doctorName: selectedDoctor?.name || "Dr. [Nom]",
-    doctorSpecialty: selectedDoctor?.specialty || "[Spécialité]",
+    /**
+     * AC-P2.42 — mapped **here**, at the single point every printed surface derives from: the letterhead, the
+     * certificat body sentence, the DOCX letterhead + signature block, and the on-screen preview's letterhead +
+     * signature block all read `formData.doctorSpecialty`. One map at the source reaches all six without going
+     * near this file's documentType switches (plan risk R-11).
+     *
+     * This value is also the `doctorSpecialty` snapshot persisted on the document and re-rendered by the
+     * server-side PDF, which is what makes the *printed* certificat French with no backend change. That is
+     * correct rather than a storage-key migration: `MedicalDocument.DoctorSpecialty` records the text that was
+     * printed on that document (existing rows already hold French), unlike `Doctor.Specialty`, which stays the
+     * English catalog key (AC-P2.43). `specialtyLabel` passes unknown values through, so re-saving an older
+     * French snapshot is idempotent.
+     */
+    doctorSpecialty: specialtyLabel(selectedDoctor?.specialty) || "[Spécialité]",
     clinicName: clinicInfo?.name || "[Nom du cabinet]",
     clinicAddress: clinicInfo?.address || "[Adresse]",
     clinicCity: clinicInfo?.city || "",
@@ -1402,7 +1416,10 @@ export function DocumentEditorContent() {
               name: proc.name.trim(),
               defaultDurationMinutes: 30, // Default duration (required field)
               defaultCost: proc.cost || null,
-              colorHex: "#3b82f6", // Default blue color
+              // Must be a colour the backend ColorHex value object accepts — it rejects anything off its
+              // curated palette (GET /api/procedure-types/colors is the authority). "#3b82f6" was not on it, so
+              // this create threw ArgumentException every time it ran.
+              colorHex: "#4F83CC",
               description: `Procédure créée depuis une note d'honoraires`
             })
             proceduresUpdated = true

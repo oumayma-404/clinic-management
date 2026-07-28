@@ -5,7 +5,17 @@ import { DashboardHeader } from "@/components/dashboard-header"
 import { DashboardSidebar } from "@/components/dashboard-sidebar"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
-import { Plus, RefreshCw, Calendar } from "lucide-react"
+import { Plus, RefreshCw, Calendar, Unlink } from "lucide-react"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { AppointmentCalendar } from "@/components/appointment-calendar"
 import { CreateAppointmentDialog } from "@/components/create-appointment-dialog"
 import { EditAppointmentDialog } from "@/components/edit-appointment-dialog"
@@ -34,6 +44,8 @@ export default function AppointmentsPage() {
   const [bookingPatientId, setBookingPatientId] = useState<string | undefined>(undefined)
   const [isGoogleCalendarAuthorized, setIsGoogleCalendarAuthorized] = useState(false)
   const [isSyncing, setIsSyncing] = useState(false)
+  const [disconnectOpen, setDisconnectOpen] = useState(false)
+  const [isDisconnecting, setIsDisconnecting] = useState(false)
   const [showCancelled, setShowCancelled] = useState(false)
   const [showCompleted, setShowCompleted] = useState(false)
   // Google Calendar needs the server's internet egress; gate its controls in Local offline mode
@@ -81,20 +93,21 @@ export default function AppointmentsPage() {
   useClinicRealtime(RealtimeResource.Appointments, handleAppointmentUpdated)
 
   // Check Google Calendar status on mount and after authorization
-  useEffect(() => {
-    const checkGoogleCalendarStatus = async () => {
-      try {
-        const status = await googleCalendarApi.getStatus()
-        setIsGoogleCalendarAuthorized(status.isConfigured && status.tokenValid !== false)
-        
-        // Show message if token is invalid
-        if (status.hasRefreshToken && !status.tokenValid) {
-          console.warn("Google Calendar token is invalid. Please re-authorize.")
-        }
-      } catch (error) {
-        console.error("Failed to check Google Calendar status:", error)
+  const checkGoogleCalendarStatus = useCallback(async () => {
+    try {
+      const status = await googleCalendarApi.getStatus()
+      setIsGoogleCalendarAuthorized(status.isConfigured && status.tokenValid !== false)
+
+      // Show message if token is invalid
+      if (status.hasRefreshToken && !status.tokenValid) {
+        console.warn("Google Calendar token is invalid. Please re-authorize.")
       }
+    } catch (error) {
+      console.error("Failed to check Google Calendar status:", error)
     }
+  }, [])
+
+  useEffect(() => {
     checkGoogleCalendarStatus()
 
     // Check if we just came back from authorization
@@ -106,7 +119,7 @@ export default function AppointmentsPage() {
       // Refresh status
       checkGoogleCalendarStatus()
     }
-  }, [])
+  }, [checkGoogleCalendarStatus])
 
   // Deep-link from a notification: open the referenced appointment — focus its day and open the edit
   // dialog. Graceful (spec Edge Cases): if the appointment no longer exists/is not visible, we simply
@@ -188,6 +201,31 @@ export default function AppointmentsPage() {
     }
   }, [])
 
+  /**
+   * AC-P2.33–2.35: disconnect the clinic's Google account. `Clinic.ClearGoogleCalendarConnection()` had existed
+   * with no caller, so a clinic that authorised the wrong Google account could only overwrite it by re-running
+   * the whole OAuth flow — never simply stop syncing.
+   */
+  const handleDisconnectGoogle = useCallback(async () => {
+    setIsDisconnecting(true)
+    try {
+      await googleCalendarApi.disconnect()
+      toast.success("Google Calendar déconnecté. Les rendez-vous ne sont plus envoyés à Google.")
+      // Re-read rather than assume: the status endpoint is the authority on « connecté », and it also folds in
+      // the server-side ClientId/ClientSecret configuration this action does not touch.
+      await checkGoogleCalendarStatus()
+      setDisconnectOpen(false)
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 0) {
+        toast.error("Connexion perdue. Veuillez réessayer.")
+      } else {
+        toast.error(error instanceof ApiError ? error.message : "Échec de la déconnexion de Google Calendar.")
+      }
+    } finally {
+      setIsDisconnecting(false)
+    }
+  }, [checkGoogleCalendarStatus])
+
   return (
     <ClinicGuard>
       <div className="flex h-screen bg-background">
@@ -220,17 +258,32 @@ export default function AppointmentsPage() {
                       Synchroniser avec Google Calendar
                     </Button>
                   ) : (
-                    <Button
-                      onClick={handleSyncFromGoogle}
-                      variant="outline"
-                      className="gap-2"
-                      size="sm"
-                      disabled={isSyncing || !internetReachable}
-                      title={!internetReachable ? "Connexion internet requise" : undefined}
-                    >
-                      <RefreshCw className={`h-4 w-4 ${isSyncing ? "animate-spin" : ""}`} />
-                      {isSyncing ? "Synchronisation…" : "Importer depuis Google"}
-                    </Button>
+                    <>
+                      <Button
+                        onClick={handleSyncFromGoogle}
+                        variant="outline"
+                        className="gap-2"
+                        size="sm"
+                        disabled={isSyncing || !internetReachable}
+                        title={!internetReachable ? "Connexion internet requise" : undefined}
+                      >
+                        <RefreshCw className={`h-4 w-4 ${isSyncing ? "animate-spin" : ""}`} />
+                        {isSyncing ? "Synchronisation…" : "Importer depuis Google"}
+                      </Button>
+                      {/* AC-P2.34 — beside « Importer depuis Google », behind an AlertDialog. Deliberately NOT
+                          gated on internetReachable: clearing our own stored token is a local DB write, and it
+                          is exactly what an admin needs when the connected account is wrong or unreachable. */}
+                      <Button
+                        onClick={() => setDisconnectOpen(true)}
+                        variant="outline"
+                        className="gap-2 text-destructive hover:text-destructive"
+                        size="sm"
+                        disabled={isDisconnecting}
+                      >
+                        <Unlink className="h-4 w-4" />
+                        Déconnecter Google
+                      </Button>
+                    </>
                   ))}
                   {isAdmin && !internetReachable && (
                     <span className="text-xs text-amber-600 dark:text-amber-400">Connexion requise</span>
@@ -325,6 +378,34 @@ export default function AppointmentsPage() {
         appointment={selectedAppointment}
         onSuccess={handleAppointmentUpdated}
       />
+
+      {/* AC-P2.34/2.35 — disconnect confirmation. The copy is explicit that nothing is deleted in Google: an
+          admin hesitating over this button is usually worried exactly about that. */}
+      <AlertDialog open={disconnectOpen} onOpenChange={setDisconnectOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Déconnecter Google Calendar ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Les nouveaux rendez-vous ne seront plus envoyés à Google et l&apos;import manuel sera indisponible.
+              Rien n&apos;est supprimé : les rendez-vous déjà synchronisés restent dans votre agenda Google, et
+              vous pouvez reconnecter le compte à tout moment.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDisconnecting}>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                void handleDisconnectGoogle()
+              }}
+              disabled={isDisconnecting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDisconnecting ? "Déconnexion…" : "Déconnecter"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       </div>
     </ClinicGuard>
   )

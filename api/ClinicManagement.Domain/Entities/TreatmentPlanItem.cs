@@ -113,6 +113,32 @@ public class TreatmentPlanItem : Entity<Guid>
         LinkedDentalRecordId = linkedDentalRecordId;
     }
 
+    /// <summary>
+    /// Undo <see cref="MarkDone"/>: the act returns to « prévu » and its evidence link is cleared.
+    /// <para>
+    /// This is the "détachez-le de cette fiche" that <see cref="MarkDone"/> has always told the user to do and
+    /// that had no implementation anywhere in the domain, application, API or UI. Without it, one act ticked
+    /// against the wrong fiche was permanent — and because marking the last act done auto-completes the plan,
+    /// it closed the whole devis with it.
+    /// </para>
+    /// <para>
+    /// Returns <c>false</c> when the act was already « prévu », so the caller can distinguish "nothing to undo"
+    /// from a real correction rather than silently re-opening a plan that never closed.
+    /// </para>
+    /// </summary>
+    public bool Unmark()
+    {
+        if (Status != TreatmentPlanItemStatus.Done)
+        {
+            return false;
+        }
+
+        Status = TreatmentPlanItemStatus.Planned;
+        DoneDate = null;
+        LinkedDentalRecordId = null;
+        return true;
+    }
+
     /// <summary>Place this act at a given position in the plan's clinical order.</summary>
     public void SetSequenceNumber(int sequenceNumber)
     {

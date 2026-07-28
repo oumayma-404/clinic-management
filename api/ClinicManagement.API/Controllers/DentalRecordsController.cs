@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using MediatR;
+using ClinicManagement.Application.Common.Authorization;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Patients.Commands;
 using ClinicManagement.Application.Features.Patients.Queries;
@@ -67,7 +68,14 @@ public class DentalRecordsController : ApiControllerBase
         return Ok(result.Value);
     }
 
+    /// <summary>
+    /// Delete a fiche de soins. `AdminOrDoctor` — a fiche is the clinical assertion an invoice line and a devis
+    /// act are built from, and deleting it detaches both, so it belongs to the same class as amending a plan or
+    /// cancelling an issued invoice. The class-level <c>[Authorize]</c> was the only gate (audit adjacent defect
+    /// A-12), which let a secretary destroy clinical records.
+    /// </summary>
     [HttpDelete("{id}")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
     public async Task<ActionResult> DeleteDentalRecord(Guid patientId, Guid id)
     {
         var command = new DeleteDentalRecordCommand

@@ -25,8 +25,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Users, KeyRound, UserX, UserCheck, RefreshCw, Copy, Check } from "lucide-react"
-import { usersApi, type ClinicUserDto } from "@/lib/api/users"
+import {
+  usersApi,
+  USER_ROLES,
+  USER_ROLE_LABELS_FR,
+  type ClinicUserDto,
+  type UserRole,
+} from "@/lib/api/users"
 import { clinicsApi } from "@/lib/api/clinics"
 import { ApiError } from "@/lib/api/client"
 import { useSession } from "@/lib/auth/session"
@@ -37,9 +44,17 @@ type PendingAction =
   | { type: "reset"; user: ClinicUserDto }
   | { type: "status"; user: ClinicUserDto }
   | { type: "regenerate" }
+  | { type: "role"; user: ClinicUserDto; role: UserRole }
 
 export function UserManagement() {
-  const { user: currentUser } = useSession()
+  const { user: currentUser, mode } = useSession()
+  /**
+   * AC-P2.29: « Réinitialiser le mot de passe » only exists for local (password-backed) accounts —
+   * `ResetUserPasswordCommand` correctly refuses anything else with « Ce compte n'utilise pas de mot de passe
+   * local. ». Now that this screen is reachable in Cloud (AC-P2.28), offering the button there would be a
+   * guaranteed dead end: Cloud identities are managed in Auth0.
+   */
+  const canResetPasswords = mode === "local"
   const [users, setUsers] = useState<ClinicUserDto[]>([])
   const [clinicCode, setClinicCode] = useState<string>("")
   const [loading, setLoading] = useState(true)
@@ -107,6 +122,12 @@ export function UserManagement() {
         const clinic = await clinicsApi.regenerateCode()
         setClinicCode(clinic.code || "")
         toast.success("Code de la clinique régénéré. L'ancien code ne fonctionne plus.")
+      } else if (pending.type === "role") {
+        await usersApi.setRole(pending.user.id, pending.role)
+        toast.success(
+          `Rôle modifié : ${USER_ROLE_LABELS_FR[pending.role]}. Il s'applique à la prochaine requête de l'utilisateur.`,
+        )
+        await loadData()
       }
       setPending(null)
     } catch (err) {
@@ -128,9 +149,14 @@ export function UserManagement() {
     }
   }
 
-  const roleLabel = (role: string) => {
-    const map: Record<string, string> = { admin: "Administrateur", doctor: "Médecin", secretary: "Secrétaire" }
-    return map[role?.toLowerCase()] ?? (role.charAt(0).toUpperCase() + role.slice(1))
+  // A role outside the closed set can only be legacy data, so render it verbatim rather than blank.
+  const roleLabel = (role: string) =>
+    USER_ROLE_LABELS_FR[role?.toLowerCase() as UserRole] ?? (role.charAt(0).toUpperCase() + role.slice(1))
+
+  /** The stored role as one of the three known keys, or null for a legacy/unknown value. */
+  const knownRole = (role: string): UserRole | null => {
+    const key = role?.toLowerCase() as UserRole
+    return USER_ROLES.includes(key) ? key : null
   }
   const formatDate = (value?: string) =>
     value ? new Date(value).toLocaleString("fr-FR") : "Jamais"
@@ -198,6 +224,14 @@ export function UserManagement() {
                 {error}
               </div>
             )}
+            {/* AC-P2.29 — this screen now also opens in Cloud, where password resets are not ours to do. */}
+            {!canResetPasswords && (
+              <p className="mb-4 rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                Les mots de passe sont gérés par le fournisseur d&apos;identité (Auth0) : la réinitialisation
+                depuis cet écran n&apos;est disponible que sur une installation locale. Les rôles et l&apos;accès
+                se modifient ici dans les deux modes.
+              </p>
+            )}
             {loading ? (
               <p className="py-8 text-center text-muted-foreground">Chargement des utilisateurs…</p>
             ) : (
@@ -230,7 +264,32 @@ export function UserManagement() {
                           <TableCell className="font-medium text-foreground">{user.fullName || "-"}</TableCell>
                           <TableCell className="text-muted-foreground">{user.email || "-"}</TableCell>
                           <TableCell>
-                            <Badge variant="outline">{roleLabel(user.role)}</Badge>
+                            {/* AC-P2.23 — no user's role could ever be changed, so a member onboarded with the
+                                wrong one had to be deactivated and re-registered. A legacy value outside the
+                                closed set keeps the read-only badge: pre-selecting a role we did not store
+                                would misreport what the account actually holds. */}
+                            {knownRole(user.role) ? (
+                              <Select
+                                value={knownRole(user.role)!}
+                                onValueChange={(value) =>
+                                  setPending({ type: "role", user, role: value as UserRole })
+                                }
+                                disabled={working}
+                              >
+                                <SelectTrigger className="h-8 w-[150px] text-sm" aria-label="Rôle">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {USER_ROLES.map((role) => (
+                                    <SelectItem key={role} value={role} className="text-sm">
+                                      {USER_ROLE_LABELS_FR[role]}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            ) : (
+                              <Badge variant="outline">{roleLabel(user.role)}</Badge>
+                            )}
                           </TableCell>
                           <TableCell>
                             <div className="flex flex-wrap items-center gap-1.5">
@@ -247,15 +306,17 @@ export function UserManagement() {
                           <TableCell className="text-muted-foreground">{formatDate(user.lastLoginAt)}</TableCell>
                           <TableCell className="text-right">
                             <div className="flex justify-end gap-2">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-8 gap-1"
-                                onClick={() => setPending({ type: "reset", user })}
-                              >
-                                <KeyRound className="h-3 w-3" />
-                                Réinitialiser le mot de passe
-                              </Button>
+                              {canResetPasswords && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 gap-1"
+                                  onClick={() => setPending({ type: "reset", user })}
+                                >
+                                  <KeyRound className="h-3 w-3" />
+                                  Réinitialiser le mot de passe
+                                </Button>
+                              )}
                               {user.isActive ? (
                                 <Button
                                   variant="ghost"
@@ -302,6 +363,7 @@ export function UserManagement() {
               {pending?.type === "status" &&
                 (pending.user.isActive ? "Désactiver cet utilisateur ?" : "Réactiver cet utilisateur ?")}
               {pending?.type === "regenerate" && "Régénérer le code de la clinique ?"}
+              {pending?.type === "role" && "Modifier le rôle de cet utilisateur ?"}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {pending?.type === "reset" && (
@@ -324,6 +386,15 @@ export function UserManagement() {
               )}
               {pending?.type === "regenerate" &&
                 "Le code actuel cessera de fonctionner pour les nouvelles inscriptions. Les comptes existants ne sont pas affectés."}
+              {pending?.type === "role" && (
+                <>
+                  <span className="font-semibold">{pending.user.email || pending.user.fullName}</span> passera de{" "}
+                  <span className="font-semibold">{roleLabel(pending.user.role)}</span> à{" "}
+                  <span className="font-semibold">{USER_ROLE_LABELS_FR[pending.role]}</span>. Sa session actuelle
+                  est révoquée : le nouveau rôle s&apos;applique dès sa prochaine requête, et il devra peut-être
+                  se reconnecter.
+                </>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

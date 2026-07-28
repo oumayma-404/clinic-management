@@ -23,6 +23,12 @@ public class TreatmentPlansControllerAuthorizationTests
         // Voiding an installment payment alters what the patient has paid on a numbered devis — the same
         // class as cancelling an invoice or establishing an avoir, not everyday collection.
         nameof(TreatmentPlansController.VoidInstallmentPayment),
+        // Marking an act réalisé auto-completes the devis once it is the last one, and it is the clinical
+        // assertion the invoice is built from. It carried NO policy at all before (adjacent defect A-13), so a
+        // secretary could close a devis. Moved out of AnyAuthenticatedActions deliberately.
+        nameof(TreatmentPlansController.MarkItemDone),
+        // The correction path for that same assertion — it reopens a closed devis, so it cannot be looser.
+        nameof(TreatmentPlansController.UnmarkItemDone),
     };
 
     /// <summary>Everyday clinical/billing work — any authenticated clinic member, via the class-level gate.</summary>
@@ -35,7 +41,6 @@ public class TreatmentPlansControllerAuthorizationTests
         nameof(TreatmentPlansController.AcceptPlan),
         nameof(TreatmentPlansController.CompletePlan),
         nameof(TreatmentPlansController.RecordInstallmentPayment),
-        nameof(TreatmentPlansController.MarkItemDone),
         nameof(TreatmentPlansController.DeletePlan),
         nameof(TreatmentPlansController.GetDevisPdf),
         nameof(TreatmentPlansController.GetInstallmentReceiptPdf),

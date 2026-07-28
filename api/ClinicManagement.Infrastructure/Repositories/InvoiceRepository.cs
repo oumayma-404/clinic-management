@@ -134,6 +134,31 @@ public class InvoiceRepository : IInvoiceRepository
             .ToList();
     }
 
+    public async Task<IReadOnlyList<(Guid DentalRecordId, Guid InvoiceId, string? Number, InvoiceStatus Status)>>
+        GetDentalRecordLinksAsync(Guid clinicId, CancellationToken cancellationToken = default)
+    {
+        // Same shape and the same reasoning as GetTreatmentPlanLinksAsync, one level down: the question is
+        // "which fiches are billed", and answering it via GetFilteredAsync would drag every line and payment
+        // of every invoice along with it. SelectMany over the lines keeps it a single projected read.
+        var rows = await _context.Invoices
+            .Where(i => i.ClinicId == clinicId)
+            .SelectMany(i => i.Lines
+                .Where(l => l.DentalRecordId != null)
+                .Select(l => new
+                {
+                    DentalRecordId = l.DentalRecordId!.Value,
+                    InvoiceId = i.Id,
+                    i.Number,
+                    i.Status
+                }))
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
+        return rows
+            .Select(r => (r.DentalRecordId, r.InvoiceId, r.Number, r.Status))
+            .ToList();
+    }
+
     public async Task<Invoice?> GetByPaymentIdAsync(Guid paymentId, CancellationToken cancellationToken = default)
     {
         return await _context.Invoices

@@ -17,6 +17,19 @@ export interface UpdateMyDoctorProfileInput {
   removeCachet?: boolean;
 }
 
+/** Build the shared multipart body for both `/doctors/me` and `/doctors/{id}` — one payload shape, one mapper. */
+function doctorProfileForm(input: UpdateMyDoctorProfileInput): FormData {
+  const form = new FormData();
+  // Always sent (empty clears it); the cachet is optional and RemoveCachet wins when set.
+  form.append('OrdreNumberCnomdt', input.ordreNumberCnomdt ?? '');
+  if (input.removeCachet) {
+    form.append('RemoveCachet', 'true');
+  } else if (input.cachet) {
+    form.append('Cachet', input.cachet);
+  }
+  return form;
+}
+
 export const doctorsApi = {
   // FR-2.5 / FR-3.1: the logged-in practitioner's own document identity.
   getMyProfile: async (): Promise<DoctorProfileDto> => apiGet<DoctorProfileDto>('/doctors/me'),
@@ -28,17 +41,20 @@ export const doctorsApi = {
   setWorkingHours: async (doctorId: string, workingHours: WorkingDay[]): Promise<WorkingDay[]> =>
     apiPut<WorkingDay[]>(`/doctors/${doctorId}/working-hours`, { workingHours }),
 
-  updateMyProfile: async (input: UpdateMyDoctorProfileInput): Promise<DoctorProfileDto> => {
-    const form = new FormData();
-    // Always sent (empty clears it); the cachet is optional and RemoveCachet wins when set.
-    form.append('OrdreNumberCnomdt', input.ordreNumberCnomdt ?? '');
-    if (input.removeCachet) {
-      form.append('RemoveCachet', 'true');
-    } else if (input.cachet) {
-      form.append('Cachet', input.cachet);
-    }
-    return apiPutFormData<DoctorProfileDto>('/doctors/me', form);
-  },
+  updateMyProfile: async (input: UpdateMyDoctorProfileInput): Promise<DoctorProfileDto> =>
+    apiPutFormData<DoctorProfileDto>('/doctors/me', doctorProfileForm(input)),
+
+  /**
+   * AC-P2.30/2.31: set **another** practitioner's CNOMDT number and cachet.
+   *
+   * `PUT /api/doctors/{id}` has existed, with its own-or-admin guard, since the document-identity work, and had
+   * **no client function at all** — which is why « Mon profil » could promise that "un admin peut définir le
+   * cachet et le numéro d'ordre d'un autre praticien depuis Paramètres → Médecins" while no such control
+   * existed. Nothing changes server-side: a doctor editing themselves still goes through `/doctors/me`
+   * (AC-P2.32), and a non-admin calling this for someone else is refused by the handler.
+   */
+  updateProfile: async (doctorId: string, input: UpdateMyDoctorProfileInput): Promise<DoctorProfileDto> =>
+    apiPutFormData<DoctorProfileDto>(`/doctors/${doctorId}`, doctorProfileForm(input)),
 
   // The cachet image is a binary blob behind the bearer token — drop to raw fetch and attach the token.
   fetchCachetBlob: async (doctorId: string): Promise<Blob> => {

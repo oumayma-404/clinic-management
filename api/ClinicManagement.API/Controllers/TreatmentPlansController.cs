@@ -81,12 +81,32 @@ public class TreatmentPlansController : ApiControllerBase
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
     }
 
+    /// <summary>
+    /// Mark a planned act as carried out. `AdminOrDoctor` — marking an act réalisé auto-completes the devis once
+    /// it is the last one, and it is the clinical assertion the invoice is later built from, so it belongs to the
+    /// same class as amending the plan rather than to the unpoliced reads. It carried **no** policy at all before
+    /// (audit adjacent defect A-13), so a secretary could close a devis.
+    /// </summary>
     [HttpPost("{id:guid}/items/{itemId:guid}/done")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
     public async Task<ActionResult<TreatmentPlanDto>> MarkItemDone(Guid id, Guid itemId, [FromBody] MarkTreatmentPlanItemDoneCommand command)
     {
         command.PlanId = id;
         command.ItemId = itemId;
         var result = await _mediator.Send(command);
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>
+    /// Undo <see cref="MarkItemDone"/> — return the act to « prévu » and detach its fiche de soins, reopening the
+    /// devis if that act had closed it. `AdminOrDoctor`, the same class as marking it done: this is the correction
+    /// path for a clinical assertion, and it is refused outright once a live invoice bills the plan.
+    /// </summary>
+    [HttpPost("{id:guid}/items/{itemId:guid}/undone")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    public async Task<ActionResult<TreatmentPlanDto>> UnmarkItemDone(Guid id, Guid itemId)
+    {
+        var result = await _mediator.Send(new UnmarkTreatmentPlanItemDoneCommand { PlanId = id, ItemId = itemId });
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
     }
 

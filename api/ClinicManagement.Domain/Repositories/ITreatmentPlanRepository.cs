@@ -8,6 +8,16 @@ public interface ITreatmentPlanRepository
     /// <summary>Load a treatment plan with its items and installments.</summary>
     Task<TreatmentPlan?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Every plan in the clinic holding an act linked to this fiche de soins, loaded with its items so the act can
+    /// be un-marked. Backs the cleanup that runs when a fiche is deleted: <c>TreatmentPlanItem.LinkedDentalRecordId</c>
+    /// is FK-less by design, so without this the act would stay « réalisé » pointing at a row that no longer exists —
+    /// and, because marking an act done can auto-complete the plan, a deleted fiche could leave a devis closed
+    /// against evidence that is gone. Normally returns zero or one plan.
+    /// </summary>
+    Task<IReadOnlyList<TreatmentPlan>> GetByLinkedDentalRecordAsync(
+        Guid clinicId, Guid dentalRecordId, CancellationToken cancellationToken = default);
+
     /// <summary>List a clinic's treatment plans, filtered by patient / status / created-date range.</summary>
     Task<IEnumerable<TreatmentPlan>> GetFilteredAsync(
         Guid clinicId,

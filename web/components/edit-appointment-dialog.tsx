@@ -39,6 +39,7 @@ import type { AppointmentDto, ProcedureTypeDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import { useDoctors } from "@/lib/hooks/use-doctors"
 import { useAppointmentOverlap } from "@/lib/hooks/use-appointment-overlap"
+import { specialtyLabel } from "@/lib/specialties"
 
 /**
  * Sentinel for "no practitioner" in the Radix Select, which cannot hold an empty-string value. Mapped to `""`
@@ -616,7 +617,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                       ) : (
                         doctors.map((doctor) => (
                           <SelectItem key={doctor.id || doctor.name} value={doctor.id || ""}>
-                            {doctor.name} {doctor.specialty ? `- ${doctor.specialty}` : ""}
+                            {doctor.name} {doctor.specialty ? `- ${specialtyLabel(doctor.specialty)}` : ""}
                           </SelectItem>
                         ))
                       )}

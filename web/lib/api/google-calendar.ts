@@ -35,6 +35,15 @@ export const googleCalendarApi = {
   },
 
   /**
+   * AC-P2.33: disconnect this clinic from Google Calendar (admin only) — clears the stored refresh token and
+   * calendar id, so pushes stop and `getStatus()` reports « non connecté ». Appointments already pushed keep
+   * their `googleCalendarEventId`: nothing is deleted in the clinic's Google account (AC-P2.35).
+   */
+  disconnect: async (): Promise<void> => {
+    await apiPost<{ disconnected: boolean }>('/googlecalendar/disconnect', {});
+  },
+
+  /**
    * Sync from Google Calendar to clinic appointments.
    * Routed through the shared client.ts wrapper so a mid-request connectivity loss surfaces as
    * ApiError(status === 0) — unifying calendar failure handling with the AI path (AC-6.5, R-7).

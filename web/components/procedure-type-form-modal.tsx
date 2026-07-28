@@ -26,19 +26,31 @@ import { CONDITION_ORDER, conditionStyle } from "@/components/odontogram-conditi
 // Sentinel for the "no resulting condition" option (Radix Select forbids an empty-string value).
 const NO_CONDITION = "__none__"
 
-// Curated color palette - must match backend ColorHex value object
-const COLOR_PALETTE = [
-  { name: "Bleu doux", value: "#4F83CC" },
-  { name: "Sarcelle", value: "#2A9D8F" },
-  { name: "Vert doux", value: "#6BAA75" },
-  { name: "Lavande", value: "#9B8EDC" },
-  { name: "Ambre chaud", value: "#E9A23B" },
-  { name: "Corail", value: "#E76F51" },
-  { name: "Ardoise", value: "#6C757D" },
-  { name: "Bleu ciel", value: "#60A5FA" },
-  { name: "Menthe", value: "#5EEAD4" },
-  { name: "Rose", value: "#FB7185" },
-]
+/**
+ * French labels for the palette hexes. **Not** the palette itself: which colours exist is
+ * `GET /api/procedure-types/colors` (AC-P2.36), because the backend `ColorHex` value object rejects anything
+ * off its own list. This map only names them — the endpoint returns bare hex strings with no names (A-14), so
+ * the labels have to live somewhere, and a hex with no entry here renders with the hex as its label (never
+ * blank, never dropped).
+ *
+ * This replaces a hardcoded array carried under a "must match backend" comment, which is the drift the endpoint
+ * exists to prevent: a colour added server-side never appeared, and one retired server-side was still offered
+ * and then refused on save.
+ */
+const COLOR_LABELS_FR: Record<string, string> = {
+  "#4F83CC": "Bleu doux",
+  "#2A9D8F": "Sarcelle",
+  "#6BAA75": "Vert doux",
+  "#9B8EDC": "Lavande",
+  "#E9A23B": "Ambre chaud",
+  "#E76F51": "Corail",
+  "#6C757D": "Ardoise",
+  "#60A5FA": "Bleu ciel",
+  "#5EEAD4": "Menthe",
+  "#FB7185": "Rose",
+}
+
+const colorLabel = (hex: string) => COLOR_LABELS_FR[hex.toUpperCase()] ?? hex
 
 interface ProcedureTypeFormModalProps {
   open: boolean
@@ -52,10 +64,25 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
   const [duration, setDuration] = useState("")
   const [defaultCost, setDefaultCost] = useState("")
   const [description, setDescription] = useState("")
-  const [selectedColor, setSelectedColor] = useState(COLOR_PALETTE[0].value)
+  const [selectedColor, setSelectedColor] = useState("")
   const [resultingCondition, setResultingCondition] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /**
+   * The valid palette, from the server. Starts empty and fills on open; the swatch grid renders nothing until
+   * it arrives rather than falling back to a local copy — a stale local list is exactly the drift this closes.
+   */
+  const [palette, setPalette] = useState<string[]>([])
+
+  useEffect(() => {
+    if (!open) return
+    procedureTypesApi
+      .getColors()
+      .then((colors) => setPalette(colors))
+      // A failed palette fetch must not block editing a procedure's name or fee: the picker stays empty and the
+      // colour already on the record (or none, for a new one) is kept. The server validates it either way.
+      .catch(() => setPalette([]))
+  }, [open])
 
   // Populate form when editing
   useEffect(() => {
@@ -72,11 +99,20 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
       setDuration("")
       setDefaultCost("")
       setDescription("")
-      setSelectedColor(COLOR_PALETTE[0].value)
+      // Left blank here; the palette effect below preselects the first server-supplied colour once it lands.
+      setSelectedColor("")
       setResultingCondition(null)
     }
     setError(null)
   }, [editingProcedure, open])
+
+  // Preselect the first valid colour for a NEW procedure once the palette arrives. Kept separate from the
+  // reset above because the palette is fetched asynchronously — the reset runs before it is known.
+  useEffect(() => {
+    if (!editingProcedure && !selectedColor && palette.length > 0) {
+      setSelectedColor(palette[0])
+    }
+  }, [editingProcedure, selectedColor, palette])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -270,35 +306,43 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
               Couleur de l'agenda <span className="text-destructive">*</span>
             </Label>
 
-            <div className="grid grid-cols-5 gap-2">
-              {COLOR_PALETTE.map((color) => (
-                <button
-                  key={color.value}
-                  type="button"
-                  onClick={() => setSelectedColor(color.value)}
-                  disabled={loading}
-                  className={cn(
-                    "relative flex flex-col items-center gap-1 rounded-lg border-2 p-2 transition-all hover:scale-105",
-                    selectedColor === color.value
-                      ? "border-primary bg-accent"
-                      : "border-border bg-background hover:border-muted-foreground/50",
-                    loading && "opacity-50 cursor-not-allowed"
-                  )}
-                  title={color.name}
-                >
-                  <div
-                    className="h-6 w-6 rounded-full border-2 border-background shadow-sm"
-                    style={{ backgroundColor: color.value }}
-                  />
-                  {selectedColor === color.value && (
-                    <div className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground">
-                      <Check className="h-2.5 w-2.5" />
-                    </div>
-                  )}
-                  <span className="text-[9px] text-center leading-tight text-muted-foreground">{color.name}</span>
-                </button>
-              ))}
-            </div>
+            {palette.length === 0 ? (
+              <p className="text-xs text-muted-foreground">Chargement de la palette…</p>
+            ) : (
+              <div className="grid grid-cols-5 gap-2">
+                {palette.map((hex) => (
+                  <button
+                    key={hex}
+                    type="button"
+                    onClick={() => setSelectedColor(hex)}
+                    disabled={loading}
+                    className={cn(
+                      "relative flex flex-col items-center gap-1 rounded-lg border-2 p-2 transition-all hover:scale-105",
+                      selectedColor === hex
+                        ? "border-primary bg-accent"
+                        : "border-border bg-background hover:border-muted-foreground/50",
+                      loading && "opacity-50 cursor-not-allowed"
+                    )}
+                    title={colorLabel(hex)}
+                  >
+                    <div
+                      className="h-6 w-6 rounded-full border-2 border-background shadow-sm"
+                      style={{ backgroundColor: hex }}
+                    />
+                    {selectedColor === hex && (
+                      <div className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                        <Check className="h-2.5 w-2.5" />
+                      </div>
+                    )}
+                    {/* AC-P2.37: a colour the server offers but this map does not name still renders — with the
+                        hex as its label — rather than appearing as an unlabelled swatch. */}
+                    <span className="text-[9px] text-center leading-tight text-muted-foreground">
+                      {colorLabel(hex)}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-3">

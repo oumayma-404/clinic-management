@@ -39,6 +39,19 @@ export const procedureTypesApi = {
     return apiPut<ProcedureTypeDto>(`/procedure-types/${id}`, data);
   },
 
+  /**
+   * AC-P2.36: the palette the backend `ColorHex` value object actually accepts. Returns **bare hex strings with
+   * no names** (A-14), which is why the French labels stay client-side — the endpoint is the authority on
+   * *which* colours are valid, not on how they are called.
+   *
+   * It had zero callers, so the frontend carried its own hardcoded copy under a "must match backend" comment:
+   * the two could drift, and a colour added or retired server-side either vanished from the picker or was
+   * offered and then rejected with `ArgumentException`.
+   */
+  getColors: async (): Promise<string[]> => {
+    return apiGet<string[]>('/procedure-types/colors');
+  },
+
   delete: async (id: string): Promise<void> => {
     return apiDelete<void>(`/procedure-types/${id}`);
   },

@@ -28,6 +28,7 @@ import { ApiError } from "@/lib/api/client"
 import type { TreatmentPlanDto, PatientDto, DentalActDto, ProcedureTypeDto } from "@/lib/api/types"
 import { formatDT } from "@/lib/format"
 import { ToothMultiSelect } from "@/components/tooth-multiselect"
+import { planItemState } from "@/components/treatment-plans/plan-next-action"
 
 interface LineRow {
   /**
@@ -50,8 +51,17 @@ interface LineRow {
 }
 
 interface InstallmentRow {
+  /**
+   * The existing échéance this row revises. Dropped before (only `dueDate`/`amount` were kept), which is
+   * harmless on a draft — the server replaces the whole schedule — but destructive on an **amendment**: an
+   * échéance that has collected money must be echoed back by id or the server refuses the call outright
+   * ("Une échéance déjà encaissée ne peut pas être supprimée de l'échéancier").
+   */
+  id: string | null
   dueDate: string
   amount: string
+  /** Cash already collected on this échéance. 0 for a new row. Drives the "locked" affordance (AC-P2.6). */
+  amountPaid: number
 }
 
 const emptyLine = (): LineRow => ({
@@ -82,6 +92,14 @@ interface TreatmentPlanFormModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   editingPlan?: TreatmentPlanDto | null
+  /**
+   * Amend an **accepted** devis instead of rewriting a draft (AC-P2.1). Requires `editingPlan`. The form is the
+   * same, but the submit derives `addItems` / `removeItemIds` / `installments` and posts to
+   * `POST /treatment-plans/{id}/amend`, which keeps the devis number and bumps `revisionNumber` — where the
+   * draft path (`PUT /treatment-plans/{id}`) replaces the acts wholesale and is refused after acceptance.
+   * Title, notes and patient are not amendable server-side, so they render read-only here.
+   */
+  amendMode?: boolean
   /** When opened from a patient page, the patient is preset and locked. */
   presetPatientId?: string
   presetPatientName?: string
@@ -112,6 +130,7 @@ export function TreatmentPlanFormModal({
   open,
   onOpenChange,
   editingPlan,
+  amendMode = false,
   presetPatientId,
   presetPatientName,
   seedLines,
@@ -131,6 +150,33 @@ export function TreatmentPlanFormModal({
   const conflictStreak = useRef(0)
 
   const isEditing = !!editingPlan
+  const isAmending = amendMode && !!editingPlan
+
+  /**
+   * Acts the server will refuse to remove, with the reason, so the form can say so *before* submit instead of
+   * bouncing a French sentence back from the API. Keyed by act id; an act absent from the map is removable.
+   *
+   * Mirrors `TreatmentPlan.RemoveItem`: a réalisé act cannot be retired from a devis (its fiche and possibly
+   * its invoice line point at it), and an act with a live appointment must have that appointment moved or
+   * cancelled first.
+   */
+  const removalBlockers = new Map<string, string>()
+  if (isAmending && editingPlan) {
+    for (const item of editingPlan.items) {
+      const state = planItemState(item)
+      if (state === "done") {
+        removalBlockers.set(
+          item.id,
+          "Acte déjà réalisé — détachez sa fiche de soins avant de le retirer du devis.",
+        )
+      } else if (state === "scheduled" || state === "to-record") {
+        removalBlockers.set(
+          item.id,
+          "Un rendez-vous est prévu pour cet acte — annulez ou déplacez-le avant de le retirer.",
+        )
+      }
+    }
+  }
 
   useEffect(() => {
     if (!open) return
@@ -174,8 +220,10 @@ export function TreatmentPlanFormModal({
       )
       setInstallments(
         editingPlan.installments.map((inst) => ({
+          id: inst.id,
           dueDate: inst.dueDate.slice(0, 10),
           amount: String(inst.amount),
+          amountPaid: inst.amountPaid,
         })),
       )
     } else {
@@ -264,7 +312,10 @@ export function TreatmentPlanFormModal({
     setInstallments((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)))
   }
   const addInstallment = () =>
-    setInstallments((prev) => [...prev, { dueDate: new Date().toISOString().slice(0, 10), amount: "" }])
+    setInstallments((prev) => [
+      ...prev,
+      { id: null, dueDate: new Date().toISOString().slice(0, 10), amount: "", amountPaid: 0 },
+    ])
   const removeInstallment = (index: number) => setInstallments((prev) => prev.filter((_, i) => i !== index))
 
   const total = lines.reduce((sum, l) => {
@@ -338,9 +389,75 @@ export function TreatmentPlanFormModal({
         return
       }
       parsedInstallments = installments.map((r, i) => ({
+        // Echoing the id back is what lets the server *revise* an existing échéance rather than replace the
+        // schedule — mandatory for any row that has collected money.
+        id: r.id,
         dueDate: `${r.dueDate}T00:00:00`,
         amount: i === amounts.length - 1 ? lastAmount : Number(r.amount),
       }))
+
+      // AC-P2.6: refuse locally what the server refuses anyway, but name the row. A paid échéance may be
+      // re-dated and raised, never lowered below what was collected and never dropped.
+      for (let i = 0; i < installments.length; i++) {
+        const row = installments[i]
+        if (row.amountPaid > 0 && parsedInstallments[i].amount < row.amountPaid - 0.0005) {
+          setError(
+            `L'échéance du ${row.dueDate} a déjà encaissé ${formatDT(row.amountPaid)} — son montant ne peut pas être ramené en dessous.`,
+          )
+          return
+        }
+      }
+    }
+
+    if (isAmending && editingPlan) {
+      const originalIds = new Set(editingPlan.items.map((i) => i.id))
+      const keptIds = new Set(parsedLines.map((l) => l.id).filter((id): id is string => !!id))
+      const removeItemIds = [...originalIds].filter((id) => !keptIds.has(id))
+
+      const blocked = removeItemIds.filter((id) => removalBlockers.has(id))
+      if (blocked.length > 0) {
+        setError(removalBlockers.get(blocked[0])!)
+        return
+      }
+
+      // Only rows with no id are additions; an existing act's designation/cost/teeth are NOT amendable
+      // through this endpoint (the server takes addItems + removeItemIds only), so an edit-in-place would
+      // silently do nothing. Remove-then-add is the honest expression of "change this act".
+      const addItems = parsedLines.filter((l) => !l.id)
+
+      if (addItems.length === 0 && removeItemIds.length === 0 && parsedInstallments.length === 0) {
+        setError("Aucune modification demandée.")
+        return
+      }
+
+      // An échéancier that was dropped entirely is sent as an empty list; the server answers
+      // "L'échéancier ne peut pas être vide sur un devis accepté." rather than us guessing a spread.
+      const droppedPaidRow = editingPlan.installments.some(
+        (inst) => inst.amountPaid > 0 && !installments.some((r) => r.id === inst.id),
+      )
+      if (droppedPaidRow) {
+        setError(
+          "Une échéance déjà encaissée ne peut pas être supprimée de l'échéancier. Conservez-la et ajustez les autres.",
+        )
+        return
+      }
+
+      setLoading(true)
+      try {
+        await treatmentPlansApi.amend(editingPlan.id, {
+          addItems,
+          removeItemIds,
+          installments: parsedInstallments,
+        })
+        toast.success("Devis modifié")
+        onSuccess?.()
+        onOpenChange(false)
+      } catch (err) {
+        setError(conflictMessage(err, "Échec de la modification du devis.", conflictStreak))
+      } finally {
+        setLoading(false)
+      }
+      return
     }
 
     setLoading(true)
@@ -378,9 +495,24 @@ export function TreatmentPlanFormModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{isEditing ? "Modifier le plan de traitement" : "Nouveau plan de traitement"}</DialogTitle>
+          <DialogTitle>
+            {isAmending
+              ? "Modifier le devis"
+              : isEditing
+                ? "Modifier le plan de traitement"
+                : "Nouveau plan de traitement"}
+          </DialogTitle>
           <DialogDescription>
-            Devis : actes planifiés, coûts et échéancier de paiement. Un brouillon peut être modifié librement.
+            {isAmending ? (
+              <>
+                Le devis garde son numéro{editingPlan?.number ? ` (${editingPlan.number})` : ""} et passe en
+                révision {(editingPlan?.revisionNumber ?? 0) + 1}. Ajoutez ou retirez des actes, puis ajustez
+                l&apos;échéancier au nouveau total. Le titre, les notes et le patient ne sont pas modifiables
+                après acceptation.
+              </>
+            ) : (
+              "Devis : actes planifiés, coûts et échéancier de paiement. Un brouillon peut être modifié librement."
+            )}
           </DialogDescription>
         </DialogHeader>
 
@@ -418,7 +550,7 @@ export function TreatmentPlanFormModal({
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="Ex. Réhabilitation prothétique"
-                disabled={loading}
+                disabled={loading || isAmending}
               />
             </div>
           </div>
@@ -431,7 +563,7 @@ export function TreatmentPlanFormModal({
               onChange={(e) => setNotes(e.target.value)}
               placeholder="Notes (optionnel)"
               rows={2}
-              disabled={loading}
+              disabled={loading || isAmending}
             />
           </div>
 
@@ -439,7 +571,13 @@ export function TreatmentPlanFormModal({
           <div className="space-y-2">
             <Label>Actes</Label>
             <div className="space-y-3">
-              {lines.map((line, index) => (
+              {lines.map((line, index) => {
+                // In amend mode an act already on the accepted devis is fixed: the endpoint only adds and
+                // removes, so an edited designation or cost would be silently discarded. Locking the fields is
+                // honest; « Retirer » + « Ajouter un acte » is how you change one.
+                const isExistingAct = isAmending && !!line.id
+                const removalBlocked = line.id ? removalBlockers.get(line.id) : undefined
+                return (
                 <div key={index} className="rounded-lg border p-3 space-y-2">
                   <div className="flex items-start gap-2">
                     <div className="flex-1 space-y-1">
@@ -448,7 +586,7 @@ export function TreatmentPlanFormModal({
                           value={line.designationFr}
                           onChange={(e) => updateLine(index, { designationFr: e.target.value })}
                           placeholder="Désignation de l'acte (ou choisir au catalogue)"
-                          disabled={loading}
+                          disabled={loading || isExistingAct}
                         />
                         <Popover
                           open={pickerOpenIndex === index}
@@ -461,7 +599,7 @@ export function TreatmentPlanFormModal({
                               variant="outline"
                               size="sm"
                               className="h-9 px-3 shrink-0"
-                              disabled={loading}
+                              disabled={loading || isExistingAct}
                               title="Choisir un acte du catalogue"
                             >
                               <Search className="h-4 w-4" />
@@ -514,15 +652,20 @@ export function TreatmentPlanFormModal({
                       {line.codeActe && (
                         <Badge variant="secondary" className="gap-1 font-mono text-xs">
                           {line.codeActe}
-                          <button
-                            type="button"
-                            onClick={() => detachAct(index)}
-                            className="ml-1 rounded-full hover:text-destructive"
-                            title="Détacher du catalogue (texte libre)"
-                          >
-                            <X className="h-3 w-3" />
-                          </button>
+                          {!isExistingAct && (
+                            <button
+                              type="button"
+                              onClick={() => detachAct(index)}
+                              className="ml-1 rounded-full hover:text-destructive"
+                              title="Détacher du catalogue (texte libre)"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          )}
                         </Badge>
+                      )}
+                      {removalBlocked && (
+                        <p className="text-xs text-muted-foreground">{removalBlocked}</p>
                       )}
                     </div>
                     <Button
@@ -530,8 +673,9 @@ export function TreatmentPlanFormModal({
                       variant="ghost"
                       size="icon"
                       onClick={() => removeLine(index)}
-                      disabled={loading || lines.length === 1}
+                      disabled={loading || lines.length === 1 || !!removalBlocked}
                       aria-label="Supprimer l'acte"
+                      title={removalBlocked ?? "Supprimer l'acte"}
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
@@ -540,7 +684,7 @@ export function TreatmentPlanFormModal({
                     <ToothMultiSelect
                       value={line.toothNumbers}
                       onChange={(teeth) => updateLine(index, { toothNumbers: teeth })}
-                      disabled={loading}
+                      disabled={loading || isExistingAct}
                     />
                     <div className="flex items-center gap-1.5">
                       <span className="text-xs text-muted-foreground">Coût (DT)</span>
@@ -551,12 +695,13 @@ export function TreatmentPlanFormModal({
                         value={line.plannedCost}
                         onChange={(e) => updateLine(index, { plannedCost: e.target.value })}
                         className="w-32"
-                        disabled={loading}
+                        disabled={loading || isExistingAct}
                       />
                     </div>
                   </div>
                 </div>
-              ))}
+                )
+              })}
             </div>
             <Button type="button" variant="outline" size="sm" onClick={addLine} disabled={loading} className="gap-2">
               <Plus className="h-4 w-4" /> Ajouter un acte
@@ -575,40 +720,58 @@ export function TreatmentPlanFormModal({
               {installments.length === 0 && (
                 <p className="text-sm text-muted-foreground">Aucune échéance. Ajoutez un échéancier de paiement (optionnel).</p>
               )}
-              {installments.map((row, index) => (
-                <div key={index} className="flex items-end gap-2">
-                  <div className="flex-1 space-y-1">
-                    {index === 0 && <span className="text-xs text-muted-foreground">Échéance</span>}
-                    <Input
-                      type="date"
-                      value={row.dueDate}
-                      onChange={(e) => updateInstallment(index, { dueDate: e.target.value })}
-                      disabled={loading}
-                    />
+              {installments.map((row, index) => {
+                // AC-P2.6: an échéance that has collected cash is locked against deletion and against being
+                // lowered — the user sees which rows and why *before* submitting, not as an API refusal.
+                const collected = row.amountPaid > 0
+                return (
+                <div key={index} className="space-y-1">
+                  <div className="flex items-end gap-2">
+                    <div className="flex-1 space-y-1">
+                      {index === 0 && <span className="text-xs text-muted-foreground">Échéance</span>}
+                      <Input
+                        type="date"
+                        value={row.dueDate}
+                        onChange={(e) => updateInstallment(index, { dueDate: e.target.value })}
+                        disabled={loading}
+                      />
+                    </div>
+                    <div className="w-36 space-y-1">
+                      {index === 0 && <span className="text-xs text-muted-foreground">Montant (DT)</span>}
+                      <Input
+                        type="number"
+                        min={collected ? row.amountPaid : 0}
+                        step="0.001"
+                        value={row.amount}
+                        onChange={(e) => updateInstallment(index, { amount: e.target.value })}
+                        disabled={loading}
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => removeInstallment(index)}
+                      disabled={loading || collected}
+                      aria-label="Supprimer l'échéance"
+                      title={
+                        collected
+                          ? "Échéance déjà encaissée — elle ne peut pas être supprimée."
+                          : "Supprimer l'échéance"
+                      }
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
                   </div>
-                  <div className="w-36 space-y-1">
-                    {index === 0 && <span className="text-xs text-muted-foreground">Montant (DT)</span>}
-                    <Input
-                      type="number"
-                      min="0"
-                      step="0.001"
-                      value={row.amount}
-                      onChange={(e) => updateInstallment(index, { amount: e.target.value })}
-                      disabled={loading}
-                    />
-                  </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => removeInstallment(index)}
-                    disabled={loading}
-                    aria-label="Supprimer l'échéance"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                  {collected && (
+                    <p className="text-xs text-muted-foreground">
+                      Déjà encaissé : {formatDT(row.amountPaid)} — cette échéance ne peut être ni supprimée ni
+                      ramenée en dessous de ce montant.
+                    </p>
+                  )}
                 </div>
-              ))}
+                )
+              })}
             </div>
             <Button type="button" variant="outline" size="sm" onClick={addInstallment} disabled={loading} className="gap-2">
               <Plus className="h-4 w-4" /> Ajouter une échéance
@@ -628,7 +791,13 @@ export function TreatmentPlanFormModal({
               Annuler
             </Button>
             <Button type="submit" disabled={loading}>
-              {loading ? "Enregistrement..." : isEditing ? "Enregistrer" : "Créer le plan"}
+              {loading
+                ? "Enregistrement..."
+                : isAmending
+                  ? "Enregistrer la révision"
+                  : isEditing
+                    ? "Enregistrer"
+                    : "Créer le plan"}
             </Button>
           </DialogFooter>
         </form>

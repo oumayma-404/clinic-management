@@ -28,7 +28,7 @@ Each exports a `<name>Api` object of async methods over `client.ts` (endpoints r
 |--------|--------|-------------------|
 | `appointments.ts` | `appointmentsApi` | `/appointments` list/get/create/update (**no delete**); recurring series: `listRecurring`/`createRecurring`/`cancelRecurring`. Create **and update** can link a treatment-plan step — on update the pair is **tri-state**: omit the key to leave the link alone, send `treatmentPlanItemId: null` to clear it. |
 | `patients.ts` | `patientsApi` | `/patients` list(searchTerm/limit)/get/create/update; `getAiSummary` (`/patients/{id}/ai-summary`, live HuggingFace). Create accepts CNAM + inline medical/family-history entries. |
-| `procedure-types.ts` | `procedureTypesApi` | `/procedure-types` CRUD (`includeInactive`); `initializeDefaults` (19 general Tunisian procedures). |
+| `procedure-types.ts` | `procedureTypesApi` | `/procedure-types` CRUD (`includeInactive`); `initializeDefaults` (19 general Tunisian procedures); **`getColors`** (the palette `ColorHex` accepts — bare hexes, no names, so the French labels live in `procedure-type-form-modal.tsx`). |
 | `dental-records.ts` | `dentalRecordsApi` | `/patients/{id}/dental-records` CRUD (multi-act; exports `CreateDentalRecordRequest`); can mark a plan step réalisé. |
 | `odontogram.ts` | `odontogramApi` | `/patients/{id}/odontogram` get; `diagnose` / `removeCondition` (charted diagnoses only). |
 | `patient-medical-history.ts` / `patient-family-history.ts` | `patientMedicalHistoryApi` / `patientFamilyHistoryApi` | `/patients/{id}/medical-history` \| `/family-history` CRUD. |
@@ -38,20 +38,20 @@ Each exports a `<name>Api` object of async methods over `client.ts` (endpoints r
 | `stock.ts` | `stockApi` | `/stock` list(`lowStockOnly`)/create/update/delete; exports `StockItemPayload`. |
 | `invoices.ts` | `invoicesApi` | `/invoices` list/get/create/update/issue/recordPayment/cancel/delete; `revenue`; `submitToElFatoora`; `downloadPdf`/`downloadEInvoiceArtifact` (Blob, raw fetch). |
 | `billing.ts` | `billingApi` | `getPatientSummary` (`/patients/{id}/billing-summary`), `getReceivables` (`/billing/receivables`), `downloadPaymentReceipt` (Blob). |
-| `treatment-plans.ts` | `treatmentPlansApi` | `/treatment-plans` list/get/create/update/accept/**complete**/cancel/remove; `recordInstallmentPayment`, `markItemDone`; `downloadDevisPdf`/`downloadInstallmentReceipt` (Blob). |
+| `treatment-plans.ts` | `treatmentPlansApi` | `/treatment-plans` list/get/create/update/accept/**complete**/cancel/remove; `recordInstallmentPayment`; **`amend`** + **`reviseInstallments`** (post-acceptance, both now called from `plan-workspace.tsx`); **`markItemUndone`** (détacher la fiche — takes no body); `reorderItems`, `voidInstallmentPayment`, `downloadDevisPdf`/`downloadInstallmentReceipt` (Blob). ⚠️ There is deliberately **no** `markItemDone`: an act becomes réalisé by saving the fiche de soins that evidences it (`dentalRecordsApi`), so a client fn for `POST .../done` would be a second, unevidenced route into that state. |
 | `expenses.ts` | `expensesApi` | `/expenses` CRUD + `caisseSummary` (`/billing/caisse`). |
 | `cnam-nomenclature.ts` | `cnamNomenclatureApi` | `/cnam-nomenclature` list/create/update/deactivate/`confirmData` (admin) + `listLetterValues`/`updateLetterValue`. Also exports client-side `estimateReimbursement`/`reimbursementRate` (mirrors backend calculator; editor-only, never persisted). |
 | `medications.ts` | `medicationsApi` | `/medications` list/create/update/deactivate/`confirmData` (admin; backs ordonnance picker). |
 | `dental-acts.ts` | `dentalActsApi` | `/dental-acts` list/create/update/deactivate/`confirmData` (admin; backs treatment-plan/invoice act picker). |
-| `doctors.ts` | `doctorsApi` | `/doctors/me` get/update (CNOMDT ordre + cachet upload, FormData); per-dentist working hours; `fetchCachetBlob` (Blob). |
+| `doctors.ts` | `doctorsApi` | `/doctors/me` get/`updateMyProfile` (CNOMDT ordre + cachet upload, FormData); **`updateProfile(doctorId, …)`** → `PUT /doctors/{id}` for **another** practitioner (own-or-admin, enforced in the handler; both share one `doctorProfileForm` mapper); per-dentist working hours; `fetchCachetBlob` (Blob). |
 | `lab-orders.ts` | `labOrdersApi` | `/lab-orders` list(patient?)/create/update/updateStatus/delete. |
 | `recalls.ts` | `recallsApi` | `/patients/recalls` list + settings; `markContacted`/`snooze`/`send`. |
 | `waiting-list.ts` | `waitingListApi` | `/waiting-list` list/create/update/promote/delete. |
 | `reminder-settings.ts` | `reminderSettingsApi` | `/clinics/reminder-settings` get/update, `/clinics/whatsapp/connect` connect/disconnect (Cloud Embedded-Signup), `reminder-status`. `Result<T>`-wrapped; secrets write-only. |
 | `clinics.ts` | `clinicsApi` | `/clinics`: `getUserStatus` (cache-busted), `create`, `join`, `updateDoctors`, `update` (profile + billing + El Fatoora + working-hours), `getLogo` (Blob), `regenerateCode` (admin), `setup`→`/auth/setup`, `register`→`/auth/register` (Local, anonymous, `null` token). `Result<T>`-wrapped. Exports `DoctorDto`/`UserStatusDto`/`ClinicDto` + request types. |
-| `users.ts` | `usersApi` | **Local, admin**: `list`, `resetPassword` (temp password once), `setStatus`. Unwrapped. |
+| `users.ts` | `usersApi` | **Admin, both modes** (the `/users` nav entry is no longer Local-gated): `list`, `setStatus`, **`setRole`** (admin/doctor/secretary — server validates the closed set, keeps email + full name, refuses a self-demotion leaving no active admin, bumps `TokenVersion`), `resetPassword` (**Local only** — the command refuses non-local accounts, so the UI hides the button in Cloud). Also exports `USER_ROLES` / `USER_ROLE_LABELS_FR` / `UserRole`. Unwrapped. |
 | `notifications.ts` | `notificationsApi` | In-app feed: `list`, `unreadCount`, `pendingReviews`, `markRead`, `markAllRead`. |
-| `google-calendar.ts` | `googleCalendarApi` | `getStatus` (`/googlecalendar/status`), `connect` (POST→authUrl, per-clinic admin, browser redirect), `syncFromGoogle`, `syncAppointment` — the last two route via `client.ts` so a mid-request drop surfaces as `ApiError(status:0)`. |
+| `google-calendar.ts` | `googleCalendarApi` | `getStatus` (`/googlecalendar/status`), `connect` (POST→authUrl, per-clinic admin, browser redirect), **`disconnect`** (AdminOnly; clears the clinic's refresh token + calendar id — already-pushed appointments keep their `googleCalendarEventId`, nothing is deleted in Google), `syncFromGoogle`, `syncAppointment` — the last three route via `client.ts` so a mid-request drop surfaces as `ApiError(status:0)`. |
 | `ai-chat.ts` | `aiChatApi` | `/ai/chat` — POST messages + optional context. |
 | `backup.ts` | `backupApi` | **Local, admin (Phase 5)**: `backupNow(dest?)`→`/backup`→`BackupResultDto`. |
 | `auth-client.ts` | `useAuthenticatedApi()` | Hook returning `get/post/put/delete` pre-bound with the token from `useAuthToken` (alternative to client.ts auto-fetch). |
@@ -83,6 +83,7 @@ Each exports a `<name>Api` object of async methods over `client.ts` (endpoints r
 - `format.ts` — French/Tunisian formatters: `formatDT` (millimes + "DT", fr-TN grouping), `formatDateFr`, `formatDate`, `formatDateTime`.
 - `phone.ts` — `toE164Tunisian` / `isDeliverablePhone` + `PHONE_ERROR_FR` (mirrors backend `PhoneNumber.ToE164`; used in patient/appointment forms).
 - `working-hours.ts` — `WorkingDay` shape, `WEEKDAYS`, `DEFAULT_WORKING_HOURS` (Mon–Sat 09:00–17:00), `summarizeWorkingHours` (grouped French summary).
+- `specialties.ts` — `DOCTOR_SPECIALTIES` (the seven **English** storage keys, shared by clinic-settings / setup-wizard / join-wizard — previously three byte-identical copies), `SPECIALTY_LABELS_FR`, and `specialtyLabel(value)`. **Display-time map, not a migration**: the keys are what `Doctor.Specialty` already holds and what every `MedicalDocument.DoctorSpecialty` snapshot was taken from, so renaming them would orphan every existing row. Unknown values pass through verbatim (a clinic's custom specialty, and older snapshots already stored in French). Same shape as `tunisia.ts`.
 - `brand.ts` — `PRODUCT_NAME = "Gestion Clinique"` (fallback name when a clinic's own name is unknown).
 - `download.ts` — `downloadBlob(blob, filename)` (browser save-as for PDFs/receipts).
 - `utils.ts` — `cn(...)` (clsx + tailwind-merge); `parseDurationToMinutes(timeSpan)`.

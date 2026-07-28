@@ -11,6 +11,7 @@ import { toast } from "sonner"
 import { doctorsApi } from "@/lib/api/doctors"
 import { ApiError } from "@/lib/api/client"
 import type { DoctorProfileDto } from "@/lib/api/types"
+import { specialtyLabel } from "@/lib/specialties"
 
 export function MonProfilContent() {
   const [profile, setProfile] = useState<DoctorProfileDto | null>(null)
@@ -133,7 +134,8 @@ export function MonProfilContent() {
           </div>
           <div>
             <div className="text-xs text-muted-foreground">Spécialité</div>
-            <div className="mt-1 font-medium">{profile.specialty}</div>
+            {/* AC-P2.42 — French label over the English storage key; a custom value renders verbatim. */}
+            <div className="mt-1 font-medium">{specialtyLabel(profile.specialty)}</div>
           </div>
         </div>
         <p className="text-xs text-muted-foreground mt-3">Ces champs sont gérés dans Paramètres → Médecins.</p>

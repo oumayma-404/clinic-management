@@ -13,15 +13,7 @@ import { clinicsApi, type JoinClinicRequest } from "@/lib/api/clinics"
 import { useSession } from "@/lib/auth/session"
 import { getErrorMessage } from "@/lib/errors"
 
-const specialties = [
-  "Dentist",
-  "Orthodontist",
-  "Prosthodontist",
-  "Endodontist",
-  "Periodontist",
-  "Oral Surgeon",
-  "Pediatric Dentist",
-]
+import { DOCTOR_SPECIALTIES, specialtyLabel } from "@/lib/specialties"
 
 interface JoinWizardProps {
   clinicCode: string
@@ -324,9 +316,10 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
                           <SelectValue placeholder="Sélectionnez votre spécialité" />
                         </SelectTrigger>
                         <SelectContent>
-                          {specialties.map((spec) => (
+                          {/* Value = the English storage key, label = French (AC-P2.42/2.43). */}
+                          {DOCTOR_SPECIALTIES.map((spec) => (
                             <SelectItem key={spec} value={spec}>
-                              {spec}
+                              {specialtyLabel(spec)}
                             </SelectItem>
                           ))}
                         </SelectContent>

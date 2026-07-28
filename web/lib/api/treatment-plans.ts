@@ -64,11 +64,6 @@ export interface RecordInstallmentPaymentRequest {
   paidOn: string;
 }
 
-export interface MarkItemDoneRequest {
-  doneOn?: string | null;
-  linkedDentalRecordId?: string | null;
-}
-
 export const treatmentPlansApi = {
   list: async (params?: {
     patientId?: string;
@@ -101,8 +96,18 @@ export const treatmentPlansApi = {
   ): Promise<TreatmentPlanDto> =>
     apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/installments/${installmentId}/payments`, data),
 
-  markItemDone: async (id: string, itemId: string, data: MarkItemDoneRequest): Promise<TreatmentPlanDto> =>
-    apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/items/${itemId}/done`, data),
+  /**
+   * Return a « réalisé » act to « prévu » and detach its fiche de soins, reopening the devis if that act had
+   * closed it. Takes no body — the act to correct is fully identified by the route. Server-side: AdminOrDoctor,
+   * and refused once a live invoice bills the plan or the act's own fiche.
+   *
+   * There is deliberately **no** `markItemDone` counterpart here: an act is marked réalisé by saving the fiche
+   * de soins that evidences it (`dentalRecordsApi`), never by a manual toggle, so a client function for
+   * `POST .../done` would be a second, unevidenced way into the same state. The uncalled one was deleted
+   * rather than wired (AC-P2.11).
+   */
+  markItemUndone: async (id: string, itemId: string): Promise<TreatmentPlanDto> =>
+    apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/items/${itemId}/undone`, {}),
 
   /** Add/remove acts on an accepted devis (+ the matching échéancier). Server-side: AdminOrDoctor. */
   amend: async (id: string, data: AmendTreatmentPlanRequest): Promise<TreatmentPlanDto> =>

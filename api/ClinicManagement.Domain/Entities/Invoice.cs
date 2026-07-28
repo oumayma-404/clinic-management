@@ -62,6 +62,30 @@ public class Invoice : AggregateRoot<Guid>
     private readonly List<InvoiceLine> _lines = new();
     public IReadOnlyCollection<InvoiceLine> Lines => _lines.AsReadOnly();
 
+    /// <summary>
+    /// Detach every line raised from a fiche de soins that is being deleted, returning how many were cleared.
+    /// <para>
+    /// The invoice keeps its number, its lines, its amounts and its status — deleting a clinical record must never
+    /// alter a fiscal document. Only the FK-less provenance pointer is dropped, so no line is left referencing a
+    /// row that no longer exists. Works on a cancelled invoice too: a dangling pointer is just as wrong there.
+    /// </para>
+    /// </summary>
+    public int ClearDentalRecordLinks(Guid dentalRecordId)
+    {
+        var affected = _lines.Where(l => l.DentalRecordId == dentalRecordId).ToList();
+        foreach (var line in affected)
+        {
+            line.ClearDentalRecordLink();
+        }
+
+        if (affected.Count > 0)
+        {
+            UpdatedAt = DateTime.UtcNow;
+        }
+
+        return affected.Count;
+    }
+
     private readonly List<Payment> _payments = new();
     public IReadOnlyCollection<Payment> Payments => _payments.AsReadOnly();
 

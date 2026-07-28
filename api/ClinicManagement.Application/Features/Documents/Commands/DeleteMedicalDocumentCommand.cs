@@ -52,7 +52,8 @@ public class DeleteMedicalDocumentCommandHandler : IRequestHandler<DeleteMedical
             var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
             if (clinicResult.IsFailure)
             {
-                return Result<bool>.Failure(clinicResult.Error ?? "Unable to resolve current clinic");
+                // A-9's twin: the § 2 French sweep missed this handler exactly as it missed the dental-record one.
+                return Result<bool>.Failure(clinicResult.Error ?? "Cabinet introuvable.");
             }
             if (document.Patient == null || document.Patient.ClinicId != clinicResult.Value)
             {
@@ -96,7 +97,12 @@ public class DeleteMedicalDocumentCommandHandler : IRequestHandler<DeleteMedical
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<bool>.Failure($"Error deleting medical document: {ex.Message}");
+            // A-8: this returned the English `$"Error deleting medical document: {ex.Message}"` — the only
+            // remaining catch in the repo that both spoke English and interpolated the raw exception into a
+            // clinic-facing message. The detail belongs in the log; the caller only ever sees French guidance,
+            // matching DeleteDentalRecordCommand.
+            _logger.LogError(ex, "Unhandled failure deleting medical document {DocumentId}", request.Id);
+            return Result<bool>.Failure("Erreur lors de la suppression du document médical. Veuillez réessayer.");
         }
     }
 }

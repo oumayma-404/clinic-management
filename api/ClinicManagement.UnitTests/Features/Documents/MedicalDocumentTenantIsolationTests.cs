@@ -155,4 +155,43 @@ public class MedicalDocumentTenantIsolationTests
         storage.Verify(s => s.DeleteAsync("documents/ordonnance.pdf", It.IsAny<CancellationToken>()), Times.Once);
         uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
+
+    // [AC-P2.21 / A-8] The catch-all used to return `$"Error deleting medical document: {ex.Message}"` — English
+    // AND the raw exception text, straight to a French-speaking clinic. Pin both halves of the fix: the message
+    // is French, and no fragment of the exception survives into it.
+    [Fact]
+    public async Task Delete_Failure_Is_French_And_Leaks_No_Exception_Text()
+    {
+        var (docs, _, _, resolver, uow, handler) = DeleteHandler();
+        var doc = Document(Patient(ClinicId));
+        docs.Setup(r => r.GetByIdAsync(doc.Id, It.IsAny<CancellationToken>())).ReturnsAsync(doc);
+        resolver.Setup(r => r.GetClinicIdAsync(It.IsAny<CancellationToken>())).ReturnsAsync(Result<Guid>.Success(ClinicId));
+        uow.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("column \"file_id\" of relation \"medical_documents\" does not exist"));
+
+        var result = await handler.Handle(new DeleteMedicalDocumentCommand { Id = doc.Id }, CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.DoesNotContain("Error deleting", result.Error ?? string.Empty);
+        Assert.DoesNotContain("medical_documents", result.Error ?? string.Empty);
+        Assert.Contains("suppression du document", result.Error ?? string.Empty);
+    }
+
+    // [AC-P2.21 / A-9's twin] The clinic-resolution short-circuit returned the English
+    // "Unable to resolve current clinic"; the dental-record handler was swept in § 2 and this one was missed.
+    [Fact]
+    public async Task Delete_With_Unresolvable_Clinic_Fails_In_French()
+    {
+        var (docs, _, _, resolver, _, handler) = DeleteHandler();
+        var doc = Document(Patient(ClinicId));
+        docs.Setup(r => r.GetByIdAsync(doc.Id, It.IsAny<CancellationToken>())).ReturnsAsync(doc);
+        // Error deliberately null: the fallback literal is what leaked English.
+        resolver.Setup(r => r.GetClinicIdAsync(It.IsAny<CancellationToken>())).ReturnsAsync(Result<Guid>.Failure(null!));
+
+        var result = await handler.Handle(new DeleteMedicalDocumentCommand { Id = doc.Id }, CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.DoesNotContain("Unable to resolve", result.Error ?? string.Empty);
+        Assert.Equal("Cabinet introuvable.", result.Error);
+    }
 }

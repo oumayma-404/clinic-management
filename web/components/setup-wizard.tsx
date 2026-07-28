@@ -16,19 +16,10 @@ import { clinicsApi, type CreateClinicRequest } from "@/lib/api/clinics"
 import { useAuthToken } from "@/lib/hooks/use-auth-token"
 import { useSession } from "@/lib/auth/session"
 import { TUNISIAN_GOVERNORATES } from "@/lib/tunisia"
+import { DOCTOR_SPECIALTIES, specialtyLabel } from "@/lib/specialties"
 import { getErrorMessage } from "@/lib/errors"
 
 const tunisianGovernorates = TUNISIAN_GOVERNORATES
-
-const specialties = [
-  "Dentist",
-  "Orthodontist",
-  "Prosthodontist",
-  "Endodontist",
-  "Periodontist",
-  "Oral Surgeon",
-  "Pediatric Dentist",
-]
 
 const weekdays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
@@ -544,9 +535,10 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                               <SelectValue placeholder="Sélectionnez votre spécialité" />
                             </SelectTrigger>
                             <SelectContent>
-                              {specialties.map((spec) => (
+                              {/* Value = the English storage key, label = French (AC-P2.42/2.43). */}
+                              {DOCTOR_SPECIALTIES.map((spec) => (
                                 <SelectItem key={spec} value={spec}>
-                                  {spec}
+                                  {specialtyLabel(spec)}
                                 </SelectItem>
                               ))}
                             </SelectContent>
@@ -616,9 +608,10 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                             <SelectValue placeholder="Sélectionnez votre spécialité" />
                           </SelectTrigger>
                           <SelectContent>
-                            {specialties.map((spec) => (
+                            {/* Value = the English storage key, label = French (AC-P2.42/2.43). */}
+                            {DOCTOR_SPECIALTIES.map((spec) => (
                               <SelectItem key={spec} value={spec}>
-                                {spec}
+                                {specialtyLabel(spec)}
                               </SelectItem>
                             ))}
                           </SelectContent>

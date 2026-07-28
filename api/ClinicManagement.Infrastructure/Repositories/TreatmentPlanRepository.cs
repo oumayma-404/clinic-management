@@ -25,6 +25,17 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
             .FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
     }
 
+    public async Task<IReadOnlyList<TreatmentPlan>> GetByLinkedDentalRecordAsync(
+        Guid clinicId, Guid dentalRecordId, CancellationToken cancellationToken = default)
+    {
+        // Items are included because the caller un-marks the matching act through the aggregate root; the
+        // échéancier is not, since detaching an act never touches money.
+        return await _context.TreatmentPlans
+            .Include(p => p.Items)
+            .Where(p => p.ClinicId == clinicId && p.Items.Any(i => i.LinkedDentalRecordId == dentalRecordId))
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<IEnumerable<TreatmentPlan>> GetFilteredAsync(
         Guid clinicId,
         Guid? patientId = null,

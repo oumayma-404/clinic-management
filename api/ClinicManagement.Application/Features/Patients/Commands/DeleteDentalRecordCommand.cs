@@ -17,6 +17,8 @@ public class DeleteDentalRecordCommandHandler : IRequestHandler<DeleteDentalReco
 {
     private readonly IDentalRecordRepository _dentalRecordRepository;
     private readonly IPatientRepository _patientRepository;
+    private readonly ITreatmentPlanRepository _planRepository;
+    private readonly IInvoiceRepository _invoiceRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<DeleteDentalRecordCommandHandler> _logger;
@@ -24,12 +26,16 @@ public class DeleteDentalRecordCommandHandler : IRequestHandler<DeleteDentalReco
     public DeleteDentalRecordCommandHandler(
         IDentalRecordRepository dentalRecordRepository,
         IPatientRepository patientRepository,
+        ITreatmentPlanRepository planRepository,
+        IInvoiceRepository invoiceRepository,
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
         ILogger<DeleteDentalRecordCommandHandler> logger)
     {
         _dentalRecordRepository = dentalRecordRepository;
         _patientRepository = patientRepository;
+        _planRepository = planRepository;
+        _invoiceRepository = invoiceRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
         _logger = logger;
@@ -42,7 +48,8 @@ public class DeleteDentalRecordCommandHandler : IRequestHandler<DeleteDentalReco
             var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
             if (clinicResult.IsFailure)
             {
-                return Result<bool>.Failure(clinicResult.Error ?? "Unable to resolve current clinic");
+                // A-9: this returned the English "Unable to resolve current clinic" — the § 2 sweep missed it.
+                return Result<bool>.Failure(clinicResult.Error ?? "Cabinet introuvable.");
             }
 
             var dentalRecord = await _dentalRecordRepository.GetByIdAsync(request.Id, cancellationToken);
@@ -63,8 +70,33 @@ public class DeleteDentalRecordCommandHandler : IRequestHandler<DeleteDentalReco
                 return Result<bool>.Failure("Dossier dentaire introuvable.");
             }
 
-            await _dentalRecordRepository.DeleteAsync(request.Id, cancellationToken);
-            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            // The two soft links to this fiche are FK-less by design (InvoiceLineConfiguration:36,
+            // TreatmentPlanItemConfiguration:55), so nothing at the database level clears them. Deleting the
+            // fiche without this leaves a plan act « réalisé » pointing at a row that no longer exists — and
+            // because marking an act done can auto-complete a plan, a deleted fiche could leave a devis closed
+            // against evidence that is gone. One transaction: a partial cleanup is the defect, not the fix.
+            await _unitOfWork.BeginTransactionAsync(cancellationToken);
+            try
+            {
+                var detachedActs = await DetachPlanActsAsync(clinicResult.Value, request.Id, cancellationToken);
+                var detachedLines = await DetachInvoiceLinesAsync(clinicResult.Value, request.Id, cancellationToken);
+
+                await _dentalRecordRepository.DeleteAsync(request.Id, cancellationToken);
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+                await _unitOfWork.CommitTransactionAsync(cancellationToken);
+
+                if (detachedActs > 0 || detachedLines > 0)
+                {
+                    _logger.LogInformation(
+                        "Deleted dental record {RecordId}: detached {Acts} plan act(s) and {Lines} invoice line(s)",
+                        request.Id, detachedActs, detachedLines);
+                }
+            }
+            catch
+            {
+                await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+                throw;
+            }
 
             return Result<bool>.Success(true);
         }
@@ -74,6 +106,71 @@ public class DeleteDentalRecordCommandHandler : IRequestHandler<DeleteDentalReco
             _logger.LogError(ex, "Unhandled failure deleting dental record");
             return Result<bool>.Failure("Erreur lors de la suppression du dossier dentaire. Veuillez réessayer.");
         }
+    }
+
+    /// <summary>
+    /// Return every plan act evidenced by this fiche to « prévu », reopening any devis that the act had closed.
+    /// Uses the aggregate's own <c>UnmarkItemDone</c> so the status arithmetic is the single implementation — a
+    /// second copy here would be free to disagree with it.
+    /// </summary>
+    private async Task<int> DetachPlanActsAsync(Guid clinicId, Guid recordId, CancellationToken cancellationToken)
+    {
+        var plans = await _planRepository.GetByLinkedDentalRecordAsync(clinicId, recordId, cancellationToken);
+        var detached = 0;
+
+        foreach (var plan in plans)
+        {
+            var linkedItemIds = plan.Items
+                .Where(i => i.LinkedDentalRecordId == recordId)
+                .Select(i => i.Id)
+                .ToList();
+
+            foreach (var itemId in linkedItemIds)
+            {
+                plan.UnmarkItemDone(itemId);
+                detached++;
+            }
+
+            if (linkedItemIds.Count > 0)
+            {
+                await _planRepository.UpdateAsync(plan, cancellationToken);
+            }
+        }
+
+        return detached;
+    }
+
+    /// <summary>
+    /// Drop the provenance pointer on every invoice line raised from this fiche. The invoice keeps its number,
+    /// its lines and its amounts — deleting a clinical record must never alter a fiscal document.
+    /// </summary>
+    private async Task<int> DetachInvoiceLinesAsync(Guid clinicId, Guid recordId, CancellationToken cancellationToken)
+    {
+        var links = await _invoiceRepository.GetDentalRecordLinksAsync(clinicId, cancellationToken);
+        var invoiceIds = links
+            .Where(l => l.DentalRecordId == recordId)
+            .Select(l => l.InvoiceId)
+            .Distinct()
+            .ToList();
+
+        var detached = 0;
+        foreach (var invoiceId in invoiceIds)
+        {
+            var invoice = await _invoiceRepository.GetByIdAsync(invoiceId, cancellationToken);
+            if (invoice == null || invoice.ClinicId != clinicId)
+            {
+                continue;
+            }
+
+            var cleared = invoice.ClearDentalRecordLinks(recordId);
+            if (cleared > 0)
+            {
+                await _invoiceRepository.UpdateAsync(invoice, cancellationToken);
+                detached += cleared;
+            }
+        }
+
+        return detached;
     }
 }
 

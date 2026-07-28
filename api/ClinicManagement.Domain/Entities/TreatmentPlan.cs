@@ -309,6 +309,41 @@ public class TreatmentPlan : AggregateRoot<Guid>
     }
 
     /// <summary>Close the plan once every act has been carried out.</summary>
+    /// <summary>
+    /// Undo <see cref="MarkItemDone"/> for one act, reopening the plan as the exact inverse of the promotions
+    /// that method performs.
+    /// <para>
+    /// Deliberately <b>not</b> guarded by <see cref="EnsureActive"/>: marking the last act done auto-completes
+    /// the plan, so a correction that required an active plan could never reach the case it exists for. One act
+    /// ticked against the wrong fiche would close a devis permanently.
+    /// </para>
+    /// <para>
+    /// The caller is responsible for refusing an act already billed on a live invoice — the domain cannot see
+    /// invoices, and un-marking billed work would desynchronise the plan from the money.
+    /// </para>
+    /// </summary>
+    public void UnmarkItemDone(Guid itemId)
+    {
+        EnsureCorrectable();
+        var item = _items.FirstOrDefault(i => i.Id == itemId)
+            ?? throw new InvalidOperationException("Acte introuvable.");
+
+        if (!item.Unmark())
+        {
+            // Already « prévu » — do not touch the plan's status; it was never closed by this act.
+            return;
+        }
+
+        // Mirror MarkItemDone exactly: it promotes Accepted → InProgress on the first done act and → Completed
+        // when all are done. Completed is therefore only reachable with every act done, so un-marking one always
+        // reopens; and with no act done at all the plan is back where acceptance left it.
+        Status = _items.Any(i => i.Status == TreatmentPlanItemStatus.Done)
+            ? TreatmentPlanStatus.InProgress
+            : TreatmentPlanStatus.Accepted;
+
+        Touch();
+    }
+
     public void Complete()
     {
         if (Status != TreatmentPlanStatus.Accepted && Status != TreatmentPlanStatus.InProgress)
@@ -549,6 +584,22 @@ public class TreatmentPlan : AggregateRoot<Guid>
     {
         if (Status != TreatmentPlanStatus.Accepted && Status != TreatmentPlanStatus.InProgress)
             throw new InvalidOperationException("Le plan doit être accepté pour cette opération.");
+    }
+
+    /// <summary>
+    /// A correction to what was already recorded may be applied to a <c>Completed</c> plan — unlike
+    /// <see cref="EnsureActive"/>, which guards *doing* work. Marking the last act done closes the plan, so a
+    /// correction gate that excluded <c>Completed</c> would lock out the exact mistake it needs to fix. A
+    /// <c>Draft</c> has no realised act to undo and a <c>Cancelled</c> plan is void.
+    /// </summary>
+    private void EnsureCorrectable()
+    {
+        if (Status != TreatmentPlanStatus.Accepted
+            && Status != TreatmentPlanStatus.InProgress
+            && Status != TreatmentPlanStatus.Completed)
+        {
+            throw new InvalidOperationException("Seul un devis accepté, en cours ou terminé peut être corrigé.");
+        }
     }
 
     /// <summary>

@@ -43,7 +43,6 @@ import type { LabWorkOrderDto, PatientDto } from "@/lib/api/types"
 // The four lifecycle stages a lab work order moves through (mirrors the backend enum).
 type LabOrderStatus = "Sent" | "InProgress" | "Received" | "Fitted"
 
-const STATUS_OPTIONS: LabOrderStatus[] = ["Sent", "InProgress", "Received", "Fitted"]
 
 const STATUS_LABELS: Record<LabOrderStatus, string> = {
   Sent: "Envoyé",
@@ -497,16 +496,28 @@ export default function LabOrdersPage() {
                                 </TableCell>
                                 <TableCell className="text-right">
                                   <div className="flex items-center justify-end gap-2">
+                                    {/* AC-P2.40 — offer only the stages the server will accept from here. It
+                                        used to list all four unconditionally, so « Posé » → « Envoyé » looked
+                                        like a normal choice and (before the domain had any rules) silently
+                                        rewound a delivered prothèse. The current stage stays in the list as the
+                                        selected value; `allowedNextStatuses` comes from the domain's table, so
+                                        the client never re-derives it. A legacy row in an unmapped state gets an
+                                        empty list — the control is then disabled rather than offering a
+                                        transition that would be refused. */}
                                     <select
                                       aria-label="Changer le statut"
                                       className={`${SELECT_CLASS} h-8 w-32`}
                                       value={order.status}
-                                      disabled={statusUpdatingId === order.id}
+                                      disabled={
+                                        statusUpdatingId === order.id ||
+                                        (order.allowedNextStatuses?.length ?? 0) === 0
+                                      }
                                       onChange={(e) => handleStatusChange(order, e.target.value)}
                                     >
-                                      {STATUS_OPTIONS.map((s) => (
+                                      <option value={order.status}>{statusLabel(order.status)}</option>
+                                      {(order.allowedNextStatuses ?? []).map((s) => (
                                         <option key={s} value={s}>
-                                          {STATUS_LABELS[s]}
+                                          {statusLabel(s)}
                                         </option>
                                       ))}
                                     </select>

@@ -43,6 +43,19 @@ public interface IInvoiceRepository
     Task<IReadOnlyList<(Guid TreatmentPlanId, Guid InvoiceId, string? Number, InvoiceStatus Status)>>
         GetTreatmentPlanLinksAsync(Guid clinicId, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// One row per invoice line that bills a fiche de soins: the record it bills, and the invoice's id, number
+    /// and status. The sibling of <see cref="GetTreatmentPlanLinksAsync"/> for the *act-level* question — "is the
+    /// work this fiche recorded already on a live invoice?" — which the plan-level bridge link cannot answer.
+    /// <para>
+    /// A light projection on purpose. The only alternative was <c>GetFilteredAsync</c>, which loads every invoice
+    /// of the patient <b>with its lines and payments</b> to test one id — the exact over-fetch the audit's § 9.7
+    /// exists to remove. Cancelled invoices are included; the caller decides whether one still represents the work.
+    /// </para>
+    /// </summary>
+    Task<IReadOnlyList<(Guid DentalRecordId, Guid InvoiceId, string? Number, InvoiceStatus Status)>>
+        GetDentalRecordLinksAsync(Guid clinicId, CancellationToken cancellationToken = default);
+
     /// <summary>Load the invoice that owns a given payment (with lines + payments), or null. Clinic-agnostic — the caller guards the clinic.</summary>
     Task<Invoice?> GetByPaymentIdAsync(Guid paymentId, CancellationToken cancellationToken = default);
 

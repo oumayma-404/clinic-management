@@ -34,7 +34,9 @@ import { useAuthToken } from "@/lib/hooks/use-auth-token"
 import { useSession } from "@/lib/auth/session"
 import { BackupSettings } from "@/components/backup-settings"
 import { ReminderSettings } from "@/components/reminder-settings"
+import { DoctorDocumentIdentityDialog } from "@/components/doctor-document-identity-dialog"
 import { DEFAULT_WORKING_HOURS } from "@/lib/working-hours"
+import { DOCTOR_SPECIALTIES, specialtyLabel } from "@/lib/specialties"
 
 const tunisianGovernorates = [
   "Tunis",
@@ -63,15 +65,6 @@ const tunisianGovernorates = [
   "Kebili",
 ]
 
-const specialties = [
-  "Dentist",
-  "Orthodontist",
-  "Prosthodontist",
-  "Endodontist",
-  "Periodontist",
-  "Oral Surgeon",
-  "Pediatric Dentist",
-]
 
 interface Doctor {
   id: string
@@ -80,6 +73,13 @@ interface Doctor {
   phone?: string
   email?: string
   codeProfessionnelSante?: string
+  /**
+   * Document identity (CNOMDT + cachet presence). Read-only here: it is projected by `GetUserStatusQuery` and
+   * edited through `PUT /api/doctors/{id}` in its own dialog — the roster save (`PUT /clinics/doctors`) neither
+   * reads nor writes it, so mixing the two would drop these values on every roster save.
+   */
+  ordreNumberCnomdt?: string | null
+  hasCachet?: boolean
 }
 
 interface WorkingHoursInput {
@@ -127,6 +127,13 @@ export default function ClinicSettings() {
 
   // Doctors State
   const [doctors, setDoctors] = useState<Doctor[]>([{ id: "1", name: "", specialty: "", phone: "", email: "" }])
+  /**
+   * The practitioner whose CNOMDT + cachet are being edited (AC-P2.30); null closes the dialog. Admin-only, and
+   * only for a doctor that actually exists server-side — an unsaved roster row has a client-side placeholder id
+   * that `PUT /api/doctors/{id}` could not resolve.
+   */
+  const [documentIdentityTarget, setDocumentIdentityTarget] = useState<Doctor | null>(null)
+  const isClinicAdmin = user?.role === "admin"
 
   // Edit Modes and Notifications State
   const [isEditingClinicInfo, setIsEditingClinicInfo] = useState(false)
@@ -215,6 +222,8 @@ export default function ClinicSettings() {
               phone: d.phone || "",
               email: d.email || "",
               codeProfessionnelSante: d.codeProfessionnelSante || "",
+              ordreNumberCnomdt: d.ordreNumberCnomdt ?? "",
+              hasCachet: d.hasCachet ?? false,
             })),
           )
         }
@@ -826,11 +835,22 @@ export default function ClinicSettings() {
                               <SelectValue placeholder="Sélectionner une spécialité" />
                             </SelectTrigger>
                             <SelectContent>
-                              {specialties.map((spec) => (
+                              {/* AC-P2.42/2.43 — the option VALUE stays the English storage key; only the label
+                                  is French. A doctor already stored as "Dentist" therefore still matches. */}
+                              {DOCTOR_SPECIALTIES.map((spec) => (
                                 <SelectItem key={spec} value={spec} className="text-sm">
-                                  {spec}
+                                  {specialtyLabel(spec)}
                                 </SelectItem>
                               ))}
+                              {/* AC-P2.45 — a stored custom value is no option of ours; add it so the trigger
+                                  shows it verbatim instead of falling back to the placeholder (which would let
+                                  an unrelated save silently rewrite it). */}
+                              {doctor.specialty &&
+                                !DOCTOR_SPECIALTIES.includes(doctor.specialty as (typeof DOCTOR_SPECIALTIES)[number]) && (
+                                  <SelectItem value={doctor.specialty} className="text-sm">
+                                    {specialtyLabel(doctor.specialty)}
+                                  </SelectItem>
+                                )}
                             </SelectContent>
                           </Select>
                         </div>
@@ -861,6 +881,31 @@ export default function ClinicSettings() {
                             disabled={!isEditingDoctors}
                             className="h-7 text-sm"
                           />
+                        </div>
+                        {/* AC-P2.30 — the CNOMDT number and cachet « Mon profil » already told the admin they
+                            could set from here. Read-only in the roster because they belong to
+                            `PUT /api/doctors/{id}`, not to the roster rewrite; « Modifier » opens that. */}
+                        <div className="space-y-1">
+                          <Label className="text-xs">Identité documentaire</Label>
+                          <div className="flex h-7 items-center gap-2 text-sm">
+                            <span className="text-muted-foreground">
+                              {doctor.ordreNumberCnomdt
+                                ? `N° ordre ${doctor.ordreNumberCnomdt}`
+                                : "Pas de n° d'ordre"}
+                              {" · "}
+                              {doctor.hasCachet ? "cachet enregistré" : "pas de cachet"}
+                            </span>
+                            {isClinicAdmin && !isEditingDoctors && doctor.id && !doctor.id.startsWith("doctor-") && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 px-2 text-xs"
+                                onClick={() => setDocumentIdentityTarget(doctor)}
+                              >
+                                Modifier
+                              </Button>
+                            )}
+                          </div>
                         </div>
                       </div>
                       {isEditingDoctors && doctors.length > 1 && (
@@ -1169,6 +1214,17 @@ export default function ClinicSettings() {
           </CardContent>
         </Card>
       </div>
+
+      {/* AC-P2.30 — set another practitioner's CNOMDT number and cachet (PUT /api/doctors/{id}). */}
+      <DoctorDocumentIdentityDialog
+        doctor={documentIdentityTarget}
+        onOpenChange={(open) => { if (!open) setDocumentIdentityTarget(null) }}
+        onSaved={() => {
+          setDocumentIdentityTarget(null)
+          // Re-read the roster so the row's « n° ordre / cachet » summary reflects what was just saved.
+          loadClinicData()
+        }}
+      />
     </div>
   )
 }

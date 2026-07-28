@@ -2,6 +2,7 @@ using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Features.Users.Commands;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Xunit;
 
@@ -16,7 +17,8 @@ public class SetUserActiveCommandHandlerTests
     private readonly Mock<IClinicContext> _context = new();
     private readonly Mock<IUnitOfWork> _uow = new();
 
-    private SetUserActiveCommandHandler Handler() => new(_users.Object, _context.Object, _uow.Object);
+    private SetUserActiveCommandHandler Handler() =>
+        new(_users.Object, _context.Object, _uow.Object, NullLogger<SetUserActiveCommandHandler>.Instance);
 
     private static User Local(string role, Guid clinicId) =>
         User.CreateLocalUser(clinicId, role, $"{role}@clinic.com", "HASH", $"{role} name");

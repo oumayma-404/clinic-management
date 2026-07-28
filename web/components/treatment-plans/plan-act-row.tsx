@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { TableCell, TableRow } from "@/components/ui/table"
-import { CalendarPlus, CalendarCheck, FilePlus2, FileText, ChevronUp, ChevronDown } from "lucide-react"
+import { CalendarPlus, CalendarCheck, FilePlus2, FileText, ChevronUp, ChevronDown, Unlink } from "lucide-react"
 import type { TreatmentPlanDto, TreatmentPlanItemDto } from "@/lib/api/types"
 import { formatDT, formatDateFr } from "@/lib/format"
 import { itemWorkflowLabel, itemWorkflowBadgeClass } from "./treatment-plan-labels"
@@ -24,6 +24,11 @@ interface PlanActRowProps {
   item: TreatmentPlanItemDto
   /** Opens the "Planifier" dialog for this act (only reachable in the `to-schedule` état). */
   onSchedule: (item: TreatmentPlanItemDto) => void
+  /**
+   * Opens the « Détacher la fiche » confirmation for a `done` act (AC-P2.11). Omitted when the plan is Draft
+   * or Cancelled — there is nothing realised to correct — which is also what hides the action.
+   */
+  onUndo?: (item: TreatmentPlanItemDto) => void
   reorder?: PlanActReorder
 }
 
@@ -31,8 +36,11 @@ interface PlanActRowProps {
  * One planned act, with **exactly one** primary action — the thing to do next in its état. The old plans-table
  * dialog offered every action on every row (eight unlabelled ghost icons), which is how the same act could be
  * booked twice.
+ *
+ * A `done` act is the one exception: alongside « Voir la fiche » it carries the correction path
+ * (« Détacher la fiche »), because reading the fiche is what tells the dentist it is the wrong one.
  */
-export function PlanActRow({ plan, item, onSchedule, reorder }: PlanActRowProps) {
+export function PlanActRow({ plan, item, onSchedule, onUndo, reorder }: PlanActRowProps) {
   const router = useRouter()
   const state = planItemState(item)
   const planIsActive = plan.status === "Accepted" || plan.status === "InProgress"
@@ -138,15 +146,29 @@ export function PlanActRow({ plan, item, onSchedule, reorder }: PlanActRowProps)
         )}
 
         {state === "done" && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 gap-1"
-            onClick={() => router.push(`/patients/${plan.patientId}?tab=medical-records`)}
-          >
-            <FileText className="h-4 w-4" />
-            Voir la fiche
-          </Button>
+          <div className="flex items-center justify-end gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 gap-1"
+              onClick={() => router.push(`/patients/${plan.patientId}?tab=medical-records`)}
+            >
+              <FileText className="h-4 w-4" />
+              Voir la fiche
+            </Button>
+            {onUndo && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 gap-1 text-muted-foreground hover:text-foreground"
+                onClick={() => onUndo(item)}
+                title="Ramener cet acte à « Prévu » et détacher sa fiche de soins"
+              >
+                <Unlink className="h-4 w-4" />
+                Détacher
+              </Button>
+            )}
+          </div>
         )}
       </TableCell>
     </TableRow>

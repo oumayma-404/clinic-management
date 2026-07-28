@@ -72,4 +72,23 @@ public class UsersController : ApiControllerBase
 
         return Ok(result.Value);
     }
+
+    /// <summary>
+    /// Change a user's clinic role between admin / doctor / secretary (AC-P2.23). Admin-only through the
+    /// class-level policy; the handler re-checks the DB role, validates the value against the closed set, and
+    /// refuses a self-demotion that would leave the clinic with no active admin.
+    /// </summary>
+    [HttpPut("{id}/role")]
+    public async Task<ActionResult<ClinicUserDto>> SetRole(string id, [FromBody] SetUserRoleRequest request)
+    {
+        var command = new ChangeUserRoleCommand { TargetUserId = id, Role = request.Role };
+        var result = await _mediator.Send(command);
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+
+        return Ok(result.Value);
+    }
 }
