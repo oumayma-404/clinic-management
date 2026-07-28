@@ -12,7 +12,7 @@
 
 | Part | Delivers | Depends on | Status |
 |---|---|---|---|
-| **P1** Appointment lifecycle & booking | 3.1, 3.2, 3.4, 5.4, 6.1, 6.9, 8.1, 8.4 | — | **in progress** — steps 1–3, 5–7, 10, 14 + a11y done (`02dcc17`, `a813268`, `767ecae`, `1574c2e`). **Remaining: the 3 migrations (SAC-blocked), the per-doctor hours editor UI, the calendar grid, `verify-schema`** |
+| **P1** Appointment lifecycle & booking | 3.1, 3.2, 3.4, 5.4, 6.1, 6.9, 8.1, 8.4 | — | **complete except the 3 migrations** (`02dcc17`, `a813268`, `767ecae`, `1574c2e`, `05183d2`). Open: migrations 1–3 + their pre-flight + `verify-schema` (all SAC-blocked), and the calendar row-trim (deferred, see below) |
 | **P2** Finish what's built | 5.1–5.3, 5.5–5.9, 5.11, 5.12, 6.10, 6.11, 8.3 | — | **complete** — all 13 steps, AC-P2.1–2.45 |
 | **P3** UX, accessibility & French | 3.3, 6.3, 7.1–7.9, 8.2, 8.6 | — | not-started |
 | **P4** Stock, realtime & schema | 6.6, 6.7, 6.12, 9.1–9.6 | — | not-started |
@@ -166,6 +166,37 @@ is, one map at the client's derivation point is the whole fix — and make the m
 through) so re-saving historical rows is safe.
 
 ## Session log
+
+### 2026-07-28 — P1 finished except migrations (commit `05183d2`)
+
+Closes **AC-P1.10–1.11, 1.18, 1.25–1.26, 1.29, 1.33, 1.52, 1.54**.
+
+| Delivered | Note |
+|---|---|
+| `23P01` → a French 409 with its **own** message | Below the concurrency arm (that type derives from `DbUpdateException`); matched on type *name*, not a cast, per `StartupDiagnostics` |
+| AC-P1.29 rule for `GoogleCalendarSyncService` | **import-with-override-flag, never skip** — refusing would silently drop the event into a log-only catch |
+| AC-P1.10/1.11 stated at the behaviour | Act returns to « À planifier »; `TreatmentPlanItem.Status` untouched; patient may reappear on relance |
+| `doctor-working-hours-card.tsx` (§ 5.4) | The missing caller — `getWorkingHours`/`setWorkingHours` had zero callers |
+| Calendar shading per-day from real hours + legend | Was `hour >= 8 && hour < 18`, day-blind |
+| a11y on the clinic-wide hours rows; « to »/« Add Doctor » → French | AC-P1.52 already held in both dialogs (verified) |
+| `CLAUDE.md` × 3 updated for the new types | Domain / Application / components |
+
+**Deliberately deferred, with the reason.** AC-P1.33 asks the grid to render *only* the resolved open hours.
+The shading is now correct, but the **rows are still 0..23**: the appointment overlay positions blocks from
+midnight against a fixed `HOUR_HEIGHT`, and the file carries a load-bearing comment about exactly the drift that
+re-basing would risk. Trimming the rows needs that overlay reworked — a follow-up, not something to slip into a
+sweep.
+
+| Gate | Result |
+|---|---|
+| Backend `--no-incremental` | 0 errors, 56 warnings (baseline), 0 in changed files |
+| Targeted suite (Appointment / TreatmentPlan / Recall / Concurrency) | **233 / 233 pass** |
+| `tsc --noEmit` · `npm run build` | clean · clean, 27/27 |
+
+**Process note for next time.** Several file edits in this session were batched as python heredocs to go faster;
+that cost two rework cycles — a regex pass corrupted six test files (reverted via `git checkout` and redone by
+hand), and a two-edit script whose second assert failed discarded its own successful first edit. Use `Edit`:
+it verifies uniqueness and fails loudly instead of half-applying.
 
 ### 2026-07-28 — P1 steps 5–7, 10, 14 + a11y (commits `a813268`, `767ecae`, `1574c2e`)
 
