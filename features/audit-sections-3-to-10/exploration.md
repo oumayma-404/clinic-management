@@ -1,10 +1,17 @@
 # Exploration — Audit Sections 3–10
 
 **Date:** 2026-07-27
-**Branch:** `feature/windows-desktop-app` @ `e073ba7` (contains the merged audit § 2 work — PR #15)
-**Source:** `CODEBASE_AUDIT_2026-07.md` §§ 3–10, written at `22b37a1` (pre-§2-merge)
+**Branch:** `feature/windows-desktop-app` @ `1932acf` — contains **both** the merged audit § 2 work (PR #15) **and
+the merged audit § 1 work** (`feature/data-and-money-integrity`, merged after this exploration ran).
+**Source:** `CODEBASE_AUDIT_2026-07.md` §§ 3–10, written at `22b37a1` (pre-both-merges)
 **Method:** 8 parallel read-only exploration agents, one per subsystem cluster. Every finding re-verified against
-current source. Line numbers below are **current at `e073ba7`**, not the audit's.
+current source.
+
+> ⚠️ **Line numbers below were captured at `e073ba7`, before the § 1 merge.** They are correct for every finding
+> outside the money/appointment files. The § 1 merge moved lines in the files listed in § 7 — **re-read those before
+> writing an AC against them**. Verified drifts so far: `IssueInvoiceCommand.cs:72 → :77`,
+> `AcceptTreatmentPlanCommand.cs:61 → :62`, `UpdateAppointmentCommand.cs:249 → :315`,
+> `GetReceivablesQuery.cs:87 → :88`, `CreateInvoiceFromTreatmentPlanCommand.cs:81 → :82`.
 
 > **Read this before the spec.** The audit is organised by *symptom* (silent no-op, localization, UX…), so its
 > sections interleave the same files. This document is organised by *verdict* and then by *subsystem*, which is how
@@ -84,7 +91,7 @@ These change the scope, the count, or the fix itself. Each is verified.
 | # | Finding | Verdict | Current location |
 |---|---|:--:|---|
 | 6.1 | Working hours advisory only | ✅ | zero hours references in `Features/Appointments/`; grid `appointment-calendar.tsx:21-29` |
-| 6.2 | Dashboard vs caisse after refund | 🔒 | **already fixed on § 1** (C-3) |
+| 6.2 | Dashboard vs caisse after refund | ✅❎ | **CLOSED by the § 1 merge** — `GetDashboardStatsQuery.cs:115-118` now nets refunds. Regression AC only (C-3, § 7) |
 | 6.3 | Failed reminders invisible | ✅ | `GetClinicReminderStatusQuery.cs:58-61,91-102`; `ReminderStatusDto.cs:16-28`; `NotificationJob.cs:148-164` |
 | 6.4 | No audit trail | 🔒 | feature-sized + blocked on § 1 — see § 6 below |
 | 6.5 | CNAM stops at an estimate | ⚠️ | feature-sized, needs domain input — see § 6 below |
@@ -354,28 +361,43 @@ reimbursement entities, 1 migration, 4 endpoints, 2 screens, no bordereau, no AP
 
 ---
 
-## 7. The § 1 collision — per-finding verdict
+## 7. The § 1 merge — RESOLVED, no gating needed
 
-`feature/data-and-money-integrity` @ `9a726a6` — 12 commits, **262 files**, +25 926 / −612, rooted at `22b37a1`, **unmerged**.
+**§ 1 merged into `feature/windows-desktop-app` on 2026-07-27, after this exploration ran.** HEAD is `1932acf`;
+`git merge-base --is-ancestor feature/data-and-money-integrity HEAD` returns true. The collision analysis that
+produced a "gated final part" plan is **obsolete** — every one of the four entangled findings is now unblocked, and
+one of them is closed outright.
 
-> ⚠️ **MERGE LANDMINE — `GetDashboardStatsQuery.cs`.** § 1 branched before the § 2 merge. On `e073ba7` the handler
-> has an `ILogger` field and the AC-13.2 catch; § 1's copy has neither and still returns
-> `$"Error retrieving dashboard stats: {ex.Message}"`. Both sides edit the **constructor** and the **catch block**.
-> A "take theirs" resolution silently re-opens the raw-exception leak PR #15 just closed.
-> This is worth telling the § 1 branch owner regardless of this spec.
+> ✅ **The merge landmine did not fire.** `GetDashboardStatsQuery.cs` kept the § 2 `ILogger` field (`:40,50,59`) and
+> the AC-13.2 catch (`:145-146` — `LogError` + « Erreur lors du chargement du tableau de bord. Veuillez réessayer. »).
+> PR #15's exception-leak fix survived the merge.
 
-| Finding | Verdict | Why |
+| Finding | Post-merge verdict | Evidence at `1932acf` |
 |---|---|---|
-| § 4.1 | **spec now, implement last** | Lands in `GetCaisseSummaryQuery.cs:69-78` / `GetDashboardStatsQuery.cs:94-102`, the blocks § 1 rewrites hardest, on a repo method whose arity § 1 changes (`ITreatmentPlanRepository.cs:39`, 4 → 5 params) |
-| § 4.2 | **spec now, implement last** | The two-character fix sits 3 lines above § 1's +86-line `CarryOverPlanPaymentsAsync` insertion in the same retry loop. § 1 already pins the test that hides it (`spec.md:697-698`) |
-| § 6.2 | **wait for § 1, then re-scope to near-zero** | Already implemented there (AC-42, AC-40); `GetReceivablesQuery` is excluded on purpose (`spec.md:416`, AC-43 — *"a refunded debt is settled, not re-owed"*) |
-| § 6.8 | **spec now, implement last** | UI-only, but lands in `invoice-form-modal.tsx`'s submit path, which § 1 restructures (+30/−8); the payload block moves `:190` → `:222` |
-| § 9.7a | **safe now** | § 1's whole footprint on `GetReceivablesQuery.cs` is `+2/−1`, nowhere near the `:79-87` loop |
-| § 9.7b | **safe now** | Same — `CreateInvoiceFromTreatmentPlanCommand.cs` is `+2/−1` |
-| § 8.5 | **safe now** | 3 of 4 files untouched; `app/page.tsx:23` collides only with a 15-line import block at the top |
-| § 5.10 | **safe now** | Both files appear nowhere in § 1's 262-file diff |
+| § 4.1 | **open, implement normally** | Defaults still UTC; the blocks moved but the defect is unchanged |
+| § 4.2 | **open, implement normally** | `IssueInvoiceCommand.cs:77` and `AcceptTreatmentPlanCommand.cs:62` both still `DateTime.UtcNow.Year` |
+| § 6.2 | **CLOSED by § 1 — verify only** | `GetDashboardStatsQuery.cs:38,48,57` inject `ICreditNoteRepository`; `:115-118` computes `invoiceCollected + installmentCollected - refunds`. Spec this as a regression AC, not a fix |
+| § 6.8 | **open, implement normally** | `invoice-form-modal.tsx` still never sends `appointmentId` |
+| § 9.7a | **open** | `GetReceivablesQuery.cs:88` — the N+1 `GetByIdAsync` survived the merge |
+| § 9.7b | **open** | `CreateInvoiceFromTreatmentPlanCommand.cs:82` — still `GetFilteredAsync` |
+| § 8.5 | **open** | untouched |
+| § 5.10 | **open** | untouched |
 
-§ 1 introduces **no** clock/timezone abstraction — nothing to reuse, but § 4.1/§ 4.2 must not write a third copy of
+### What § 1 changed that this spec must now build **on**, not around
+
+| § 1 asset (now in the tree) | Consequence here |
+|---|---|
+| `Entity<TId>.Version` mapped to PostgreSQL `xmin` for all 38 entities, **no schema change** | § 6.4's audit trail must not re-add a version concept. The `AddConcurrencyToken` migration has a **deliberately empty `Up()`** — EF's differ emits 38 × `AddColumn<uint>("xmin")`, which PostgreSQL rejects. It exists for the model snapshot only. Any new migration must not "helpfully" re-add those columns |
+| `ConflictException` translated once in `UnitOfWork.SaveChangesAsync` → HTTP 409 | An audit writer must sit **outside** that catch, or an audit-write failure becomes a bogus 409 |
+| `when (ex is not ConflictException)` on every catch that **returns a Result** (log-only catches deliberately still swallow) | Every new handler in this spec must follow the same rule |
+| `IUnitOfWork.SetExpectedVersion`; six aggregates round-trip `Version`; `0` means "not supplied" and skips the check | Keeps the AI dispatcher, Google→App sync and the jobs working. New write paths inherit this |
+| **Tri-state generalized** to `ProcedureTypeId`/`DoctorId`/`Notes`/`DoctorName` (`UpdateAppointmentCommand.cs:79,100,228,234,250`) | **§ 3.2's worst collateral is gone** — cancelling an appointment no longer wipes its act. A-1…A-4 still stand |
+| `Payment` / `InstallmentPayment` carry `VoidedByUserId` + `VoidedByName` | The first actor fields. § 6.4's trail should subsume or align with them, not duplicate |
+| `Patient.IsArchived` + archive/unarchive/deletion-check | § 6.4's archive limb is **done**. Merge and anonymize remain |
+| Event-sourced `InstallmentPayment` ledger | § 4.1's installment-month defect (audit § 1.7) is closed; the day-boundary defect is not |
+| `reconcile-money` console verb, exit 0/1/2 | A precedent for any maintenance verb this spec adds |
+
+§ 1 introduced **no** clock/timezone abstraction — nothing to reuse, and § 4.1/§ 4.2 must not write a third copy of
 `ResolveTunisiaTimeZone` (A-21).
 
 **Constraint for any local-day helper:** `ApplicationDbContext.cs:135-166` installs a `ValueConverter` on every

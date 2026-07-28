@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fusionner deux patients — maquette</title>
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="_shell.css">
+</head>
+<body>
+
+<!-- Mockup-only control bar. Not part of the app. -->
+<div class="mk-bar">
+  <span class="font-semibold">Maquette · Fusion de patients</span>
+  <span class="opacity-60">AC-P7.18–7.30</span>
+  <span class="ml-auto opacity-60">Étape :</span>
+  <button onclick="showStep(1)" aria-pressed="false" id="b1">1 Survivant</button>
+  <button onclick="showStep(2)" aria-pressed="true" id="b2">2 Champs</button>
+  <button onclick="showStep(3)" aria-pressed="false" id="b3">3 Dents</button>
+  <button onclick="showStep(4)" aria-pressed="false" id="b4">4 Vérifier</button>
+</div>
+
+<div class="flex h-screen bg-background">
+
+  <!-- ── SIDEBAR — copied from dashboard-sidebar.tsx ───────────────────── -->
+  <aside class="flex flex-col border-r border-border bg-card transition-all duration-300 relative w-64 shrink-0">
+    <div class="flex h-16 items-center border-b border-border px-4">
+      <div class="flex items-center gap-2 flex-1 min-w-0">
+        <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-primary shrink-0">
+          <svg class="h-5 w-5 text-primary-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 2v2M5 2v2M5 4v7a7 7 0 0 0 14 0V4"/><circle cx="20" cy="10" r="2"/></svg>
+        </div>
+        <span class="text-lg font-semibold text-foreground truncate">Cabinet Dr. Ben Salah</span>
+      </div>
+    </div>
+    <nav class="flex-1 overflow-y-auto p-4">
+      <div class="space-y-1 pb-2">
+        <p class="px-3 pt-2 pb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">Quotidien</p>
+        <a class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground hover:bg-accent/50"><span class="h-5 w-5 shrink-0">▦</span><span>Tableau de bord</span></a>
+        <a class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground hover:bg-accent/50"><span class="h-5 w-5 shrink-0">▤</span><span>Rendez-vous</span></a>
+        <a class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium bg-accent text-accent-foreground"><span class="h-5 w-5 shrink-0">◍</span><span>Patients</span></a>
+      </div>
+      <div class="space-y-1 pb-2">
+        <p class="px-3 pt-2 pb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">Configuration</p>
+        <a class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground hover:bg-accent/50"><span class="h-5 w-5 shrink-0">⚙</span><span>Paramètres</span></a>
+      </div>
+    </nav>
+  </aside>
+
+  <div class="flex flex-1 flex-col overflow-hidden">
+    <!-- ── HEADER — copied from dashboard-header.tsx ─────────────────── -->
+    <header class="flex h-16 items-center justify-between border-b border-border bg-card px-6 shrink-0">
+      <div class="flex flex-1 items-center gap-4">
+        <div class="relative w-full max-w-md">
+          <span class="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground">⌕</span>
+          <input type="search" placeholder="Rechercher un patient…" class="h-10 w-full rounded-lg border border-input bg-background pl-10 pr-9 text-sm outline-none placeholder:text-muted-foreground focus:border-ring focus:ring-1 focus:ring-ring">
+        </div>
+      </div>
+      <div class="flex items-center gap-4">
+        <button class="relative inline-flex items-center justify-center size-9 rounded-md hover:bg-accent" aria-label="Notifications">🔔</button>
+        <div class="flex items-center gap-2">
+          <div class="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground text-sm">SB</div>
+          <div class="text-left"><p class="text-sm font-medium">Dr. Salah Ben Salah</p><p class="text-xs text-muted-foreground">admin@cabinet.tn</p></div>
+        </div>
+      </div>
+    </header>
+
+    <main class="flex-1 overflow-auto p-6">
+      <div class="mx-auto max-w-5xl space-y-6">
+
+        <div>
+          <h1 class="text-3xl font-semibold text-foreground">Fusionner deux patients</h1>
+          <p class="mt-1 text-sm text-muted-foreground">Regroupez deux fiches en double en une seule, sans rien perdre.</p>
+        </div>
+
+        <!-- ── STEP INDICATOR — copied verbatim from setup-wizard.tsx:296-326 ── -->
+        <div class="flex items-center justify-center gap-4 mb-8" id="stepper"></div>
+
+        <!-- ══════════════ STEP 1 — CHOOSE SURVIVOR ══════════════ -->
+        <section data-step="1" class="hidden">
+          <div class="bg-card text-card-foreground flex flex-col gap-6 rounded-xl border py-6 shadow-sm">
+            <div class="px-6">
+              <h2 class="text-2xl font-semibold mb-2">Quelle fiche conserver ?</h2>
+              <p class="text-muted-foreground text-sm">La fiche conservée garde son historique et son identifiant. L’autre sera archivée, jamais supprimée.</p>
+            </div>
+            <div class="px-6 grid gap-4 md:grid-cols-2">
+
+              <!-- survivor card — SELECTED -->
+              <label class="cursor-pointer rounded-lg border-2 border-primary bg-accent/40 p-4 ring-2 ring-ring/30 block">
+                <div class="flex items-start gap-3">
+                  <input type="radio" name="survivor" checked class="mt-1 h-4 w-4 accent-[oklch(0.52_0.14_245)]">
+                  <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-2">
+                      <p class="text-sm font-semibold">Ben Ali, Mohamed</p>
+                      <span class="inline-flex items-center rounded-full border border-transparent bg-primary text-primary-foreground px-2 py-0.5 text-xs font-medium">Conservée</span>
+                    </div>
+                    <p class="text-xs text-muted-foreground mt-0.5">Créée le 12/03/2024 · Dossier #A-1042</p>
+                    <div class="mt-3 space-y-1 text-xs">
+                      <div class="flex justify-between"><span class="text-muted-foreground">Rendez-vous</span><span class="font-medium">37</span></div>
+                      <div class="flex justify-between"><span class="text-muted-foreground">Fiches de soins</span><span class="font-medium">22</span></div>
+                      <div class="flex justify-between"><span class="text-muted-foreground">Factures</span><span class="font-medium">14</span></div>
+                      <div class="flex justify-between"><span class="text-muted-foreground">Dernière visite</span><span class="font-medium">18 juil. 2026</span></div>
+                    </div>
+                  </div>
+                </div>
+              </label>
+
+              <!-- merged card -->
+              <label class="cursor-pointer rounded-lg border p-4 hover:bg-accent/30 block">
+                <div class="flex items-start gap-3">
+                  <input type="radio" name="survivor" class="mt-1 h-4 w-4 accent-[oklch(0.52_0.14_245)]">
+                  <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-2">
+                      <p class="text-sm font-semibold">BEN ALI Mohammed</p>
+                      <span class="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium text-foreground">Fusionnée</span>
+                    </div>
+                    <p class="text-xs text-muted-foreground mt-0.5">Créée le 04/09/2025 · Dossier #A-2871</p>
+                    <div class="mt-3 space-y-1 text-xs">
+                      <div class="flex justify-between"><span class="text-muted-foreground">Rendez-vous</span><span class="font-medium">4</span></div>
+                      <div class="flex justify-between"><span class="text-muted-foreground">Fiches de soins</span><span class="font-medium">3</span></div>
+                      <div class="flex justify-between"><span class="text-muted-foreground">Factures</span><span class="font-medium">2</span></div>
+                      <div class="flex justify-between"><span class="text-muted-foreground">Dernière visite</span><span class="font-medium">02 juil. 2026</span></div>
+                    </div>
+                  </div>
+                </div>
+              </label>
+            </div>
+
+            <div class="px-6">
+              <div class="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                Tout l’historique des deux fiches — rendez-vous, soins, factures, devis, fichiers, documents — sera rattaché à la fiche conservée. Aucune donnée n’est supprimée.
+              </div>
+            </div>
+
+            <div class="px-6 flex items-center justify-between mt-2 pt-6 border-t">
+              <button class="inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium h-9 px-4 py-2 border bg-background shadow-xs opacity-50 cursor-not-allowed">‹ Précédent</button>
+              <button onclick="showStep(2)" class="inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium h-9 px-4 py-2 bg-primary text-primary-foreground hover:bg-primary/90">Suivant ›</button>
+            </div>
+          </div>
+          <div class="mk-note"><b>AC-P7.18.</b> The operator nominates the survivor explicitly. Child counts are shown because they are the real decision input — you keep the record with the history, not the one with the tidier name.</div>
+        </section>
+
+        <!-- ══════════════ STEP 2 — SCALAR FIELDS ══════════════ -->
+        <section data-step="2">
+          <div class="bg-card text-card-foreground flex flex-col gap-6 rounded-xl border py-6 shadow-sm">
+            <div class="px-6">
+              <div class="flex items-start justify-between gap-4">
+                <div>
+                  <h2 class="text-2xl font-semibold mb-2">Champs en conflit</h2>
+                  <p class="text-muted-foreground text-sm">8 champs diffèrent entre les deux fiches. La valeur de la fiche conservée est pré-sélectionnée.</p>
+                </div>
+                <span class="inline-flex items-center rounded-full border border-transparent bg-secondary text-secondary-foreground px-2 py-0.5 text-xs font-medium whitespace-nowrap">8 conflits</span>
+              </div>
+            </div>
+
+            <!-- column key -->
+            <div class="px-6">
+              <div class="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3 pb-2 border-b">
+                <p class="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">Fiche conservée — Ben Ali, Mohamed</p>
+                <p class="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">Fiche fusionnée — BEN ALI Mohammed</p>
+              </div>
+            </div>
+
+            <!-- ── SECTION: Identité — heading copied from edit-patient-dialog.tsx ── -->
+            <div class="px-6 space-y-4">
+              <div class="flex items-center gap-2 pb-2">
+                <span class="h-5 w-5 text-primary">👤</span>
+                <h3 class="text-lg font-semibold">Identité</h3>
+              </div>
+
+              <div class="space-y-3 p-4 rounded-lg border bg-muted/30">
+
+                <!-- field: both have a value -->
+                <fieldset class="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3 items-start">
+                  <legend class="text-xs font-medium text-muted-foreground mb-1.5">Prénom</legend>
+                  <label class="flex items-start gap-2 rounded-md border-2 border-primary bg-background p-2.5 cursor-pointer">
+                    <input type="radio" name="f_prenom" checked class="mt-0.5 h-4 w-4 accent-[oklch(0.52_0.14_245)]">
+                    <span class="text-sm text-foreground">Mohamed</span>
+                  </label>
+                  <label class="flex items-start gap-2 rounded-md border p-2.5 cursor-pointer hover:bg-accent/30">
+                    <input type="radio" name="f_prenom" class="mt-0.5 h-4 w-4 accent-[oklch(0.52_0.14_245)]">
+                    <span class="text-sm text-foreground">Mohammed</span>
+                  </label>
+                </fieldset>
+
+                <div class="h-px bg-border"></div>
+
+                <fieldset class="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3 items-start">
+                  <legend class="text-xs font-medium text-muted-foreground mb-1.5">Date de naissance</legend>
+                  <label class="flex items-start gap-2 rounded-md border-2 border-primary bg-background p-2.5 cursor-pointer">
+                    <input type="radio" name="f_dob" checked class="mt-0.5 h-4 w-4 accent-[oklch(0.52_0.14_245)]">
+                    <span class="text-sm text-foreground">14/06/1981</span>
+                  </label>
+                  <label class="flex items-start gap-2 rounded-md border p-2.5 cursor-pointer hover:bg-accent/30">
+                    <input type="radio" name="f_dob" class="mt-0.5 h-4 w-4 accent-[oklch(0.52_0.14_245)]">
+                    <span class="text-sm text-foreground">14/06/1980</span>
+                  </label>
+                </fieldset>
+
+                <div class="h-px bg-border"></div>
+
+                <!-- field: survivor has nothing — OTHER side pre-selected + « seule copie » -->
+                <fieldset class="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3 items-start">
+                  <legend class="text-xs font-medium text-muted-foreground mb-1.5">Identifiant CNAM</legend>
+                  <label class="flex items-start gap-2 rounded-md border border-dashed p-2.5 cursor-pointer hover:bg-accent/30">
+                    <input type="radio" name="f_cnam" class="mt-0.5 h-4 w-4 accent-[oklch(0.52_0.14_245)]">
+                    <span class="text-sm text-muted-foreground">Non renseigné</span>
+                  </label>
+                  <label class="flex items-start gap-2 rounded-md border-2 border-amber-400 bg-amber-50 p-2.5 cursor-pointer">
+                    <input type="radio" name="f_cnam" checked class="mt-0.5 h-4 w-4 accent-[oklch(0.52_0.14_245)]">
+                    <span class="min-w-0">
+                      <span class="block font-mono text-sm text-foreground">0912345678</span>
+                      <span class="mt-1 inline-flex items-center rounded-full border border-amber-400 px-2 py-0.5 text-[10px] font-medium text-amber-800">⚠ Seule copie</span>
+                    </span>
+                  </label>
+                </fieldset>
+              </div>
+            </div>
+
+            <!-- ── SECTION: Coordonnées ── -->
+            <div class="px-6 space-y-4">
+              <div class="flex items-center gap-2 pb-2">
+                <span class="h-5 w-5 text-primary">☎</span>
+                <h3 class="text-lg font-semibold">Coordonnées</h3>
+              </div>
+              <div class="space-y-3 p-4 rounded-lg border bg-muted/30">
+                <fieldset class="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3 items-start">
+                  <legend class="text-xs font-medium text-muted-foreground mb-1.5">Téléphone</legend>
+                  <label class="flex items-start gap-2 rounded-md border-2 border-primary bg-background p-2.5 cursor-pointer">
+                    <input type="radio" name="f_tel" checked class="mt-0.5 h-4 w-4 accent-[oklch(0.52_0.14_245)]">
+                    <span class="text-sm text-foreground">20 123 456</span>
+                  </label>
+                  <label class="flex items-start gap-2 rounded-md border p-2.5 cursor-pointer hover:bg-accent/30">
+                    <input type="radio" name="f_tel" class="mt-0.5 h-4 w-4 accent-[oklch(0.52_0.14_245)]">
+                    <span class="text-sm text-foreground">98 765 432</span>
+                  </label>
+                </fieldset>
+                <div class="h-px bg-border"></div>
+                <fieldset class="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3 items-start">
+                  <legend class="text-xs font-medium text-muted-foreground mb-1.5">Adresse</legend>
+                  <label class="flex items-start gap-2 rounded-md border-2 border-primary bg-background p-2.5 cursor-pointer">
+                    <input type="radio" name="f_adr" checked class="mt-0.5 h-4 w-4 accent-[oklch(0.52_0.14_245)]">
+                    <span class="text-sm text-foreground">14 rue de Marseille, Tunis 1000</span>
+                  </label>
+                  <label class="flex items-start gap-2 rounded-md border p-2.5 cursor-pointer hover:bg-accent/30">
+                    <input type="radio" name="f_adr" class="mt-0.5 h-4 w-4 accent-[oklch(0.52_0.14_245)]">
+                    <span class="text-sm text-foreground">Cité Ennasr 2, Ariana 2037</span>
+                  </label>
+                </fieldset>
+              </div>
+            </div>
+
+            <!-- bulk helpers -->
+            <div class="px-6">
+              <div class="flex flex-wrap items-center gap-2 text-xs">
+                <span class="text-muted-foreground">Tout choisir :</span>
+                <button class="inline-flex items-center justify-center gap-1 rounded-md text-xs font-medium h-8 px-3 border bg-background shadow-xs hover:bg-accent">Fiche conservée</button>
+                <button class="inline-flex items-center justify-center gap-1 rounded-md text-xs font-medium h-8 px-3 border bg-background shadow-xs hover:bg-accent">Fiche fusionnée</button>
+                <button class="inline-flex items-center justify-center gap-1 rounded-md text-xs font-medium h-8 px-3 border bg-background shadow-xs hover:bg-accent">Valeur non vide</button>
+              </div>
+            </div>
+
+            <div class="px-6 flex items-center justify-between mt-2 pt-6 border-t">
+              <button onclick="showStep(1)" class="inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium h-9 px-4 py-2 border bg-background shadow-xs hover:bg-accent">‹ Précédent</button>
+              <button onclick="showStep(3)" class="inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium h-9 px-4 py-2 bg-primary text-primary-foreground hover:bg-primary/90">Suivant ›</button>
+            </div>
+          </div>
+
+          <div class="mk-note">
+            <b>AC-P7.20 / AC-P7.21.</b> Survivor pre-selected by default. Where the survivor is empty, the <em>other</em> side is pre-selected and flagged « Seule copie » in amber — so “offered, not silently dropped” is the default behaviour rather than something the operator must spot.
+            <br><b>New primitive:</b> <code>radio-group</code> (Radix package already in package.json — CLI add only).
+          </div>
+        </section>
+
+        <!-- ══════════════ STEP 3 — ODONTOGRAM ══════════════ -->
+        <section data-step="3" class="hidden">
+          <div class="bg-card text-card-foreground flex flex-col gap-6 rounded-xl border py-6 shadow-sm">
+            <div class="px-6">
+              <h2 class="text-2xl font-semibold mb-2">Odontogramme</h2>
+              <p class="text-muted-foreground text-sm">3 dents ont un état différent dans les deux fiches. Les autres sont reprises telles quelles.</p>
+            </div>
+
+            <div class="px-6">
+              <div class="overflow-x-auto rounded-lg border border-border bg-card p-3">
+                <div class="space-y-1.5">
+                  <div class="text-center text-[10px] font-medium text-muted-foreground">Maxillaire (haut)</div>
+                  <div class="flex justify-center gap-2" id="upper"></div>
+                  <div class="my-2 border-t border-border"></div>
+                  <div class="flex justify-center gap-2" id="lower"></div>
+                  <div class="text-center text-[10px] font-medium text-muted-foreground">Mandibule (bas)</div>
+                </div>
+              </div>
+              <!-- legend, extended with the merge-specific convention -->
+              <div class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
+                <div class="flex items-center gap-1.5"><span class="h-4 w-4 rounded border" style="background:#ef4444"></span><span class="text-muted-foreground">Carie</span></div>
+                <div class="flex items-center gap-1.5"><span class="h-4 w-4 rounded border" style="background:#3b82f6"></span><span class="text-muted-foreground">Obturation</span></div>
+                <div class="flex items-center gap-1.5"><span class="h-4 w-4 rounded border" style="background:#f59e0b"></span><span class="text-muted-foreground">Couronne</span></div>
+                <div class="flex items-center gap-1.5"><span class="h-4 w-4 rounded border-2 border-dashed border-muted-foreground/60"></span><span class="text-muted-foreground">Diagnostic (à traiter)</span></div>
+                <div class="flex items-center gap-1.5"><span class="h-4 w-4 rounded ring-2 ring-amber-500"></span><span class="text-amber-700 font-medium">En conflit — à choisir</span></div>
+              </div>
+            </div>
+
+            <!-- per-tooth conflict resolution -->
+            <div class="px-6 space-y-3">
+              <div class="rounded-lg border p-4 bg-muted/30">
+                <div class="flex items-center gap-2 mb-3">
+                  <span class="inline-flex items-center rounded-full border-2 border-amber-500 px-2 py-0.5 text-xs font-semibold">Dent 26</span>
+                  <span class="text-xs text-muted-foreground">États divergents</span>
+                </div>
+                <div class="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3">
+                  <label class="flex items-start gap-2 rounded-md border-2 border-primary bg-background p-2.5 cursor-pointer">
+                    <input type="radio" name="t26" checked class="mt-0.5 h-4 w-4 accent-[oklch(0.52_0.14_245)]">
+                    <span>
+                      <span class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-full" style="background:#3b82f6"></span><span class="text-sm font-medium">Obturation</span></span>
+                      <span class="block text-xs text-muted-foreground mt-0.5">Faces : M, O · 18 juil. 2026</span>
+                    </span>
+                  </label>
+                  <label class="flex items-start gap-2 rounded-md border p-2.5 cursor-pointer hover:bg-accent/30">
+                    <input type="radio" name="t26" class="mt-0.5 h-4 w-4 accent-[oklch(0.52_0.14_245)]">
+                    <span>
+                      <span class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-full" style="background:#f59e0b"></span><span class="text-sm font-medium">Couronne</span></span>
+                      <span class="block text-xs text-muted-foreground mt-0.5">02 juil. 2026</span>
+                    </span>
+                  </label>
+                </div>
+                <label class="mt-2 flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
+                  <input type="checkbox" class="h-3.5 w-3.5 accent-[oklch(0.52_0.14_245)]"> Conserver les deux états dans l’historique de la dent
+                </label>
+              </div>
+            </div>
+
+            <div class="px-6 flex items-center justify-between mt-2 pt-6 border-t">
+              <button onclick="showStep(2)" class="inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium h-9 px-4 py-2 border bg-background shadow-xs hover:bg-accent">‹ Précédent</button>
+              <button onclick="showStep(4)" class="inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium h-9 px-4 py-2 bg-primary text-primary-foreground hover:bg-primary/90">Suivant ›</button>
+            </div>
+          </div>
+          <div class="mk-note"><b>AC-P7.22.</b> Reuses <code>RecordToothChart</code>'s existing grammar — fill = chosen value, 3px outline = the other record's value, dashed when it is a diagnosis. Conflicting teeth get an amber ring. No new chart code: the component is presentational and already takes a paint map.</div>
+        </section>
+
+        <!-- ══════════════ STEP 4 — REVIEW & CONFIRM ══════════════ -->
+        <section data-step="4" class="hidden">
+          <div class="bg-card text-card-foreground flex flex-col gap-6 rounded-xl border py-6 shadow-sm">
+            <div class="px-6">
+              <h2 class="text-2xl font-semibold mb-2">Vérifier avant de fusionner</h2>
+              <p class="text-muted-foreground text-sm">Relisez ce qui sera rattaché et ce qui sera écrasé. Cette action ne peut pas être annulée.</p>
+            </div>
+
+            <div class="px-6 grid gap-4 md:grid-cols-2">
+              <div class="rounded-lg border p-4">
+                <p class="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70 mb-3">Sera rattaché à la fiche conservée</p>
+                <ul class="space-y-1 text-sm">
+                  <li class="flex items-center gap-2"><span class="text-muted-foreground">•</span> 4 rendez-vous</li>
+                  <li class="flex items-center gap-2"><span class="text-muted-foreground">•</span> 3 fiches de soins</li>
+                  <li class="flex items-center gap-2"><span class="text-muted-foreground">•</span> 2 factures <span class="text-xs text-muted-foreground">(numéros conservés)</span></li>
+                  <li class="flex items-center gap-2"><span class="text-muted-foreground">•</span> 1 devis</li>
+                  <li class="flex items-center gap-2"><span class="text-muted-foreground">•</span> 6 fichiers</li>
+                  <li class="flex items-center gap-2"><span class="text-muted-foreground">•</span> 1 relance programmée</li>
+                </ul>
+              </div>
+              <div class="rounded-lg border p-4">
+                <p class="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70 mb-3">Valeurs retenues</p>
+                <div class="space-y-2 text-sm">
+                  <div><p class="text-xs font-medium text-muted-foreground">Prénom</p><p class="text-sm">Mohamed</p></div>
+                  <div><p class="text-xs font-medium text-muted-foreground">Identifiant CNAM</p><p class="font-mono text-sm">0912345678 <span class="text-xs text-amber-700">(repris de la fiche fusionnée)</span></p></div>
+                  <div><p class="text-xs font-medium text-muted-foreground">Téléphone</p><p class="text-sm">20 123 456</p></div>
+                  <div><p class="text-xs font-medium text-muted-foreground">Dent 26</p><p class="text-sm">Obturation</p></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- duplicate-child conflicts — blocker <ul> pattern from patients-table.tsx:363-380 -->
+            <div class="px-6">
+              <div class="rounded-md border border-amber-300 bg-amber-50 p-3">
+                <p class="text-sm font-medium text-amber-900 mb-2">2 doublons détectés après rattachement</p>
+                <ul class="space-y-1.5 text-sm text-amber-900">
+                  <li class="flex items-start gap-2">
+                    <span>•</span>
+                    <span class="flex-1">Deux rendez-vous le <b>22 juil. 2026 à 09:00</b> avec Dr. Ben Salah.
+                      <span class="block text-xs mt-0.5">Le créneau n’accepte qu’un rendez-vous.</span>
+                    </span>
+                    <select class="h-8 rounded-md border border-input bg-background px-2 text-xs shrink-0">
+                      <option>Garder celui de la fiche conservée</option>
+                      <option>Garder celui de la fiche fusionnée</option>
+                      <option>Décaler le second à 09:30</option>
+                    </select>
+                  </li>
+                  <li class="flex items-start gap-2">
+                    <span>•</span>
+                    <span class="flex-1">Deux dossiers de fichiers nommés <b>« Radiographies »</b>.</span>
+                    <select class="h-8 rounded-md border border-input bg-background px-2 text-xs shrink-0">
+                      <option>Fusionner le contenu</option>
+                      <option>Renommer le second</option>
+                    </select>
+                  </li>
+                </ul>
+              </div>
+            </div>
+
+            <div class="px-6">
+              <div class="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm">
+                <p><b>Cette action est irréversible.</b> La fiche « BEN ALI Mohammed » sera archivée et liée à la fiche conservée. Les numéros de facture et de devis ne sont jamais réécrits.</p>
+              </div>
+            </div>
+
+            <div class="px-6 flex items-center justify-between mt-2 pt-6 border-t">
+              <button onclick="showStep(3)" class="inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium h-9 px-4 py-2 border bg-background shadow-xs hover:bg-accent">‹ Précédent</button>
+              <button class="inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium h-9 px-4 py-2 bg-green-600 text-white hover:bg-green-700">✓ Fusionner les deux fiches</button>
+            </div>
+          </div>
+          <div class="mk-note">
+            <b>AC-P7.30 / EC-16 / EC-32.</b> Duplicate children are surfaced <em>here</em>, with a resolution each, rather than failing mid-transaction. The two-appointment case is the one AC-P1.15's exclusion constraint would otherwise reject.
+            <br><b>Terminal button is green</b> — the app's existing signal for “this commits” (setup-wizard.tsx:733).
+          </div>
+        </section>
+
+      </div>
+    </main>
+  </div>
+</div>
+
+<script>
+const STEPS = [
+  {n:1, t:"Survivant", d:"Fiche à conserver"},
+  {n:2, t:"Champs",    d:"Résoudre les conflits"},
+  {n:3, t:"Dents",     d:"Odontogramme"},
+  {n:4, t:"Vérifier",  d:"Confirmer la fusion"},
+];
+let cur = 2;
+function renderStepper() {
+  document.getElementById('stepper').innerHTML = STEPS.map((s,i) => `
+    <div class="flex items-center">
+      <div class="flex flex-col items-center">
+        <div class="w-12 h-12 rounded-full flex items-center justify-center border-2 transition-all ${
+          cur > s.n ? 'bg-blue-600 border-blue-600 text-white'
+          : cur === s.n ? 'bg-blue-100 border-blue-600 text-blue-600 ring-4 ring-blue-100'
+          : 'bg-white border-gray-300 text-gray-400'}">
+          ${cur > s.n ? '✓' : s.n}
+        </div>
+        <div class="mt-2 text-center">
+          <p class="text-sm font-medium ${cur >= s.n ? 'text-blue-900' : 'text-gray-400'}">${s.t}</p>
+          <p class="text-xs text-muted-foreground">${s.d}</p>
+        </div>
+      </div>
+      ${i < STEPS.length-1 ? `<div class="w-16 h-0.5 mb-12 mx-2 ${cur > s.n ? 'bg-blue-600' : 'bg-gray-300'}"></div>` : ''}
+    </div>`).join('');
+}
+function showStep(n) {
+  cur = n;
+  document.querySelectorAll('[data-step]').forEach(el =>
+    el.classList.toggle('hidden', el.dataset.step != String(n)));
+  [1,2,3,4].forEach(i => document.getElementById('b'+i).setAttribute('aria-pressed', String(i===n)));
+  renderStepper();
+  window.scrollTo(0,0);
+}
+
+/* ── tooth chart — SVG glyph + paint model copied from record-tooth-chart.tsx ── */
+const SHAPES = {
+  incisor:  {w:18,h:30,vb:"0 0 32 56", d:"M16 2C12 2 9 4 7 7C5 10 4 14 4 18C4 28 4 38 6 44C8 50 11 54 16 54C21 54 24 50 26 44C28 38 28 28 28 18C28 14 27 10 25 7C23 4 20 2 16 2Z"},
+  canine:   {w:18,h:30,vb:"0 0 36 58", d:"M18 2C15 2 12 3 10 5C8 7 6 10 5 14C4 18 4 24 4 28C4 36 5 44 7 48C9 52 13 56 18 56C23 56 27 52 29 48C31 44 32 36 32 28C32 24 32 18 31 14C30 10 28 7 26 5C24 3 21 2 18 2Z"},
+  premolar: {w:20,h:30,vb:"0 0 42 60", d:"M21 4C17 4 13 6 11 9C9 12 7 16 6 20C5 24 4 30 4 34C4 40 5 46 7 50C9 54 13 60 21 60C29 60 33 54 35 50C37 46 38 40 38 34C38 30 37 24 36 20C35 16 33 12 31 9C29 6 25 4 21 4Z"},
+  molar:    {w:22,h:30,vb:"0 0 48 62", d:"M24 4C19 4 15 6 12 9C9 12 7 16 6 20C5 24 4 30 4 34C4 40 5 46 7 50C9 54 14 60 24 60C34 60 39 54 41 50C43 46 44 40 44 34C44 30 43 24 42 20C41 16 39 12 36 9C33 6 29 4 24 4Z"},
+};
+function kind(n){const d=n%10; return d<=2?'incisor':d===3?'canine':d<=5?'premolar':'molar';}
+// paint: fill = chosen value · outline = the other record's value · conflict = amber ring
+const PAINT = {
+  26:{fill:'#3b82f6', outline:'#f59e0b', conflict:true},
+  36:{fill:'#ef4444', outline:'#ef4444', dashed:true, conflict:true},
+  47:{fill:'#f59e0b', outline:null, conflict:true},
+  16:{fill:'#3b82f6'}, 24:{fill:'#ef4444', dashed:true}, 11:{fill:'#3b82f6'},
+};
+const UR=[18,17,16,15,14,13,12,11], UL=[21,22,23,24,25,26,27,28];
+const LR=[48,47,46,45,44,43,42,41], LL=[31,32,33,34,35,36,37,38];
+function tooth(n){
+  const p = PAINT[n] || {};
+  const s = SHAPES[kind(n)];
+  const stroke = p.outline ? p.outline : '#9ca3af';
+  const sw = p.outline ? 3 : 2;
+  const dash = (p.outline && p.dashed) ? 'stroke-dasharray="5 4"' : '';
+  return `<button type="button" title="Dent ${n}" class="group flex flex-col items-center focus:outline-none">
+    <span class="relative rounded-md p-0.5 transition-all group-hover:scale-105 ${p.conflict?'ring-2 ring-amber-500':''}">
+      <svg width="${s.w}" height="${s.h}" viewBox="${s.vb}" fill="none">
+        <path d="${s.d}" stroke-width="${sw}" ${dash} style="fill:${p.fill||'#fff'};stroke:${stroke}"/>
+      </svg>
+    </span>
+    <span class="mt-0.5 text-[9px] font-medium ${p.conflict?'text-amber-700 font-bold':'text-muted-foreground'}">${n}</span>
+  </button>`;
+}
+function quad(a){return `<div class="flex gap-0.5">${a.map(tooth).join('')}</div>`;}
+document.getElementById('upper').innerHTML = quad(UR)+'<div class="w-px bg-border"></div>'+quad(UL);
+document.getElementById('lower').innerHTML = quad(LR)+'<div class="w-px bg-border"></div>'+quad(LL);
+renderStepper();
+</script>
+</body>
+</html>

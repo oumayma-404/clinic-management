@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Anonymiser un patient — maquette</title>
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="_shell.css">
+</head>
+<body>
+
+<div class="mk-bar">
+  <span class="font-semibold">Maquette · Anonymisation</span>
+  <span class="opacity-60">AC-P7.31–7.40 · AC-P3.45</span>
+  <span class="ml-auto opacity-60">État :</span>
+  <button onclick="showState('blocked')"  aria-pressed="false" id="s-blocked">Bloqué (e-facture)</button>
+  <button onclick="showState('confirm')"  aria-pressed="true"  id="s-confirm">Confirmation</button>
+  <button onclick="showState('typed')"    aria-pressed="false" id="s-typed">Nom saisi</button>
+  <button onclick="showState('busy')"     aria-pressed="false" id="s-busy">En cours</button>
+  <button onclick="showState('after')"    aria-pressed="false" id="s-after">Après</button>
+</div>
+
+<div class="relative min-h-screen bg-background p-6">
+  <div class="mx-auto max-w-4xl space-y-6">
+
+    <!-- ═══════ BACKDROP: the archived patient page the action is launched from ═══════ -->
+    <div id="page">
+      <div class="flex items-start justify-between gap-4">
+        <div>
+          <h1 class="text-3xl font-semibold text-foreground" id="pname">Ben Ali, Mohamed</h1>
+          <p class="mt-1 text-sm text-muted-foreground">Dossier #A-1042 · Créé le 12/03/2024</p>
+        </div>
+        <div class="flex gap-2" id="page-actions">
+          <button class="inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium h-9 px-4 py-2 border bg-background shadow-xs hover:bg-accent">Désarchiver</button>
+          <button onclick="showState('confirm')" class="inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium h-9 px-4 py-2 border bg-background shadow-xs text-destructive hover:bg-accent">Anonymiser</button>
+        </div>
+      </div>
+
+      <!-- archived banner — copied from patients/[id]/page.tsx:590-624 -->
+      <div class="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4" id="banner-archived">
+        <p class="text-sm font-medium text-amber-900">Ce patient est archivé depuis le 20 juil. 2026.</p>
+        <p class="text-sm text-amber-800">Il n&apos;apparaît plus dans les listes, la recherche, les relances ni les sélecteurs de patient. Aucune donnée n&apos;a été supprimée. Motif : doublon fusionné.</p>
+      </div>
+
+      <!-- anonymised banner — the INVERSE copy of the archived one -->
+      <div class="mt-4 hidden rounded-lg border border-destructive/30 bg-destructive/5 p-4" id="banner-anon">
+        <p class="text-sm font-medium text-destructive">Ce patient a été anonymisé le 27 juil. 2026 par Dr. Salah Ben Salah.</p>
+        <p class="text-sm text-foreground/80">Les données identifiantes ont été <b>définitivement supprimées</b>, y compris dans l&apos;historique des modifications. L&apos;historique clinique et comptable est conservé. Cette fiche ne peut plus être désarchivée.</p>
+      </div>
+
+      <div class="mt-6 grid gap-6 md:grid-cols-2">
+        <div class="bg-card text-card-foreground flex flex-col gap-6 rounded-xl border py-6 shadow-sm">
+          <div class="px-6"><div class="flex items-center gap-2 text-base font-semibold"><span class="h-5 w-5 text-muted-foreground">👤</span>Informations personnelles</div></div>
+          <div class="px-6 space-y-4" id="idfields">
+            <div><p class="text-xs font-medium text-muted-foreground">Nom complet</p><p class="text-sm text-foreground" data-id>Ben Ali, Mohamed</p></div>
+            <div class="h-px bg-border"></div>
+            <div><p class="text-xs font-medium text-muted-foreground">Date de naissance</p><p class="text-sm text-foreground" data-id>14/06/1981 (45 ans)</p></div>
+            <div class="h-px bg-border"></div>
+            <div><p class="text-xs font-medium text-muted-foreground">Téléphone</p><p class="text-sm text-foreground" data-id>20 123 456</p></div>
+            <div class="h-px bg-border"></div>
+            <div><p class="text-xs font-medium text-muted-foreground">Identifiant CNAM</p><p class="font-mono text-sm text-foreground" data-id>0912345678</p></div>
+          </div>
+        </div>
+
+        <div class="bg-card text-card-foreground flex flex-col gap-6 rounded-xl border py-6 shadow-sm">
+          <div class="px-6"><div class="flex items-center gap-2 text-base font-semibold"><span class="h-5 w-5 text-muted-foreground">💰</span>Solde patient</div></div>
+          <div class="px-6 grid gap-4 grid-cols-2">
+            <div><p class="text-xs text-muted-foreground">Solde dû total</p><p class="text-2xl font-semibold text-foreground">0,000 DT</p></div>
+            <div><p class="text-xs text-muted-foreground">Total facturé</p><p class="text-lg font-medium">4 820,500 DT</p></div>
+            <div class="col-span-2"><p class="text-xs text-muted-foreground">Factures</p><p class="text-sm">14 factures — <span class="text-muted-foreground">numéros conservés</span></p></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══════ DIALOG ═══════ -->
+    <div id="overlay" class="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+      <div class="bg-background w-full max-w-lg grid gap-4 rounded-lg border p-6 shadow-lg" role="alertdialog" aria-modal="true" aria-labelledby="dt" aria-describedby="dd">
+
+        <!-- ── BLOCKED variant (e-invoice pending) ── -->
+        <div data-dlg="blocked" class="hidden grid gap-4">
+          <div class="flex flex-col gap-2">
+            <h2 class="text-lg font-semibold" id="dt-b">Anonymisation impossible</h2>
+            <p class="text-muted-foreground text-sm">
+              <span class="font-semibold">Ben Ali, Mohamed</span> ne peut pas être anonymisé pour le moment. Rien n&apos;a été modifié.
+            </p>
+          </div>
+          <ul class="space-y-1 text-sm">
+            <li class="flex items-center gap-2"><span class="text-muted-foreground">•</span>
+              <button class="underline underline-offset-2 hover:text-foreground">1 facture en attente de télétransmission TTN</button>
+            </li>
+          </ul>
+          <p class="text-sm text-muted-foreground">
+            Le nom du patient est envoyé à TTN « El Fatoora » comme acheteur légal au moment du dépôt. Attendez la validation de la facture, puis réessayez.
+          </p>
+          <div class="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <button onclick="closeD()" class="inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium h-9 px-4 py-2 border bg-background shadow-xs hover:bg-accent">Fermer</button>
+          </div>
+          <div class="mk-note" style="margin:0"><b>AC-P7.35.</b> Mirrors the blocked-delete dialog in <code>patients-table.tsx:350-398</code> — name the blocker, deep-link it, say plainly that nothing changed.</div>
+        </div>
+
+        <!-- ── CONFIRM variant (type-to-confirm) ── -->
+        <div data-dlg="confirm" class="grid gap-4">
+          <div class="flex flex-col gap-2">
+            <h2 class="text-lg font-semibold" id="dt">Anonymiser ce patient ?</h2>
+            <p class="text-muted-foreground text-sm" id="dd">
+              Cette action est <b class="text-foreground">irréversible</b>. Elle ne peut pas être annulée, même par un administrateur.
+            </p>
+          </div>
+
+          <div class="grid gap-3 sm:grid-cols-2">
+            <div class="rounded-md border border-destructive/30 bg-destructive/5 p-3">
+              <p class="text-xs font-semibold uppercase tracking-wider text-destructive mb-2">Supprimé définitivement</p>
+              <ul class="space-y-1 text-xs text-foreground/80">
+                <li class="flex gap-1.5"><span>•</span>Nom, prénom, date de naissance</li>
+                <li class="flex gap-1.5"><span>•</span>Téléphone, e-mail, adresse</li>
+                <li class="flex gap-1.5"><span>•</span>Identifiant CNAM et assurance</li>
+                <li class="flex gap-1.5"><span>•</span>Ces mêmes valeurs dans l&apos;historique des modifications</li>
+              </ul>
+            </div>
+            <div class="rounded-md border p-3">
+              <p class="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Conservé</p>
+              <ul class="space-y-1 text-xs text-foreground/80">
+                <li class="flex gap-1.5"><span>•</span>Rendez-vous, fiches de soins, odontogramme</li>
+                <li class="flex gap-1.5"><span>•</span>Factures, paiements, avoirs</li>
+                <li class="flex gap-1.5"><span>•</span><b>Les numéros de facture</b></li>
+                <li class="flex gap-1.5"><span>•</span>Qui a anonymisé, et quand</li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+            6 fichiers (radiographies, scans) seront <b>supprimés du stockage</b>.
+          </div>
+
+          <div class="space-y-2">
+            <label for="confirmName" class="flex items-center gap-2 text-sm leading-none font-medium">
+              Pour confirmer, saisissez le nom du patient : <span class="font-semibold">Ben Ali, Mohamed</span>
+            </label>
+            <input id="confirmName" type="text" autocomplete="off" oninput="checkName(this.value)"
+              placeholder="Ben Ali, Mohamed"
+              class="h-9 w-full min-w-0 rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-xs outline-none md:text-sm focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]">
+            <p id="nameHint" class="text-xs text-muted-foreground">Le nom doit correspondre exactement.</p>
+          </div>
+
+          <div class="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <button onclick="closeD()" class="inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium h-9 px-4 py-2 border bg-background shadow-xs hover:bg-accent">Annuler</button>
+            <button id="btnAnon" disabled onclick="showState('busy')"
+              class="inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium h-9 px-4 py-2 bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:pointer-events-none disabled:opacity-50">
+              <span id="btnLabel">Anonymiser définitivement</span>
+            </button>
+          </div>
+
+          <div class="mk-note" style="margin:0">
+            <b>AC-P3.45.</b> Type-to-confirm — the repo has no such pattern, so it is new. Typing the <em>patient's name</em> rather than a fixed word guards the real failure mode: anonymising the wrong record.
+            <br><b>AC-P7.34 / AC-P7.36.</b> The removed/retained split is explicit, and the file deletion is called out separately because it is the one part no retry can repair.
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+function setPressed(id){['blocked','confirm','typed','busy','after'].forEach(s=>
+  document.getElementById('s-'+s).setAttribute('aria-pressed', String(s===id)));}
+
+function showState(s){
+  setPressed(s);
+  const ov=document.getElementById('overlay');
+  const dlgB=document.querySelector('[data-dlg="blocked"]');
+  const dlgC=document.querySelector('[data-dlg="confirm"]');
+  const input=document.getElementById('confirmName');
+  const btn=document.getElementById('btnAnon');
+  const label=document.getElementById('btnLabel');
+  const hint=document.getElementById('nameHint');
+
+  // reset page state
+  document.getElementById('banner-archived').classList.remove('hidden');
+  document.getElementById('banner-anon').classList.add('hidden');
+  document.getElementById('page-actions').classList.remove('hidden');
+  document.getElementById('pname').textContent='Ben Ali, Mohamed';
+  document.querySelectorAll('#idfields [data-id]').forEach((el,i)=>{
+    el.textContent=['Ben Ali, Mohamed','14/06/1981 (45 ans)','20 123 456','0912345678'][i];
+    el.classList.remove('text-muted-foreground','italic'); el.classList.add('text-foreground');
+  });
+
+  if(s==='after'){
+    ov.classList.add('hidden');
+    document.getElementById('banner-archived').classList.add('hidden');
+    document.getElementById('banner-anon').classList.remove('hidden');
+    document.getElementById('page-actions').classList.add('hidden');
+    document.getElementById('pname').textContent='Patient anonymisé #A-1042';
+    document.querySelectorAll('#idfields [data-id]').forEach((el,i)=>{
+      el.textContent=['Patient anonymisé #A-1042','—','—','—'][i];
+      el.classList.remove('text-foreground'); el.classList.add('text-muted-foreground','italic');
+    });
+    return;
+  }
+
+  ov.classList.remove('hidden');
+  dlgB.classList.toggle('hidden', s!=='blocked');
+  dlgC.classList.toggle('hidden', s==='blocked');
+  if(s==='blocked') return;
+
+  if(s==='confirm'){ input.value=''; btn.disabled=true; label.textContent='Anonymiser définitivement';
+    hint.textContent='Le nom doit correspondre exactement.'; hint.className='text-xs text-muted-foreground'; input.disabled=false; }
+  if(s==='typed'){ input.value='Ben Ali, Mohamed'; btn.disabled=false; label.textContent='Anonymiser définitivement';
+    hint.textContent='✓ Le nom correspond.'; hint.className='text-xs text-green-700'; input.disabled=false; }
+  if(s==='busy'){ input.value='Ben Ali, Mohamed'; input.disabled=true; btn.disabled=true;
+    label.textContent='Anonymisation…'; hint.textContent='✓ Le nom correspond.'; hint.className='text-xs text-green-700'; }
+}
+function checkName(v){
+  const ok = v.trim() === 'Ben Ali, Mohamed';
+  document.getElementById('btnAnon').disabled = !ok;
+  const hint=document.getElementById('nameHint');
+  hint.textContent = ok ? '✓ Le nom correspond.' : 'Le nom doit correspondre exactement.';
+  hint.className = ok ? 'text-xs text-green-700' : 'text-xs text-muted-foreground';
+  setPressed(ok?'typed':'confirm');
+}
+function closeD(){ showState('after'); }
+showState('confirm');
+</script>
+</body>
+</html>
