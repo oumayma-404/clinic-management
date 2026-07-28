@@ -76,13 +76,39 @@ public class ApplicationDbContext : DbContext
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
-        // The clinic-scoping query filters are applied only to the aggregate roots (Patient/Appointment/
-        // ProcedureType), not their child entities — this is deliberate. EF then warns that the roots are
-        // the required end of relationships whose dependents lack a matching filter; handlers guard the
-        // filtered-out case explicitly (null owning-patient => "not found"), so this warning is expected noise.
+        // The clinic-scoping query filters are applied to the directly-clinic-owned AGGREGATE ROOTS — 19 of
+        // them, listed in OnModelCreating — never to their child entities, which are reached only through a
+        // filtered parent. This is deliberate. EF then warns that the roots are the required end of
+        // relationships whose dependents lack a matching filter; handlers guard the filtered-out case
+        // explicitly (null owning-patient => "not found"), so this warning is expected noise.
+        //
+        // (AC-P4.29: this comment used to name only Patient/Appointment/ProcedureType. Fourteen more roots had
+        // been filtered since it was written, so it was actively misleading about the size of the backstop.)
         optionsBuilder.ConfigureWarnings(w =>
             w.Ignore(CoreEventId.PossibleIncorrectRequiredNavigationWithQueryFilterInteractionWarning));
         base.OnConfiguring(optionsBuilder);
+    }
+
+    /// <summary>
+    /// Model-wide money precision (AC-P4.37). Every decimal in this model is Tunisian dinars stored in millimes,
+    /// so <c>(18,3)</c> is the rule and the 26 explicit <c>HasColumnType("decimal(18,3)")</c> calls that used to
+    /// state it 26 times are gone.
+    ///
+    /// <para><b>The convention alone would have done nothing</b>, which is why those deletions are part of the
+    /// same change. <c>GetColumnType()</c> returns an explicit annotation verbatim and bypasses facet-derived
+    /// store types entirely, so with the annotations still in place the differ would emit zero
+    /// <c>AlterColumn</c>s and <c>StockItem.UnitPrice</c> would have stayed at 2 decimals — the exact bug this
+    /// looks like it fixes. An earlier draft of the spec claimed otherwise; it was corrected during planning.</para>
+    ///
+    /// <para>The two VAT-rate columns keep their own precision through a retained explicit annotation
+    /// (<c>ClinicConfiguration</c>, <c>InvoiceConfiguration</c>): they are rates, not money, and a convention
+    /// that silently widened a VAT rate would be worse than the drift it fixes (AC-P4.38). <c>verify-schema</c>
+    /// asserts both halves — every other decimal at <c>(18,3)</c>, those two <b>not</b>.</para>
+    /// </summary>
+    protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
+    {
+        configurationBuilder.Properties<decimal>().HavePrecision(18, 3);
+        base.ConfigureConventions(configurationBuilder);
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -128,6 +154,14 @@ public class ApplicationDbContext : DbContext
         modelBuilder.Entity<LabWorkOrder>().HasQueryFilter(l => !IsClinicScoped || l.ClinicId == ScopedClinicId);
         // RecurringAppointment gained a ClinicId (clinical-workflow-depth) → clinic-scoped like the others.
         modelBuilder.Entity<RecurringAppointment>().HasQueryFilter(r => !IsClinicScoped || r.ClinicId == ScopedClinicId);
+        // AC-P4.27 — Doctor and StockItem were the last two directly-clinic-owned roots left unfiltered, and
+        // StockItem's own child StockMovement was filtered while its PARENT was not: the backstop protected the
+        // ledger but not the item it belongs to. Same fail-open shape as the 17 above, so jobs, the CLI and the
+        // auth flows (which run with no clinic in scope) keep reading across clinics.
+        modelBuilder.Entity<Doctor>().HasQueryFilter(d => !IsClinicScoped || d.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<StockItem>().HasQueryFilter(s => !IsClinicScoped || s.ClinicId == ScopedClinicId);
+        // StockBatch is a child of StockItem, reached only through its filtered parent → no filter of its own,
+        // the same rule as InvoiceLine/Installment. ProcedureTypeMaterial likewise, under ProcedureType.
 
         // Optimistic concurrency for every entity, with no schema change: map Entity<T>.Version onto
         // PostgreSQL's xmin system column. EF then appends it to the WHERE of each UPDATE/DELETE, so a row a

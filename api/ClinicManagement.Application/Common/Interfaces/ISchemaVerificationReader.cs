@@ -78,10 +78,19 @@ public sealed record MappedDecimalFact(string Entity, string Property, string Ta
 /// the honest answer before the part that introduces it has run. Reporting 0 there would claim a backfill
 /// succeeded when it has not happened at all.
 /// </summary>
+/// <summary>
+/// <b>The stock-batch check is deliberately two-phase.</b> Before the batch migration runs, the question is
+/// "does every item with a legacy expiry have an opening batch?" - answerable from
+/// <c>StockItems.ExpiryDate</c>. <b>After</b> it runs that column is dropped, so the original question becomes
+/// permanently unanswerable and the durable invariant takes over: "does every item WITH STOCK have at least one
+/// batch?" - which is what FEFO actually depends on. Reporting only the first would have made this check
+/// unrunnable forever the moment its own migration applied.
+/// </summary>
 public sealed record DataMigrationCounts(
     int? AppointmentsWithTypePrefixRemaining,
     int? OverlappingAppointmentPairs,
     int? StockItemsWithLegacyExpiry,
     int? StockItemsWithLegacyExpiryLackingBatch,
+    int? StockItemsWithStockLackingBatch,
     int? PatientsMissingNormalizedName,
     int? PatientsTotal);

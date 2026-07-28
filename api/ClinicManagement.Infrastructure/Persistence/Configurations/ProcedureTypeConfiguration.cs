@@ -33,8 +33,7 @@ public class ProcedureTypeConfiguration : IEntityTypeConfiguration<ProcedureType
 
         // Millimes (3 decimals) — the catalog price seeds a dental act's unit cost, so it must carry the
         // same precision as the act it prefills.
-        builder.Property(pt => pt.DefaultCost)
-            .HasColumnType("decimal(18,3)");
+        builder.Property(pt => pt.DefaultCost);
 
         // Configure ColorHex as value object
         builder.OwnsOne(pt => pt.Color, colorBuilder =>
@@ -65,6 +64,12 @@ public class ProcedureTypeConfiguration : IEntityTypeConfiguration<ProcedureType
             .WithOne(a => a.ProcedureType)
             .HasForeignKey(a => a.ProcedureTypeId)
             .OnDelete(DeleteBehavior.SetNull); // Set null if procedure type is deleted
+
+        // The material list is a backing-field collection (AC-P4.9); the public surface is IReadOnlyCollection,
+        // so EF has to be told to go through the field. Its FKs live in ProcedureTypeMaterialConfiguration.
+        builder.Metadata
+            .FindNavigation(nameof(ProcedureType.Materials))!
+            .SetPropertyAccessMode(PropertyAccessMode.Field);
     }
 }
 

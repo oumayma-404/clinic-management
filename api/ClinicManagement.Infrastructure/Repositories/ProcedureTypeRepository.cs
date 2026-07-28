@@ -17,6 +17,10 @@ public class ProcedureTypeRepository : IProcedureTypeRepository
     public async Task<ProcedureType?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
         return await _context.ProcedureTypes
+            // The material list is part of the aggregate (AC-P4.9). Without this the consumption service reads
+            // an empty list and silently consumes nothing — the failure mode would look exactly like the
+            // opt-out case (AC-P4.11), which is the one thing it must not be confusable with.
+            .Include(pt => pt.Materials)
             .FirstOrDefaultAsync(pt => pt.Id == id, cancellationToken);
     }
 

@@ -42,6 +42,10 @@ public class ClinicConfiguration : IEntityTypeConfiguration<Clinic>
             .IsRequired()
             .HasDefaultValue(false);
 
+        // AC-P4.38 — a RATE, not money: deliberately kept at (5,2) against the model-wide
+        // HavePrecision(18,3) convention. A convention that silently widened a VAT rate would be worse than
+        // the drift it fixes, so the explicit annotation is retained on purpose. verify-schema asserts this
+        // column is NOT (18,3) — widening it is reported as drift in the other direction.
         builder.Property(c => c.VatRate)
             .HasColumnType("decimal(5,2)")
             .HasDefaultValue(7m);
@@ -51,7 +55,6 @@ public class ClinicConfiguration : IEntityTypeConfiguration<Clinic>
             .HasDefaultValue(true);
 
         builder.Property(c => c.StampDutyAmount)
-            .HasColumnType("decimal(18,3)")
             .HasDefaultValue(1.000m);
 
         // TTN « El Fatoora » e-invoicing settings (non-secret).

@@ -260,20 +260,48 @@ public class SchemaVerificationService
                 : $"{n} overlapping pair(s) — the constraint cannot be installed until these are resolved",
             n => n == 0);
 
-        if (counts.StockItemsWithLegacyExpiry is null || counts.StockItemsWithLegacyExpiryLackingBatch is null)
+        // Phase 1 (pre-migration): did every item with a legacy scalar expiry get an opening batch? Once the
+        // migration drops StockItems.ExpiryDate this becomes unanswerable, which is why phase 2 exists.
+        if (counts.StockItemsWithLegacyExpiryLackingBatch is { } uncovered)
         {
-            findings.Add(NotApplicable("stock-batch-backfill", "per-batch stock does not exist yet"));
-        }
-        else
-        {
-            var uncovered = counts.StockItemsWithLegacyExpiryLackingBatch.Value;
             findings.Add(new SchemaVerificationFinding(
                 "Data migrations",
                 "stock-batch-backfill",
                 uncovered == 0
                     ? $"{counts.StockItemsWithLegacyExpiry} item(s) had a legacy expiry; all have an opening batch"
-                    : $"{uncovered} of {counts.StockItemsWithLegacyExpiry} item(s) with a legacy expiry have NO opening batch — their date was dropped",
+                    : $"{uncovered} of {counts.StockItemsWithLegacyExpiry} item(s) with a legacy expiry have NO opening batch",
                 uncovered == 0 ? SchemaVerificationSeverity.Info : SchemaVerificationSeverity.Drift));
+        }
+        else if (counts.StockItemsWithLegacyExpiry is not null)
+        {
+            findings.Add(NotApplicable("stock-batch-backfill", "per-batch stock does not exist yet"));
+        }
+        else
+        {
+            // Post-migration: StockItems.ExpiryDate is gone, so this question can never be asked again. Say so
+            // EXPLICITLY rather than dropping the line — a check that silently disappears from the report is
+            // indistinguishable from one that was forgotten, and the whole point of the before/after diff is
+            // that every line is accounted for.
+            findings.Add(NotApplicable(
+                "stock-batch-backfill",
+                "the legacy expiry column is gone; superseded by every-stocked-item-has-a-batch"));
+        }
+
+        // Phase 2 (post-migration): the durable invariant FEFO depends on. An item holding stock with no lot
+        // makes every consume report a full shortfall against stock that is physically on the shelf.
+        if (counts.StockItemsWithStockLackingBatch is { } orphanedStock)
+        {
+            findings.Add(new SchemaVerificationFinding(
+                "Data migrations",
+                "every-stocked-item-has-a-batch",
+                orphanedStock == 0
+                    ? "every item holding stock has at least one lot"
+                    : $"{orphanedStock} item(s) hold stock with NO lot - FEFO has nothing to draw from",
+                orphanedStock == 0 ? SchemaVerificationSeverity.Info : SchemaVerificationSeverity.Drift));
+        }
+        else
+        {
+            findings.Add(NotApplicable("every-stocked-item-has-a-batch", "per-batch stock does not exist yet"));
         }
 
         if (counts.PatientsMissingNormalizedName is null)

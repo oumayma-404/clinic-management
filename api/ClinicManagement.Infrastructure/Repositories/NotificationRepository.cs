@@ -21,12 +21,28 @@ public class NotificationRepository : INotificationRepository
             .FirstOrDefaultAsync(n => n.Id == id, cancellationToken);
     }
 
-    public async Task<IEnumerable<Notification>> GetPendingNotificationsAsync(CancellationToken cancellationToken = default)
+    public async Task<IEnumerable<Notification>> GetPendingNotificationsAsync(
+        int take, CancellationToken cancellationToken = default)
     {
         return await _context.Notifications
+            // Served by IX_Notifications_Status_ScheduledFor (AC-P4.30): the predicate and the ORDER BY both
+            // come off the same index, which this query ran without until now.
             .Where(n => n.Status == NotificationStatus.Pending && n.ScheduledFor <= DateTime.UtcNow)
             .OrderBy(n => n.ScheduledFor)
+            .Take(take)
             .ToListAsync(cancellationToken);
+    }
+
+    public async Task<int> PurgeTerminalOlderThanAsync(
+        DateTime olderThanUtc, CancellationToken cancellationToken = default)
+    {
+        // Terminal statuses ONLY (AC-P4.34). A Pending row is never in scope no matter how old: an unsent
+        // reminder is voided deliberately by VoidUnsentAsync, and deleting one here would leave a patient
+        // un-contacted with nothing recording why.
+        return await _context.Notifications
+            .Where(n => (n.Status == NotificationStatus.Sent || n.Status == NotificationStatus.Failed)
+                        && n.CreatedAt < olderThanUtc)
+            .ExecuteDeleteAsync(cancellationToken);
     }
 
     public async Task<IEnumerable<Notification>> GetByAppointmentIdAsync(Guid appointmentId, CancellationToken cancellationToken = default)

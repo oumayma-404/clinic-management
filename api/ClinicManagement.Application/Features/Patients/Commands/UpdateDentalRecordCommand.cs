@@ -39,6 +39,7 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
     private readonly ITreatmentPlanRepository _treatmentPlanRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IStockConsumptionService _stockConsumption;
 
     public UpdateDentalRecordCommandHandler(
         IDentalRecordRepository dentalRecordRepository,
@@ -46,7 +47,8 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
         IToothStateRepository toothStateRepository,
         ITreatmentPlanRepository treatmentPlanRepository,
         ICurrentClinicResolver clinicResolver,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IStockConsumptionService stockConsumption)
     {
         _dentalRecordRepository = dentalRecordRepository;
         _patientRepository = patientRepository;
@@ -54,6 +56,7 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
         _treatmentPlanRepository = treatmentPlanRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
+        _stockConsumption = stockConsumption;
     }
 
     public async Task<Result<DentalRecordDto>> Handle(UpdateDentalRecordCommand request, CancellationToken cancellationToken)
@@ -89,8 +92,18 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
                 return Result<DentalRecordDto>.Failure(parsed.Error!);
             }
 
+            // AC-P4.10 on the EDIT path: consume only what this edit ADDS. A fiche is re-saved routinely (a
+            // corrected note, one more tooth), and consuming the whole list again each time would draw stock for
+            // materials already used — strictly worse than the under-consumption it replaces. Acts are counted
+            // per procedure because SetActs regenerates act ids, so a before/after diff by id is impossible;
+            // counting occurrences also keeps "two composites" meaning two capsules.
+            var consumedBefore = CountByProcedure(dentalRecord.Acts.Select(a => a.ProcedureTypeId));
+
             dentalRecord.Update(request.InterventionDate, request.AmountPaid, request.Notes, request.ImportantNotes);
             dentalRecord.SetActs(parsed.Value!);
+
+            var addedProcedureIds = PositiveDelta(
+                consumedBefore, CountByProcedure(dentalRecord.Acts.Select(a => a.ProcedureTypeId)));
 
             // Validate the save against the version the USER was editing, not the one this
             // handler just loaded — that one always matches and would detect nothing.
@@ -131,6 +144,12 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
+            // Post-commit and best-effort, exactly as on create (AC-P4.13). Removing an act deliberately
+            // consumes nothing and returns nothing: the material was physically used, so an automatic
+            // put-back would invent stock that is not on the shelf. That correction is a manual Adjustment.
+            await _stockConsumption.ConsumeForDentalRecordAsync(
+                clinicResult.Value, dentalRecord.Id, addedProcedureIds, cancellationToken);
+
             dentalRecord = await _dentalRecordRepository.GetByIdAsync(request.Id, cancellationToken);
             return Result<DentalRecordDto>.Success(dentalRecord!.ToDto());
         }
@@ -146,5 +165,39 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
         {
             return Result<DentalRecordDto>.Failure($"Error updating dental record: {ex.Message}");
         }
+    }
+
+    /// <summary>Occurrences of each catalogued procedure among a record's acts (free-text acts have no id).</summary>
+    private static Dictionary<Guid, int> CountByProcedure(IEnumerable<Guid?> procedureTypeIds)
+    {
+        var counts = new Dictionary<Guid, int>();
+        foreach (var id in procedureTypeIds)
+        {
+            if (id.HasValue)
+            {
+                counts[id.Value] = counts.GetValueOrDefault(id.Value) + 1;
+            }
+        }
+
+        return counts;
+    }
+
+    /// <summary>
+    /// The procedure ids this edit ADDED, one entry per added performance. A procedure that stayed the same or
+    /// was removed contributes nothing.
+    /// </summary>
+    private static List<Guid> PositiveDelta(Dictionary<Guid, int> before, Dictionary<Guid, int> after)
+    {
+        var added = new List<Guid>();
+        foreach (var (procedureTypeId, count) in after)
+        {
+            var delta = count - before.GetValueOrDefault(procedureTypeId);
+            for (var i = 0; i < delta; i++)
+            {
+                added.Add(procedureTypeId);
+            }
+        }
+
+        return added;
     }
 }

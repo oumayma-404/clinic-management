@@ -15,13 +15,16 @@ public class GetStockItemsQuery : IRequest<Result<IEnumerable<StockItemDto>>>
 public class GetStockItemsQueryHandler : IRequestHandler<GetStockItemsQuery, Result<IEnumerable<StockItemDto>>>
 {
     private readonly IStockItemRepository _stockItemRepository;
+    private readonly IClinicRepository _clinicRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
 
     public GetStockItemsQueryHandler(
         IStockItemRepository stockItemRepository,
+        IClinicRepository clinicRepository,
         ICurrentClinicResolver clinicResolver)
     {
         _stockItemRepository = stockItemRepository;
+        _clinicRepository = clinicRepository;
         _clinicResolver = clinicResolver;
     }
 
@@ -36,13 +39,18 @@ public class GetStockItemsQueryHandler : IRequestHandler<GetStockItemsQuery, Res
             }
 
             var items = await _stockItemRepository.GetByClinicIdAsync(clinic.Value, request.LowStockOnly, cancellationToken);
-            var dtos = items.Select(i => i.ToDto());
+            // One `now` and one lead time for the whole page (AC-P4.5/4.6), so two rows cannot disagree about
+            // whether the same date counts as "expiring soon".
+            var clinicRecord = await _clinicRepository.GetByIdAsync(clinic.Value, cancellationToken);
+            var leadDays = clinicRecord?.StockExpiryLeadDays ?? Domain.Entities.Clinic.DefaultStockExpiryLeadDays;
+            var now = DateTime.UtcNow;
+            var dtos = items.Select(i => i.ToDto(leadDays, now)).ToList();
 
             return Result<IEnumerable<StockItemDto>>.Success(dtos);
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<IEnumerable<StockItemDto>>.Failure($"Error retrieving stock items: {ex.Message}");
+            return Result<IEnumerable<StockItemDto>>.Failure("Erreur lors de la récupération des articles de stock.");
         }
     }
 }

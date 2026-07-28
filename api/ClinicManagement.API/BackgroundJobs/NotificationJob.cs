@@ -66,7 +66,11 @@ public class NotificationJob
             return;
         }
 
-        var pendingNotifications = await _notificationRepository.GetPendingNotificationsAsync();
+        // AC-P4.31 — bounded, like EInvoiceOutboxJob. The scan was unbounded against a table nothing had ever
+        // purged, so one backlog could make a single tick run for minutes while holding this job's
+        // [DisableConcurrentExecution] lock and starving every later tick.
+        var batchSize = RemindersConfig.DispatchBatchSize(_configuration);
+        var pendingNotifications = await _notificationRepository.GetPendingNotificationsAsync(batchSize);
         var maxRetries = RemindersConfig.MaxRetries(_configuration);
 
         foreach (var notification in pendingNotifications)
@@ -80,6 +84,37 @@ public class NotificationJob
                 // A single row must never abort the batch. Leave it Pending; a later tick retries it.
                 _logger.LogError(ex, "Unexpected error dispatching reminder {NotificationId}", notification.Id);
             }
+        }
+
+        await PurgeExpiredRowsAsync();
+    }
+
+    /// <summary>
+    /// AC-P4.32 — drops terminal rows past the retention window. This table had <b>no</b> purge of any kind, so
+    /// it grew forever; every reminder ever sent was still there.
+    ///
+    /// Runs <b>after</b> the dispatch loop, not before (EC-13): purging first would compete with the rows this
+    /// same tick is about to read. It only ever deletes <c>Sent</c>/<c>Failed</c> — never a <c>Pending</c> row
+    /// (AC-P4.34) — and a failure here is swallowed, because losing a housekeeping pass must not stop reminders
+    /// going out.
+    /// </summary>
+    private async Task PurgeExpiredRowsAsync()
+    {
+        try
+        {
+            var retentionDays = RemindersConfig.RetentionDays(_configuration);
+            var cutoff = DateTime.UtcNow.AddDays(-retentionDays);
+            var purged = await _notificationRepository.PurgeTerminalOlderThanAsync(cutoff);
+
+            if (purged > 0)
+            {
+                _logger.LogInformation(
+                    "Purged {Purged} reminder row(s) older than {RetentionDays} day(s).", purged, retentionDays);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to purge expired reminder rows.");
         }
     }
 

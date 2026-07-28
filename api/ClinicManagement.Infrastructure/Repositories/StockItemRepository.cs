@@ -17,12 +17,16 @@ public class StockItemRepository : IStockItemRepository
     public async Task<StockItem?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
         return await _context.StockItems
+            // The lots are part of the aggregate now (AC-P4.1): FEFO consumption and the earliest-relevant
+            // expiry both read them, so a load without them would silently consume nothing and report no date.
+            .Include(s => s.Batches)
             .FirstOrDefaultAsync(s => s.Id == id, cancellationToken);
     }
 
     public async Task<IEnumerable<StockItem>> GetAllAsync(CancellationToken cancellationToken = default)
     {
         return await _context.StockItems
+            .Include(s => s.Batches)
             .OrderBy(s => s.Name)
             .ToListAsync(cancellationToken);
     }
@@ -30,7 +34,9 @@ public class StockItemRepository : IStockItemRepository
 
     public async Task<IEnumerable<StockItem>> GetByClinicIdAsync(Guid clinicId, bool lowStockOnly = false, CancellationToken cancellationToken = default)
     {
-        var query = _context.StockItems.Where(s => s.ClinicId == clinicId);
+        var query = _context.StockItems
+            .Include(s => s.Batches)
+            .Where(s => s.ClinicId == clinicId);
 
         if (lowStockOnly)
         {
@@ -45,6 +51,7 @@ public class StockItemRepository : IStockItemRepository
     public async Task<IEnumerable<StockItem>> GetLowStockItemsAsync(CancellationToken cancellationToken = default)
     {
         return await _context.StockItems
+            .Include(s => s.Batches)
             .Where(s => s.CurrentStock <= s.MinimumStockLevel)
             .OrderBy(s => s.CurrentStock)
             .ToListAsync(cancellationToken);
@@ -53,6 +60,7 @@ public class StockItemRepository : IStockItemRepository
     public async Task<IEnumerable<StockItem>> GetOutOfStockItemsAsync(CancellationToken cancellationToken = default)
     {
         return await _context.StockItems
+            .Include(s => s.Batches)
             .Where(s => s.CurrentStock == 0)
             .OrderBy(s => s.Name)
             .ToListAsync(cancellationToken);

@@ -48,7 +48,7 @@ public class SchemaVerificationServiceTests
         'x',
         "EXCLUDE USING gist (\"DoctorId\" WITH =, slot WITH &&) WHERE (\"Status\" <> ALL (ARRAY[5, 6]))");
 
-    private static DataMigrationCounts CleanCounts => new(0, 0, 0, 0, 0, 12);
+    private static DataMigrationCounts CleanCounts => new(0, 0, 0, 0, 0, 0, 12);
 
     private static SchemaVerificationFinding Finding(SchemaVerificationReport report, string check) =>
         report.Findings.Single(f => f.Check == check);
@@ -339,7 +339,7 @@ public class SchemaVerificationServiceTests
     [Fact]
     public async Task Appointment_Notes_Still_Carrying_A_Type_Prefix_Are_Drift()
     {
-        Arrange(counts: new DataMigrationCounts(3, 0, 0, 0, 0, 12));
+        Arrange(counts: new DataMigrationCounts(3, 0, 0, 0, 0, 0, 12));
 
         var report = await CreateService().RunAsync();
 
@@ -349,7 +349,7 @@ public class SchemaVerificationServiceTests
     [Fact]
     public async Task Pre_Existing_Overlapping_Pairs_Are_Drift()
     {
-        Arrange(counts: new DataMigrationCounts(0, 2, 0, 0, 0, 12));
+        Arrange(counts: new DataMigrationCounts(0, 2, 0, 0, 0, 0, 12));
 
         var report = await CreateService().RunAsync();
 
@@ -365,7 +365,7 @@ public class SchemaVerificationServiceTests
     [Fact]
     public async Task A_Legacy_Expiry_With_No_Opening_Batch_Is_Drift()
     {
-        Arrange(counts: new DataMigrationCounts(0, 0, 5, 5, 0, 12));
+        Arrange(counts: new DataMigrationCounts(0, 0, 5, 5, 0, 0, 12));
 
         var report = await CreateService().RunAsync();
 
@@ -377,7 +377,7 @@ public class SchemaVerificationServiceTests
     [Fact]
     public async Task Patients_Missing_A_Normalized_Name_Are_Drift()
     {
-        Arrange(counts: new DataMigrationCounts(0, 0, 0, 0, 4, 12));
+        Arrange(counts: new DataMigrationCounts(0, 0, 0, 0, 0, 4, 12));
 
         var report = await CreateService().RunAsync();
 
@@ -393,13 +393,48 @@ public class SchemaVerificationServiceTests
     [Fact]
     public async Task A_Count_Whose_Subject_Does_Not_Exist_Yet_Is_Not_Applicable_Rather_Than_Drift()
     {
-        Arrange(counts: new DataMigrationCounts(0, 0, null, null, null, null));
+        Arrange(counts: new DataMigrationCounts(0, 0, null, null, null, null, null));
 
         var report = await CreateService().RunAsync();
 
         Assert.False(report.HasDrift);
         Assert.Contains("not applicable", Finding(report, "stock-batch-backfill").Detail);
+        Assert.Contains("not applicable", Finding(report, "every-stocked-item-has-a-batch").Detail);
         Assert.Contains("not applicable", Finding(report, "normalized-name-populated").Detail);
+    }
+
+    /// <summary>
+    /// The post-migration state the live database is in once the batch migration has run: the legacy expiry
+    /// column is gone, so the original backfill question is unanswerable forever and the durable invariant takes
+    /// over. The retired line must still APPEAR, saying it was superseded — a check that silently vanishes from
+    /// the report is indistinguishable from one that was forgotten, which defeats the before/after diff.
+    /// </summary>
+    [Fact]
+    public async Task After_The_Migration_The_Backfill_Check_Says_It_Was_Superseded()
+    {
+        Arrange(counts: new DataMigrationCounts(0, 0, null, null, 0, 0, 12));
+
+        var report = await CreateService().RunAsync();
+
+        Assert.False(report.HasDrift);
+        Assert.Contains("superseded", Finding(report, "stock-batch-backfill").Detail);
+        Assert.Contains("at least one lot", Finding(report, "every-stocked-item-has-a-batch").Detail);
+    }
+
+    /// <summary>
+    /// The durable invariant FEFO depends on: an item holding stock with no lot makes every consume report a
+    /// full shortfall against stock that is physically on the shelf.
+    /// </summary>
+    [Fact]
+    public async Task An_Item_Holding_Stock_With_No_Lot_Is_Drift()
+    {
+        Arrange(counts: new DataMigrationCounts(0, 0, null, null, 3, 0, 12));
+
+        var report = await CreateService().RunAsync();
+
+        var finding = Finding(report, "every-stocked-item-has-a-batch");
+        Assert.True(IsDrift(finding));
+        Assert.Contains("FEFO has nothing to draw from", finding.Detail);
     }
 
     // ------------------------------------------------------------------ the report contract
@@ -408,7 +443,7 @@ public class SchemaVerificationServiceTests
     [Fact]
     public async Task HasDrift_Agrees_With_DriftCount()
     {
-        Arrange(counts: new DataMigrationCounts(1, 1, 0, 0, 0, 12));
+        Arrange(counts: new DataMigrationCounts(1, 1, 0, 0, 0, 0, 12));
 
         var report = await CreateService().RunAsync();
 

@@ -31,8 +31,7 @@ public class CnamLetterValueConfiguration : IEntityTypeConfiguration<CnamLetterV
             .HasForeignKey(v => v.ClinicId)
             .OnDelete(DeleteBehavior.Restrict);
 
-        builder.Property(v => v.Value)
-            .HasColumnType("decimal(18,3)");
+        builder.Property(v => v.Value);
 
         builder.Property(v => v.IsProvisional)
             .IsRequired();

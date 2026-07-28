@@ -29,6 +29,9 @@ public static class Extensions
         services.AddScoped<ICurrentClinicResolver, CurrentClinicResolver>();
         // Best-effort writer for the in-app staff notification feed (generated inline from command handlers).
         services.AddScoped<INotificationGenerator, NotificationGenerator>();
+        // AC-P4.10 — draws an act's material list out of stock when its fiche is saved. Scoped and called
+        // post-commit from the dental-record handlers, like the notification generator beside it.
+        services.AddScoped<IStockConsumptionService, StockConsumptionService>();
         // Fire-and-forget, connectivity-gated Google Calendar sync for appointment create/update.
         services.AddScoped<IAppointmentGoogleSyncDispatcher, AppointmentGoogleSyncDispatcher>();
         // Backstop tenant scoping: feeds the EF Core global query filter with the caller's clinic id.

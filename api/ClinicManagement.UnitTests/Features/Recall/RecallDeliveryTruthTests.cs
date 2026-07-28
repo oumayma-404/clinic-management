@@ -213,7 +213,7 @@ public class RecallDeliveryTruthTests
         public JobHarness(Patient patient, Notification due, IEnumerable<Notification> batch)
         {
             _due = due;
-            _notifications.Setup(r => r.GetPendingNotificationsAsync(It.IsAny<CancellationToken>()))
+            _notifications.Setup(r => r.GetPendingNotificationsAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(new[] { due });
             _notifications.Setup(r => r.UpdateAsync(It.IsAny<Notification>(), It.IsAny<CancellationToken>()))
                 .Returns(Task.CompletedTask);

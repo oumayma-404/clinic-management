@@ -46,8 +46,7 @@ public class TreatmentPlanConfiguration : IEntityTypeConfiguration<TreatmentPlan
         builder.Property(p => p.CancellationReason)
             .HasMaxLength(1000);
 
-        builder.Property(p => p.TotalPlanned)
-            .HasColumnType("decimal(18,3)");
+        builder.Property(p => p.TotalPlanned);
 
         builder.Property(p => p.CreatedAt)
             .IsRequired();

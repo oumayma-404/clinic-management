@@ -84,13 +84,20 @@ public class DentalRecordActHandlerTests
                 .Returns(Task.CompletedTask);
         }
 
+        /// <summary>
+        /// Stock consumption is a post-commit best-effort side effect (AC-P4.13); a bare mock is enough for
+        /// these act/odontogram tests, and `StockConsumptionTests` covers the behaviour itself.
+        /// </summary>
+        public Mock<IStockConsumptionService> StockConsumption { get; } = new();
+
         public CreateDentalRecordCommandHandler CreateHandler() => new(
             Patients.Object, Records.Object, ToothStates.Object, Plans.Object, Appointments.Object,
-            Resolver.Object, Uow.Object, Generator.Object, Realtime.Object,
+            Resolver.Object, Uow.Object, Generator.Object, StockConsumption.Object, Realtime.Object,
             NullLogger<CreateDentalRecordCommandHandler>.Instance);
 
         public UpdateDentalRecordCommandHandler UpdateHandler() => new(
-            Records.Object, Patients.Object, ToothStates.Object, Plans.Object, Resolver.Object, Uow.Object);
+            Records.Object, Patients.Object, ToothStates.Object, Plans.Object, Resolver.Object, Uow.Object,
+            StockConsumption.Object);
 
         public CreateDentalRecordCommand CreateCommand(params DentalActInput[] acts) => new()
         {

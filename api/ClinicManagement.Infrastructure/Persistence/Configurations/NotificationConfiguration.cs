@@ -62,6 +62,15 @@ public class NotificationConfiguration : IEntityTypeConfiguration<Notification>
             .WithMany()
             .HasForeignKey(n => n.PatientId)
             .OnDelete(DeleteBehavior.SetNull);
+
+        // AC-P4.30 — the minutely dispatcher's only query is
+        //   WHERE Status = Pending AND ScheduledFor <= now  ORDER BY ScheduledFor
+        // and it ran unindexed against a table that has never been purged, so it degraded forever. Status
+        // leads because it is the selective predicate (Pending is a shrinking minority once rows start
+        // sending), and ScheduledFor second serves both the range and the ORDER BY from the same index.
+        // Closest precedent is InvoiceConfiguration's (EInvoiceStatus, EInvoiceNextAttemptAt) — the same
+        // outbox shape, deliberately mirrored rather than re-invented.
+        builder.HasIndex(n => new { n.Status, n.ScheduledFor });
     }
 }
 

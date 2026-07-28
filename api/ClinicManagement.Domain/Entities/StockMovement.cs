@@ -22,6 +22,12 @@ public class StockMovement : AggregateRoot<Guid>
 
     private StockMovement() { } // For EF Core
 
+    /// <summary>
+    /// <paramref name="reason"/> is deliberately still optional in the signature but is now supplied at
+    /// <b>every</b> write site (AC-P4.17). All three original callers passed <c>null</c>, so the column, the
+    /// parameter and the DTO field all existed while the ledger recorded no reason for anything — which is
+    /// exactly what makes an unexplained adjustment indistinguishable from a data-entry error after the fact.
+    /// </summary>
     public StockMovement(Guid id, Guid clinicId, Guid stockItemId, StockMovementType type, int quantity, int resultingStock, string? reason = null)
     {
         if (clinicId == Guid.Empty)

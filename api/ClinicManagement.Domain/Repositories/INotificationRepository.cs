@@ -6,7 +6,23 @@ namespace ClinicManagement.Domain.Repositories;
 public interface INotificationRepository
 {
     Task<Notification?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
-    Task<IEnumerable<Notification>> GetPendingNotificationsAsync(CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Due <c>Pending</c> rows, oldest first, capped at <paramref name="take"/> (AC-P4.31). The cap exists
+    /// because one large backlog could otherwise make a single minutely tick run for minutes while holding the
+    /// job's <c>[DisableConcurrentExecution]</c> lock.
+    /// </summary>
+    Task<IEnumerable<Notification>> GetPendingNotificationsAsync(
+        int take, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Deletes **terminal** rows (<c>Sent</c> / <c>Failed</c>) older than <paramref name="olderThanUtc"/> and
+    /// returns how many went (AC-P4.32). Nothing has ever purged this table, so it grows forever.
+    ///
+    /// <b>A <c>Pending</c> row is never deleted</b> (AC-P4.34) — suppressing an unsent reminder is
+    /// <c>VoidUnsentAsync</c>'s job, and retention silently dropping one would mean a patient never contacted
+    /// with no trace of why.
+    /// </summary>
+    Task<int> PurgeTerminalOlderThanAsync(DateTime olderThanUtc, CancellationToken cancellationToken = default);
     Task<IEnumerable<Notification>> GetByAppointmentIdAsync(Guid appointmentId, CancellationToken cancellationToken = default);
 
     /// <summary>

@@ -40,6 +40,7 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
     private readonly INotificationGenerator _notificationGenerator;
+    private readonly IStockConsumptionService _stockConsumption;
     private readonly IRealtimeNotifier _realtimeNotifier;
     private readonly ILogger<CreateDentalRecordCommandHandler> _logger;
 
@@ -52,6 +53,7 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
         INotificationGenerator notificationGenerator,
+        IStockConsumptionService stockConsumption,
         IRealtimeNotifier realtimeNotifier,
         ILogger<CreateDentalRecordCommandHandler> logger)
     {
@@ -63,6 +65,7 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
         _notificationGenerator = notificationGenerator;
+        _stockConsumption = stockConsumption;
         _realtimeNotifier = realtimeNotifier;
         _logger = logger;
     }
@@ -140,6 +143,15 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
             {
                 await CompleteReviewedAppointmentAsync(request.AppointmentId.Value, clinicResult.Value, cancellationToken);
             }
+
+            // AC-P4.10 — draw each recorded act's material list out of stock. Post-commit and best-effort, so a
+            // stock failure can never lose the clinical record (AC-P4.13). One entry per act performance, not
+            // per distinct procedure: two composites really do use two capsules.
+            await _stockConsumption.ConsumeForDentalRecordAsync(
+                clinicResult.Value,
+                record.Id,
+                record.Acts.Where(a => a.ProcedureTypeId.HasValue).Select(a => a.ProcedureTypeId!.Value).ToList(),
+                cancellationToken);
 
             return Result<DentalRecordDto>.Success(record.ToDto());
         }

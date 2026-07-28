@@ -16,6 +16,21 @@ public static class RemindersConfig
     private static readonly int[] DefaultLeadTimesHours = { 24, 6 };
     private const int DefaultMinLeadHours = 1;
     private const int DefaultMaxRetries = 3;
+
+    /// <summary>
+    /// How many due rows one dispatch tick may take (AC-P4.31), mirroring <c>TtnConfig.DispatchBatchSize</c>.
+    /// The scan was unbounded: one large backlog could make a single tick run for minutes while holding the
+    /// job's <c>[DisableConcurrentExecution]</c> lock, starving every later tick.
+    /// </summary>
+    private const int DefaultDispatchBatchSize = 50;
+
+    /// <summary>
+    /// Retention window in days for **terminal** outbox rows (AC-P4.32/4.33). Stated here rather than buried in
+    /// the job so the default is discoverable. 90 days: long enough that the delivery-status card and any "did
+    /// the patient get their reminder?" question can still be answered for a full quarter, short enough that the
+    /// table stops growing forever — nothing has ever purged it.
+    /// </summary>
+    private const int DefaultRetentionDays = 90;
     private const string DefaultWhatsAppTemplateLanguage = "fr";
 
     private const string SmsChannel = "Sms";
@@ -62,6 +77,21 @@ public static class RemindersConfig
     /// <summary>Max transient send attempts before a reminder is marked <c>Failed</c>.</summary>
     public static int MaxRetries(IConfiguration configuration) =>
         configuration.GetValue<int?>("Reminders:MaxRetries") ?? DefaultMaxRetries;
+
+    /// <summary>Bounded dispatch batch (AC-P4.31). A non-positive override falls back to the default.</summary>
+    public static int DispatchBatchSize(IConfiguration configuration) =>
+        Positive(configuration.GetValue<int?>("Reminders:DispatchBatchSize"), DefaultDispatchBatchSize);
+
+    /// <summary>Retention window for terminal rows (AC-P4.33). A non-positive override falls back.</summary>
+    public static int RetentionDays(IConfiguration configuration) =>
+        Positive(configuration.GetValue<int?>("Reminders:RetentionDays"), DefaultRetentionDays);
+
+    /// <summary>
+    /// A zero or negative override would silently disable the feature (a zero batch dispatches nothing; a zero
+    /// retention would purge everything), which is worse than ignoring a bad value — so fall back instead.
+    /// </summary>
+    private static int Positive(int? configured, int fallback) =>
+        configured.HasValue && configured.Value > 0 ? configured.Value : fallback;
 
     // SMS gateway (generic HTTP).
     public static string? SmsApiUrl(IConfiguration configuration) => configuration["Reminders:Sms:ApiUrl"];

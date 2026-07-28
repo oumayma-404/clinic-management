@@ -27,8 +27,7 @@ public class InstallmentPaymentConfiguration : IEntityTypeConfiguration<Installm
         builder.Property(p => p.InstallmentId)
             .IsRequired();
 
-        builder.Property(p => p.Amount)
-            .HasColumnType("decimal(18,3)");
+        builder.Property(p => p.Amount);
 
         builder.Property(p => p.Method)
             .IsRequired()

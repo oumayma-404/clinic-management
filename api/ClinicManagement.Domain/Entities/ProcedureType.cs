@@ -21,6 +21,14 @@ public class ProcedureType : AggregateRoot<Guid>
     // Navigation property
     public ICollection<Appointment> Appointments { get; private set; } = new List<Appointment>();
 
+    /// <summary>
+    /// What performing this act consumes from the stock room (AC-P4.9). <b>Opt-in per act</b> (AC-P4.11): an
+    /// empty list is the majority case and consumes nothing, so an act that never had a list behaves exactly as
+    /// it did before this existed.
+    /// </summary>
+    private readonly List<ProcedureTypeMaterial> _materials = new();
+    public IReadOnlyCollection<ProcedureTypeMaterial> Materials => _materials.AsReadOnly();
+
     private ProcedureType() { } // For EF Core
 
     public ProcedureType(
@@ -108,6 +116,30 @@ public class ProcedureType : AggregateRoot<Guid>
             throw new ArgumentException("Default cost cannot be negative", nameof(defaultCost));
 
         DefaultCost = defaultCost;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Replaces the act's material list wholesale (AC-P4.14, admin-edited from the act catalog). Whole-list
+    /// replacement rather than add/remove because the editor posts the list it is showing — the same shape as
+    /// <c>TreatmentPlan.SetItems</c> — and one stock item may appear only once, so a duplicate is a caller bug
+    /// rather than something to silently merge.
+    /// </summary>
+    public void SetMaterials(IEnumerable<(Guid StockItemId, int QuantityPerAct)> materials)
+    {
+        if (materials == null)
+            throw new ArgumentNullException(nameof(materials));
+
+        var requested = materials.ToList();
+        if (requested.Select(m => m.StockItemId).Distinct().Count() != requested.Count)
+            throw new ArgumentException("Un même article ne peut apparaître qu'une fois dans la liste des consommables.", nameof(materials));
+
+        _materials.Clear();
+        foreach (var material in requested)
+        {
+            _materials.Add(new ProcedureTypeMaterial(Guid.NewGuid(), Id, material.StockItemId, material.QuantityPerAct));
+        }
+
         UpdatedAt = DateTime.UtcNow;
     }
 

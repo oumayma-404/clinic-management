@@ -23,7 +23,7 @@ import { Label } from "@/components/ui/label"
 import { Package, Search, Pencil, Trash2, Loader2, AlertTriangle, Minus, Plus, History } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { stockApi, type StockMovementDto } from "@/lib/api/stock"
-import { formatDateTime } from "@/lib/format"
+import { formatDate, formatDateTime } from "@/lib/format"
 import { ApiError } from "@/lib/api/client"
 import type { StockItemDto } from "@/lib/api/types"
 
@@ -237,6 +237,7 @@ export function StockTable({ refreshKey, onEdit, highlightItemId }: StockTablePr
                     <TableHead>Unité</TableHead>
                     <TableHead>Stock min.</TableHead>
                     <TableHead>Catégorie</TableHead>
+                    <TableHead>Péremption</TableHead>
                     <TableHead>Fournisseur</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
@@ -244,7 +245,7 @@ export function StockTable({ refreshKey, onEdit, highlightItemId }: StockTablePr
                 <TableBody>
                   {filteredItems.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="h-24 text-center">
+                      <TableCell colSpan={8} className="h-24 text-center">
                         <p className="text-muted-foreground">
                           {items.length === 0 ? "Aucun article en stock" : "Aucun article ne correspond à vos filtres"}
                         </p>
@@ -270,6 +271,34 @@ export function StockTable({ refreshKey, onEdit, highlightItemId }: StockTablePr
                         <TableCell className="text-muted-foreground">{item.minimumStockLevel}</TableCell>
                         <TableCell>
                           <Badge variant="outline">{item.category}</Badge>
+                        </TableCell>
+                        <TableCell>
+                          {item.earliestExpiry ? (
+                            <span
+                              className={cn(
+                                "inline-flex items-center gap-1 text-sm",
+                                item.hasExpiredStock
+                                  ? "font-medium text-destructive"
+                                  : item.isExpiringSoon
+                                    ? "font-medium text-amber-700 dark:text-amber-400"
+                                    : "text-muted-foreground",
+                              )}
+                              title={
+                                item.hasExpiredStock
+                                  ? "Un lot est périmé"
+                                  : item.isExpiringSoon
+                                    ? "Un lot expire bientôt"
+                                    : undefined
+                              }
+                            >
+                              {(item.hasExpiredStock || item.isExpiringSoon) && (
+                                <AlertTriangle className="h-3 w-3" aria-hidden="true" />
+                              )}
+                              {formatDate(item.earliestExpiry)}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
                         </TableCell>
                         <TableCell className="text-muted-foreground">{item.supplier ?? "—"}</TableCell>
                         <TableCell className="text-right">

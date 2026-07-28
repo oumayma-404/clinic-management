@@ -4,7 +4,8 @@ import type { StockItemDto } from './types';
 export interface StockMovementDto {
   id: string;
   stockItemId: string;
-  type: string; // "Consume" | "Restock"
+  /** "Consume" | "Restock" | "Adjustment" — Adjustment is a manual stock-take correction (AC-P4.16). */
+  type: string;
   quantity: number;
   resultingStock: number;
   reason?: string | null;
@@ -21,6 +22,16 @@ export interface StockItemPayload {
   description?: string | null;
   unitPrice?: number | null;
   supplier?: string | null;
+  /**
+   * Why on-hand was corrected, recorded on the resulting `Adjustment` movement (AC-P4.17). The update path
+   * writes a real ledger row now — it used to overwrite the quantity with no trace of what changed or why.
+   */
+  stockChangeReason?: string | null;
+  /**
+   * The `version` read from the server (AC-P4.18). Echoed back so a concurrent consume is refused with a 409
+   * rather than silently overwritten. Omitted / 0 skips the check.
+   */
+  version?: number;
 }
 
 export const stockApi = {
@@ -37,13 +48,20 @@ export const stockApi = {
   },
 
   // Movement-based adjustments (finding #14): a sortie (consume) or entrée (restock) by delta.
-  consume: async (id: string, quantity: number): Promise<StockItemDto> => {
-    return apiPost<StockItemDto>(`/stock/${id}/consume`, { quantity });
+  consume: async (id: string, quantity: number, reason?: string | null): Promise<StockItemDto> => {
+    return apiPost<StockItemDto>(`/stock/${id}/consume`, { quantity, reason });
   },
 
+  // A restock creates a LOT carrying its own expiry/batch (AC-P4.1/4.2) — it no longer overwrites the item's
+  // single scalar date, which is what made a second delivery destroy the first one's expiry.
   restock: async (
     id: string,
-    data: { quantity: number; expiryDate?: string | null; batchNumber?: string | null },
+    data: {
+      quantity: number;
+      expiryDate?: string | null;
+      batchNumber?: string | null;
+      reason?: string | null;
+    },
   ): Promise<StockItemDto> => {
     return apiPost<StockItemDto>(`/stock/${id}/restock`, data);
   },

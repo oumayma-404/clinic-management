@@ -175,8 +175,10 @@ public class NotificationGenerationTests
             Uow.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
         }
 
+        public Mock<IStockMovementRepository> Movements { get; } = new();
+
         public UpdateStockItemCommandHandler Handler() =>
-            new(Stock.Object, ClinicResolver.Object, Uow.Object, Generator.Object);
+            new(Stock.Object, Movements.Object, ClinicResolver.Object, Uow.Object, Generator.Object);
 
         public StockItem ExistingItem(int currentStock, int min)
         {

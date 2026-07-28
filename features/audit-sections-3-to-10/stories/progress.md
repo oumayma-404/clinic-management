@@ -15,7 +15,7 @@
 | **P1** Appointment lifecycle & booking | 3.1, 3.2, 3.4, 5.4, 6.1, 6.9, 8.1, 8.4 | — | **complete** (`02dcc17`, `a813268`, `767ecae`, `1574c2e`, `05183d2`, `6906f83`). Both migrations landed in `6906f83` — the exclusion constraint (+ pre-flight) and the `Type:`-prefix backfill; the third turned out not to be needed. Only deferral left: the calendar row-trim (AC-P1.33, see below) |
 | **P2** Finish what's built | 5.1–5.3, 5.5–5.9, 5.11, 5.12, 6.10, 6.11, 8.3 | — | **complete** — all 13 steps, AC-P2.1–2.45 |
 | **P3** UX, accessibility & French | 3.3, 6.3, 7.1–7.9, 8.2, 8.6 | — | **complete** — all 13 steps, AC-P3.1–3.54. The manual walk (AC-P3.48) was done **statically**, not in a browser — stated plainly below |
-| **P4** Stock, realtime & schema | 6.6, 6.7, 6.12, 9.1–9.6 | — | **not-started.** Its gate — the `verify-schema` verb — was built first and landed separately (`5586295`+1); see the session log. Design pre-work for steps 1–4 is recorded below so the next session does not re-derive it |
+| **P4** Stock, realtime & schema | 6.6, 6.7, 6.12, 9.1-9.6 | - | **partial - stopped at a safe boundary.** Its gate `verify-schema` landed first (`edecd23`). **Done:** steps 1, 3, 4, 7, 8, 9, 10 + step 2's backend & table, **all 1 migration applied**, `verify-schema` **exit 0**. **Open:** step 2's restock-dialog capture (AC-P4.2), the approaching-expiry notification (AC-P4.6), step 4's material-list editor UI (AC-P4.14), steps **5-6** (realtime) and step **11** (recall bounds) - none of which touch schema |
 | **P5** Build & tooling | 10.1–10.5 | warnings step **last in story** | not-started |
 | **P6** Money truth & timezone | 4.1, 4.2, 5.10, 6.2, 6.8, 8.5, 9.7 | — | not-started |
 | **P7** Audit trail, duplicate prevention, anonymize | 6.4 | P7a first | not-started |
@@ -149,10 +149,45 @@ be narrowed to the patient page in one line.
 **Approved:** taken under the "surface a question only if proceeding would be unsafe or useless if wrong"
 instruction. Neither applies — this is a defensible reading of the AC that keeps P3 inside its stated gate.
 
+### DEV-3: P4 split at the "no schema left" line instead of one commit at the part boundary
+**Date:** 2026-07-28 · **Story:** 1 (P4) · **Category:** Scope
+**Original Plan:** "Commit P4 as one commit at the part boundary."
+**Actual Implementation:** two commits. This one lands steps 1, 3, 4, 7, 8, 9, 10, step 2's backend + table, and
+the single migration; the next lands steps 5, 6, 11 and the three remaining UI/notification pieces.
+**Justification:** P4 is the largest part in the plan - a net-new subsystem (per-batch stock + material lists +
+act-driven consumption), 26 configuration edits, a schema batch, and a contract test that parses TypeScript from
+C#. The split point is chosen so that **no migration can be left half-applied**: everything schema-touching is in
+this commit, applied, and `verify-schema` exits 0. Every remaining item is pure code with no schema change, so the
+second commit cannot corrupt the database no matter when it lands. Splitting anywhere else - e.g. after the stock
+model but before its migration - would have left the model and the database disagreeing.
+**Impact:** none on P5-P7. The database is fully migrated and verified; the open items are additive UI/behaviour.
+The one visible consequence is that P4 shows as `partial` in the status table rather than flipping straight to
+complete.
+**Approved:** taken under the session's standing "stop at a safe boundary and say exactly what remains, the way
+P1's `02dcc17` did" instruction, which is precisely this case.
+
+### DEV-4: the material list hangs off `ProcedureType` only, not `DentalActCode`
+**Date:** 2026-07-28 · **Story:** 1 (P4, step 4) · **Category:** Technical
+**Original Plan:** AC-P4.9 - "an act - `ProcedureType` **and/or** `DentalActCode` - can carry a material list".
+**Actual Implementation:** `ProcedureTypeMaterial`, a child of `ProcedureType`. `DentalActCode` carries nothing.
+**Justification:** only one of the two is reachable from a saved fiche. `DentalRecordAct` has a nullable
+`ProcedureTypeId` and **no** `DentalActCodeId`, so a list attached to `DentalActCode` could never be consumed on
+fiche save (AC-P4.10) - it would be a finished-but-uncallable capability, the exact class of defect P2 existed to
+remove. The AC's "and/or" is satisfied by choosing the one that works.
+**Impact:** if a fiche later gains a DCH link, `ProcedureTypeMaterial` is the template to mirror; the consumption
+service takes a list of act ids and would need only a second resolution branch.
+**Approved:** pre-agreed - recorded as design pre-work in the previous session's log and carried into this one.
+
 ## Auto-Approved Deviations
 
 | Deviation | Classification | Reason |
 |-----------|----------------|--------|
+| `Clinic.StockExpiryLeadDays` instead of a `Stock:ExpiryLeadDays` config key | Trivial (project rule over plan silence) | AC-P4.6 says "configurable" without saying where. My first attempt put it in a static config accessor in **Application** - which does not reference `Microsoft.Extensions.Configuration` at all, so it did not compile. `Clinic.RecallIntervalMonths` is the codebase's own precedent for a clinic-tunable threshold, needs no new package reference, and is per-clinic like every other catalog (AC-P4.14). |
+| `verify-schema`'s stock-batch check made two-phase | Trivial (fixes a defect in this session's own tool) | Its query read `StockItems.ExpiryDate`, the column P4 drops, so it threw `42703` the first time the migration applied. Phase 2 asserts the durable invariant FEFO depends on instead, and the retired line still reports "superseded" rather than silently vanishing. |
+| `UpdateDentalRecordCommand` consumes only the acts an edit **adds** | Trivial (strictly safer than the alternative) | A fiche is re-saved routinely (a corrected note, one more tooth). Consuming the whole list again each time would draw stock for materials already used - strictly worse than the under-consumption it replaces. Counted per procedure because `SetActs` regenerates act ids, so a before/after diff by id is impossible. Removing an act consumes nothing and returns nothing: the material was physically used, so an automatic put-back would invent stock that is not on the shelf. |
+| `Include(Batches)` added to all five `StockItemRepository` reads and `Include(Materials)` to `ProcedureTypeRepository.GetByIdAsync` | Trivial (no API change) | The lots and the material list are part of their aggregates now. Without the includes, FEFO consumes nothing and `EarliestRelevantExpiry` is always null - and the material-list miss would look **identical** to the opt-out case (AC-P4.11), which is the one thing it must not be confusable with. |
+| `GetStockItemsQuery` / `UpdateStockItemCommand` / `GetClinicReminderStatusQuery` error messages made French, without `ex.Message` | Trivial (same A-8 class) | Touched while wiring these handlers; leaving an English raw-exception leak beside a fixed one is the drift the P1/P2 sweep exists to prevent. |
+| `StockMovementDto.type` comment now documents `Adjustment` | Trivial (comment only) | The third member is new (AC-P4.16). |
 | `ScheduleRecallAsync` gates on **sendable** channels, not merely *enabled* ones | Trivial (tightens the same check the AC names) | AC-P3.2 is « no channel is configured ». `EnabledChannels` answers a different question: a channel toggled on with no credentials is "enabled", and its row stays `Pending` for ever at dispatch (`NotConfigured` is deliberately not a failure). Enqueuing on it would leave the patient snoozed 30 days behind a row that can never resolve — the exact defect one step later. Now filtered through the senders' own `SmsConfigured`/`WhatsAppConfigured`, so enqueue, dispatch and the admin badge cannot disagree. |
 | `formatFileSize` extracted to `lib/format.ts` rather than fixed twice | Trivial (internal, no API change) | AC-P3.51 needs « o / Ko / Mo » in the files manager *and* the patient page, which each carried a byte-identical English copy. Fixing both in place is how they drifted from the French UI in the first place. |
 | `procedure-types-table.tsx`'s `toFixed(2)` → `formatDT` | Trivial (one expression) | § 6.8 is P6's, but `toFixed(2)` **drops the millime** on a Tunisian amount and sits on the same line as the `DollarSign` icon this sweep replaces. Touching that line twice, once per part, is worse than fixing it once. |
@@ -177,6 +212,39 @@ shipped AC, not implementation bugs; each is named in the P3 session log's closi
 **1209 / 0 failed** after them.
 
 ## Learnings
+
+### EF's differ gets *what* right and *when* wrong - the ordering is the part you must read for
+The generated P4 migration was correct in content and **destructive in order**: both `DropColumn`s for the legacy
+`StockItems.ExpiryDate`/`BatchNumber` were emitted as the *first* statements, before the `StockBatches` table they
+were supposed to be migrated into even existed. Applying it as generated would have silently destroyed every
+stored expiry date, and nothing downstream would have failed - `verify-schema` would have reported a clean schema
+over lost data.
+**Recommendation:** when a migration both **creates** a new home for data and **removes** the old one, the review
+question is not "are these statements right?" but "**in this order, is any data destroyed before it is copied?**"
+Move every destructive statement below the backfill by hand, make the backfill `NOT EXISTS`-guarded, and treat the
+differ's ordering as a suggestion. A data-loss warning from `dotnet ef` ("An operation was scaffolded that may
+result in the loss of data") is the prompt to do this, not something to acknowledge and move past.
+
+### A new non-nullable column's differ default is a *behavioural* decision, and 0 is usually wrong
+`StockExpiryLeadDays` was scaffolded `defaultValue: 0`. The domain rejects 0 (1-365) and the read treats a
+non-positive lead time as "never expiring soon" - so every **existing** clinic would have silently had the
+approaching-expiry feature disabled, while every **new** clinic got 30 from the constructor. Two populations,
+different behaviour, no error anywhere.
+**Recommendation:** for every `AddColumn` the differ emits with a default, ask what that default *means* to the
+code that reads it, and set it to the domain's own constant. The bug this class produces is invisible precisely
+because new records behave correctly.
+
+### A verification tool must be able to run *after* the migration it verifies, not only before
+`verify-schema`'s stock-batch check asked "does every item with a legacy expiry have an opening batch?" - reading
+the very column P4 drops. It worked perfectly on the before-run and threw `42703` on the after-run, which is the
+one run that matters. The fix was recognising the check is inherently **two-phase**: the pre-migration question is
+unanswerable afterwards, so a *durable* invariant has to take over ("every item holding stock has a lot" - what
+FEFO actually depends on).
+**Recommendation:** when writing a check over a migration, ask "what will this query read once the migration has
+run?" If the answer is "a column that no longer exists", the check needs a second, permanent form. And keep the
+retired check in the output saying it was superseded - a line that silently disappears from a before/after report
+is indistinguishable from one that was forgotten.
+
 
 ### A step that is a *gate* for later parts must be verified as delivered, not inferred from the part's status
 `verify-schema` was a P1 step. P1's commit declared the part COMPLETE, its progress row listed only the calendar
@@ -277,6 +345,85 @@ is, one map at the client's derivation point is the whole fix — and make the m
 through) so re-saving historical rows is safe.
 
 ## Session log
+
+### 2026-07-28 - P4 part 1 of 2: per-batch stock, act-driven consumption, and the whole schema batch
+
+**Stopped at a safe boundary, not at the part boundary.** Everything schema-touching is done, applied and
+verified; what remains is pure code with no migration. The plan asks for one commit per part, and this is a
+deliberate deviation recorded as **DEV-3** below - P4 is the largest part in the plan and splitting it at the
+"no schema left" line is the only split where the database cannot be left half-migrated.
+
+#### Delivered
+
+| Step | Delivered | Where |
+|---|---|---|
+| 1 | **Per-batch stock.** `StockBatch` child carrying its own expiry + batch number; `AddStock` creates a lot instead of overwriting two scalar columns; **FEFO** consumption (`ConsumeStock`, soonest-expiry first, undated lots last); `EarliestRelevantExpiry`/`HasExpiredStock`/`HasStockExpiringSoon` | `StockBatch.cs`, `StockItem.cs`, `StockBatchConfiguration.cs` |
+| 2 | **Expiry surfaced** (backend + table): `StockItemDto.batches`/`earliestExpiry`/`hasExpiredStock`/`isExpiringSoon`; a « Péremption » column that highlights the lot **that is expiring**, not the last one entered; per-clinic lead time on `Clinic.StockExpiryLeadDays` | `StockItemDto.cs`, `GetStockItemsQuery.cs`, `stock-table.tsx`, `Clinic.cs` |
+| 3 | **`UpdateStockItemCommand` writes a movement** whenever on-hand changes; `StockMovementType.Adjustment` for a manual stock-take; `Reason` populated at **all three** write sites (all passed `null`); `SetExpectedVersion` for AC-P4.18 | `UpdateStockItemCommand.cs`, `Consume`/`Restock`, `StockMovementType.cs` |
+| 4 | **Stock consumed by an act** (backend): `ProcedureTypeMaterial` list + `IStockConsumptionService`/`StockConsumptionService` fired **post-commit** from both fiche handlers; opt-in per act; a shortfall goes negative and is surfaced, never blocks | `ProcedureTypeMaterial.cs`, `StockConsumptionService.cs`, `Create`/`UpdateDentalRecordCommand.cs` |
+| 7 | **Query filters for `Doctor` and `StockItem`** - the last two unfiltered clinic-owned roots, and `StockItem`'s own child `StockMovement` was filtered while its **parent** was not. Stale comment corrected: it named 3 entities, 19 are filtered | `ApplicationDbContext.cs` |
+| 8 | **Reminder outbox**: `IX_Notifications_Status_ScheduledFor`, a **bounded** batch (50), and a retention purge (90 days) that runs **after** the dispatch loop and never touches a `Pending` row | `NotificationConfiguration.cs`, `NotificationJob.cs`, `RemindersConfig.cs`, `NotificationRepository.cs` |
+| 9 | **`StockMovement.ClinicId`** gains an index **and** an FK to `Clinic` - it had neither, while the global filter appended it to every read | `StockMovementConfiguration.cs` |
+| 10 | **Precision, properly**: `ConfigureConventions` `HavePrecision(18,3)` **plus the 26 redundant `HasColumnType` deletions across 17 files** (the 18th was `StockItem.UnitPrice`'s `(18,2)`, removed in step 1). Both rate columns keep `(5,2)` with the reason at each site | `ApplicationDbContext.cs`, 17 configurations |
+
+**One migration, `AddStockBatchesMaterialsAndSchemaHardening`**, read line by line before applying.
+
+#### Three things the migration got wrong out of the differ
+
+1. **The two `DropColumn`s were emitted FIRST** - before `StockBatches` existed - which would have destroyed
+   every stored expiry date with nothing to read them into. Moved to the very end, after the backfill (plan
+   **R-7**: destructive steps last). This is the single most important edit in the whole part, and it is exactly
+   what "read every generated migration line by line" is for: the differ is not wrong about *what*, only about
+   *when*.
+2. **`StockExpiryLeadDays` defaulted to 0**, which the domain rejects (1-365) and which the read treats as
+   "never expiring soon" - silently disabling the approaching-expiry feature for every **existing** clinic.
+   Defaulted to the domain's own constant (30).
+3. **The backfill needed a second statement.** An item with stock but no legacy expiry still needs an opening
+   lot, or FEFO finds nothing to draw from and every consume reports a full shortfall against stock that is
+   physically on the shelf. Both statements are `NOT EXISTS`-guarded so a partially-applied re-run cannot create
+   a second opening batch.
+
+The two `xmin` occurrences in the migration are inside `CreateTable` for the two **new** tables, which is correct
+and required - the § 1 hazard is `AddColumn<uint>("xmin")` on an **existing** table, and there is none. Exactly
+**one** `AlterColumn` in `Up()` (`StockItem.UnitPrice`), and neither rate column is touched (AC-P4.40).
+
+#### verify-schema earned its keep twice on its first real use
+
+- **It found the § 9.5 defect** it was built to find, then confirmed the fix: `StockItems.UnitPrice` went
+  `(18,2)` -> `(18,3)` on both the database and model sides, and the verb went **exit 2 -> exit 0**.
+- **It found a bug in itself.** Its `stock-batch-backfill` check read `StockItems.ExpiryDate` - the column this
+  very migration drops - so the first post-migration run failed with `42703: column s.ExpiryDate does not
+  exist`. The check was **two-phase all along** and had only been written for phase one: before the migration
+  the question is "does every item with a legacy expiry have an opening batch?"; after it, that column is gone
+  and the question is permanently unanswerable, so the durable invariant takes over - **"does every item holding
+  stock have at least one lot?"**, which is what FEFO actually depends on. Both phases now report, and the
+  retired line still *appears*, saying it was superseded: a check that silently vanishes from the report is
+  indistinguishable from one that was forgotten, which would defeat the before/after diff the whole verb exists
+  for.
+
+#### Gates
+
+| Gate | Result |
+|---|---|
+| Backend build (`--no-incremental`, full solution) | **0 errors**, 56 warnings (baseline) - **0 in any file this part created or edited** |
+| **Full unit suite** | **1275 passed, 0 failed** (+38 on the 1237 baseline). SAC did not block |
+| New tests (+38) | `StockBatchFefoTests` (**19** - FEFO order incl. spill and undated-last, the shortfall going negative rather than clamping, inclusive expiry, the emptied-expired-lot case, `SetCurrentStock`'s signed delta both ways, `AttachExistingBatch` not double-counting) + `StockConsumptionServiceTests` (**17** - opt-in reads nothing, same act twice consumes twice, two acts sharing an item combine, shortfall surfaced not blocked, edge-triggered low-stock, cross-clinic no-op, a persistence failure never throwing back) + 2 on `SchemaVerificationServiceTests` for the two-phase check |
+| **`verify-schema`** (live DB) | **exit 0** - "schema matches the model". Before: exit 2 with the 2 § 9.5 drift lines. Every new index and FK verified automatically from the model: `Notifications(Status, ScheduledFor)`, `StockMovements(ClinicId)`, `StockBatches(StockItemId, ExpiryDate)`, `ProcedureTypeMaterials(...)` x2, and 4 new FKs |
+| **`reconcile-money`** (live DB) | **exit 0**, output **byte-identical** to the pre-session baseline - the `UnitPrice` widening is lossless and no money path moved |
+| `npx tsc --noEmit` | 0 errors |
+| `npm run build` | clean, **27/27** static pages |
+| `npm run lint` | cannot run - ESLint is not a dependency until P5 step 1 |
+
+#### Still open in P4 (all pure code - no schema, no migration)
+
+| Item | AC | Note |
+|---|---|---|
+| Restock dialog captures expiry + batch | AC-P4.2 | The API accepts both (`stockApi.restock`) and the model stores them per lot; only the dialog's two inputs are missing |
+| Approaching-expiry notification | AC-P4.6 | `Clinic.StockExpiryLeadDays` + `HasStockExpiringSoon` + `isExpiringSoon` all exist and the table already highlights it; nothing **generates** the notification yet |
+| Material-list editor in the act catalog | AC-P4.14 | `ProcedureType.SetMaterials` + the table exist; no admin UI and no command to call it, so lists can only be seeded directly |
+| **Step 5** - realtime contract test rewrite | AC-P4.23-4.25 | Reflection-derived exact set, both directions, parsing `clinic-hub.ts`. `verify-schema` is now the worked example of doing this right |
+| **Step 6** - wire the orphan keys | AC-P4.20-4.22, 4.26 | Missing from `clinic-hub.ts`: `doctors`, `laborders`, `recall`, `waitinglist`. Declared with no subscriber: `documents` (A-15) |
+| **Step 11** - recall query bounded | AC-P4.41-4.43 | Mirror any repository filter change into `MoneyReadConsistencyTests.Wire()` |
 
 ### 2026-07-28 — **`verify-schema` built** (P4's gate; a carried-forward P1 step)
 

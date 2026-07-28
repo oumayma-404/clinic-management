@@ -45,19 +45,22 @@ public class InvoiceConfiguration : IEntityTypeConfiguration<Invoice>
         builder.Property(i => i.VatApplicable)
             .IsRequired();
 
+        // AC-P4.38 — a RATE, not money: deliberately kept at (5,2) against the model-wide
+        // HavePrecision(18,3) convention. A convention that silently widened a VAT rate would be worse than
+        // the drift it fixes, so the explicit annotation is retained on purpose. verify-schema asserts this
+        // column is NOT (18,3) — widening it is reported as drift in the other direction.
         builder.Property(i => i.VatRate)
             .HasColumnType("decimal(5,2)");
 
-        builder.Property(i => i.StampDutyAmount)
-            .HasColumnType("decimal(18,3)");
+        builder.Property(i => i.StampDutyAmount);
 
         builder.Property(i => i.CancellationReason)
             .HasMaxLength(1000);
 
-        builder.Property(i => i.TotalHt).HasColumnType("decimal(18,3)");
-        builder.Property(i => i.TotalVat).HasColumnType("decimal(18,3)");
-        builder.Property(i => i.TotalTtc).HasColumnType("decimal(18,3)");
-        builder.Property(i => i.AmountCollected).HasColumnType("decimal(18,3)");
+        builder.Property(i => i.TotalHt);
+        builder.Property(i => i.TotalVat);
+        builder.Property(i => i.TotalTtc);
+        builder.Property(i => i.AmountCollected);
 
         builder.Property(i => i.CreatedAt).IsRequired();
         builder.Property(i => i.UpdatedAt);

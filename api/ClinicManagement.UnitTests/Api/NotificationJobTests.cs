@@ -64,7 +64,7 @@ public class NotificationJobTests
         int maxRetries = 3)
     {
         var notifications = new Mock<INotificationRepository>();
-        notifications.Setup(r => r.GetPendingNotificationsAsync(It.IsAny<CancellationToken>())).ReturnsAsync(pending);
+        notifications.Setup(r => r.GetPendingNotificationsAsync(It.IsAny<int>(), It.IsAny<CancellationToken>())).ReturnsAsync(pending);
         notifications.Setup(r => r.UpdateAsync(It.IsAny<Notification>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
         var probe = new Mock<IInternetProbe>();
@@ -271,7 +271,7 @@ public class NotificationJobTests
             DateTime.UtcNow.AddMinutes(-1), appointmentId: Guid.NewGuid(), patientId: patientId, clinicId: clinicId);
 
         var notifications = new Mock<INotificationRepository>();
-        notifications.Setup(r => r.GetPendingNotificationsAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new[] { reminder });
+        notifications.Setup(r => r.GetPendingNotificationsAsync(It.IsAny<int>(), It.IsAny<CancellationToken>())).ReturnsAsync(new[] { reminder });
         notifications.Setup(r => r.UpdateAsync(It.IsAny<Notification>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
         var patients = new Mock<IPatientRepository>();
@@ -318,7 +318,7 @@ public class NotificationJobTests
             DateTime.UtcNow.AddMinutes(-1), appointmentId: Guid.NewGuid(), patientId: patientId, clinicId: clinicId);
 
         var notifications = new Mock<INotificationRepository>();
-        notifications.Setup(r => r.GetPendingNotificationsAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new[] { reminder });
+        notifications.Setup(r => r.GetPendingNotificationsAsync(It.IsAny<int>(), It.IsAny<CancellationToken>())).ReturnsAsync(new[] { reminder });
         notifications.Setup(r => r.UpdateAsync(It.IsAny<Notification>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
         var patients = new Mock<IPatientRepository>();
@@ -365,7 +365,7 @@ public class NotificationJobTests
             .ReturnsAsync(PatientWithPhone(patientId, "20123456"));
 
         var notifications = new Mock<INotificationRepository>();
-        notifications.Setup(r => r.GetPendingNotificationsAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new[] { reminder });
+        notifications.Setup(r => r.GetPendingNotificationsAsync(It.IsAny<int>(), It.IsAny<CancellationToken>())).ReturnsAsync(new[] { reminder });
         notifications.Setup(r => r.UpdateAsync(It.IsAny<Notification>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
         var probe = new Mock<IInternetProbe>();

@@ -16,6 +16,9 @@ public class RestockStockItemCommand : IRequest<Result<StockItemDto>>
     public int Quantity { get; set; }
     public DateTime? ExpiryDate { get; set; }
     public string? BatchNumber { get; set; }
+
+    /// <summary>Why the stock arrived (supplier delivery, return…). Recorded on the movement (AC-P4.17).</summary>
+    public string? Reason { get; set; }
 }
 
 public class RestockStockItemCommandHandler : IRequestHandler<RestockStockItemCommand, Result<StockItemDto>>
@@ -56,7 +59,9 @@ public class RestockStockItemCommandHandler : IRequestHandler<RestockStockItemCo
 
             // Audit the movement (finding #14) in the same transaction — ResultingStock is the post-mutation on-hand.
             await _stockMovementRepository.AddAsync(
-                new StockMovement(Guid.NewGuid(), clinic.Value, item.Id, StockMovementType.Restock, request.Quantity, item.CurrentStock),
+                new StockMovement(
+                    Guid.NewGuid(), clinic.Value, item.Id, StockMovementType.Restock, request.Quantity,
+                    item.CurrentStock, request.Reason ?? "Entrée de stock"),
                 cancellationToken);
 
             await _stockItemRepository.UpdateAsync(item, cancellationToken);

@@ -46,6 +46,17 @@ public class Clinic : AggregateRoot<Guid>
     // are considered "à relancer". Defaults to 6 months.
     public int RecallIntervalMonths { get; private set; }
 
+    /// <summary>
+    /// How many days ahead a stock lot counts as « expire bientôt » (AC-P4.6). Per-clinic and configurable,
+    /// following <see cref="RecallIntervalMonths"/> — the established shape for a clinic-tunable threshold —
+    /// rather than a per-install config key, because the Application layer has no configuration dependency and
+    /// two clinics on one install legitimately order on different cycles.
+    ///
+    /// Defaults to 30: dental consumables are ordered on a monthly-ish cycle, so a month is the shortest notice
+    /// that still lets a clinic use up a lot or reorder before it is wasted.
+    /// </summary>
+    public int StockExpiryLeadDays { get; private set; }
+
     public const string TtnEnvironmentSandbox = "Sandbox";
     public const string TtnEnvironmentProduction = "Production";
 
@@ -88,6 +99,7 @@ public class Clinic : AggregateRoot<Guid>
         TtnEInvoicingEnabled = false;
         TtnEnvironment = TtnEnvironmentSandbox;
         RecallIntervalMonths = 6;
+        StockExpiryLeadDays = DefaultStockExpiryLeadDays;
         CreatedAt = DateTime.UtcNow;
     }
 
@@ -186,6 +198,24 @@ public class Clinic : AggregateRoot<Guid>
         }
 
         RecallIntervalMonths = months;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>The default approaching-expiry window, also used by the migration's backfill.</summary>
+    public const int DefaultStockExpiryLeadDays = 30;
+
+    /// <summary>
+    /// Sets the approaching-expiry window in days (1–365). Drives which stock items are flagged as expiring
+    /// soon and which generate the approaching-expiry notification (AC-P4.6).
+    /// </summary>
+    public void SetStockExpiryLeadDays(int days)
+    {
+        if (days < 1 || days > 365)
+        {
+            throw new ArgumentException("Le délai d'alerte de péremption doit être compris entre 1 et 365 jours.", nameof(days));
+        }
+
+        StockExpiryLeadDays = days;
         UpdatedAt = DateTime.UtcNow;
     }
 }

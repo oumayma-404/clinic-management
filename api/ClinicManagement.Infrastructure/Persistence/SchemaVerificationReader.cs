@@ -356,18 +356,35 @@ public class SchemaVerificationReader : ISchemaVerificationReader
                   AND b."Status" NOT IN (5, 6)
                 """);
 
+        // Pre-migration only: once the batch migration runs it DROPS StockItems.ExpiryDate, so this question
+        // is permanently unanswerable afterwards. Guarded on the column it reads, not on StockBatches --
+        // guarding on the wrong table is what made this check throw 42703 the first time the migration applied.
         var legacyExpiry = await ScalarOrNullAsync(connection, cancellationToken,
             requiredTable: "StockItems",
             requiredColumn: "ExpiryDate",
             sql: """SELECT COUNT(*) FROM "StockItems" WHERE "ExpiryDate" IS NOT NULL""");
 
-        var legacyExpiryWithoutBatch = await ScalarOrNullAsync(connection, cancellationToken,
+        var legacyExpiryWithoutBatch = await ColumnExistsAsync(connection, "StockBatches", "StockItemId", cancellationToken)
+            ? await ScalarOrNullAsync(connection, cancellationToken,
+                requiredTable: "StockItems",
+                requiredColumn: "ExpiryDate",
+                sql: """
+                    SELECT COUNT(*)
+                    FROM "StockItems" s
+                    WHERE s."ExpiryDate" IS NOT NULL
+                      AND NOT EXISTS (SELECT 1 FROM "StockBatches" b WHERE b."StockItemId" = s."Id")
+                    """)
+            : null;
+
+        // Post-migration: the durable invariant FEFO depends on. An item holding stock with no lot to draw from
+        // makes every consume report a full shortfall against stock that is physically on the shelf.
+        var stockWithoutBatch = await ScalarOrNullAsync(connection, cancellationToken,
             requiredTable: "StockBatches",
             requiredColumn: "StockItemId",
             sql: """
                 SELECT COUNT(*)
                 FROM "StockItems" s
-                WHERE s."ExpiryDate" IS NOT NULL
+                WHERE s."CurrentStock" > 0
                   AND NOT EXISTS (SELECT 1 FROM "StockBatches" b WHERE b."StockItemId" = s."Id")
                 """);
 
@@ -382,7 +399,8 @@ public class SchemaVerificationReader : ISchemaVerificationReader
             sql: """SELECT COUNT(*) FROM "Patients" WHERE "NormalizedFullName" IS NULL""");
 
         return new DataMigrationCounts(
-            typePrefix, overlaps, legacyExpiry, legacyExpiryWithoutBatch, missingNormalized, patientsTotal);
+            typePrefix, overlaps, legacyExpiry, legacyExpiryWithoutBatch, stockWithoutBatch,
+            missingNormalized, patientsTotal);
     }
 
     /// <summary>

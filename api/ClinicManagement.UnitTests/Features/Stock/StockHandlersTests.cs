@@ -26,9 +26,13 @@ public static class StockTestData
 public class GetStockItemsQueryHandlerTests
 {
     private readonly Mock<IStockItemRepository> _stock = new();
+    private readonly Mock<IClinicRepository> _clinics = new();
     private readonly Mock<ICurrentClinicResolver> _clinicResolver = new();
 
-    private GetStockItemsQueryHandler Handler() => new(_stock.Object, _clinicResolver.Object);
+    // The query reads the clinic's approaching-expiry lead time (AC-P4.6). Unstubbed, GetByIdAsync returns
+    // null and the handler falls back to Clinic.DefaultStockExpiryLeadDays — which is the intended behaviour
+    // for a clinic row that cannot be loaded, so these tests need no extra setup.
+    private GetStockItemsQueryHandler Handler() => new(_stock.Object, _clinics.Object, _clinicResolver.Object);
 
     private void Authenticated() =>
         _clinicResolver.Setup(r => r.GetClinicIdAsync(It.IsAny<CancellationToken>()))
@@ -186,8 +190,10 @@ public class UpdateStockItemCommandHandlerTests
     private readonly Mock<IUnitOfWork> _uow = new();
 
     private readonly Mock<INotificationGenerator> _notificationGenerator = new();
+    private readonly Mock<IStockMovementRepository> _movements = new();
 
-    private UpdateStockItemCommandHandler Handler() => new(_stock.Object, _clinicResolver.Object, _uow.Object, _notificationGenerator.Object);
+    private UpdateStockItemCommandHandler Handler() =>
+        new(_stock.Object, _movements.Object, _clinicResolver.Object, _uow.Object, _notificationGenerator.Object);
 
     private void Authenticated()
     {

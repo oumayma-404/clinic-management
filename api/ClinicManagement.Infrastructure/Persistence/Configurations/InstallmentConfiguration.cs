@@ -21,11 +21,9 @@ public class InstallmentConfiguration : IEntityTypeConfiguration<Installment>
         builder.Property(i => i.DueDate)
             .IsRequired();
 
-        builder.Property(i => i.Amount)
-            .HasColumnType("decimal(18,3)");
+        builder.Property(i => i.Amount);
 
-        builder.Property(i => i.AmountPaid)
-            .HasColumnType("decimal(18,3)");
+        builder.Property(i => i.AmountPaid);
 
         builder.Property(i => i.LastMethod)
             .HasConversion<int>();

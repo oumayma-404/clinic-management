@@ -23,12 +23,13 @@ self-generated HTTPS trust material, and per-clinic reference-catalog seeding. A
     aggregate roots: `Patient`, `Appointment`, `ProcedureType`, `StaffNotification`, `Invoice`,
     `TreatmentPlan`, `ClinicReminderSettings` (by `Id` = clinic id), `CnamNomenclatureEntry`,
     `CnamLetterValue`, `Medication`, `DentalActCode`, `Expense`, `WaitingListEntry`, `LabWorkOrder`,
-    `RecurringAppointment`. **`User`/`Clinic` are deliberately unfiltered** (auth/join flows resolve them
+    `RecurringAppointment`, **`Doctor`**, **`StockItem`** (the last two were the only clinic-owned roots left unfiltered - and `StockItem`'s own child `StockMovement` was filtered while its *parent* was not). **`User`/`Clinic` are deliberately unfiltered** (auth/join flows resolve them
     before a clinic context exists). Child entities (`InvoiceLine`, `Payment`, `Installment`,
     `TreatmentPlanItem`, `MedicationActiveIngredient`, `DentalRecordTooth/Act`, `ToothState`,
-    `NotificationRead`) carry no filter — reached only through a filtered parent / scoped by `UserId`.
+    `NotificationRead`, **`StockBatch`**, **`ProcedureTypeMaterial`**) carry no filter — reached only through a filtered parent / scoped by `UserId`.
     Cross-clinic paths (per-clinic seeder, reminder dispatcher, Google→App sync when no scope) call
     `IgnoreQueryFilters()` or run with no clinic in scope so the filter is inactive.
+  - **Money precision by convention** - `ConfigureConventions` sets `HavePrecision(18, 3)` for every `decimal`, and the **26 redundant `HasColumnType("decimal(18,3)")` calls across 17 configuration files were deleted** (AC-P4.37). The deletions are load-bearing: `GetColumnType()` returns an explicit annotation verbatim and bypasses facet-derived store types, so with them in place the convention emits **zero** `AlterColumn`s and `StockItem.UnitPrice` stays at 2 decimals - the exact bug it looks like it fixes. `Clinic.VatRate` and `Invoice.VatRate` keep `(5,2)` via a retained annotation with the reason at each site: they are rates, not money (AC-P4.38). `verify-schema` asserts both halves.
   - **UTC everywhere**: `OnModelCreating` installs a global value converter forcing every `DateTime`/`DateTime?`
     to UTC (PostgreSQL `timestamp with time zone`), and `SaveChanges`/`SaveChangesAsync` re-run
     `ConvertDateTimesToUtc()` on Added/Modified entries (belt-and-suspenders). `Unspecified` is assumed UTC.

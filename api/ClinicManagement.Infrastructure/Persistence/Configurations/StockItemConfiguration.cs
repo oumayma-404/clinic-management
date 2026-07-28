@@ -52,21 +52,26 @@ public class StockItemConfiguration : IEntityTypeConfiguration<StockItem>
             .IsRequired()
             .HasDefaultValue(0);
 
-        builder.Property(s => s.UnitPrice)
-            .HasColumnType("decimal(18,2)");
+        // UnitPrice carries NO explicit HasColumnType: it is governed by the model-wide
+        // `HavePrecision(18,3)` convention (AC-P4.36/4.37). It was the one money column left at
+        // `decimal(18,2)`, silently truncating the millime on every Tunisian price.
+        builder.Property(s => s.UnitPrice);
 
         builder.Property(s => s.Supplier)
             .HasMaxLength(200);
 
-        builder.Property(s => s.ExpiryDate);
-
-        builder.Property(s => s.BatchNumber)
-            .HasMaxLength(100);
-
+        // ExpiryDate / BatchNumber are gone — they now live per lot on StockBatch (AC-P4.1), because AddStock
+        // overwrote them and a second delivery destroyed the first lot's date.
         builder.Property(s => s.CreatedAt)
             .IsRequired();
 
         builder.Property(s => s.UpdatedAt);
+
+        // The lots are a backing-field collection on the aggregate (AC-P4.1) — EF needs telling, since the
+        // public surface is an IReadOnlyCollection.
+        builder.Metadata
+            .FindNavigation(nameof(StockItem.Batches))!
+            .SetPropertyAccessMode(PropertyAccessMode.Field);
     }
 }
 

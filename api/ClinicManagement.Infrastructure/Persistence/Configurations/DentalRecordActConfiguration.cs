@@ -24,12 +24,10 @@ public class DentalRecordActConfiguration : IEntityTypeConfiguration<DentalRecor
             .IsRequired()
             .HasMaxLength(300);
 
-        builder.Property(a => a.Cost)
-            .HasColumnType("decimal(18,3)");
+        builder.Property(a => a.Cost);
 
         // Pricing provenance: the unit price the total was built from, and whether it was multiplied by teeth.
-        builder.Property(a => a.UnitCost)
-            .HasColumnType("decimal(18,3)");
+        builder.Property(a => a.UnitCost);
 
         builder.Property(a => a.IsPerTooth)
             .IsRequired();

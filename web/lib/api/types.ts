@@ -1,3 +1,15 @@
+/** One received lot of a stock item (AC-P4.3), soonest-expiry first in `StockItemDto.batches`. */
+export interface StockBatchDto {
+  id: string;
+  receivedQuantity: number;
+  remainingQuantity: number;
+  expiryDate?: string | null;
+  batchNumber?: string | null;
+  receivedAt: string;
+  /** At or past its expiry date, and still holding stock. */
+  isExpired: boolean;
+}
+
 export interface StockItemDto {
   id: string;
   name: string;
@@ -10,6 +22,19 @@ export interface StockItemDto {
   unitPrice?: number | null;
   supplier?: string | null;
   isLowStock: boolean;
+  /**
+   * The lots on the shelf (AC-P4.1/4.3). Replaces the single scalar expiry the item used to carry, which
+   * showed whatever arrived LAST rather than the date that actually matters.
+   */
+  batches: StockBatchDto[];
+  /** The soonest expiry still holding stock — the lot that is actually expiring (AC-P4.3). */
+  earliestExpiry?: string | null;
+  /** A lot on the shelf is at or past its expiry (AC-P4.5). Drives the row highlight. */
+  hasExpiredStock: boolean;
+  /** A lot expires inside the clinic's configured lead time (AC-P4.6). */
+  isExpiringSoon: boolean;
+  /** Concurrency token, echoed back on update so a concurrent consume 409s (AC-P4.18). */
+  version: number;
   createdAt: string;
   updatedAt?: string;
 }

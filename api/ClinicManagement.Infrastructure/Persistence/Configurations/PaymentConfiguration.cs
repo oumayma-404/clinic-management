@@ -18,8 +18,7 @@ public class PaymentConfiguration : IEntityTypeConfiguration<Payment>
         builder.Property(p => p.InvoiceId)
             .IsRequired();
 
-        builder.Property(p => p.Amount)
-            .HasColumnType("decimal(18,3)");
+        builder.Property(p => p.Amount);
 
         builder.Property(p => p.Method)
             .IsRequired()
