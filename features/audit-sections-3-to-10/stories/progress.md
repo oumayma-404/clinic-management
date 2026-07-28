@@ -12,7 +12,7 @@
 
 | Part | Delivers | Depends on | Status |
 |---|---|---|---|
-| **P1** Appointment lifecycle & booking | 3.1, 3.2, 3.4, 5.4, 6.1, 6.9, 8.1, 8.4 | — | **in progress** — steps 1–3 done (status machine, `02dcc17`); ⚠️ suite unverified, see the blocker below |
+| **P1** Appointment lifecycle & booking | 3.1, 3.2, 3.4, 5.4, 6.1, 6.9, 8.1, 8.4 | — | **in progress** — steps 1–3, 5–7, 10, 14 + a11y done (`02dcc17`, `a813268`, `767ecae`, `1574c2e`). **Remaining: the 3 migrations (SAC-blocked), the per-doctor hours editor UI, the calendar grid, `verify-schema`** |
 | **P2** Finish what's built | 5.1–5.3, 5.5–5.9, 5.11, 5.12, 6.10, 6.11, 8.3 | — | **complete** — all 13 steps, AC-P2.1–2.45 |
 | **P3** UX, accessibility & French | 3.3, 6.3, 7.1–7.9, 8.2, 8.6 | — | not-started |
 | **P4** Stock, realtime & schema | 6.6, 6.7, 6.12, 9.1–9.6 | — | not-started |
@@ -37,7 +37,30 @@ explicitly by path — never `git add -A` / `git add .`:
 > Note for future sessions: an earlier merge into `feature/windows-desktop-app` used `git add -A` and swept this
 > feature's `exploration.md` into an unrelated commit (`b0c472e "claude files"`). Stage by path.
 
-## ⛔ BLOCKER — the unit-test gate stopped working mid-session (2026-07-28)
+## ⚠️ BLOCKER, partly resolved — Smart App Control (2026-07-28)
+
+**Resolved for the test suite.** Clearing every `bin/`+`obj/` and running `dotnet build-server shutdown`
+makes freshly-built assemblies loadable again. Current state: **919 pass, 0 real failures**.
+
+**Still blocking 279 tests.** SAC blocks `ClinicManagement.Infrastructure.dll` **specifically, by content** —
+`Unblock-File` does nothing (there is no MOTW/Zone.Identifier) and copying a byte-identical copy that loaded
+successfully moments earlier is also refused. Every one of the 279 failures traces to that single file: 235
+`FileLoadException`, 29 `TypeInitializationException`, 2 `ReflectionTypeLoadException`, and 13 `Assert.Throws`
+failures that are all inside `UnitTests.Infrastructure.*` (the expected exception arrived as a
+`FileLoadException`). To verify your own work, filter to the classes that do not load Infrastructure.
+
+**Still blocking migrations, intermittently.** `dotnet ef migrations add` fails the same way
+(`FileLoadException … ClinicManagement.Infrastructure.dll … 0x800711C7`). It succeeded **once**, immediately
+after a `bin` clean + build-server shutdown, then broke again — so SAC's verdict is time-varying, presumably a
+cloud-reputation lookup. **Retry after a clean; do not assume a failure is permanent.**
+
+> ⚠️ **Do not mix `dotnet-ef` versions.** The global tool is **10.0.3**; installing a local 8.0.11 and running
+> `migrations add` with it emitted a spurious `AddColumn "TokenVersion"` for a column that already exists in
+> both the DB and the snapshot, because the committed snapshot was written by EF 10 (`.ValueGeneratedOnAdd()`
+> on that property). Applying it would have failed on "column already exists". The bad migration and its
+> snapshot edit were reverted; the local manifest was removed. **Generate with the global EF 10 tool only.**
+
+## ⛔ Original blocker as first diagnosed (kept for the record)
 
 **Windows Smart App Control now blocks every freshly-built test assembly** with `0x800711C7`, including the
 project's own `bin/Debug/net8.0/`. The documented workaround —
@@ -143,6 +166,46 @@ is, one map at the client's derivation point is the whole fix — and make the m
 through) so re-saving historical rows is safe.
 
 ## Session log
+
+### 2026-07-28 — P1 steps 5–7, 10, 14 + a11y (commits `a813268`, `767ecae`, `1574c2e`)
+
+Closes **AC-P1.6, 1.20–1.21, 1.23, 1.26–1.32, 1.36–1.46, 1.53** and **A-3, A-5, A-6, A-7, A-10** (+ two more
+`ex.Message` leaks found in the same files: `GetDoctorWorkingHoursQuery` and an English one in
+`CreateDentalRecordCommand`).
+
+| Delivered | Where |
+|---|---|
+| Real working-hours validation; `Unreadable` distinguished from `Unset` | `DTOs/WorkingHoursDto.cs` |
+| `WorkingHoursResolver` — doctor → clinic → none, the one resolver (there was none) | `Common/Services/` |
+| `ClinicClock` — Tunisia UTC+1, replaces two copied private helpers (**also P6 step 1**) | `Common/ClinicClock.cs` |
+| `AppointmentScheduling` — the single overlap rule + the hours check | `Features/Appointments/` |
+| Hours + collision enforced on create, update-on-schedule-change, every recurring occurrence | 3 handlers |
+| `Appointment.BookedOutsideWorkingHours` + any-role override | Domain |
+| `appointment-labels.ts` — status + gender, replacing 4 render styles and 3 colour palettes | `web/components/` |
+| Status Select driven by `allowedNextStatuses`; recurring conflict list with « Replanifier »; 6 a11y labels | `web/` |
+
+**Findings worth keeping.**
+1. **`"[]"` counted as valid working hours** and wiped a clinic's real hours through `UpdateClinicCommand`;
+   `SetDoctorWorkingHoursCommand` never null-checked `Normalize`, so an invalid payload silently *cleared* the
+   override. Both closed.
+2. **The overlap predicate had already drifted in production**: the recurring copy excluded only `Cancelled`,
+   not `NoShow`, so a series refused slots the single-appointment path considered free.
+3. **A series could double-book itself.** `existing` is loaded once before the loop, so occurrences were never
+   checked against each other — harmless until the DB constraint lands, at which point one violation would
+   abort the whole series instead of skipping one occurrence.
+4. **My own new test caught a real gap in itself**: `Reschedule` *preserves* `Confirmed`/`InProgress` (the A-2
+   fix), so it never attempts a transition to `Scheduled` and correctly does not throw. `Confirmed → Scheduled`
+   was removed from the table and is asserted directly instead.
+
+| Gate | Result |
+|---|---|
+| Backend build (`--no-incremental`) | 0 errors, 56 warnings (baseline), 0 in changed files |
+| Unit suite | **919 pass / 0 real failures**; 279 SAC-blocked (see the blocker section) |
+| Appointment-related classes incl. `ConcurrencyConflictTests` | **134 / 134 pass** |
+| `tsc --noEmit` · `npm run build` | clean · clean, 27/27 pages |
+
+⚠️ **`Appointment.BookedOutsideWorkingHours` has no migration yet** — the column exists in the model only.
+That is the first thing to generate once SAC lets `migrations add` through.
 
 ### 2026-07-28 — P1 steps 1–3: one appointment status machine (partial P1)
 
