@@ -286,27 +286,34 @@ export function Odontogram({ patientId, onCreatePlan }: OdontogramProps) {
             <div className="text-center text-[10px] font-medium text-muted-foreground">Mandibule (bas)</div>
           </div>
         </div>
+
+            {/* The condition palette belongs to THIS chart. It used to sit outside the tabs, so all nine
+                conditions were also listed under « Actes réalisés » — a palette that view does not use. */}
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
+              {CONDITION_ORDER.map((c) => (
+                <div key={c} className="flex items-center gap-1.5">
+                  <span className={cn("h-4 w-4 rounded border", conditionStyle(c).swatch)} />
+                  <span className="text-muted-foreground">{conditionStyle(c).label}</span>
+                </div>
+              ))}
+              <div className="flex items-center gap-1.5">
+                <span className="h-4 w-4 rounded border-2 border-dashed border-muted-foreground/60" />
+                <span className="text-muted-foreground">Diagnostic (à traiter)</span>
+              </div>
+            </div>
           </TabsContent>
 
           <TabsContent value="acts" className="mt-3">
-            <OdontogramActsChart isAdult={isAdult} entries={entries} records={records} />
+            <OdontogramActsChart
+              teeth={teeth}
+              entries={entries}
+              records={records}
+              procedureTypes={procedureTypes}
+            />
           </TabsContent>
         </Tabs>
       )}
 
-      {/* Legend */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
-        {CONDITION_ORDER.map((c) => (
-          <div key={c} className="flex items-center gap-1.5">
-            <span className={cn("h-4 w-4 rounded border", conditionStyle(c).swatch)} />
-            <span className="text-muted-foreground">{conditionStyle(c).label}</span>
-          </div>
-        ))}
-        <div className="flex items-center gap-1.5">
-          <span className="h-4 w-4 rounded border-2 border-dashed border-muted-foreground/60" />
-          <span className="text-muted-foreground">Diagnostic (à traiter)</span>
-        </div>
-      </div>
     </div>
   )
 }
