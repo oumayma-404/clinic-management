@@ -118,6 +118,33 @@ public class InvoicesController : ApiControllerBase
         return CreatedAtAction(nameof(GetInvoice), new { id = result.Value!.Id }, result.Value);
     }
 
+    /// <summary>
+    /// Bill a fiche de soins: raise the note d'honoraires from the session's acts, <b>issue</b> it, and — when
+    /// <c>paidNow</c> is supplied — record that payment, atomically.
+    /// <para>
+    /// ⚠️ Unlike <c>from-plan</c> this does <b>not</b> produce a draft: a payment can only exist on an issued
+    /// invoice, so a gapless per-clinic number is consumed. Correcting a mis-keyed amount afterwards means an
+    /// <b>avoir</b>, not an edit — the client must confirm before calling.
+    /// </para>
+    /// </summary>
+    [HttpPost("from-dental-record/{dentalRecordId:guid}")]
+    public async Task<ActionResult<InvoiceDto>> CreateInvoiceFromDentalRecord(
+        Guid dentalRecordId,
+        [FromBody] DentalRecordPaymentRequest? paidNow = null,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _mediator.Send(
+            new CreateInvoiceFromDentalRecordCommand { DentalRecordId = dentalRecordId, PaidNow = paidNow },
+            cancellationToken);
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+
+        return CreatedAtAction(nameof(GetInvoice), new { id = result.Value!.Id }, result.Value);
+    }
+
     /// <summary>Update a draft invoice (lines / patient).</summary>
     [HttpPut("{id}")]
     public async Task<ActionResult<InvoiceDto>> UpdateInvoice(Guid id, [FromBody] UpdateInvoiceCommand command, CancellationToken cancellationToken = default)

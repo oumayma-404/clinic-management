@@ -67,6 +67,23 @@ export const invoicesApi = {
   createFromPlan: async (planId: string): Promise<InvoiceDto> =>
     apiPost<InvoiceDto>(`/invoices/from-plan/${planId}`, {}),
 
+  /**
+   * Bill a fiche de soins: the server prices the session's acts, **issues** the note (consuming a number) and,
+   * when `paidNow` is supplied, records that payment — atomically.
+   *
+   * ⚠️ Unlike `createFromPlan` this does NOT produce a draft. A payment can only exist on an issued invoice, so
+   * a mis-keyed amount is corrected with an avoir, not an edit — confirm before calling.
+   *
+   * The line pricing (per-tooth acts bill as quantity × unit price) is deliberately **server-side**: it used to
+   * be computed in the patient page to seed a form, which made the browser a second authority over how recorded
+   * work becomes money.
+   */
+  createFromDentalRecord: async (
+    dentalRecordId: string,
+    paidNow: { amount: number; method: string; paidOn: string } | null,
+  ): Promise<InvoiceDto> =>
+    apiPost<InvoiceDto>(`/invoices/from-dental-record/${dentalRecordId}`, paidNow),
+
   update: async (
     id: string,
     data: CreateInvoiceRequest & { version?: number },

@@ -12,7 +12,7 @@ import { DashboardHeader } from "@/components/dashboard-header"
 import { DashboardSidebar } from "@/components/dashboard-sidebar"
 import { ClinicGuard } from "@/components/clinic-guard"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -37,11 +37,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { ArrowDownCircle, ArrowUpCircle, Loader2, Pencil, Plus, Trash2, Wallet } from "lucide-react"
+import { ArrowDownCircle, ArrowLeftRight, ArrowUpCircle, Loader2, Pencil, Plus, Trash2, Undo2, Wallet } from "lucide-react"
 import { expensesApi, type ExpensePayload } from "@/lib/api/expenses"
+import { CaisseLedgerTable } from "@/components/caisse/caisse-ledger-table"
 import { ApiError } from "@/lib/api/client"
 import { formatDT } from "@/lib/format"
-import type { CaisseSummaryDto, ExpenseDto } from "@/lib/api/types"
+import type { CaisseLedgerDto, CaisseSummaryDto, ExpenseDto } from "@/lib/api/types"
 
 // --- Domain constants -----------------------------------------------------------------------------
 
@@ -95,6 +96,9 @@ export default function CaissePage() {
   // The range's end. Empty means "one day" — the daily till, which is what this screen is for.
   const [endDay, setEndDay] = useState<string>("")
   const [summary, setSummary] = useState<CaisseSummaryDto | null>(null)
+  // The « extrait »: every movement behind the three totals above it. Fetched alongside them from the same
+  // window, so the lines and the figures can never describe different periods.
+  const [ledger, setLedger] = useState<CaisseLedgerDto | null>(null)
   const [expenses, setExpenses] = useState<ExpenseDto[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -116,11 +120,13 @@ export default function CaissePage() {
     try {
       setLoading(true)
       setError(null)
-      const [summaryData, expensesData] = await Promise.all([
+      const [summaryData, ledgerData, expensesData] = await Promise.all([
         expensesApi.caisseSummary(from, to),
+        expensesApi.caisseLedger(from, to),
         expensesApi.list(from, to),
       ])
       setSummary(summaryData)
+      setLedger(ledgerData)
       setExpenses(expensesData)
     } catch (err) {
       const message = err instanceof ApiError ? err.message : "Échec du chargement de la caisse"
@@ -162,6 +168,7 @@ export default function CaissePage() {
   }, [selectedDay, endDay, isRange])
 
   const cashIn = summary?.cashIn ?? 0
+  const refunds = summary?.refunds ?? 0
   const cashOut = summary?.cashOut ?? 0
   const net = summary?.net ?? 0
 
@@ -253,8 +260,11 @@ export default function CaissePage() {
                 </div>
               </div>
 
-              {/* Caisse summary */}
-              <div className="grid gap-4 sm:grid-cols-3">
+              {/* Caisse summary. Four figures, not three: « Encaissements » is now GROSS and avoirs have their own
+                  card. They used to be silently subtracted inside it, which stopped working the moment the
+                  statement below listed a refund as money leaving — the lines would not have summed to the total
+                  printed above them. Net = Encaissements − Avoirs − Dépenses. */}
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 <Card>
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                     <CardTitle className="text-sm font-medium text-muted-foreground">Encaissements</CardTitle>
@@ -262,6 +272,16 @@ export default function CaissePage() {
                   </CardHeader>
                   <CardContent>
                     <div className="text-2xl font-semibold text-emerald-600">{formatDT(cashIn)}</div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium text-muted-foreground">Avoirs remboursés</CardTitle>
+                    <Undo2 className="h-4 w-4 text-amber-600" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-semibold text-amber-600">{formatDT(refunds)}</div>
                   </CardContent>
                 </Card>
 
@@ -291,6 +311,33 @@ export default function CaissePage() {
                   </CardContent>
                 </Card>
               </div>
+
+              {/* The « extrait » — the statement behind the four figures above. It sits above the expenses table
+                  because the expenses are a subset of it; that table stays for its edit/delete actions, which
+                  belong to the expense aggregate and not to a read-only movement line. */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <ArrowLeftRight className="h-5 w-5" />
+                    Extrait de caisse
+                    <Badge variant="secondary" className="ml-2">
+                      {ledger?.movements.length ?? 0}
+                    </Badge>
+                  </CardTitle>
+                  <CardDescription>
+                    Tous les mouvements de la période, du plus ancien au plus récent — paiements de factures,
+                    échéances de devis, avoirs remboursés et dépenses. Un mouvement annulé reste visible, barré,
+                    et ne compte pas dans le solde.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {error && !loading ? (
+                    <p className="py-8 text-center text-sm text-destructive">{error}</p>
+                  ) : (
+                    <CaisseLedgerTable movements={ledger?.movements ?? []} loading={loading} />
+                  )}
+                </CardContent>
+              </Card>
 
               {/* Expenses table */}
               <Card>

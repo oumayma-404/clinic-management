@@ -73,7 +73,7 @@ import { Edit } from "lucide-react"
 import { Receipt } from "lucide-react"
 import { Smile, ClipboardCheck } from "lucide-react"
 import { InvoicesTable } from "@/components/factures/invoices-table"
-import { InvoiceFormModal } from "@/components/factures/invoice-form-modal"
+import { BillDentalRecordDialog } from "@/components/factures/bill-dental-record-dialog"
 import { Odontogram } from "@/components/odontogram"
 import { TreatmentPlansTable } from "@/components/treatment-plans/treatment-plans-table"
 import { PatientPlanCard } from "@/components/treatment-plans/patient-plan-card"
@@ -1787,31 +1787,23 @@ export default function PatientDetailsPage() {
         }}
       />
 
-      {/* Facturer cette intervention — pre-filled draft from a dental record (create-only). */}
-      <InvoiceFormModal
-        open={!!billingRecord}
+      {/*
+        Facturer cette intervention — issues the note d'honoraires AND records the cash taken at the end of the
+        session, in one action.
+
+        This replaced a prefilled `InvoiceFormModal`, and the replacement is the point. That flow produced a
+        *draft*, so money the dentist had already been handed still needed a second, separate action nobody was
+        prompted to take — which is how `DentalRecord.AmountPaid` became a field shaped like a receipt that no
+        money read has ever touched.
+
+        The per-tooth pricing rule that used to be computed right here (quantity × unit price vs. one flat fee)
+        moved to the server (`DentalRecordInvoiceLines`). It was **moved, not copied**: two implementations of
+        how recorded work becomes money is the § 5.10 defect in a new place.
+      */}
+      <BillDentalRecordDialog
+        record={billingRecord}
+        patientName={patientName}
         onOpenChange={(open) => { if (!open) setBillingRecord(null) }}
-        presetPatientId={patient.id}
-        presetPatientName={patientName}
-        presetLines={
-          billingRecord
-            ? billingRecord.acts && billingRecord.acts.length > 0
-              ? billingRecord.acts.map((act) => {
-                  const teeth = act.toothNumbers ?? []
-                  const designation =
-                    teeth.length > 0 ? `${act.procedureName} (dents ${teeth.join(", ")})` : act.procedureName
-                  // A per-tooth act bills as quantity × unit price, so the note d'honoraires shows what the
-                  // total covers. A flat fee (or a legacy act with no captured unit price) stays one line.
-                  const unit = act.unitCost
-                  if (act.isPerTooth && teeth.length > 0 && unit != null) {
-                    return { designation, quantity: teeth.length, unitPriceHt: unit }
-                  }
-                  return { designation, quantity: 1, unitPriceHt: act.cost }
-                })
-              : [{ designation: billingRecord.procedureType, quantity: 1, unitPriceHt: billingRecord.cost }]
-            : undefined
-        }
-        dentalRecordId={billingRecord?.id}
         onSuccess={() => setRefreshKey((k) => k + 1)}
       />
 

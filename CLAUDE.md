@@ -112,6 +112,76 @@ Frontend talks to the API via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
   Logic in `Application/Common/Maintenance/SchemaVerificationService.cs`, both-sides reader in
   `Infrastructure/Persistence/SchemaVerificationReader.cs`.
 
+- **Tunisia is UTC+1, and `ClinicClock` is the only thing that knows it (`audit-sections-3-to-10` P6)**: the solution had
+  **no clock abstraction** — 292 × `DateTime.UtcNow`, 5 × `DateTime.Today` (the *server machine's* zone, a third
+  convention) and two byte-identical private copies of a timezone helper. `Application/Common/ClinicClock.cs` is now the
+  single authority: `ClinicToday`/`ClinicYear`, `StartOfLocalDayUtc`/`EndOfLocalDayUtc`, and the three P6 additions
+  `LastTickOfLocalDayUtc`/`LocalDayRangeUtc`/**`TodayRangeUtc`** ("what a query means by today"). It closed the audit's
+  only 🔴: **invoice, devis *and* avoir numbers took their year from `DateTime.UtcNow.Year`**, so a note issued at 00:30
+  on 1 January Tunis was numbered into the fiscal year that had just closed — and a document number is legal identity,
+  gapless per year, with no correcting it afterwards. Same root cause, six more places: la caisse's « aujourd'hui »
+  default, the four reads that take **no date arguments** at all (« Solde patient », « Créances », les relances, the AI
+  summary — so no caller could compensate), and the AI assistant's « demain ».
+  ⚠️ Two traps worth knowing. (a) `EndOfLocalDayUtc` is the *next* midnight (**exclusive**) while every money read is
+  inclusive on both ends — use `LastTickOfLocalDayUtc`, or a midnight payment lands in **both** adjacent periods
+  (finding #20). (b) On the client the equivalent is **`todayLocalIso()`** (`web/lib/format.ts`), never
+  `new Date().toISOString().slice(0, 10)`: `toISOString` converts to UTC first, so for the first hour of every Tunisian
+  day it pre-filled *yesterday* — that was the one genuinely user-visible symptom, a payment taken at 00:30 booked to the
+  previous day and, on the 1st, the previous month.
+- **A visit knows whether it was billed (`audit-sections-3-to-10` P6)**: `Invoice.AppointmentId` had existed since the
+  invoice was written — accepted by the command, returned by the DTO, mapped by EF — and **nothing had ever populated
+  it**, so « cette consultation a-t-elle été facturée ? » had no answer on any screen. The write side now validates the
+  id against the caller's clinic **and** the invoice's patient (a column nobody writes is a column nobody validates);
+  the read side is `IInvoiceRepository.GetAppointmentLinksAsync` → **`AppointmentInvoiceLinks`**, one batched projection
+  feeding `AppointmentDto.InvoiceId`/`InvoiceNumber`. It is a shared helper rather than inline code because both
+  appointment reads must agree on *which* invoice counts: a **cancelled** note does not bill the visit (« Facturé » with
+  no money behind it, and it would hide the action to raise a replacement), and an issued one beats a stray draft.
+  Unlike its two clinic-wide siblings (`GetTreatmentPlanLinksAsync`, `GetDentalRecordLinksAsync`) it is **bounded by the
+  caller's id set** — the agenda has a date window, and annotating one week must not read every appointment-linked
+  invoice the clinic has ever raised. ⚠️ Note what is still **not** money: a fiche de soins carries `Cost`/`AmountPaid`
+  that **no money read touches** — encaissements are invoice `Payment` rows plus plan `InstallmentPayment` rows, minus
+  avoirs, and nothing else. A visit is financially invisible until a note d'honoraires or an échéance exists.
+- **One CNAM calculator (`audit-sections-3-to-10` P6)**: the reimbursement estimate existed **twice** — the tested
+  backend `CnamReimbursementCalculator` and a client-side copy in `web/lib/api/cnam-nomenclature.ts` with its own
+  `CHILD_RATE`/`ADULT_RATE`, guaranteed to drift the first time CNAM moved a rate or a band edge. The client copy is
+  deleted; the BS1 editor calls a new **batch** endpoint (`POST /api/cnam-nomenclature/reimbursement-estimates`). Batch,
+  not the existing single-act GET, because the editor shows a live estimate **per act row** — N requests per keystroke is
+  what made a client-side copy attractive in the first place. Each item carries its own `careDate` (the rate turns on age
+  *at the care date*, and a bulletin's acts can straddle a birthday). Still editor-only: never persisted, never on the
+  BS1 PDF.
+- **La caisse has a statement, and it is a read (`caisse-extrait`)**: `GET /api/billing/caisse/ledger` returns the
+  **« extrait de caisse »** — every movement behind the totals, oldest first, with a running period balance. Before it,
+  la caisse showed three figures over a table of **expenses only**: the money-*out* side was itemised while
+  « Encaissé », the bigger number, was opaque, and no screen anywhere listed what made it up.
+  ⚠️ **There is no `CashMovement` table, deliberately.** `GetCaisseLedgerQuery` merges the four ledgers that already
+  exist (invoice `Payment`, devis `InstallmentPayment`, `CreditNote`, `Expense`) through the **same repository
+  predicates the totals sum** — the two row-level reads (`GetPaymentsBetweenAsync`,
+  `GetInstallmentPaymentsBetweenAsync`) are predicate-for-predicate copies of their sum siblings, including the
+  billed-plan de-dup. A movement table written by each money path is double bookkeeping: the day one write site
+  forgets, the statement and the totals disagree and nothing can say which is right. Reading the same rows makes
+  **`Σ movements == cashIn − refunds − cashOut == net`** an assertion a test holds (`CaisseLedgerTests`), which the
+  table design cannot offer. A **voided** row is listed with its motif and actor and excluded from the balance
+  (§ 1 keeps a void visible, struck through); `RunningBalance` is **window-relative** and labelled
+  « Solde de la période », not an account balance.
+  **`CaisseSummaryDto.CashIn` is now gross and `Refunds` is its own field** — it used to absorb avoirs silently,
+  which stopped working the moment a statement listed a refund as money leaving: the lines could not sum to the
+  total above them. The dashboard's Argent section gained the same split in the same change (the two are held equal
+  by `MoneyReadConsistencyTests`), so `Net = Collected − Refunds − Expenses` on both. A refund-only window now reads
+  honestly (`cashIn` 0, negative net) instead of reporting a *negative cash-in*, which is not a thing a till has.
+- **A session's payment reaches the till (`caisse-extrait`)**: `POST /api/invoices/from-dental-record/{id}` prices a
+  fiche de soins' acts, **issues** the note d'honoraires and — when `paidNow` is supplied — records that payment, in
+  **one transaction**. It closes the trap named in the invoice↔visit note above: `DentalRecord.AmountPaid` was read
+  by nothing but the fiche's own display, so a dentist could type an amount, see it on screen, and it would never
+  reach la caisse, the dashboard or the patient's balance. Cash lives in exactly two ledgers and the fix is to make
+  the fiche produce a real payment on a real numbered document — **not** to teach a fourth read about a fourth source.
+  ⚠️ Two things to know. (a) Unlike the devis bridge this does **not** produce a draft: a payment requires an
+  `Issued` invoice, so a **gapless number is consumed** and a mis-keyed amount is corrected by an **avoir**, never an
+  edit — which is why every validation (amount, method, date, over-payment against the TTC the invoice *will* freeze
+  via `InvoiceCalculator.Compute`) runs **before** the transaction opens. (b) The per-tooth pricing rule (quantity ×
+  unit price vs. one flat fee) **moved** out of the browser into `DentalRecordInvoiceLines` — it lived inline in the
+  patient page to seed a form, and two implementations of how recorded work becomes money is the § 5.10 defect in a
+  new place. The old prefilled `InvoiceFormModal` path on the fiche is replaced by `bill-dental-record-dialog.tsx`,
+  which shows the acts read-only and lets the server price them.
 - **The dashboard is a composed read, not a KPI bag (`dashboard-insights`)**: `GET /api/dashboard?period=Today|Week|Month`
   returns four sections — comparable **Activité** (RDV honorés, nouveaux patients, **taux d'absence**, devis acceptés) and
   **Argent** (encaissé, facturé, dépenses, net), the point-in-time **créances** total, the **À-traiter** counts across the

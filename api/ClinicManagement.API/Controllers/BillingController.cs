@@ -51,6 +51,18 @@ public class BillingController : ApiControllerBase
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
     }
 
+    /// <summary>
+    /// The « extrait de caisse » — every movement behind the totals above, oldest first, with a running
+    /// period balance. Same window as <c>billing/caisse</c> and the same clinic-local default, so the lines and
+    /// the totals always describe the same period.
+    /// </summary>
+    [HttpGet("billing/caisse/ledger")]
+    public async Task<ActionResult<CaisseLedgerDto>> GetCaisseLedger([FromQuery] DateTime? from = null, [FromQuery] DateTime? to = null, CancellationToken cancellationToken = default)
+    {
+        var result = await _mediator.Send(new GetCaisseLedgerQuery { From = from, To = to }, cancellationToken);
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
     /// <summary>Download the receipt (reçu) PDF for a single invoice payment. 404 if the payment is not found.</summary>
     [HttpGet("payments/{paymentId:guid}/receipt-pdf")]
     public async Task<IActionResult> GetPaymentReceiptPdf(Guid paymentId, CancellationToken cancellationToken = default)
