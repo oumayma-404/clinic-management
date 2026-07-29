@@ -155,9 +155,9 @@ public class CaisseLedgerTests
         var summary = await SummaryAsync();
 
         var live = ledger.Movements.Where(m => !m.IsVoided).ToList();
-        var moneyIn = live.Where(m => m.Direction == CaisseMovementDirection.In).Sum(m => m.Amount);
-        var refunded = live.Where(m => m.Kind == CaisseMovementKind.Refund).Sum(m => m.Amount);
-        var spent = live.Where(m => m.Kind == CaisseMovementKind.Expense).Sum(m => m.Amount);
+        var moneyIn = live.Where(m => m.Direction == nameof(CaisseMovementDirection.In)).Sum(m => m.Amount);
+        var refunded = live.Where(m => m.Kind == nameof(CaisseMovementKind.Refund)).Sum(m => m.Amount);
+        var spent = live.Where(m => m.Kind == nameof(CaisseMovementKind.Expense)).Sum(m => m.Amount);
 
         // If this ever fails, the statement is describing money the totals do not agree exists — which is the
         // entire failure mode a `CashMovement` table would have made unfalsifiable.
@@ -169,6 +169,37 @@ public class CaisseLedgerTests
         // And the last running balance is the period's net, so the column a reader follows down the page lands
         // on the figure printed above it.
         Assert.Equal(summary.Net, ledger.Movements[^1].RunningBalance);
+    }
+
+    /// <summary>
+    /// The wire contract. `Kind` and `Direction` must arrive as the exact NAMES the frontend switches on.
+    ///
+    /// <para>This is here because the first version of this feature typed them as C# enums, and the API registers
+    /// no <c>JsonStringEnumConverter</c> — so they went over the wire as <c>0</c>/<c>1</c>/<c>2</c>/<c>3</c>. The
+    /// icon lookup returned undefined and la caisse threw on render, while every test in this file passed: they
+    /// compared enum to enum, which is self-consistent on the server's side of the wire and says nothing about
+    /// what the client receives. Asserting the literal strings is what makes the mismatch detectable here.</para>
+    /// </summary>
+    [Fact]
+    public async Task Kind_And_Direction_Are_Serialized_As_Names_Not_Numbers()
+    {
+        Wire(
+            payments: new[] { Payment(100m, 2) },
+            installmentPayments: new[] { Installment(200m, 3) },
+            refunds: new[] { Refund(50m, 4) },
+            expenses: new[] { ExpenseFixture(30m, 5) });
+
+        var movements = (await LedgerAsync()).Movements;
+
+        Assert.Equal(
+            new[] { "InvoicePayment", "InstallmentPayment", "Refund", "Expense" }.OrderBy(k => k),
+            movements.Select(m => m.Kind).OrderBy(k => k));
+        Assert.All(movements, m => Assert.Contains(m.Direction, new[] { "In", "Out" }));
+
+        // And the names must stay derivable from the enum, so renaming a member cannot silently orphan the client.
+        Assert.All(
+            movements,
+            m => Assert.True(Enum.TryParse<CaisseMovementKind>(m.Kind, out _), $"'{m.Kind}' is not a kind name"));
     }
 
     // ---- Ordering and the running balance -----------------------------------
@@ -245,15 +276,15 @@ public class CaisseLedgerTests
 
         var byKind = (await LedgerAsync()).Movements.ToDictionary(m => m.Kind);
 
-        Assert.Equal(CaisseMovementDirection.In, byKind[CaisseMovementKind.InvoicePayment].Direction);
-        Assert.Equal(CaisseMovementDirection.In, byKind[CaisseMovementKind.InstallmentPayment].Direction);
-        Assert.Equal(CaisseMovementDirection.Out, byKind[CaisseMovementKind.Refund].Direction);
-        Assert.Equal(CaisseMovementDirection.Out, byKind[CaisseMovementKind.Expense].Direction);
+        Assert.Equal(nameof(CaisseMovementDirection.In), byKind[nameof(CaisseMovementKind.InvoicePayment)].Direction);
+        Assert.Equal(nameof(CaisseMovementDirection.In), byKind[nameof(CaisseMovementKind.InstallmentPayment)].Direction);
+        Assert.Equal(nameof(CaisseMovementDirection.Out), byKind[nameof(CaisseMovementKind.Refund)].Direction);
+        Assert.Equal(nameof(CaisseMovementDirection.Out), byKind[nameof(CaisseMovementKind.Expense)].Direction);
 
-        Assert.Equal("Paiement facture 2026-0012", byKind[CaisseMovementKind.InvoicePayment].Label);
-        Assert.Equal("Échéance devis 2026-0007", byKind[CaisseMovementKind.InstallmentPayment].Label);
-        Assert.Contains("Avoir 2026-0002", byKind[CaisseMovementKind.Refund].Label);
-        Assert.Contains("Consommables", byKind[CaisseMovementKind.Expense].Label);
+        Assert.Equal("Paiement facture 2026-0012", byKind[nameof(CaisseMovementKind.InvoicePayment)].Label);
+        Assert.Equal("Échéance devis 2026-0007", byKind[nameof(CaisseMovementKind.InstallmentPayment)].Label);
+        Assert.Contains("Avoir 2026-0002", byKind[nameof(CaisseMovementKind.Refund)].Label);
+        Assert.Contains("Consommables", byKind[nameof(CaisseMovementKind.Expense)].Label);
 
         // Amounts are always positive — the direction carries the sign, so a reader cannot mistake a refund for
         // income because of a lost minus.

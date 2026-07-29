@@ -106,7 +106,8 @@ public class GetCaisseLedgerQueryHandler : IRequestHandler<GetCaisseLedgerQuery,
 
             // Oldest first — a statement reads forward, and the running balance below only means anything in that
             // order. `Kind` then `Id` break ties so two movements on the same date never swap places between two
-            // reads of the same window (an unstable statement looks like the data changed).
+            // reads of the same window (an unstable statement looks like the data changed). Kind is a name rather
+            // than the enum, so the tie-break is alphabetical — arbitrary but stable, which is all it must be.
             var ordered = movements
                 .OrderBy(m => m.OccurredOn)
                 .ThenBy(m => m.Kind)
@@ -119,7 +120,9 @@ public class GetCaisseLedgerQueryHandler : IRequestHandler<GetCaisseLedgerQuery,
                 // A voided row is shown and does not move the balance — it was never really received.
                 if (!movement.IsVoided)
                 {
-                    balance += movement.Direction == CaisseMovementDirection.In ? movement.Amount : -movement.Amount;
+                    balance += movement.Direction == nameof(CaisseMovementDirection.In)
+                        ? movement.Amount
+                        : -movement.Amount;
                 }
                 movement.RunningBalance = InvoiceCalculator.RoundMoney(balance);
             }
@@ -144,8 +147,8 @@ public class GetCaisseLedgerQueryHandler : IRequestHandler<GetCaisseLedgerQuery,
     private static CaisseMovementDto FromInvoicePayment(CaissePaymentRow row, string? patientName) => new()
     {
         Id = row.PaymentId,
-        Kind = CaisseMovementKind.InvoicePayment,
-        Direction = CaisseMovementDirection.In,
+        Kind = nameof(CaisseMovementKind.InvoicePayment),
+        Direction = nameof(CaisseMovementDirection.In),
         OccurredOn = row.PaidOn,
         Amount = InvoiceCalculator.RoundMoney(row.Amount),
         Method = row.Method.ToString(),
@@ -165,8 +168,8 @@ public class GetCaisseLedgerQueryHandler : IRequestHandler<GetCaisseLedgerQuery,
     private static CaisseMovementDto FromInstallmentPayment(CaisseInstallmentPaymentRow row, string? patientName) => new()
     {
         Id = row.PaymentId,
-        Kind = CaisseMovementKind.InstallmentPayment,
-        Direction = CaisseMovementDirection.In,
+        Kind = nameof(CaisseMovementKind.InstallmentPayment),
+        Direction = nameof(CaisseMovementDirection.In),
         OccurredOn = row.PaidOn,
         Amount = InvoiceCalculator.RoundMoney(row.Amount),
         Method = row.Method.ToString(),
@@ -185,8 +188,8 @@ public class GetCaisseLedgerQueryHandler : IRequestHandler<GetCaisseLedgerQuery,
     private static CaisseMovementDto FromRefund(CreditNote note) => new()
     {
         Id = note.Id,
-        Kind = CaisseMovementKind.Refund,
-        Direction = CaisseMovementDirection.Out,
+        Kind = nameof(CaisseMovementKind.Refund),
+        Direction = nameof(CaisseMovementDirection.Out),
         OccurredOn = note.RefundedOn,
         Amount = InvoiceCalculator.RoundMoney(note.Amount),
         // An avoir's method is nullable — a legacy row may have none recorded.
@@ -203,8 +206,8 @@ public class GetCaisseLedgerQueryHandler : IRequestHandler<GetCaisseLedgerQuery,
     private static CaisseMovementDto FromExpense(Expense expense) => new()
     {
         Id = expense.Id,
-        Kind = CaisseMovementKind.Expense,
-        Direction = CaisseMovementDirection.Out,
+        Kind = nameof(CaisseMovementKind.Expense),
+        Direction = nameof(CaisseMovementDirection.Out),
         OccurredOn = expense.ExpenseDate,
         Amount = InvoiceCalculator.RoundMoney(expense.Amount),
         Method = expense.Method.ToString(),

@@ -51,9 +51,24 @@ public class CaisseMovementDto
     /// <summary>The underlying ledger row's id. Unique within its kind, not across kinds.</summary>
     public Guid Id { get; set; }
 
-    public CaisseMovementKind Kind { get; set; }
+    /// <summary>
+    /// A <see cref="CaisseMovementKind"/> <b>name</b>, not the enum.
+    /// <para>
+    /// ⚠️ Deliberately a string, following <c>InvoiceDto.Status</c> / <c>AppointmentDto.Status</c> /
+    /// <c>NotificationDto.Category</c>: this API registers <b>no</b> <c>JsonStringEnumConverter</c>, so a raw enum
+    /// property goes over the wire as an <b>integer</b>. Typing it as an enum here shipped `kind: 0` to a frontend
+    /// that switches on `"InvoicePayment"` — every icon lookup returned undefined and the page threw. The unit
+    /// tests could not catch it: they assert against the C# enum, which is correct on its own side of the wire.
+    /// </para>
+    /// </summary>
+    public string Kind { get; set; } = string.Empty;
 
-    public CaisseMovementDirection Direction { get; set; }
+    /// <summary>
+    /// A <see cref="CaisseMovementDirection"/> <b>name</b> — same reason as <see cref="Kind"/>. As an enum it
+    /// serialized as 0/1, so the client's `direction === "In"` was always false and every amount rendered as an
+    /// outflow: a wrong figure rather than a visible crash, which is the worse of the two failures.
+    /// </summary>
+    public string Direction { get; set; } = string.Empty;
 
     /// <summary>
     /// The date the movement is <b>attributed to</b> — <c>PaidOn</c> / <c>RefundedOn</c> / <c>ExpenseDate</c>,
