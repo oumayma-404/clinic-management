@@ -42,6 +42,7 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
     private readonly INotificationGenerator _notificationGenerator;
     private readonly IStockConsumptionService _stockConsumption;
     private readonly IRealtimeNotifier _realtimeNotifier;
+    private readonly ISender _sender;
     private readonly ILogger<CreateDentalRecordCommandHandler> _logger;
 
     public CreateDentalRecordCommandHandler(
@@ -55,6 +56,7 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
         INotificationGenerator notificationGenerator,
         IStockConsumptionService stockConsumption,
         IRealtimeNotifier realtimeNotifier,
+        ISender sender,
         ILogger<CreateDentalRecordCommandHandler> logger)
     {
         _patientRepository = patientRepository;
@@ -67,6 +69,7 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
         _notificationGenerator = notificationGenerator;
         _stockConsumption = stockConsumption;
         _realtimeNotifier = realtimeNotifier;
+        _sender = sender;
         _logger = logger;
     }
 
@@ -153,7 +156,14 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
                 record.Acts.Where(a => a.ProcedureTypeId.HasValue).Select(a => a.ProcedureTypeId!.Value).ToList(),
                 cancellationToken);
 
-            return Result<DentalRecordDto>.Success(record.ToDto());
+            // « Montant payé » becomes real money: raise the note d'honoraires and record the payment. Post-commit
+            // and last, after the two side effects above have finished with the DbContext — the billing opens its
+            // own transaction. Best-effort for the record, never silent about the cash (see DentalRecordAutoBilling).
+            var dto = record.ToDto();
+            dto.Billing = await DentalRecordAutoBilling.BillIfPaidAsync(
+                _sender, record, request.AmountPaid, _logger, cancellationToken);
+
+            return Result<DentalRecordDto>.Success(dto);
         }
         catch (ArgumentException ex)
         {

@@ -1,4 +1,5 @@
 using MediatR;
+using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
@@ -40,6 +41,8 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IStockConsumptionService _stockConsumption;
+    private readonly ISender _sender;
+    private readonly ILogger<UpdateDentalRecordCommandHandler> _logger;
 
     public UpdateDentalRecordCommandHandler(
         IDentalRecordRepository dentalRecordRepository,
@@ -48,7 +51,9 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
         ITreatmentPlanRepository treatmentPlanRepository,
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
-        IStockConsumptionService stockConsumption)
+        IStockConsumptionService stockConsumption,
+        ISender sender,
+        ILogger<UpdateDentalRecordCommandHandler> logger)
     {
         _dentalRecordRepository = dentalRecordRepository;
         _patientRepository = patientRepository;
@@ -57,6 +62,8 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
         _stockConsumption = stockConsumption;
+        _sender = sender;
+        _logger = logger;
     }
 
     public async Task<Result<DentalRecordDto>> Handle(UpdateDentalRecordCommand request, CancellationToken cancellationToken)
@@ -151,7 +158,16 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
                 clinicResult.Value, dentalRecord.Id, addedProcedureIds, cancellationToken);
 
             dentalRecord = await _dentalRecordRepository.GetByIdAsync(request.Id, cancellationToken);
-            return Result<DentalRecordDto>.Success(dentalRecord!.ToDto());
+
+            // Same auto-billing as on create — and this is the path where the already-billed guard earns its
+            // keep: a fiche is re-saved routinely (a corrected note, one more tooth), and each re-save must not
+            // raise a second note d'honoraires. The guard lives in
+            // CreateInvoiceFromDentalRecordCommand, which is why this delegates rather than re-deciding.
+            var dto = dentalRecord!.ToDto();
+            dto.Billing = await DentalRecordAutoBilling.BillIfPaidAsync(
+                _sender, dentalRecord, request.AmountPaid, _logger, cancellationToken);
+
+            return Result<DentalRecordDto>.Success(dto);
         }
         catch (ArgumentException ex)
         {

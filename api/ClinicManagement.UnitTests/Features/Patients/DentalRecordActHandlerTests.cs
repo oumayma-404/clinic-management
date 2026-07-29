@@ -7,6 +7,7 @@ using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Domain.ValueObjects;
 using Microsoft.Extensions.Logging.Abstractions;
+using MediatR;
 using Moq;
 using Xunit;
 
@@ -90,14 +91,22 @@ public class DentalRecordActHandlerTests
         /// </summary>
         public Mock<IStockConsumptionService> StockConsumption { get; } = new();
 
+        /// <summary>
+        /// Auto-billing is a post-commit best-effort side effect like stock consumption, so a bare sender is
+        /// enough here — `DentalRecordAutoBillingTests` covers the behaviour itself. A bare `Mock&lt;ISender&gt;`
+        /// returns a null `Result`, which the seam treats as a failure and reports rather than throwing; these
+        /// act/odontogram tests only care that the record itself still saves.
+        /// </summary>
+        public Mock<ISender> Sender { get; } = new();
+
         public CreateDentalRecordCommandHandler CreateHandler() => new(
             Patients.Object, Records.Object, ToothStates.Object, Plans.Object, Appointments.Object,
             Resolver.Object, Uow.Object, Generator.Object, StockConsumption.Object, Realtime.Object,
-            NullLogger<CreateDentalRecordCommandHandler>.Instance);
+            Sender.Object, NullLogger<CreateDentalRecordCommandHandler>.Instance);
 
         public UpdateDentalRecordCommandHandler UpdateHandler() => new(
             Records.Object, Patients.Object, ToothStates.Object, Plans.Object, Resolver.Object, Uow.Object,
-            StockConsumption.Object);
+            StockConsumption.Object, Sender.Object, NullLogger<UpdateDentalRecordCommandHandler>.Instance);
 
         public CreateDentalRecordCommand CreateCommand(params DentalActInput[] acts) => new()
         {

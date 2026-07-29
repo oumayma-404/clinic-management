@@ -527,6 +527,34 @@ export interface DentalRecordDto {
   acts: DentalRecordActDto[];
   createdAt: string;
   updatedAt?: string;
+  /**
+   * What saving this fiche did about its « Montant payé » — present on the create/update responses only, since
+   * it is the outcome of a post-commit side effect rather than stored state (a later GET leaves it undefined).
+   *
+   * The billing is best-effort for the *record* but must never be silent about the *cash*: a swallowed failure
+   * would leave the user believing money was recorded when it was not, which is the very defect this replaced.
+   */
+  billing?: DentalRecordBillingDto | null;
+}
+
+/** The money outcome of a fiche save. Mirrors the backend `DentalRecordBillingOutcome`. */
+export type DentalRecordBillingOutcome =
+  /** No payment on the fiche, so nothing was billed. Not an error. */
+  | 'NotCollected'
+  /** A note d'honoraires was issued and the payment recorded. */
+  | 'Billed'
+  /** The fiche was already on a live note — the expected outcome of re-saving one. */
+  | 'AlreadyBilled'
+  /** The record saved, the billing did not. The user has to be told. */
+  | 'Failed';
+
+export interface DentalRecordBillingDto {
+  outcome: DentalRecordBillingOutcome;
+  invoiceId?: string | null;
+  invoiceNumber?: string | null;
+  amountCollected?: number | null;
+  /** French reason, for `Failed` and `AlreadyBilled`. */
+  message?: string | null;
 }
 
 // Per-act input when creating/updating a dental record (used for both create and update).

@@ -390,12 +390,36 @@ export function PatientRecordModal({
         appointmentId: appointmentId ?? null,
       }
 
-      if (record) {
-        await dentalRecordsApi.update(patientId, record.id, { ...recordData, version: record.version })
-        toast.success("Fiche dentaire mise à jour")
-      } else {
-        await dentalRecordsApi.create(patientId, recordData)
-        toast.success("Fiche dentaire enregistrée")
+      const saved = record
+        ? await dentalRecordsApi.update(patientId, record.id, { ...recordData, version: record.version })
+        : await dentalRecordsApi.create(patientId, recordData)
+
+      // « Montant payé » now becomes real money — the note d'honoraires is issued and the payment recorded on
+      // save. Say which, and say it plainly: the whole reason that field was a trap is that it looked like a
+      // receipt while nothing downstream read it, so the one thing this must never do is stay quiet.
+      const base = record ? "Fiche dentaire mise à jour" : "Fiche dentaire enregistrée"
+      switch (saved.billing?.outcome) {
+        case "Billed":
+          toast.success(base, {
+            description: `Note n° ${saved.billing.invoiceNumber} émise — ${formatDT(
+              saved.billing.amountCollected ?? 0,
+            )} encaissé`,
+          })
+          break
+        case "Failed":
+          // The record IS saved; only the money failed. Both halves have to be said, or the user either loses
+          // work they still have or trusts cash that never landed.
+          toast.warning(base, {
+            description:
+              saved.billing.message ??
+              "La facturation automatique a échoué — facturez cette intervention manuellement.",
+            duration: 10000,
+          })
+          break
+        // AlreadyBilled is the expected outcome of re-saving a billed fiche, and NotCollected of a fiche with no
+        // payment. Neither is news, so neither gets its own line.
+        default:
+          toast.success(base)
       }
       onSuccess?.()
       onOpenChange(false)
