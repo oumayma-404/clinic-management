@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using MediatR;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Features.Dashboard;
 using ClinicManagement.Application.Features.Dashboard.Queries;
 using Microsoft.AspNetCore.Authorization;
 
@@ -19,28 +20,20 @@ public class DashboardController : ApiControllerBase
     }
 
     /// <summary>
-    /// Get aggregate KPI counts for the current user's clinic.
-    /// Optional local-day/week boundaries keep the counts aligned with the appointment list.
+    /// The whole dashboard for the current user's clinic: the resolved window, the comparable Activité and Argent
+    /// sections, the point-in-time créances total, the À-traiter counts, and the six-month collected trend.
     /// </summary>
-    [HttpGet("stats")]
-    public async Task<ActionResult<DashboardStatsDto>> GetStats(
-        [FromQuery] DateTime? todayStart,
-        [FromQuery] DateTime? todayEnd,
-        [FromQuery] DateTime? weekStart,
-        [FromQuery] DateTime? weekEnd,
-        [FromQuery] DateTime? monthStart,
-        [FromQuery] DateTime? monthEnd)
+    /// <param name="period">
+    /// <c>Today</c> | <c>Week</c> | <c>Month</c> (default). The <b>only</b> period input — both the current and the
+    /// previous window are derived server-side from the clinic clock, so the two halves of every comparison can never
+    /// have been computed by different rules. The retired <c>GET stats</c> endpoint took six boundary parameters from
+    /// the client instead.
+    /// </param>
+    [HttpGet]
+    public async Task<ActionResult<DashboardDto>> GetDashboard(
+        [FromQuery] DashboardPeriodKey period = DashboardPeriodKey.Month)
     {
-        var query = new GetDashboardStatsQuery
-        {
-            TodayStart = todayStart,
-            TodayEnd = todayEnd,
-            WeekStart = weekStart,
-            WeekEnd = weekEnd,
-            MonthStart = monthStart,
-            MonthEnd = monthEnd
-        };
-        var result = await _mediator.Send(query);
+        var result = await _mediator.Send(new GetDashboardQuery { Period = period });
 
         if (result.IsFailure)
         {

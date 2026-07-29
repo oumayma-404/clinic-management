@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { ClinicGuard } from "@/components/clinic-guard"
 import { DashboardSidebar } from "@/components/dashboard-sidebar"
 import { DashboardHeader } from "@/components/dashboard-header"
@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { TreatmentPlansTable } from "@/components/treatment-plans/treatment-plans-table"
 import { PLAN_STATUS_LABELS } from "@/components/treatment-plans/treatment-plan-labels"
+import { formatDateFr } from "@/lib/format"
 
 const ALL_STATUSES = "all"
 
@@ -19,6 +20,24 @@ export default function TreatmentPlansPage() {
   const [to, setTo] = useState("")
   const [status, setStatus] = useState<string>(ALL_STATUSES)
   const [reloadKey, setReloadKey] = useState(0)
+  // The ACCEPTANCE-date window, distinct from from/to above (which bound creation). The dashboard's « Devis acceptés »
+  // counts by acceptedDate, so its drill-through has to filter by the same date or the list would not contain the
+  // devis the card counted.
+  const [acceptedFrom, setAcceptedFrom] = useState("")
+  const [acceptedTo, setAcceptedTo] = useState("")
+
+  // Dashboard drill-throughs: ?status= (« Devis en attente de réponse ») and ?acceptedFrom/?acceptedTo
+  // (« Devis acceptés »). window.location in an effect rather than useSearchParams — the repo's idiom, and it keeps
+  // this page out of a Suspense boundary. Unknown values are ignored, so a stale link lands on the full list.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const urlStatus = params.get("status")
+    const urlAcceptedFrom = params.get("acceptedFrom")
+    const urlAcceptedTo = params.get("acceptedTo")
+    if (urlStatus && urlStatus in PLAN_STATUS_LABELS) setStatus(urlStatus)
+    if (urlAcceptedFrom && !Number.isNaN(Date.parse(urlAcceptedFrom))) setAcceptedFrom(urlAcceptedFrom)
+    if (urlAcceptedTo && !Number.isNaN(Date.parse(urlAcceptedTo))) setAcceptedTo(urlAcceptedTo)
+  }, [])
 
   // Send UTC instants, not timezone-naive wall-clock strings: the backend compares these against a UTC
   // CreatedAt, so `${from}T00:00:00` silently shifted the range by the browser's offset and dropped (or
@@ -26,12 +45,21 @@ export default function TreatmentPlansPage() {
   const fromIso = from ? new Date(`${from}T00:00:00`).toISOString() : undefined
   const toIso = to ? new Date(`${to}T23:59:59.999`).toISOString() : undefined
   const statusFilter = status === ALL_STATUSES ? undefined : status
+  // Same UTC-instant treatment as from/to above, for the same reason: AcceptedDate is compared as UTC server-side.
+  const acceptedFromIso = acceptedFrom ? new Date(`${acceptedFrom}T00:00:00`).toISOString() : undefined
+  const acceptedToIso = acceptedTo ? new Date(`${acceptedTo}T23:59:59.999`).toISOString() : undefined
+  const hasAcceptedWindow = Boolean(acceptedFrom || acceptedTo)
 
   const applyFilters = () => setReloadKey((k) => k + 1)
   const resetFilters = () => {
     setFrom("")
     setTo("")
     setStatus(ALL_STATUSES)
+    setAcceptedFrom("")
+    setAcceptedTo("")
+    const url = new URL(window.location.href)
+    url.search = ""
+    window.history.replaceState({}, "", url)
     setReloadKey((k) => k + 1)
   }
 
@@ -82,10 +110,26 @@ export default function TreatmentPlansPage() {
                 </CardContent>
               </Card>
 
+              {/* The acceptance window has no control of its own (it arrives by link), so it is stated explicitly —
+                  an invisible filter is how a user concludes their devis have disappeared. */}
+              {hasAcceptedWindow && (
+                <div role="status" className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/40 p-3 text-sm">
+                  <span className="min-w-0 flex-1">
+                    Devis acceptés {acceptedFrom ? `du ${formatDateFr(acceptedFrom)}` : ""}
+                    {acceptedTo ? ` au ${formatDateFr(acceptedTo)}` : ""}
+                  </span>
+                  <Button size="sm" variant="outline" onClick={resetFilters}>
+                    Afficher tous les devis
+                  </Button>
+                </div>
+              )}
+
               <TreatmentPlansTable
                 from={fromIso}
                 to={toIso}
                 status={statusFilter}
+                acceptedFrom={acceptedFromIso}
+                acceptedTo={acceptedToIso}
                 reloadKey={reloadKey}
               />
             </div>

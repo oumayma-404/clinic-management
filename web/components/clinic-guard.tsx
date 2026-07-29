@@ -46,7 +46,7 @@ export function ClinicGuard({
   fallback
 }: ClinicGuardProps) {
   const pathname = usePathname()
-  const { accessToken, isLoading: authLoading } = useAuthToken()
+  const { accessToken, isLoading: authLoading, tokenError } = useAuthToken()
   const { mode } = useSession()
   const { hasAccess, isLoading: clinicLoading, error, refresh } = useClinicAccess(false) // Don't auto-redirect
 
@@ -55,12 +55,17 @@ export function ClinicGuard({
 
   // Redirect to login if not authenticated — to the login page that exists in THIS mode (AC-P3.19/3.21),
   // carrying a returnTo that actually renders (AC-P3.20).
+  //
+  // Only when the session is actually over. A token the server merely could not issue right now
+  // (`tokenError === 'unavailable'`: offline, rate-limited, 5xx) is NOT a sign-out: redirecting on it sent
+  // the user to /login, which still saw a session and pushed straight back here — the redirect loop. Those
+  // get the retry screen below instead.
   useEffect(() => {
-    if (!authLoading && !accessToken && !isSetupPage) {
+    if (!authLoading && !accessToken && tokenError !== 'unavailable' && !isSetupPage) {
       const returnTo = safeReturnTo(pathname)
       window.location.href = `${LOGIN_PATH[mode]}?returnTo=${encodeURIComponent(returnTo)}`
     }
-  }, [authLoading, accessToken, isSetupPage, pathname, mode])
+  }, [authLoading, accessToken, tokenError, isSetupPage, pathname, mode])
 
   if (isSetupPage) {
     return <>{children}</>
@@ -77,6 +82,28 @@ export function ClinicGuard({
           </div>
         </div>
       )
+    )
+  }
+
+  // The server could not issue a token right now (offline, rate-limited, 5xx). The session is probably
+  // intact, so say so and offer a retry instead of bouncing to /login — which is what used to spin.
+  if (!accessToken && tokenError === 'unavailable') {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center max-w-md px-4">
+          <p className="text-lg font-medium mb-2">Connexion au serveur impossible</p>
+          <p className="text-muted-foreground mb-6">
+            Le serveur de la clinique n&apos;a pas pu confirmer votre session. Vérifiez qu&apos;il est démarré,
+            puis réessayez.
+          </p>
+          <button
+            onClick={() => window.location.reload()}
+            className="inline-flex items-center justify-center rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+          >
+            Réessayer
+          </button>
+        </div>
+      </div>
     )
   }
 

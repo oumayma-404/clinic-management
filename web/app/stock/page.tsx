@@ -17,6 +17,10 @@ export default function StockPage() {
   const [editingItem, setEditingItem] = useState<StockItemDto | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [highlightItemId, setHighlightItemId] = useState<string | null>(null)
+  // Dashboard drill-through (« Stock bas » / « Périment bientôt »): ?filter=low|expiring pre-applies the matching
+  // filter so the list shows exactly the items the card counted. An unknown value is ignored — a stale link lands on
+  // the full list, never a broken state.
+  const [initialFilter, setInitialFilter] = useState<"low" | "expiring" | undefined>()
 
   // Live-refresh on a peer's stock mutation (finding #14: the page didn't subscribe though the backend
   // already broadcasts the "stock" key).
@@ -30,9 +34,14 @@ export default function StockPage() {
     window.history.replaceState({}, "", "/stock")
   }, [])
 
-  // On mount (cross-page navigation): read the query param.
+  // On mount (cross-page navigation): read the query params. `filter` is read BEFORE highlightItem may clear the
+  // query string, so a link carrying both still applies both.
   useEffect(() => {
-    const itemId = new URLSearchParams(window.location.search).get("itemId")
+    const params = new URLSearchParams(window.location.search)
+    const filter = params.get("filter")
+    if (filter === "low" || filter === "expiring") setInitialFilter(filter)
+
+    const itemId = params.get("itemId")
     if (itemId) highlightItem(itemId)
   }, [highlightItem])
 
@@ -88,7 +97,15 @@ export default function StockPage() {
               </div>
 
               {/* Stock Table */}
-              <StockTable refreshKey={refreshKey} onEdit={handleEdit} highlightItemId={highlightItemId} />
+              <StockTable
+                refreshKey={refreshKey}
+                onEdit={handleEdit}
+                highlightItemId={highlightItemId}
+                initialFilter={initialFilter}
+                // Remount when the arriving filter resolves, so StockTable's initial filter state actually takes
+                // effect — it seeds useState, which a re-render alone would not revisit.
+                key={initialFilter ?? "all"}
+              />
             </div>
           </main>
         </div>

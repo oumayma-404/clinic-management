@@ -138,8 +138,8 @@ Async, `CancellationToken`-aware contracts implemented in Infrastructure. Persis
 
 | Interface | Notable methods |
 |-----------|-----------------|
-| `IPatientRepository` | `GetByIdWithAppointmentsAsync`, `GetByClinicIdAsync`, `Count*ByClinicIdAsync`, `GetFlaggedPatientsAsync`, `AddMedical/FamilyHistoryEntryAsync` |
-| `IAppointmentRepository` | `GetByClinicIdAsync(date range, doctorId)`, `CountByClinicIdAsync(status filters)`, `GetUpcomingAppointmentsAsync`, `GetAppointmentsForDateAsync`, `GetByProcedureTypeIdAsync`, `GetByTreatmentPlanItemIdsAsync` (one batched read behind the plan's derived per-act état; first user of `IX_Appointments_TreatmentPlanItemId`) |
+| `IPatientRepository` | `GetByIdWithAppointmentsAsync`, `GetByClinicIdAsync` (+ optional **`createdFrom`/`createdTo`**, added to the existing signature rather than as a near-duplicate read), `Count*ByClinicIdAsync`, **`CountCreatedBetweenAsync`**, `GetFlaggedPatientsAsync`, `AddMedical/FamilyHistoryEntryAsync` |
+| `IAppointmentRepository` | `GetByClinicIdAsync(date range, doctorId)`, `CountByClinicIdAsync(status filters)`, **`CountByStatusBetweenAsync`** (one `GROUP BY` giving the dashboard honoured/missed/total over one window — four separate counts would be four round trips whose bounds could drift apart), `GetUpcomingAppointmentsAsync`, `GetAppointmentsForDateAsync`, `GetByProcedureTypeIdAsync`, `GetByTreatmentPlanItemIdsAsync` (one batched read behind the plan's derived per-act état; first user of `IX_Appointments_TreatmentPlanItemId`) |
 | `IClinicRepository` | `GetByCodeAsync`, `GetByNameAsync`, `CodeExistsAsync` |
 | `IUserRepository` | `GetByAuth0SubAsync`, `GetByEmailAsync` (Local login), `AnyUserExistsAsync` (closes first-run setup), sync `Update`/`Remove` |
 | `IDoctorRepository` | `GetByClinicIdAsync`, `GetByUserIdAsync` |
@@ -148,15 +148,15 @@ Async, `CancellationToken`-aware contracts implemented in Infrastructure. Persis
 | `IToothStateRepository` | odontogram: `GetByPatientIdAsync`, `GetByDentalRecordIdAsync` |
 | `IPatientFileRepository` / `IPatientFolderRepository` | by patient / folder / root / name |
 | `IMedicalDocumentRepository` | by patient / document type / clinic |
-| `IStockItemRepository` | `GetByClinicIdAsync(lowStockOnly)`, `GetLowStockItemsAsync`, `GetOutOfStockItemsAsync` |
-| `IInvoiceRepository` | `GetFilteredAsync`, `GetMaxSequenceForYearAsync` (gapless per-clinic-per-year), `GetCollectedBetweenAsync`, `GetOutstandingByPatientAsync`, `GetTreatmentPlanLinksAsync` (light devis→facture bridge projection — no lines/payments), `GetByPaymentIdAsync`, `GetDueForElFatooraDispatchAsync` (outbox) |
-| `ITreatmentPlanRepository` | `GetFilteredAsync`, `GetMaxSequenceForYearAsync` (separate sequence), `GetInstallmentCollectedBetweenAsync`, `GetInstallmentOutstandingByPatientAsync` (with oldest-overdue; takes a **required** `excludedPlanIds` from `PlanBillingRules.BilledPlanIds` so a money read can't silently skip the de-dup). Both aggregates count only `PlanBillingRules.DebtBearingPlanStatuses`. |
+| `IStockItemRepository` | `GetByClinicIdAsync(lowStockOnly)`, `GetLowStockItemsAsync`, `GetOutOfStockItemsAsync`, **`CountLowStockAsync`/`CountExpiringSoonAsync`** (counts, not entity lists — and each reuses the predicate its destination list uses, so a dashboard card and the filtered page it opens cannot report different numbers) |
+| `IInvoiceRepository` | `GetFilteredAsync`, `GetMaxSequenceForYearAsync` (gapless per-clinic-per-year), `GetCollectedBetweenAsync`, **`GetInvoicedBetweenAsync`** + **`GetCollectedByMonthAsync`** (projected SUMs for the dashboard — deliberately *not* a reuse of `GetFilteredAsync`, which materialises every invoice with its lines and payments; the monthly one buckets on the **clinic-local** instant, since grouping by the raw UTC month files a late-evening payment into the next one), `GetOutstandingByPatientAsync`, `GetTreatmentPlanLinksAsync` (light devis→facture bridge projection — no lines/payments), `GetByPaymentIdAsync`, `GetDueForElFatooraDispatchAsync` (outbox) |
+| `ITreatmentPlanRepository` | `GetFilteredAsync` (+ **`acceptedFrom`/`acceptedTo`** — a *different date* from `from`/`to`, which bound `CreatedAt`; « Devis acceptés » counts by acceptance, so drilling into it with the created-date range lists a different set of devis), **`CountByStatusAsync`** (`byAcceptedDate` picks which date the bounds apply to), `GetMaxSequenceForYearAsync` (separate sequence), `GetInstallmentCollectedBetweenAsync`, `GetInstallmentOutstandingByPatientAsync` (with oldest-overdue; takes a **required** `excludedPlanIds` from `PlanBillingRules.BilledPlanIds` so a money read can't silently skip the de-dup). Both aggregates count only `PlanBillingRules.DebtBearingPlanStatuses`. |
 | `ICnamCatalogRepository` | nomenclature entries + VLC letter values (`CodeActeExistsAsync`, `GetLetterValueByCleAsync`) |
 | `IDentalActCodeRepository` | DCH catalog (`CodeActeExistsAsync`, `AnyProvisionalAsync`, `GetProvisionalAsync`) |
 | `IMedicationCatalogRepository` | drug catalog (`BrandExistsAsync`) |
 | `IExpenseRepository` | `GetByClinicIdAsync(date range)`, `GetTotalBetweenAsync` |
-| `ILabWorkOrderRepository` | by clinic / patient |
-| `IWaitingListRepository` | `GetByClinicIdAsync(activeOnly)` (priority then oldest-first) |
+| `ILabWorkOrderRepository` | by clinic (+ optional **stage filter**) / patient, **`CountOverdueAsync`** (still `Sent` past `ExpectedDate`; an order with no expected date can never be late, so it is not counted) |
+| `IWaitingListRepository` | `GetByClinicIdAsync(activeOnly)` (priority then oldest-first), **`CountWaitingAsync`** |
 | `IRecurringAppointmentRepository` | `GetByClinicIdAsync(activeOnly)` |
 | `IClinicReminderSettingsRepository` | `GetByClinicIdAsync` (1:1, keyed by clinic id) |
 | `INotificationRepository` | `GetPendingNotificationsAsync`, `GetByAppointmentIdAsync`, `GetRecentByClinicIdAsync` (delivery-status surface) |

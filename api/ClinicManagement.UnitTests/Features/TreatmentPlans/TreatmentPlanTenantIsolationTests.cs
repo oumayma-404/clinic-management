@@ -304,9 +304,9 @@ public class TreatmentPlanTenantIsolationTests
         Authenticated();
         _plans.Setup(r => r.GetFilteredAsync(
                 ClinicId, It.IsAny<Guid?>(), It.IsAny<TreatmentPlanStatus?>(),
-                It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
+                It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<TreatmentPlan>());
-        _patients.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+        _patients.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<bool>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<Patient>());
         _appointments.Setup(r => r.GetByTreatmentPlanItemIdsAsync(
                 It.IsAny<Guid>(), It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
@@ -324,6 +324,6 @@ public class TreatmentPlanTenantIsolationTests
         Assert.Empty(result.Value!);
         _plans.Verify(r => r.GetFilteredAsync(
             ClinicId, It.IsAny<Guid?>(), It.IsAny<TreatmentPlanStatus?>(),
-            It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()), Times.Once);
+            It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 }

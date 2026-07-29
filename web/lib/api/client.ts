@@ -11,6 +11,27 @@ export class ApiError extends Error {
   }
 }
 
+/** In-memory access-token cache — see `getAccessToken`. Module scope so every caller shares one token. */
+let cachedToken: { token: string; validUntilMs: number } | null = null;
+/** The exchange currently in flight, so parallel callers await one request instead of opening N. */
+let inFlightToken: Promise<string | null> | null = null;
+/**
+ * HTTP status of the last token exchange that failed to produce a token (`0` = network failure, `null` =
+ * the last exchange succeeded). Lets callers tell "the session is over" (401 — the BFF has already cleared
+ * the cookie) from "the server could not answer right now" (429/5xx/offline), which must not sign anyone out.
+ */
+let lastTokenFailureStatus: number | null = null;
+
+/** See {@link lastTokenFailureStatus}. */
+export function lastAccessTokenFailureStatus(): number | null {
+  return lastTokenFailureStatus;
+}
+
+/** Renew this long before the reported expiry, so a token can't lapse mid-request. */
+const TOKEN_RENEW_SKEW_MS = 60_000;
+/** Cache window when the server reports no expiry (Cloud — the Auth0 SDK caches on its own side). */
+const TOKEN_FALLBACK_TTL_MS = 30_000;
+
 /** French text for statuses that can reach the client with an empty body. */
 const STATUS_FALLBACK_FR: Record<number, string> = {
   401: "Votre session a expiré. Reconnectez-vous.",
@@ -106,7 +127,9 @@ async function handleRequest<T>(
     } catch (err) {
       const canRetry = !explicit && attempt === 0 && err instanceof ApiError && err.status === 401;
       if (canRetry) {
-        token = await getAccessToken();
+        // Force a real renewal: the token we just used is the cached one, so without this the retry would
+        // replay the identical rejected token and the 401 would surface to the user (AC-5.7).
+        token = await getAccessToken(true);
         continue;
       }
 
@@ -125,6 +148,13 @@ async function handleRequest<T>(
  * The single place the app acquires an API access token (mode-aware: an Auth0 token in Cloud, the local
  * JWT in Local).
  *
+ * **Cached in memory until shortly before it expires.** This used to exchange the session cookie on every
+ * single API call, so one page load opened a dozen `POST /api/auth/refresh` calls. That endpoint shares a
+ * 30-per-5-minutes rate-limit bucket with `login`, so ordinary use exhausted it within seconds: the refresh
+ * started returning 429, which surfaced as a lost session, bounced the user to a login page that was itself
+ * rate-limited, and read as an endless redirect loop. Pass `forceRenew` to bypass the cache after the API
+ * rejects a token as expired.
+ *
  * **Exported deliberately, and this must stay the only implementation.** Seven per-resource modules used to
  * carry their own private copy of this fetch. That was harmless while the token lived 12 hours, but it
  * becomes a real defect once tokens are short-lived and renewed: any copy that bypasses this helper keeps
@@ -133,17 +163,66 @@ async function handleRequest<T>(
  *
  * If you need a token in a new module, import this — do not re-implement the fetch.
  */
-export async function getAccessToken(): Promise<string | null> {
+export async function getAccessToken(forceRenew = false): Promise<string | null> {
+  if (!forceRenew && cachedToken && Date.now() < cachedToken.validUntilMs) {
+    return cachedToken.token;
+  }
+
+  // A forced renewal must not be served by a fetch that is already in flight for the *old* token.
+  if (forceRenew) {
+    cachedToken = null;
+    inFlightToken = null;
+  }
+
+  // Single-flight: a page load fires many parallel API calls, and without this each one would open its
+  // own exchange.
+  if (inFlightToken) {
+    return inFlightToken;
+  }
+
+  inFlightToken = fetchAccessToken();
+  try {
+    return await inFlightToken;
+  } finally {
+    inFlightToken = null;
+  }
+}
+
+/** Drop the cached token — call after anything that invalidates the session (e.g. logout). */
+export function clearCachedAccessToken(): void {
+  cachedToken = null;
+  inFlightToken = null;
+}
+
+async function fetchAccessToken(): Promise<string | null> {
   try {
     const response = await fetch('/bff/auth/token', {
       credentials: 'include', // Include cookies for session
     });
     if (response.ok) {
       const data = await response.json();
-      return data.accessToken || null;
+      const token: string | null = data.accessToken || null;
+      lastTokenFailureStatus = token ? null : response.status;
+      if (token) {
+        // Renew a minute early so a request can't leave with a token that expires in flight. When the
+        // server does not report an expiry (Cloud, where the Auth0 SDK does its own caching), fall back to
+        // a short TTL — still enough to collapse a page load's burst into one exchange.
+        const serverExpiry = data.expiresAt ? Date.parse(data.expiresAt) : Number.NaN;
+        cachedToken = {
+          token,
+          validUntilMs: Number.isFinite(serverExpiry)
+            ? serverExpiry - TOKEN_RENEW_SKEW_MS
+            : Date.now() + TOKEN_FALLBACK_TTL_MS,
+        };
+      }
+      return token;
     }
+    // A refusal invalidates the cache: never serve a token the server has stopped standing behind.
+    lastTokenFailureStatus = response.status;
+    cachedToken = null;
   } catch {
-    // Token endpoint not available or error
+    // Network failure — keep any cached token. A blip must not look like a lost session.
+    lastTokenFailureStatus = 0;
   }
   return null;
 }

@@ -38,6 +38,15 @@ public class WaitingListRepository : IWaitingListRepository
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<int> CountWaitingAsync(Guid clinicId, CancellationToken cancellationToken = default)
+    {
+        // Same predicate as GetByClinicIdAsync's activeOnly branch, so the dashboard card and the salle d'attente
+        // it links to agree. No Include: a count needs no patient names.
+        return await _context.WaitingListEntries
+            .Where(w => w.ClinicId == clinicId && w.Status == WaitingListStatus.Waiting)
+            .CountAsync(cancellationToken);
+    }
+
     public async Task<WaitingListEntry> AddAsync(WaitingListEntry entry, CancellationToken cancellationToken = default)
     {
         await _context.WaitingListEntries.AddAsync(entry, cancellationToken);

@@ -25,10 +25,12 @@ public class RecallQueryBoundsTests
 
     private readonly Mock<IPatientRepository> _patients = new();
     private readonly Mock<IClinicRepository> _clinics = new();
+    private readonly Mock<ITreatmentPlanRepository> _plans = new();
+    private readonly Mock<IInvoiceRepository> _invoices = new();
     private readonly Mock<ICurrentClinicResolver> _clinicResolver = new();
 
     private GetPatientsToRecallQueryHandler Handler() =>
-        new(_patients.Object, _clinics.Object, _clinicResolver.Object);
+        new(_patients.Object, _clinics.Object, _plans.Object, _invoices.Object, _clinicResolver.Object);
 
     private void Authenticated(int intervalMonths)
     {
@@ -38,11 +40,22 @@ public class RecallQueryBoundsTests
         var clinic = new Clinic(ClinicId, "Cabinet Test");
         clinic.SetRecallIntervalMonths(intervalMonths);
         _clinics.Setup(r => r.GetByIdAsync(ClinicId, It.IsAny<CancellationToken>())).ReturnsAsync(clinic);
+
+        // No devis and no money in these fixtures: this class is about the OverdueVisit reason's date arithmetic,
+        // so every other reason is wired empty to keep it the only thing that can put a patient on the list.
+        _plans.Setup(r => r.GetRecallPlanFactsAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<RecallPlanFact>());
+        _plans.Setup(r => r.GetInstallmentOutstandingByPatientAsync(
+                It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<(Guid, decimal, DateTime?)>());
+        _invoices.Setup(r => r.GetTreatmentPlanLinksAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<(Guid, Guid, string?, ClinicManagement.Domain.Enums.InvoiceStatus)>());
     }
 
     private void CandidatesAre(params RecallCandidate[] candidates) =>
         _patients.Setup(r => r.GetRecallCandidatesAsync(
-                ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+                ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(),
+                It.IsAny<IReadOnlyCollection<Guid>?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(candidates);
 
     private static RecallCandidate Candidate(DateTime anchorUtc, DateTime? lastVisitUtc = null, string last = "Dupont") =>
@@ -122,8 +135,10 @@ public class RecallQueryBoundsTests
 
         DateTime? captured = null;
         _patients.Setup(r => r.GetRecallCandidatesAsync(
-                ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
-            .Callback<Guid, DateTime, DateTime, CancellationToken>((_, bound, _, _) => captured = bound)
+                ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(),
+                It.IsAny<IReadOnlyCollection<Guid>?>(), It.IsAny<CancellationToken>()))
+            .Callback<Guid, DateTime, DateTime, IReadOnlyCollection<Guid>?, CancellationToken>(
+                (_, bound, _, _, _) => captured = bound)
             .ReturnsAsync(Array.Empty<RecallCandidate>());
 
         await Handler().Handle(new GetPatientsToRecallQuery(), CancellationToken.None);
@@ -146,10 +161,13 @@ public class RecallQueryBoundsTests
 
         _patients.Verify(
             r => r.GetRecallCandidatesAsync(
-                ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()),
+                ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(),
+                It.IsAny<IReadOnlyCollection<Guid>?>(), It.IsAny<CancellationToken>()),
             Times.Once);
         _patients.Verify(
-            r => r.GetByClinicIdAsync(It.IsAny<Guid>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()),
+            r => r.GetByClinicIdAsync(
+                It.IsAny<Guid>(), It.IsAny<bool>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(),
+                It.IsAny<CancellationToken>()),
             Times.Never);
         _patients.Verify(r => r.GetAllAsync(It.IsAny<CancellationToken>()), Times.Never);
     }

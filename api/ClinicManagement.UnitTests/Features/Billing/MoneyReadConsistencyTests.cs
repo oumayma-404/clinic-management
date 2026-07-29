@@ -1,7 +1,9 @@
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Billing.Queries;
-using ClinicManagement.Application.Features.Dashboard.Queries;
+using ClinicManagement.Application.Features.Dashboard;
+using ClinicManagement.Application.Features.Dashboard.Readers;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
@@ -31,11 +33,15 @@ public class MoneyReadConsistencyTests
     private static readonly Guid PatientId = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
     private const string Auth0Sub = "auth0|dashboard-user";
 
+    /// <summary>Fixed so the dashboard and the caisse are compared over provably identical bounds.</summary>
+    private static readonly DateTime FixedNow = new(2026, 6, 15, 10, 0, 0, DateTimeKind.Utc);
+
     private readonly Mock<IInvoiceRepository> _invoices = new();
     private readonly Mock<ITreatmentPlanRepository> _plans = new();
     private readonly Mock<IPatientRepository> _patients = new();
     private readonly Mock<IAppointmentRepository> _appointments = new();
     private readonly Mock<IUserRepository> _users = new();
+    private readonly Mock<IExpenseRepository> _expenses = new();
     private readonly Mock<ICnamBillingCalculator> _cnam = new();
     private readonly Mock<ICurrentClinicResolver> _clinicResolver = new();
     private readonly Mock<IClinicContext> _clinicContext = new();
@@ -116,7 +122,7 @@ public class MoneyReadConsistencyTests
             .ReturnsAsync(invoices);
         _plans.Setup(r => r.GetFilteredAsync(
                 ClinicId, It.IsAny<Guid?>(), It.IsAny<TreatmentPlanStatus?>(),
-                It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
+                It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(plans);
 
         // Mirrors InvoiceRepository.GetOutstandingByPatientAsync: issued, non-cancelled, balance > 0.
@@ -137,11 +143,19 @@ public class MoneyReadConsistencyTests
         _invoices.Setup(r => r.GetTreatmentPlanLinksAsync(ClinicId, It.IsAny<CancellationToken>()))
             .ReturnsAsync((IReadOnlyList<(Guid, Guid, string?, InvoiceStatus)>)links);
 
+        // Cash defaults. The outstanding-balance tests below are unaffected by these; the caisse-agreement test
+        // overrides them with real figures so both reads have something non-trivial to disagree about.
         _invoices.Setup(r => r.GetCollectedBetweenAsync(
+            ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>())).ReturnsAsync(0m);
+        _invoices.Setup(r => r.GetInvoicedBetweenAsync(
             ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>())).ReturnsAsync(0m);
         _plans.Setup(r => r.GetInstallmentCollectedBetweenAsync(
             ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(),
             It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>())).ReturnsAsync(0m);
+        _creditNotes.Setup(r => r.GetRefundedBetweenAsync(
+            ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>())).ReturnsAsync(0m);
+        _expenses.Setup(r => r.GetTotalBetweenAsync(
+            ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>())).ReturnsAsync(0m);
 
         // Mirrors TreatmentPlanRepository.GetInstallmentOutstandingByPatientAsync: committed plans only,
         // minus whatever the caller passes as already-billed.
@@ -192,15 +206,32 @@ public class MoneyReadConsistencyTests
         return result.Value!.Sum(r => r.TotalOutstanding);
     }
 
-    private async Task<decimal> DashboardOutstandingAsync()
+    /// <summary>
+    /// The dashboard's money section, read through the same reader the composed <c>GetDashboardQuery</c> uses. The
+    /// reader is exercised directly rather than through the handler because the handler additionally reads activity,
+    /// alerts and the trend, none of which this test is about — and mocking six more repositories to assert one
+    /// money figure would bury the thing being proved.
+    /// </summary>
+    private async Task<(DashboardMoneyDto Money, DashboardReceivablesDto Receivables)> DashboardMoneyAsync()
     {
-        var handler = new GetDashboardStatsQueryHandler(
-            _appointments.Object, _patients.Object, _users.Object, _invoices.Object, _plans.Object,
-            _creditNotes.Object, _clinicContext.Object,
-            NullLogger<GetDashboardStatsQueryHandler>.Instance);
-        var result = await handler.Handle(new GetDashboardStatsQuery(), CancellationToken.None);
+        var reader = new DashboardMoneyReader(
+            _invoices.Object, _plans.Object, _expenses.Object, _creditNotes.Object);
+
+        return await reader.ReadAsync(
+            ClinicId, DashboardPeriod.Resolve(DashboardPeriodKey.Month, FixedNow), FixedNow, CancellationToken.None);
+    }
+
+    private async Task<decimal> DashboardOutstandingAsync() => (await DashboardMoneyAsync()).Receivables.Total;
+
+    private async Task<CaisseSummaryDto> CaisseAsync(DashboardPeriod period)
+    {
+        var handler = new GetCaisseSummaryQueryHandler(
+            _invoices.Object, _plans.Object, _expenses.Object, _creditNotes.Object, _clinicResolver.Object,
+            NullLogger<GetCaisseSummaryQueryHandler>.Instance);
+        var result = await handler.Handle(
+            new GetCaisseSummaryQuery { From = period.From, To = period.ToInclusive }, CancellationToken.None);
         Assert.True(result.IsSuccess);
-        return result.Value!.TotalOutstanding;
+        return result.Value!;
     }
 
     // [AC-12a] A plan bridged to an issued invoice is counted ONCE, through the invoice, on all three reads.
@@ -300,5 +331,77 @@ public class MoneyReadConsistencyTests
                 It.Is<IReadOnlyCollection<Guid>>(ids => ids.Count == 1 && ids.Contains(plan.Id)),
                 It.IsAny<CancellationToken>()),
             Times.Exactly(2));
+    }
+
+    // [AC-6] The fourth money read joins the contract. Over the SAME window and the SAME rows, the dashboard's
+    // « Encaissé / Dépenses / Net » must equal la caisse's cashIn / cashOut / net. The dashboard grew these three
+    // figures in dashboard-insights, and la caisse had reported them for a year — two screens computing cash from
+    // the same ledgers is exactly the shape that drifted before (the dashboard KPI used to omit avoirs while the
+    // caisse netted them, so the same month showed two different figures).
+    [Fact]
+    public async Task Dashboard_Cash_Figures_Equal_La_Caisse_Over_The_Same_Window()
+    {
+        Wire(Array.Empty<Invoice>(), Array.Empty<TreatmentPlan>());
+
+        // Non-trivial figures on every component, including an avoir — the refund is the term that was missing
+        // from the dashboard side, so a fixture without one could not catch the original defect.
+        _invoices.Setup(r => r.GetCollectedBetweenAsync(
+            ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>())).ReturnsAsync(4200.500m);
+        _plans.Setup(r => r.GetInstallmentCollectedBetweenAsync(
+            ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(),
+            It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>())).ReturnsAsync(800.250m);
+        _creditNotes.Setup(r => r.GetRefundedBetweenAsync(
+            ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>())).ReturnsAsync(150.750m);
+        _expenses.Setup(r => r.GetTotalBetweenAsync(
+            ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>())).ReturnsAsync(1300.000m);
+
+        var period = DashboardPeriod.Resolve(DashboardPeriodKey.Month, FixedNow);
+        var (money, _) = await DashboardMoneyAsync();
+        var caisse = await CaisseAsync(period);
+
+        Assert.Equal(caisse.CashIn, money.Collected.Current);
+        Assert.Equal(caisse.CashOut, money.Expenses.Current);
+        Assert.Equal(caisse.Net, money.Net.Current);
+
+        // And the dashboard's own three figures must be internally consistent, or a caisse that does not add up is
+        // shown to the user even when each figure is individually right.
+        Assert.Equal(money.Collected.Current - money.Expenses.Current, money.Net.Current);
+    }
+
+    // [AC-6] The avoir is genuinely netted, not merely equal-by-coincidence to a caisse that also ignores it.
+    [Fact]
+    public async Task Dashboard_Collected_Nets_Avoirs_Refunded_In_The_Window()
+    {
+        Wire(Array.Empty<Invoice>(), Array.Empty<TreatmentPlan>());
+
+        _invoices.Setup(r => r.GetCollectedBetweenAsync(
+            ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>())).ReturnsAsync(1000m);
+        _creditNotes.Setup(r => r.GetRefundedBetweenAsync(
+            ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>())).ReturnsAsync(250m);
+
+        var (money, _) = await DashboardMoneyAsync();
+
+        Assert.Equal(750m, money.Collected.Current);
+    }
+
+    // [AC-3][AC-6] The previous window is read with its OWN bounds, not the current ones. Without this the delta on
+    // every money card would be a comparison of a figure against itself — a feature that looks present and is inert.
+    [Fact]
+    public async Task Dashboard_Reads_The_Previous_Window_With_Its_Own_Bounds()
+    {
+        Wire(Array.Empty<Invoice>(), Array.Empty<TreatmentPlan>());
+
+        var period = DashboardPeriod.Resolve(DashboardPeriodKey.Month, FixedNow);
+
+        _invoices.Setup(r => r.GetCollectedBetweenAsync(
+            ClinicId, period.From, period.ToInclusive, It.IsAny<CancellationToken>())).ReturnsAsync(1000m);
+        _invoices.Setup(r => r.GetCollectedBetweenAsync(
+            ClinicId, period.PreviousFrom, period.PreviousToInclusive, It.IsAny<CancellationToken>())).ReturnsAsync(800m);
+
+        var (money, _) = await DashboardMoneyAsync();
+
+        Assert.Equal(1000m, money.Collected.Current);
+        Assert.Equal(800m, money.Collected.Previous);
+        Assert.Equal(25.0m, money.Collected.DeltaPercent);
     }
 }

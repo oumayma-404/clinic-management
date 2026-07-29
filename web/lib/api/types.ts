@@ -64,16 +64,77 @@ export interface PendingReviewDto {
   visibleAt: string;
 }
 
-export interface DashboardStats {
-  todaysAppointments: number;
-  totalPatients: number;
-  upcomingPending: number;
-  thisWeekAppointments: number;
-  urgentPatients: number;
-  /** Total collected (encaissé) in the current month, in TND — includes invoice + installment payments. */
-  monthlyRevenueCollected: number;
-  /** Total outstanding across the clinic (invoice + installment balances), in TND. */
-  totalOutstanding: number;
+/** Which window the dashboard is read over. Mirrors the backend `DashboardPeriodKey`. */
+export type DashboardPeriodKey = 'Today' | 'Week' | 'Month';
+
+/**
+ * One dashboard figure over the current period and the preceding equivalent one.
+ *
+ * `current` is null when the figure is undefined (a rate whose denominator was zero — « — », never « 0 % »).
+ * `deltaPercent` is null when no meaningful percentage exists (a zero baseline).
+ */
+export interface PeriodComparison {
+  current: number | null;
+  previous: number | null;
+  deltaPercent: number | null;
+}
+
+/**
+ * The resolved window, echoed back by the API so drill-through links are built from the SAME bounds the figures
+ * were computed over rather than recomputed client-side.
+ */
+export interface DashboardPeriodDto {
+  key: DashboardPeriodKey;
+  from: string;
+  toInclusive: string;
+  previousFrom: string;
+  previousToInclusive: string;
+}
+
+export interface DashboardActivityDto {
+  completedAppointments: PeriodComparison;
+  newPatients: PeriodComparison;
+  /** (NoShow + Cancelled) ÷ total, as a percentage. */
+  absenceRate: PeriodComparison;
+  acceptedPlans: PeriodComparison;
+}
+
+export interface DashboardMoneyDto {
+  collected: PeriodComparison;
+  invoiced: PeriodComparison;
+  expenses: PeriodComparison;
+  net: PeriodComparison;
+}
+
+/** Point-in-time — deliberately not a PeriodComparison. A live balance has no "last month". */
+export interface DashboardReceivablesDto {
+  total: number;
+}
+
+export interface DashboardAlertsDto {
+  waitingList: number;
+  draftPlans: number;
+  patientsToRecall: number;
+  overdueLabOrders: number;
+  lowStock: number;
+  expiringStock: number;
+  /** False when the clinic switched the approaching-expiry alert off — the figure is hidden, not shown as 0. */
+  expiryAlertEnabled: boolean;
+}
+
+export interface MonthlyCollectedPointDto {
+  /** Clinic-local calendar month as `yyyy-MM`. */
+  month: string;
+  collected: number;
+}
+
+export interface DashboardDto {
+  period: DashboardPeriodDto;
+  activity: DashboardActivityDto;
+  money: DashboardMoneyDto;
+  receivables: DashboardReceivablesDto;
+  alerts: DashboardAlertsDto;
+  trend: MonthlyCollectedPointDto[];
 }
 
 export interface InvoiceLineDto {
@@ -692,14 +753,44 @@ export interface LabWorkOrderDto {
 }
 
 /** One patient due/overdue for a recall (« à relancer »). */
+/** Why a patient is on the « à rappeler » worklist. English enum name; French label mapped at display time. */
+export type RecallReasonKind =
+  | 'OverdueInstallment'
+  | 'StalledPlan'
+  | 'UnansweredDevis'
+  | 'OverdueVisit';
+
+export interface RecallReasonDto {
+  kind: RecallReasonKind | string;
+  dueSince: string;
+  daysOverdue: number;
+  /** Factual context only — a devis number, an amount. Never a sentence. */
+  detail?: string | null;
+}
+
+/**
+ * One patient worth calling, with EVERY reason to call them.
+ *
+ * The list used to answer only "not seen for the recall interval". It now aggregates four reasons, because for a
+ * perio/implant practice that one is the least informative: a patient seen last week who stopped halfway through an
+ * accepted devis is both lost revenue and an unfinished surgical case.
+ *
+ * One row per patient, not per reason — snooze state lives on the patient, so a per-reason row would let « Reporter »
+ * on one reason silently hide another.
+ */
 export interface RecallDto {
   patientId: string;
   patientName: string;
   phoneNumber?: string | null;
   lastVisitDate?: string | null;
+  /** The headline (most urgent) reason's date. */
   dueDate: string;
   daysOverdue: number;
-  reason?: string | null;
+  primaryReason: RecallReasonKind | string;
+  /** Every reason, most urgent first. Never empty. */
+  reasons: RecallReasonDto[];
+  /** Free-text note staff attached when snoozing / marking contacted (was `reason`). */
+  note?: string | null;
   lastContactedAt?: string | null;
 }
 

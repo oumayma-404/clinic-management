@@ -19,7 +19,7 @@ The data-access layer: a thin `fetch` wrapper, per-resource API modules, shared 
 - **Billing**: `InvoiceDto`/`InvoiceLineDto`/`PaymentDto` (+ TTN e-invoice state), `InvoiceRevenueDto`, `PatientBillingSummaryDto` (« solde patient » + CNAM split), `ReceivableDto`, `TreatmentPlanDto`/`TreatmentPlanItemDto`/`InstallmentDto`, `ExpenseDto`/`CaisseSummaryDto`.
 - **Catalogs (per-clinic reference data)**: `CnamNomenclatureEntryDto`, `CnamLetterValueDto`, `MedicationDto`, `DentalActDto`.
 - **Clinical-depth**: `WaitingListEntryDto`, `LabWorkOrderDto`, `RecallDto`/`RecallSettingsDto`, `StockItemDto`.
-- **Feed/dashboard**: `NotificationDto` (feed row — `category`, `title`, `message`, `createdAt` [effective feed time], `isRead`, `targetKind` = `Appointment`|`StockItem` + optional ids), `PendingReviewDto` (due post-visit review), `DashboardStats` (incl. `monthlyRevenueCollected`, `totalOutstanding`).
+- **Feed/dashboard**: `NotificationDto` (feed row — `category`, `title`, `message`, `createdAt` [effective feed time], `isRead`, `targetKind` = `Appointment`|`StockItem` + optional ids), `PendingReviewDto` (due post-visit review), **`DashboardDto`** + its section types (`DashboardPeriodDto`, `DashboardActivityDto`, `DashboardMoneyDto`, `DashboardReceivablesDto`, `DashboardAlertsDto`, `MonthlyCollectedPointDto`) and **`PeriodComparison`** (`current`/`previous`/`deltaPercent`, all nullable — `current: null` means the figure is undefined, `deltaPercent: null` means no meaningful percentage). *(`DashboardStats` is gone.)*
 
 ### Per-resource modules
 Each exports a `<name>Api` object of async methods over `client.ts` (endpoints relative to the API base). Some (`reminder-settings`, `clinics`, `users`) unwrap a backend `Result<T>` (`isSuccess`/`value`/`error`).
@@ -27,14 +27,14 @@ Each exports a `<name>Api` object of async methods over `client.ts` (endpoints r
 | Module | Object | Endpoints / notes |
 |--------|--------|-------------------|
 | `appointments.ts` | `appointmentsApi` | `/appointments` list/get/create/update (**no delete**); recurring series: `listRecurring`/`createRecurring`/`cancelRecurring`. Create **and update** can link a treatment-plan step — on update the pair is **tri-state**: omit the key to leave the link alone, send `treatmentPlanItemId: null` to clear it. |
-| `patients.ts` | `patientsApi` | `/patients` list(searchTerm/limit)/get/create/update; `getAiSummary` (`/patients/{id}/ai-summary`, live HuggingFace). Create accepts CNAM + inline medical/family-history entries. |
+| `patients.ts` | `patientsApi` | `/patients` list(searchTerm/limit/**createdFrom/createdTo** — inclusive registration-date bounds backing the « Nouveaux patients » drill-through)/get/create/update; `getAiSummary` (`/patients/{id}/ai-summary`, live HuggingFace). Create accepts CNAM + inline medical/family-history entries. |
 | `procedure-types.ts` | `procedureTypesApi` | `/procedure-types` CRUD (`includeInactive`); `initializeDefaults` (19 general Tunisian procedures); **`getColors`** (the palette `ColorHex` accepts — bare hexes, no names, so the French labels live in `procedure-type-form-modal.tsx`). |
 | `dental-records.ts` | `dentalRecordsApi` | `/patients/{id}/dental-records` CRUD (multi-act; exports `CreateDentalRecordRequest`); can mark a plan step réalisé. |
 | `odontogram.ts` | `odontogramApi` | `/patients/{id}/odontogram` get; `diagnose` / `removeCondition` (charted diagnoses only). |
 | `patient-medical-history.ts` / `patient-family-history.ts` | `patientMedicalHistoryApi` / `patientFamilyHistoryApi` | `/patients/{id}/medical-history` \| `/family-history` CRUD. |
 | `patient-files.ts` | `patientFilesApi` | `/patients/{id}/files` folders/files: list, init defaults, create folder, upload, download (Blob), delete. Raw `fetch` for multipart/blob. |
 | `medical-documents.ts` | `medicalDocumentsApi` | `/medical-documents` CRUD; `generatePdf` (job) + `generatePdfForDownload` (Blob). FormData when a PDF is attached. |
-| `dashboard.ts` | `dashboardApi` | `/dashboard/stats` (day/week/month range params). |
+| `dashboard.ts` | `dashboardApi` | **`get(period)`** → `/dashboard?period=Today\|Week\|Month`. One call, four sections. The period key is the only input — the server derives both windows. *(`getStats` and its six boundary params are gone.)* |
 | `stock.ts` | `stockApi` | `/stock` list(`lowStockOnly`)/create/update/delete; exports `StockItemPayload`. |
 | `invoices.ts` | `invoicesApi` | `/invoices` list/get/create/update/issue/recordPayment/cancel/delete; `revenue`; `submitToElFatoora`; `downloadPdf`/`downloadEInvoiceArtifact` (Blob, raw fetch). |
 | `billing.ts` | `billingApi` | `getPatientSummary` (`/patients/{id}/billing-summary`), `getReceivables` (`/billing/receivables`), `downloadPaymentReceipt` (Blob). |
@@ -44,7 +44,7 @@ Each exports a `<name>Api` object of async methods over `client.ts` (endpoints r
 | `medications.ts` | `medicationsApi` | `/medications` list/create/update/deactivate/`confirmData` (admin; backs ordonnance picker). |
 | `dental-acts.ts` | `dentalActsApi` | `/dental-acts` list/create/update/deactivate/`confirmData` (admin; backs treatment-plan/invoice act picker). |
 | `doctors.ts` | `doctorsApi` | `/doctors/me` get/`updateMyProfile` (CNOMDT ordre + cachet upload, FormData); **`updateProfile(doctorId, …)`** → `PUT /doctors/{id}` for **another** practitioner (own-or-admin, enforced in the handler; both share one `doctorProfileForm` mapper); per-dentist working hours; `fetchCachetBlob` (Blob). |
-| `lab-orders.ts` | `labOrdersApi` | `/lab-orders` list(patient?)/create/update/updateStatus/delete. |
+| `lab-orders.ts` | `labOrdersApi` | `/lab-orders` list(patient?, **status?**)/create/update/updateStatus/delete. |
 | `recalls.ts` | `recallsApi` | `/patients/recalls` list + settings; `markContacted`/`snooze`/`send`. |
 | `waiting-list.ts` | `waitingListApi` | `/waiting-list` list/create/update/promote/delete. |
 | `reminder-settings.ts` | `reminderSettingsApi` | `/clinics/reminder-settings` get/update, `/clinics/whatsapp/connect` connect/disconnect (Cloud Embedded-Signup), `reminder-status`. `Result<T>`-wrapped; secrets write-only. |
@@ -64,7 +64,7 @@ Each exports a `<name>Api` object of async methods over `client.ts` (endpoints r
 | `use-clinic-access.ts` (`useClinicAccess`) | `clinicsApi.getUserStatus` → `{ hasAccess, status, isLoading, error, refresh }`; optional `/setup` redirect. Distinguishes HTTP-200 `hasClinic:false` (not a member) from transient errors. Backs `ClinicGuard`. |
 | `use-doctors.ts` (`useDoctors`) | Derives the doctor list from clinic status; auto-resolves the current user's linked doctor (by `userId`, then email/name). |
 | `use-appointments.ts` (`useAppointments`) | Fetches a date range (+ optional patient/doctor); sends UTC-instant day bounds; `{ appointments, loading, error, refetch }`. |
-| `use-dashboard-stats.ts` (`useDashboardStats`) | Fetches `dashboardApi.getStats` with memoized day/week/month ranges; `{ stats, loading, error, refetch }`. |
+| `use-dashboard.ts` (`useDashboard`) | Fetches `dashboardApi.get(period)`; `{ data, loading, refetching, error, refetch }`. **No client-side date-fns ranges** — the server owns the window, which is what lets the previous period be derived by the same rule as the current one. `refetching` is separate from `loading` so a period change holds the previous render at reduced opacity instead of flashing a skeleton. *(Replaced `use-dashboard-stats.ts`.)* |
 | `use-appointment-overlap.ts` (`useAppointmentOverlap`) | Advisory French overlap warning for the appointment dialogs; fetches the selected day once, recomputes on time/duration edits; non-blocking (fetch failure disables it). |
 | `use-notifications.ts` (`useNotifications`) | Backs the header bell + panel: unread count (always) + list (on open) via `notificationsApi`; `markRead`/`markAllRead`; live via `useClinicRealtime(Notifications)`, refetching after a reconnect. |
 
@@ -84,6 +84,7 @@ Each exports a `<name>Api` object of async methods over `client.ts` (endpoints r
 - `phone.ts` — `toE164Tunisian` / `isDeliverablePhone` + `PHONE_ERROR_FR` (mirrors backend `PhoneNumber.ToE164`; used in patient/appointment forms).
 - `working-hours.ts` — `WorkingDay` shape, `WEEKDAYS`, `DEFAULT_WORKING_HOURS` (Mon–Sat 09:00–17:00), `summarizeWorkingHours` (grouped French summary).
 - `specialties.ts` — `DOCTOR_SPECIALTIES` (the seven **English** storage keys, shared by clinic-settings / setup-wizard / join-wizard — previously three byte-identical copies), `SPECIALTY_LABELS_FR`, and `specialtyLabel(value)`. **Display-time map, not a migration**: the keys are what `Doctor.Specialty` already holds and what every `MedicalDocument.DoctorSpecialty` snapshot was taken from, so renaming them would orphan every existing row. Unknown values pass through verbatim (a clinic's custom specialty, and older snapshots already stored in French). Same shape as `tunisia.ts`.
+- **`dashboard-links.ts`** — the single authority mapping a dashboard KPI to the **filtered** view of the records it counted (`dashboardLink(key, period)`). An exhaustive `Record<DashboardKpiKey, (period) => string>`, deliberately: a KPI added without a destination is a `tsc` error rather than a card that goes nowhere. Same reasoning as `appointment-labels.ts` — the mapping is a contract with nine other screens, and a link that drifts from what the card counted quietly asserts a number the destination contradicts. Two links carry a subtlety worth knowing: « Devis acceptés » uses `acceptedFrom`/`acceptedTo` (**not** `from`/`to`, which bound creation), and « Taux d'absence » sends `status=NoShow,Cancelled` because that pair *is* the rate's numerator.
 - `brand.ts` — `PRODUCT_NAME = "Gestion Clinique"` (fallback name when a clinic's own name is unknown).
 - `download.ts` — `downloadBlob(blob, filename)` (browser save-as for PDFs/receipts).
 - `utils.ts` — `cn(...)` (clsx + tailwind-merge); `parseDurationToMinutes(timeSpan)`.

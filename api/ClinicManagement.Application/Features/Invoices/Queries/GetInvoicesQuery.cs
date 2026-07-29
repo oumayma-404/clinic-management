@@ -68,7 +68,7 @@ public class GetInvoicesQueryHandler : IRequestHandler<GetInvoicesQuery, Result<
             // includeArchived: this resolves NAMES, it is not a picker. An archived patient's invoices must
             // still show who they belong to.
             var patients = await _patientRepository.GetByClinicIdAsync(
-                clinicId, includeArchived: true, cancellationToken);
+                clinicId, includeArchived: true, cancellationToken: cancellationToken);
             var names = patients.ToDictionary(p => p.Id, p => p.GetFullName());
 
             // One grouped read for the credited totals — the row badges an avoir without an N+1. The avoirs

@@ -118,6 +118,7 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
                 AccessToken = token.AccessToken,
                 RefreshToken = refreshToken.AccessToken,
                 ExpiresAt = token.ExpiresAtUtc,
+                RefreshExpiresAt = refreshToken.ExpiresAtUtc,
                 MustChangePassword = user.MustChangePassword,
                 User = new UserDto
                 {

@@ -1,6 +1,6 @@
 import { auth0 } from '@/lib/auth0';
 import { NextRequest, NextResponse } from 'next/server';
-import { SESSION_COOKIE, resolveAuthMode } from '@/lib/auth/local-auth';
+import { SESSION_COOKIE, MUST_CHANGE_COOKIE, resolveAuthMode } from '@/lib/auth/local-auth';
 import { forwardedForHeader } from '@/lib/auth/forwarded-for';
 
 // Server-side handler: must reach the .NET API with an ABSOLUTE URL. The browser-facing NEXT_PUBLIC_API_URL
@@ -37,19 +37,51 @@ export async function GET(request: NextRequest) {
 
       const data = await res.json().catch(() => null);
 
-      if (!res.ok || !data?.isSuccess || !data?.value?.accessToken) {
-        // The session is gone (expired, revoked, or the account was deactivated). 401 tells the client to
-        // stop retrying and send the user to sign in again.
+      if (res.ok && data?.isSuccess && data?.value?.accessToken) {
+        return NextResponse.json({
+          accessToken: data.value.accessToken,
+          expiresAt: data.value.expiresAt,
+        });
+      }
+
+      // Below here the exchange did not produce a token. Only the API's own 401 means the credential
+      // itself is dead; everything else is a refusal to answer *right now* and must leave the session
+      // alone. Flattening them all to 401 is what turned a rate-limit blip into a destroyed session and
+      // an endless bounce to a login page that was itself rate-limited.
+      if (res.status === 429) {
+        // Renewal is automatic and unattended, so the client's job is to back off, not to sign the user
+        // out. Pass the status and Retry-After straight through.
+        const retryAfter = res.headers.get('retry-after');
         return NextResponse.json(
-          { error: data?.error || 'Session expirée. Veuillez vous reconnecter.' },
-          { status: 401 }
+          { error: data?.error || 'Trop de requêtes. Veuillez réessayer dans un instant.' },
+          { status: 429, ...(retryAfter ? { headers: { 'Retry-After': retryAfter } } : {}) }
         );
       }
 
-      return NextResponse.json({
-        accessToken: data.value.accessToken,
-        expiresAt: data.value.expiresAt,
-      });
+      if (res.status !== 401) {
+        // 5xx, or a 2xx whose body we cannot use: the server is unwell, not the session. Same contract as
+        // the unreachable case below, so the client retries instead of logging the user out.
+        return NextResponse.json(
+          { error: data?.error || 'Serveur indisponible. Veuillez réessayer.' },
+          { status: 503 }
+        );
+      }
+
+      // A genuine 401: expired, revoked, the account was deactivated, or the cookie was minted by a build
+      // that stored the ACCESS token here (the API refuses that audience on exchange).
+      //
+      // Clear the cookie as we refuse it, or the app disagrees with itself and spins: /bff/auth/session
+      // only base64-decodes this same value (no signature, expiry or audience check), so it keeps
+      // reporting a signed-in user. ClinicGuard sees no access token and sends the browser to /login,
+      // /login sees that "user" and pushes back to /, forever. Dropping the credential here is what
+      // turns the loop into the re-login the API is actually asking for.
+      const response = NextResponse.json(
+        { error: data?.error || 'Session expirée. Veuillez vous reconnecter.' },
+        { status: 401 }
+      );
+      response.cookies.set(SESSION_COOKIE, '', { httpOnly: true, path: '/', maxAge: 0 });
+      response.cookies.set(MUST_CHANGE_COOKIE, '', { httpOnly: true, path: '/', maxAge: 0 });
+      return response;
     } catch {
       // The API is unreachable — distinct from "session invalid", so the client can retry rather than
       // logging the user out over a transient blip (spec EC-10).

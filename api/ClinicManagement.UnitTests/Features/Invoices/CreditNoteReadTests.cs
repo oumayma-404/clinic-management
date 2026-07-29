@@ -43,7 +43,7 @@ public class CreditNoteReadTests
             .ReturnsAsync(Result<Guid>.Success(ClinicId));
         _patients.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((Patient?)null);
-        _patients.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+        _patients.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<bool>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<Patient>());
         _creditNotes.Setup(r => r.GetTotalsForInvoicesAsync(
                 It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))

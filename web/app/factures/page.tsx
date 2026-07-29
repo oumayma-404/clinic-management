@@ -43,6 +43,20 @@ export default function FacturesPage() {
   const [from, setFrom] = useState("")
   const [to, setTo] = useState("")
   const [status, setStatus] = useState<string>(ALL_STATUSES)
+  // Dashboard drill-through (« Encaissé » / « Facturé »): ?from=&to=&status= pre-applies the filters so the table and
+  // the revenue KPIs describe the same window the card counted. window.location in an effect rather than
+  // useSearchParams — the repo's idiom, and it keeps this page out of a Suspense boundary.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const urlFrom = params.get("from")
+    const urlTo = params.get("to")
+    const urlStatus = params.get("status")
+    // A malformed date or an unknown status is ignored, not refused — a stale link lands on the unfiltered list.
+    if (urlFrom && !Number.isNaN(Date.parse(urlFrom))) setFrom(urlFrom)
+    if (urlTo && !Number.isNaN(Date.parse(urlTo))) setTo(urlTo)
+    if (urlStatus && urlStatus in INVOICE_STATUS_LABELS) setStatus(urlStatus)
+  }, [])
+
   const [revenue, setRevenue] = useState<InvoiceRevenueDto | null>(null)
   const [revenueLoading, setRevenueLoading] = useState(true)
   // AC-P3.28 — the revenue read used to swallow its error without even a console.error, so a failed call and

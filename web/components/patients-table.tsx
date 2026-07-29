@@ -24,6 +24,12 @@ import { formatDate } from "@/lib/format"
 interface PatientsTableProps {
   searchQuery: string
   showFlaggedOnly: boolean
+  /**
+   * Inclusive registration-date bounds (`yyyy-MM-dd`), applied server-side. Set by the dashboard's « Nouveaux
+   * patients » drill-through so the list shows exactly the patients that KPI counted.
+   */
+  createdFrom?: string
+  createdTo?: string
 }
 
 /**
@@ -32,7 +38,7 @@ interface PatientsTableProps {
  */
 const PATIENT_COLUMN_WIDTHS = ["w-[22%]", "w-[16%]", "w-[16%]", "w-[22%]", "w-[14%]", "w-[10%]"] as const
 
-export function PatientsTable({ searchQuery, showFlaggedOnly }: PatientsTableProps) {
+export function PatientsTable({ searchQuery, showFlaggedOnly, createdFrom, createdTo }: PatientsTableProps) {
   const router = useRouter()
   const [patients, setPatients] = useState<PatientDto[]>([])
   const [loading, setLoading] = useState(true)
@@ -113,7 +119,11 @@ export function PatientsTable({ searchQuery, showFlaggedOnly }: PatientsTablePro
         setLoading(true)
         setError(null)
         const term = searchQuery.trim()
-        const data = await patientsApi.list(term ? { searchTerm: term } : undefined)
+        const data = await patientsApi.list({
+          searchTerm: term || undefined,
+          createdFrom,
+          createdTo,
+        })
         if (!ignore) setPatients(data)
       } catch (err) {
         if (!ignore) setError(getErrorMessage(err, "Échec du chargement des patients"))
@@ -126,7 +136,7 @@ export function PatientsTable({ searchQuery, showFlaggedOnly }: PatientsTablePro
     return () => {
       ignore = true
     }
-  }, [searchQuery]) // Reload when search query changes
+  }, [searchQuery, createdFrom, createdTo]) // Reload when the search term or the date window changes
 
   // Filter patients based on flagged status (search is handled by API)
   const filteredPatients = useMemo(() => {
@@ -186,7 +196,11 @@ export function PatientsTable({ searchQuery, showFlaggedOnly }: PatientsTablePro
     const loadPatients = async () => {
       try {
         const term = searchQuery.trim()
-        const data = await patientsApi.list(term ? { searchTerm: term } : undefined)
+        const data = await patientsApi.list({
+          searchTerm: term || undefined,
+          createdFrom,
+          createdTo,
+        })
         setPatients(data)
       } catch (err) {
         // The save itself succeeded; only the re-read failed. Say so instead of leaving a stale row silently.

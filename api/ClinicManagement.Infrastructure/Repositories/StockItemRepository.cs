@@ -66,6 +66,31 @@ public class StockItemRepository : IStockItemRepository
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<int> CountLowStockAsync(Guid clinicId, CancellationToken cancellationToken = default)
+    {
+        // Same predicate as GetByClinicIdAsync's lowStockOnly branch, so the card and the filtered list it links to
+        // can never report different numbers. No Include: a count needs no lots.
+        return await _context.StockItems
+            .Where(s => s.ClinicId == clinicId && s.CurrentStock <= s.MinimumStockLevel)
+            .CountAsync(cancellationToken);
+    }
+
+    public async Task<int> CountExpiringSoonAsync(
+        Guid clinicId, int leadDays, DateTime asOfUtc, CancellationToken cancellationToken = default)
+    {
+        // Mirrors StockBatch.IsExpired / IsExpiringSoon: a dated lot with stock left whose expiry falls on or before
+        // the lead horizon — an already-expired lot included, since that is the more urgent case of the same alert.
+        // RemainingQuantity > 0 is load-bearing: an emptied expired lot has nothing left to waste.
+        var horizon = asOfUtc.AddDays(leadDays);
+
+        return await _context.StockItems
+            .Where(s => s.ClinicId == clinicId
+                        && s.Batches.Any(b => b.RemainingQuantity > 0
+                                              && b.ExpiryDate != null
+                                              && b.ExpiryDate <= horizon))
+            .CountAsync(cancellationToken);
+    }
+
     public async Task<StockItem> AddAsync(StockItem item, CancellationToken cancellationToken = default)
     {
         await _context.StockItems.AddAsync(item, cancellationToken);

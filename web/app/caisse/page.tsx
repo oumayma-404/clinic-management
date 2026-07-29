@@ -71,10 +71,19 @@ const EXPENSE_CATEGORIES = [
 
 const methodLabel = (value: string): string => PAYMENT_METHODS.find((m) => m.value === value)?.label ?? value
 
-/** Local calendar day → UTC ISO boundaries [dayStart, nextDay) for a `from`/`to` query. */
-const dayBounds = (day: string): { from: string; to: string } => {
-  const start = new Date(`${day}T00:00:00`)
-  const next = new Date(start)
+/**
+ * Local calendar day(s) → UTC ISO boundaries `[startOfFirstDay, nextDayAfterLast)` for a `from`/`to` query.
+ *
+ * The upper bound is the midnight AFTER the last day, matching what this page has always sent: the caisse handler's
+ * own default is `from.AddDays(1).AddTicks(-1)`, and both forms include the whole final day.
+ *
+ * `endDay` defaults to `startDay`, so the single-day case is unchanged — la caisse gained a range mode for the
+ * dashboard's « Dépenses » / « Net » drill-through (a monthly KPI had nowhere truthful to land on a day-only screen),
+ * and the daily till remains what it opens on.
+ */
+const rangeBounds = (startDay: string, endDay: string = startDay): { from: string; to: string } => {
+  const start = new Date(`${startDay}T00:00:00`)
+  const next = new Date(`${endDay}T00:00:00`)
   next.setDate(next.getDate() + 1)
   return { from: start.toISOString(), to: next.toISOString() }
 }
@@ -83,6 +92,8 @@ const dayBounds = (day: string): { from: string; to: string } => {
 
 export default function CaissePage() {
   const [selectedDay, setSelectedDay] = useState<string>(() => format(new Date(), "yyyy-MM-dd"))
+  // The range's end. Empty means "one day" — the daily till, which is what this screen is for.
+  const [endDay, setEndDay] = useState<string>("")
   const [summary, setSummary] = useState<CaisseSummaryDto | null>(null)
   const [expenses, setExpenses] = useState<ExpenseDto[]>([])
   const [loading, setLoading] = useState(true)
@@ -95,7 +106,11 @@ export default function CaissePage() {
   const [expenseToDelete, setExpenseToDelete] = useState<ExpenseDto | null>(null)
   const [deleting, setDeleting] = useState(false)
 
-  const { from, to } = useMemo(() => dayBounds(selectedDay), [selectedDay])
+  const isRange = Boolean(endDay) && endDay !== selectedDay
+  const { from, to } = useMemo(
+    () => rangeBounds(selectedDay, isRange ? endDay : selectedDay),
+    [selectedDay, endDay, isRange],
+  )
 
   const loadData = useCallback(async () => {
     try {
@@ -120,6 +135,17 @@ export default function CaissePage() {
     loadData()
   }, [loadData])
 
+  // Dashboard drill-through (« Dépenses » / « Net »): ?from=&to= opens the range the KPI was computed over, so la
+  // caisse and the dashboard show the same three figures. window.location in an effect rather than useSearchParams —
+  // the repo's idiom. A malformed date is ignored, leaving today's till.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const urlFrom = params.get("from")
+    const urlTo = params.get("to")
+    if (urlFrom && !Number.isNaN(Date.parse(urlFrom))) setSelectedDay(urlFrom)
+    if (urlTo && !Number.isNaN(Date.parse(urlTo))) setEndDay(urlTo)
+  }, [])
+
   // La caisse had no realtime subscription at all — the one screen whose whole job is "what is in the
   // drawer right now" sat stale while a colleague recorded payments next door. Every money source it sums
   // is watched, because any of them moves the total.
@@ -128,10 +154,12 @@ export default function CaissePage() {
     loadData,
   )
 
-  const dayLabel = useMemo(
-    () => format(new Date(`${selectedDay}T00:00:00`), "EEEE d MMMM yyyy", { locale: fr }),
-    [selectedDay],
-  )
+  const dayLabel = useMemo(() => {
+    const start = format(new Date(`${selectedDay}T00:00:00`), "EEEE d MMMM yyyy", { locale: fr })
+    if (!isRange) return start
+    const end = format(new Date(`${endDay}T00:00:00`), "EEEE d MMMM yyyy", { locale: fr })
+    return `du ${start} au ${end}`
+  }, [selectedDay, endDay, isRange])
 
   const cashIn = summary?.cashIn ?? 0
   const cashOut = summary?.cashOut ?? 0
@@ -185,18 +213,38 @@ export default function CaissePage() {
                   <p className="mt-1 text-sm capitalize text-muted-foreground">{dayLabel}</p>
                 </div>
 
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                  <div className="flex items-center gap-2">
-                    <Label htmlFor="caisse-day" className="text-sm text-muted-foreground">
-                      Jour
-                    </Label>
-                    <Input
-                      id="caisse-day"
-                      type="date"
-                      value={selectedDay}
-                      onChange={(e) => setSelectedDay(e.target.value)}
-                      className="w-auto"
-                    />
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                  <div className="flex items-end gap-2">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="caisse-day" className="text-sm text-muted-foreground">
+                        {isRange ? "Du" : "Jour"}
+                      </Label>
+                      <Input
+                        id="caisse-day"
+                        type="date"
+                        value={selectedDay}
+                        onChange={(e) => setSelectedDay(e.target.value)}
+                        className="w-auto"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="caisse-day-end" className="text-sm text-muted-foreground">
+                        Au (optionnel)
+                      </Label>
+                      <Input
+                        id="caisse-day-end"
+                        type="date"
+                        value={endDay}
+                        min={selectedDay}
+                        onChange={(e) => setEndDay(e.target.value)}
+                        className="w-auto"
+                      />
+                    </div>
+                    {isRange && (
+                      <Button variant="outline" onClick={() => setEndDay("")}>
+                        Journée
+                      </Button>
+                    )}
                   </div>
                   <Button onClick={handleAddNew} className="gap-2">
                     <Plus className="h-4 w-4" />

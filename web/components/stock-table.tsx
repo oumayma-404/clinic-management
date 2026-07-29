@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
-import { Package, Search, Pencil, Trash2, Loader2, AlertTriangle, Minus, Plus, History } from "lucide-react"
+import { Package, Search, Pencil, Trash2, Loader2, AlertTriangle, Minus, Plus, History, Hourglass } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { stockApi, type StockMovementDto } from "@/lib/api/stock"
 import { formatDate, formatDateTime } from "@/lib/format"
@@ -32,15 +32,23 @@ interface StockTableProps {
   onEdit: (item: StockItemDto) => void
   /** When set (from a low-stock notification deep-link), the matching row is highlighted + scrolled into view. */
   highlightItemId?: string | null
+  /**
+   * Pre-applies a filter on arrival, from the dashboard's « Stock bas » / « Périment bientôt » drill-through, so the
+   * list shows exactly the items that card counted. `undefined` leaves the full list, which is the default.
+   */
+  initialFilter?: "low" | "expiring"
 }
 
-export function StockTable({ refreshKey, onEdit, highlightItemId }: StockTableProps) {
+export function StockTable({ refreshKey, onEdit, highlightItemId, initialFilter }: StockTableProps) {
   const [items, setItems] = useState<StockItemDto[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [categoryFilter, setCategoryFilter] = useState<string>("all")
-  const [lowStockOnly, setLowStockOnly] = useState(false)
+  const [lowStockOnly, setLowStockOnly] = useState(initialFilter === "low")
+  // Mirrors the « expiration » column's own reading (StockBatch.IsExpired / IsExpiringSoon, surfaced as the two DTO
+  // flags): an already-expired lot is the more urgent case of the same alert, so it is included rather than split off.
+  const [expiringOnly, setExpiringOnly] = useState(initialFilter === "expiring")
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [itemToDelete, setItemToDelete] = useState<StockItemDto | null>(null)
   const [deleting, setDeleting] = useState(false)
@@ -101,11 +109,16 @@ export function StockTable({ refreshKey, onEdit, highlightItemId }: StockTablePr
       const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase())
       const matchesCategory = categoryFilter === "all" || item.category === categoryFilter
       const matchesLowStock = !lowStockOnly || item.isLowStock
-      return matchesSearch && matchesCategory && matchesLowStock
+      const matchesExpiring = !expiringOnly || item.isExpiringSoon || item.hasExpiredStock
+      return matchesSearch && matchesCategory && matchesLowStock && matchesExpiring
     })
-  }, [items, searchQuery, categoryFilter, lowStockOnly])
+  }, [items, searchQuery, categoryFilter, lowStockOnly, expiringOnly])
 
   const lowStockCount = useMemo(() => items.filter((i) => i.isLowStock).length, [items])
+  const expiringCount = useMemo(
+    () => items.filter((i) => i.isExpiringSoon || i.hasExpiredStock).length,
+    [items],
+  )
 
   const handleDelete = (item: StockItemDto) => {
     setItemToDelete(item)
@@ -195,11 +208,24 @@ export function StockTable({ refreshKey, onEdit, highlightItemId }: StockTablePr
                 <Button
                   variant={lowStockOnly ? "default" : "outline"}
                   size="sm"
+                  aria-pressed={lowStockOnly}
                   onClick={() => setLowStockOnly((v) => !v)}
                   className="ml-2 h-7 gap-1"
                 >
-                  <AlertTriangle className="h-3 w-3" />
+                  <AlertTriangle className="h-3 w-3" aria-hidden="true" />
                   Stock faible ({lowStockCount})
+                </Button>
+              )}
+              {expiringCount > 0 && (
+                <Button
+                  variant={expiringOnly ? "default" : "outline"}
+                  size="sm"
+                  aria-pressed={expiringOnly}
+                  onClick={() => setExpiringOnly((v) => !v)}
+                  className="ml-2 h-7 gap-1"
+                >
+                  <Hourglass className="h-3 w-3" aria-hidden="true" />
+                  Péremption ({expiringCount})
                 </Button>
               )}
             </CardTitle>

@@ -9,6 +9,16 @@ public interface IAppointmentRepository
     Task<IEnumerable<Appointment>> GetAllAsync(CancellationToken cancellationToken = default);
     Task<IEnumerable<Appointment>> GetByClinicIdAsync(Guid clinicId, DateTime? startDate = null, DateTime? endDate = null, Guid? doctorId = null, CancellationToken cancellationToken = default);
     Task<int> CountByClinicIdAsync(Guid clinicId, DateTime? startDate = null, DateTime? endDate = null, AppointmentStatus? status = null, IReadOnlyCollection<AppointmentStatus>? excludeStatuses = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// How many appointments the clinic has in <c>[from, toInclusive]</c>, broken down by status — one
+    /// <c>GROUP BY</c> rather than one <c>COUNT</c> per status. The dashboard needs honoured, missed and
+    /// cancelled counts *and* the total over the same window (the taux d'absence denominator), so four separate
+    /// counts would be four round trips that could also disagree with each other if the window drifted between
+    /// them. A status with no rows is simply absent from the dictionary — callers read it as zero.
+    /// </summary>
+    Task<IReadOnlyDictionary<AppointmentStatus, int>> CountByStatusBetweenAsync(
+        Guid clinicId, DateTime from, DateTime toInclusive, CancellationToken cancellationToken = default);
     Task<IEnumerable<Appointment>> GetByPatientIdAsync(Guid patientId, CancellationToken cancellationToken = default);
     Task<IEnumerable<Appointment>> GetUpcomingAppointmentsAsync(DateTime fromDate, CancellationToken cancellationToken = default);
     Task<IEnumerable<Appointment>> GetAppointmentsForDateAsync(DateTime date, CancellationToken cancellationToken = default);

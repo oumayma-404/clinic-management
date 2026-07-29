@@ -34,7 +34,10 @@ import { useSession } from "@/lib/auth/session"
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select"
 
 export default function AppointmentsPage() {
-  const [view, setView] = useState<"day" | "week" | "month">("day")
+  // Week is the default: it is the span staff actually plan against, and a single day of a specialist practice's
+  // calendar is mostly empty. Month view stays one click away, and clicking a day cell there still drops into Day
+  // view (handleSelectDay).
+  const [view, setView] = useState<"day" | "week" | "month">("week")
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [selectedAppointment, setSelectedAppointment] = useState<AppointmentDto | null>(null)
@@ -156,6 +159,42 @@ export default function AppointmentsPage() {
       setBookingPatientId(patientId)
       setDialogOpen(true)
     }
+  }, [])
+
+  /**
+   * Dashboard drill-through (« Rendez-vous honorés » / « Taux d'absence »): `?from=&to=&status=`.
+   *
+   * <p>The calendar has no arbitrary-range view, so the window is honoured by focusing its FIRST day and switching to
+   * the widest view — month — which is the closest honest rendering of "the period the card counted". The status list
+   * is comma-separated because the absence rate's numerator is NoShow **and** Cancelled; landing on no-shows alone
+   * would show a fraction of what the card counted.</p>
+   *
+   * <p>Only `Cancelled` and `Completed` need a toggle switched on: the calendar hides exactly those two by default and
+   * already shows no-shows. Turning on `showCancelled` for a `NoShow`-only link would surface appointments the card
+   * never counted, so the two are matched individually rather than as one "unusual statuses" group.</p>
+   *
+   * <p>Nothing here refuses a bad value: an unparseable date or an unknown status simply leaves the calendar as it
+   * was, matching the graceful-deep-link rule the rest of this page follows.</p>
+   */
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const from = params.get("from")
+    const statuses = (params.get("status") ?? "")
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean)
+
+    if (!from && statuses.length === 0) return
+
+    if (from && !Number.isNaN(Date.parse(from))) {
+      setSelectedDate(new Date(`${from}T00:00:00`))
+      setView("month")
+    }
+
+    if (statuses.includes("cancelled")) setShowCancelled(true)
+    if (statuses.includes("completed")) setShowCompleted(true)
+
+    window.history.replaceState({}, "", "/appointments")
   }, [])
 
   // Already on this page: a same-route push doesn't remount, so react to the header's deep-link event.

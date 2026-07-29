@@ -16,6 +16,14 @@ public class GetTreatmentPlansQuery : IRequest<Result<List<TreatmentPlanDto>>>
     public string? Status { get; set; }
     public DateTime? From { get; set; }
     public DateTime? To { get; set; }
+
+    /// <summary>
+    /// Optional bounds on <c>AcceptedDate</c> — deliberately separate from <see cref="From"/>/<see cref="To"/>,
+    /// which bound the creation date. The dashboard's « Devis acceptés » KPI counts by acceptance, so its
+    /// drill-through has to filter by the same date or the list would not contain the devis the card counted.
+    /// </summary>
+    public DateTime? AcceptedFrom { get; set; }
+    public DateTime? AcceptedTo { get; set; }
 }
 
 public class GetTreatmentPlansQueryHandler : IRequestHandler<GetTreatmentPlansQuery, Result<List<TreatmentPlanDto>>>
@@ -64,14 +72,16 @@ public class GetTreatmentPlansQueryHandler : IRequestHandler<GetTreatmentPlansQu
             }
             var clinicId = clinicResult.Value;
 
-            var plans = (await _planRepository.GetFilteredAsync(clinicId, request.PatientId, status, request.From, request.To, cancellationToken)).ToList();
+            var plans = (await _planRepository.GetFilteredAsync(
+                clinicId, request.PatientId, status, request.From, request.To,
+                request.AcceptedFrom, request.AcceptedTo, cancellationToken)).ToList();
 
             // One query for patient names, mapped by id (a clinic's patient set is small) — mirrors
             // GetInvoicesQuery rather than a GetByIdAsync per distinct patient.
             // includeArchived: this resolves NAMES, it is not a picker. An archived patient's devis must still
             // show who they belong to.
             var patients = await _patientRepository.GetByClinicIdAsync(
-                clinicId, includeArchived: true, cancellationToken);
+                clinicId, includeArchived: true, cancellationToken: cancellationToken);
             var names = patients.ToDictionary(p => p.Id, p => p.GetFullName());
 
             // Derived scheduling + devis→facture read-back for the whole page: two batched queries total,

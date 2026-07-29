@@ -2,7 +2,16 @@ import { apiGet, apiPost, apiPut, apiDelete } from './client';
 import type { PatientDto, PatientDeletionCheckDto } from './types';
 
 export const patientsApi = {
-  list: async (params?: { searchTerm?: string; limit?: number }): Promise<PatientDto[]> => {
+  /**
+   * `createdFrom` / `createdTo` are inclusive registration-date bounds, applied in SQL. They back the dashboard's
+   * « Nouveaux patients » drill-through, which must list exactly the patients that KPI counted.
+   */
+  list: async (params?: {
+    searchTerm?: string;
+    limit?: number;
+    createdFrom?: string;
+    createdTo?: string;
+  }): Promise<PatientDto[]> => {
     return apiGet<PatientDto[]>('/patients', params);
   },
 

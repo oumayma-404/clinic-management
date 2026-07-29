@@ -14,6 +14,14 @@ public class LoginResultDto
 
     /// <summary>When the <see cref="AccessToken"/> expires — minutes, not hours (AC-5.3).</summary>
     public DateTime ExpiresAt { get; set; }
+
+    /// <summary>
+    /// When the <see cref="RefreshToken"/> expires — the durable session's real lifetime, hours not minutes.
+    /// The BFF needs this separately to set its cookie: keying the cookie off <see cref="ExpiresAt"/> made the
+    /// browser discard a still-valid 12h session after the 30-minute access token lapsed. Null when no refresh
+    /// token was issued (the refresh path mints an access token only).
+    /// </summary>
+    public DateTime? RefreshExpiresAt { get; set; }
     public bool MustChangePassword { get; set; }
     public UserDto User { get; set; } = null!;
 }

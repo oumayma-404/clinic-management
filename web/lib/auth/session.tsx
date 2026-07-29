@@ -4,6 +4,7 @@ import type React from "react"
 import { Auth0Provider, useUser } from "@auth0/nextjs-auth0/client"
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
 import { clinicsApi } from "@/lib/api/clinics"
+import { clearCachedAccessToken } from "@/lib/api/client"
 
 export type AuthMode = "cloud" | "local"
 
@@ -112,6 +113,9 @@ export function LocalSessionProvider({ children }: { children: React.ReactNode }
   const logout = useCallback(() => {
     // AC-3.6: logout returns to the login screen; the configured server address
     // (NEXT_PUBLIC_API_URL / shell config) is untouched.
+    // Drop the in-memory access token too: the full navigation below would discard it anyway, but the
+    // cache must not outlive the session on any path that stops short of reloading the page.
+    clearCachedAccessToken()
     fetch("/bff/auth/local-logout", { method: "POST" })
       .catch(() => {})
       .finally(() => {

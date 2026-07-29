@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using ClinicManagement.Domain.Entities;
+using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Infrastructure.Persistence;
 
@@ -20,13 +21,35 @@ public class LabWorkOrderRepository : ILabWorkOrderRepository
             .FirstOrDefaultAsync(o => o.Id == id, cancellationToken);
     }
 
-    public async Task<IEnumerable<LabWorkOrder>> GetByClinicIdAsync(Guid clinicId, CancellationToken cancellationToken = default)
+    public async Task<IEnumerable<LabWorkOrder>> GetByClinicIdAsync(
+        Guid clinicId, LabOrderStatus? status = null, CancellationToken cancellationToken = default)
     {
-        return await _context.LabWorkOrders
+        var query = _context.LabWorkOrders
             .Include(o => o.Patient)
-            .Where(o => o.ClinicId == clinicId)
+            .Where(o => o.ClinicId == clinicId);
+
+        if (status.HasValue)
+        {
+            query = query.Where(o => o.Status == status.Value);
+        }
+
+        return await query
             .OrderByDescending(o => o.CreatedAt)
             .ToListAsync(cancellationToken);
+    }
+
+    public async Task<int> CountOverdueAsync(Guid clinicId, DateTime asOfUtc, CancellationToken cancellationToken = default)
+    {
+        // « En retard » = still at the lab past the date it was expected back. An order with no ExpectedDate has
+        // nothing to be late against and is deliberately not counted — guessing a default would invent a deadline
+        // the clinic never agreed with the prothésiste. Received/Fitted are already back, so only Sent qualifies;
+        // InProgress is excluded on the same reading (the lab has acknowledged it and is working).
+        return await _context.LabWorkOrders
+            .Where(o => o.ClinicId == clinicId
+                        && o.Status == LabOrderStatus.Sent
+                        && o.ExpectedDate != null
+                        && o.ExpectedDate < asOfUtc)
+            .CountAsync(cancellationToken);
     }
 
     public async Task<IEnumerable<LabWorkOrder>> GetByPatientIdAsync(Guid patientId, CancellationToken cancellationToken = default)

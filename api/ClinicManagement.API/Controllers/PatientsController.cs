@@ -22,15 +22,26 @@ public class PatientsController : ApiControllerBase
     }
 
     /// <summary>
-    /// Get patients for the current user's clinic, optionally filtered by a search term (name / phone)
-    /// and capped at <paramref name="limit"/>.
+    /// Get patients for the current user's clinic, optionally filtered by a search term (name / phone),
+    /// by registration date, and capped at <paramref name="limit"/>.
     /// </summary>
+    /// <param name="createdFrom">Inclusive lower bound on the registration date — backs the dashboard's
+    /// « Nouveaux patients » drill-through, which must list exactly the patients that KPI counted.</param>
+    /// <param name="createdTo">Inclusive upper bound on the registration date.</param>
     [HttpGet]
     public async Task<ActionResult<IEnumerable<PatientDto>>> GetPatients(
         [FromQuery] string? searchTerm = null,
-        [FromQuery] int? limit = null)
+        [FromQuery] int? limit = null,
+        [FromQuery] DateTime? createdFrom = null,
+        [FromQuery] DateTime? createdTo = null)
     {
-        var query = new GetPatientsQuery { SearchTerm = searchTerm, Limit = limit };
+        var query = new GetPatientsQuery
+        {
+            SearchTerm = searchTerm,
+            Limit = limit,
+            CreatedFrom = createdFrom,
+            CreatedTo = createdTo
+        };
         var result = await _mediator.Send(query);
 
         if (result.IsFailure)

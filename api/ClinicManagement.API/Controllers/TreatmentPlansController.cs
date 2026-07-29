@@ -22,14 +22,28 @@ public class TreatmentPlansController : ApiControllerBase
     }
 
     /// <summary>List the clinic's treatment plans, filtered by patient / status / created-date range.</summary>
+    /// <param name="acceptedFrom">Inclusive lower bound on the <b>acceptance</b> date — a different date from
+    /// <paramref name="from"/>, which bounds creation. Backs the dashboard's « Devis acceptés » drill-through,
+    /// which counts by acceptance and so cannot filter by creation.</param>
+    /// <param name="acceptedTo">Inclusive upper bound on the acceptance date.</param>
     [HttpGet]
     public async Task<ActionResult<IEnumerable<TreatmentPlanDto>>> GetPlans(
         [FromQuery] Guid? patientId = null,
         [FromQuery] string? status = null,
         [FromQuery] DateTime? from = null,
-        [FromQuery] DateTime? to = null)
+        [FromQuery] DateTime? to = null,
+        [FromQuery] DateTime? acceptedFrom = null,
+        [FromQuery] DateTime? acceptedTo = null)
     {
-        var result = await _mediator.Send(new GetTreatmentPlansQuery { PatientId = patientId, Status = status, From = from, To = to });
+        var result = await _mediator.Send(new GetTreatmentPlansQuery
+        {
+            PatientId = patientId,
+            Status = status,
+            From = from,
+            To = to,
+            AcceptedFrom = acceptedFrom,
+            AcceptedTo = acceptedTo
+        });
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
     }
 
@@ -111,7 +125,8 @@ public class TreatmentPlansController : ApiControllerBase
     }
 
     /// <summary>
-    /// Amend an accepted devis: add/remove acts and revise the échéancier in one call. `AdminOrDoctor` —
+    /// Amend an accepted devis: add, edit and remove acts, retitle it and revise the échéancier in one call.
+    /// `AdminOrDoctor` —
     /// this alters what the patient owes on a numbered document, the same class as cancelling an issued
     /// invoice or issuing an avoir. Enforcement is controller-only, deliberately, as for that whole class.
     /// </summary>

@@ -80,7 +80,19 @@ public interface IPatientRepository
     /// list or any patient picker. Reads that legitimately need them — the deletion pre-check, « Solde patient »,
     /// direct navigation — opt in.
     /// </param>
-    Task<IEnumerable<Patient>> GetByClinicIdAsync(Guid clinicId, bool includeArchived = false, CancellationToken cancellationToken = default);
+    /// <param name="createdFrom">
+    /// Inclusive lower bound on <c>CreatedAt</c>. Backs the dashboard's « Nouveaux patients » drill-through
+    /// (<c>/patients?createdFrom=&amp;createdTo=</c>) so the click lands on exactly the patients the KPI counted.
+    /// Deliberately added to this signature rather than as a parallel <c>GetByClinicIdWithDatesAsync</c>: the
+    /// method already carries one optional filter, and a near-duplicate read is how two list queries drift.
+    /// </param>
+    /// <param name="createdTo">Inclusive upper bound on <c>CreatedAt</c>.</param>
+    Task<IEnumerable<Patient>> GetByClinicIdAsync(
+        Guid clinicId,
+        bool includeArchived = false,
+        DateTime? createdFrom = null,
+        DateTime? createdTo = null,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// The bounded candidate set for « patients à relancer » (AC-P4.41–4.43). Everything expressible in SQL is
@@ -93,8 +105,23 @@ public interface IPatientRepository
     /// of the real rule: the exact <c>anchor + interval &lt;= now</c> test is applied by the caller, because
     /// inverting <c>AddMonths</c> into SQL would change which patients qualify at month boundaries (AC-P4.42).
     /// </param>
+    /// <param name="alwaysIncludePatientIds">
+    /// Patients who must come back <b>regardless of the date bound</b>, because some other reason already qualifies
+    /// them for the « à rappeler » worklist — a stalled devis or an overdue échéance. Those reasons are unrelated to
+    /// when the patient was last seen, so the anchor bound would hide exactly the rows worth chasing.
+    /// <para>
+    /// An explicit id set rather than dropping the bound: removing it would return every non-archived, non-snoozed,
+    /// unbooked patient in the clinic on every page load, re-opening the § 9.6 full-scan this read was written to
+    /// close (AC-P4.41). The ids come from the plan and installment reads, both naturally small. The archived /
+    /// snoozed / future-booking exclusions still apply to them — being owed money does not override an archive.
+    /// </para>
+    /// </param>
     Task<IReadOnlyList<RecallCandidate>> GetRecallCandidatesAsync(
-        Guid clinicId, DateTime anchorOnOrBeforeUtc, DateTime nowUtc, CancellationToken cancellationToken = default);
+        Guid clinicId,
+        DateTime anchorOnOrBeforeUtc,
+        DateTime nowUtc,
+        IReadOnlyCollection<Guid>? alwaysIncludePatientIds = null,
+        CancellationToken cancellationToken = default);
 
     /// <summary>Counts everything attached to a patient, so a refusal can name what actually blocks it.</summary>
     Task<PatientLinkedDataCounts> GetLinkedDataCountsAsync(Guid patientId, CancellationToken cancellationToken = default);
@@ -103,6 +130,18 @@ public interface IPatientRepository
     Task<PatientArchiveBlockers> GetArchiveBlockersAsync(Guid patientId, DateTime asOfUtc, CancellationToken cancellationToken = default);
     Task<int> CountByClinicIdAsync(Guid clinicId, CancellationToken cancellationToken = default);
     Task<int> CountFlaggedByClinicIdAsync(Guid clinicId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// How many patients the clinic registered in <c>[from, toInclusive]</c> — the dashboard's « Nouveaux
+    /// patients ». Archived patients are excluded by default for the same reason they are excluded from the list:
+    /// the figure is a link to that list, and the two must show the same people.
+    /// </summary>
+    Task<int> CountCreatedBetweenAsync(
+        Guid clinicId,
+        DateTime from,
+        DateTime toInclusive,
+        bool includeArchived = false,
+        CancellationToken cancellationToken = default);
     Task<IEnumerable<Patient>> GetFlaggedPatientsAsync(CancellationToken cancellationToken = default);
     Task<Patient> AddAsync(Patient patient, CancellationToken cancellationToken = default);
     Task UpdateAsync(Patient patient, CancellationToken cancellationToken = default);

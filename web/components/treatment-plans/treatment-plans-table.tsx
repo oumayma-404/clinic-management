@@ -31,8 +31,15 @@ interface TreatmentPlansTableProps {
   patientId?: string
   patientName?: string
   status?: string
+  /** Creation-date bounds. */
   from?: string
   to?: string
+  /**
+   * ACCEPTANCE-date bounds — a different date from {@link from}/{@link to}. Set by the dashboard's « Devis acceptés »
+   * drill-through, which counts by `acceptedDate`.
+   */
+  acceptedFrom?: string
+  acceptedTo?: string
   showPatientColumn?: boolean
   /** Bumped by the parent (e.g. after filter change) to force a reload. */
   reloadKey?: number
@@ -55,6 +62,8 @@ export function TreatmentPlansTable({
   status,
   from,
   to,
+  acceptedFrom,
+  acceptedTo,
   showPatientColumn = true,
   reloadKey = 0,
   onChanged,
@@ -74,14 +83,14 @@ export function TreatmentPlansTable({
     try {
       setLoading(true)
       setError(null)
-      const data = await treatmentPlansApi.list({ patientId, status, from, to })
+      const data = await treatmentPlansApi.list({ patientId, status, from, to, acceptedFrom, acceptedTo })
       setPlans(data)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Échec du chargement des plans de traitement.")
     } finally {
       setLoading(false)
     }
-  }, [patientId, status, from, to])
+  }, [patientId, status, from, to, acceptedFrom, acceptedTo])
 
   useEffect(() => {
     load()

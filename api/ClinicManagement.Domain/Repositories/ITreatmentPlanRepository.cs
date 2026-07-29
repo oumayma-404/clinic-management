@@ -3,6 +3,23 @@ using ClinicManagement.Domain.Enums;
 
 namespace ClinicManagement.Domain.Repositories;
 
+/// <summary>
+/// One plan, reduced to what the « à rappeler » worklist needs to judge it: is it stalled, or unanswered?
+///
+/// <para>A projection, not a <see cref="TreatmentPlan"/>. The rules need five scalars and two item counts; loading
+/// every plan in the clinic with its items, installments and payments to derive them is the over-fetch
+/// <c>GetFilteredAsync</c> exists for and this read must avoid.</para>
+/// </summary>
+public sealed record RecallPlanFact(
+    Guid PatientId,
+    Guid PlanId,
+    string? Number,
+    TreatmentPlanStatus Status,
+    DateTime CreatedAt,
+    DateTime? AcceptedDate,
+    int TotalItems,
+    int DoneItems);
+
 public interface ITreatmentPlanRepository
 {
     /// <summary>Load a treatment plan with its items and installments.</summary>
@@ -19,12 +36,43 @@ public interface ITreatmentPlanRepository
         Guid clinicId, Guid dentalRecordId, CancellationToken cancellationToken = default);
 
     /// <summary>List a clinic's treatment plans, filtered by patient / status / created-date range.</summary>
+    /// <param name="acceptedFrom">
+    /// Inclusive lower bound on <c>AcceptedDate</c> — a <b>different date</b> from <paramref name="from"/>, which
+    /// bounds <c>CreatedAt</c>. Both exist because the dashboard's « Devis acceptés » KPI counts by the date the
+    /// patient said yes, so drilling into it with the created-date range would show a different set of devis than
+    /// the number counted. A plan with no <c>AcceptedDate</c> (still Draft) is excluded when this is supplied.
+    /// </param>
+    /// <param name="acceptedTo">Inclusive upper bound on <c>AcceptedDate</c>.</param>
     Task<IEnumerable<TreatmentPlan>> GetFilteredAsync(
         Guid clinicId,
         Guid? patientId = null,
         TreatmentPlanStatus? status = null,
         DateTime? from = null,
         DateTime? to = null,
+        DateTime? acceptedFrom = null,
+        DateTime? acceptedTo = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// How many of the clinic's plans are in <paramref name="status"/>, optionally bounded by the date that status
+    /// was reached. When <paramref name="byAcceptedDate"/> the bounds apply to <c>AcceptedDate</c> (« devis
+    /// acceptés ce mois »); otherwise to <c>CreatedAt</c> (« devis en attente de réponse », a Draft has no
+    /// accepted date). A count, not a list — the dashboard needs the number, never the aggregates.
+    /// </summary>
+    /// <summary>
+    /// Plan facts for the whole clinic, for the « à rappeler » worklist. Excludes <c>Cancelled</c> plans (a void
+    /// devis is nothing to chase) and <c>Completed</c> ones (nothing left to do). Item counts come from the
+    /// database, never from a materialised collection.
+    /// </summary>
+    Task<IReadOnlyList<RecallPlanFact>> GetRecallPlanFactsAsync(
+        Guid clinicId, CancellationToken cancellationToken = default);
+
+    Task<int> CountByStatusAsync(
+        Guid clinicId,
+        TreatmentPlanStatus status,
+        DateTime? from = null,
+        DateTime? toInclusive = null,
+        bool byAcceptedDate = false,
         CancellationToken cancellationToken = default);
 
     /// <summary>

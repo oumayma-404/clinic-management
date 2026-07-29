@@ -53,13 +53,13 @@ public class GetTreatmentPlansQueryHandlerTests
         Authenticated();
         _plans.Setup(r => r.GetFilteredAsync(
                 ClinicId, It.IsAny<Guid?>(), It.IsAny<TreatmentPlanStatus?>(),
-                It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
+                It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new[]
             {
                 PlanFixture(PatientAId), PlanFixture(PatientAId),
                 PlanFixture(PatientBId), PlanFixture(PatientBId),
             });
-        _patients.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+        _patients.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<bool>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new[] { PatientFixture(PatientAId, "Jean"), PatientFixture(PatientBId, "Marie") });
         _appointments.Setup(r => r.GetByTreatmentPlanItemIdsAsync(
                 It.IsAny<Guid>(), It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
@@ -95,7 +95,7 @@ public class GetTreatmentPlansQueryHandlerTests
         Assert.True(result.IsSuccess);
         Assert.Contains(result.Value!, d => d.PatientName == "Jean Dupont");
         Assert.Contains(result.Value!, d => d.PatientName == "Marie Dupont");
-        _patients.Verify(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Once);
+        _patients.Verify(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<bool>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()), Times.Once);
         _patients.Verify(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
@@ -109,7 +109,7 @@ public class GetTreatmentPlansQueryHandlerTests
 
         _plans.Verify(r => r.GetFilteredAsync(
             ClinicId, It.IsAny<Guid?>(), It.IsAny<TreatmentPlanStatus?>(),
-            It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()), Times.Once);
+            It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     // [AC-5] The derived progress counts are always populated, even with no appointment or invoice in play.
@@ -141,6 +141,6 @@ public class GetTreatmentPlansQueryHandlerTests
         Assert.True(result.IsFailure);
         _plans.Verify(r => r.GetFilteredAsync(
             It.IsAny<Guid>(), It.IsAny<Guid?>(), It.IsAny<TreatmentPlanStatus?>(),
-            It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()), Times.Never);
+            It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 }

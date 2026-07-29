@@ -27,6 +27,27 @@ public interface IInvoiceRepository
     Task<decimal> GetCollectedBetweenAsync(Guid clinicId, DateTime from, DateTime to, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Sum of <c>TotalTtc</c> over the clinic's invoices <b>issued</b> in <c>[from, toInclusive]</c> — the
+    /// dashboard's « Facturé ». Drafts carry no number and cancelled invoices are void, so both are excluded,
+    /// matching <c>GetInvoiceRevenueQuery</c>'s rule exactly.
+    /// <para>
+    /// A projected <c>SUM</c> rather than a reuse of <see cref="GetFilteredAsync"/>: that method materialises every
+    /// invoice <b>with its lines and payments</b>, which is acceptable for a screen listing them and wasteful for a
+    /// single figure on the app's home page.
+    /// </para>
+    /// </summary>
+    Task<decimal> GetInvoicedBetweenAsync(
+        Guid clinicId, DateTime from, DateTime toInclusive, CancellationToken cancellationToken = default);
+
+    // NOTE: there is deliberately no GetCollectedByMonthAsync. One was written for the « Tendance » sparkline and
+    // removed: bucketing by the clinic-local month required date arithmetic on a `timestamptz` column
+    // (`GroupBy(p => p.PaidOn.AddMinutes(offset).Month)`), which has no valid PostgreSQL translation — it failed at
+    // runtime with `42883: function pg_catalog.timezone(unknown, interval) does not exist` while every unit test
+    // passed, because they all mock this interface. DashboardTrendReader now derives each month's UTC bounds through
+    // ClinicClock and calls GetCollectedBetweenAsync once per month instead: no timezone maths reaches the database,
+    // and each point is produced by the same method the « Encaissé » figure uses.
+
+    /// <summary>
     /// Outstanding invoice balance per patient (TTC − collected) across the clinic's issued, non-cancelled,
     /// non-draft invoices — only patients whose invoice balance is &gt; 0. Feeds the unified per-patient
     /// balance, the clinic receivables list, and the dashboard total-outstanding figure.

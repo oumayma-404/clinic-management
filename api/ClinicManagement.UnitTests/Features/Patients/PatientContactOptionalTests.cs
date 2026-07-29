@@ -168,7 +168,7 @@ public class PatientContactOptionalTests
     {
         var withPhone = PatientWith(null, new PhoneNumber("20123456"));
         var without = PatientWith(null, null);
-        _patients.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+        _patients.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<bool>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new[] { without, withPhone });
 
         var handler = new GetPatientsQueryHandler(_patients.Object, _users.Object, _clinicContext.Object);

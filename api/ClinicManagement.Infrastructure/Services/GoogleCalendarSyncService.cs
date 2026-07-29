@@ -598,7 +598,7 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
             // includeArchived: matching must see archived patients. Hiding them here would not protect anything —
             // the very next line auto-creates a placeholder patient, so excluding them would silently produce a
             // DUPLICATE record for someone the clinic already has.
-            var patients = await _patientRepository.GetByClinicIdAsync(clinicId, includeArchived: true, cancellationToken);
+            var patients = await _patientRepository.GetByClinicIdAsync(clinicId, includeArchived: true, cancellationToken: cancellationToken);
             
             // Try exact match first (case-insensitive)
             var patient = patients.FirstOrDefault(p => 

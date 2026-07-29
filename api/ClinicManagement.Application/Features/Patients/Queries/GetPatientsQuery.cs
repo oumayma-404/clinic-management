@@ -18,6 +18,15 @@ public class GetPatientsQuery : IRequest<Result<IEnumerable<PatientDto>>>
 
     /// <summary>Optional cap on the number of results returned (applied after filtering). Ignored when null or ≤ 0.</summary>
     public int? Limit { get; set; }
+
+    /// <summary>
+    /// Optional inclusive bounds on the registration date, pushed into SQL. Added for the dashboard's « Nouveaux
+    /// patients » drill-through: the KPI counts patients created in the period, so clicking it has to open the list
+    /// filtered by the same window — otherwise the card shows 12 and the page shows every patient the clinic has.
+    /// Archived patients stay excluded, matching the count.
+    /// </summary>
+    public DateTime? CreatedFrom { get; set; }
+    public DateTime? CreatedTo { get; set; }
 }
 
 public class GetPatientsQueryHandler : IRequestHandler<GetPatientsQuery, Result<IEnumerable<PatientDto>>>
@@ -57,8 +66,13 @@ public class GetPatientsQueryHandler : IRequestHandler<GetPatientsQuery, Result<
             var clinicId = user.ClinicId;
 
             // Archived patients are excluded: this backs both the patients page and the header search.
+            // The created-date bounds are applied in SQL by the repository, not in the in-memory filter below —
+            // the search term has to be normalised in memory (accent-insensitivity), a date range does not.
             IEnumerable<Patient> patients = await _patientRepository.GetByClinicIdAsync(
-                clinicId, cancellationToken: cancellationToken);
+                clinicId,
+                createdFrom: request.CreatedFrom,
+                createdTo: request.CreatedTo,
+                cancellationToken: cancellationToken);
 
             // Server-side filter: match first/last/full name and phone, case- and accent-insensitive.
             var normalizedTerm = NormalizeForSearch(request.SearchTerm);

@@ -9,7 +9,7 @@ Next.js 15 (App Router) frontend for the dental/medical clinic management system
 - **shadcn/ui** (style "new-york", RSC enabled) on top of Radix UI primitives. See `components/ui/`.
 - **Auth0** via `@auth0/nextjs-auth0` v4 (`Auth0Provider`, middleware, `/auth/*` routes) — cloud mode only.
 - **@microsoft/signalr** v8 — realtime client (`lib/realtime/`, hub at `/hub/clinic` on the API host root).
-- **sonner** toasts, **lucide-react** icons, **date-fns** dates (fr locale), **react-hook-form** + **zod** forms, **recharts** charts, **docx** + **file-saver** for client-side document export, **@vercel/analytics** (mounted in layout).
+- **sonner** toasts, **lucide-react** icons, **date-fns** dates (fr locale), **react-hook-form** + **zod** forms, **recharts** charts (first real usage is the dashboard's `collected-trend-chart.tsx`), **docx** + **file-saver** for client-side document export, **@vercel/analytics** (mounted in layout).
 - Data layer is plain `fetch` wrapped in `lib/api/` — **no React Query / SWR / Redux**. State is local `useState` + custom hooks + React Contexts (session, connectivity, sidebar) + the SignalR realtime seam.
 
 ## Run
@@ -90,7 +90,7 @@ All app pages are client components (`"use client"`) that render `DashboardSideb
 
 | Route | File | Renders |
 |-------|------|---------|
-| `/` | `app/page.tsx` | Dashboard "Tableau de bord": stats cards (`dashboardApi`) + appointment list (`useAppointments`) |
+| `/` | `app/page.tsx` | Dashboard "Tableau de bord" (`useDashboard` → `GET /api/dashboard`): a period selector (Aujourd'hui / Cette semaine / Ce mois, held in `?period=`) above four sections — **Activité** and **Argent** (every figure with its delta vs. the previous period), **À traiter**, and the **Tendance** sparkline — then the kept `AppointmentList`. **Every figure is a `Link`**; the KPI→route mapping lives in one place, `lib/dashboard-links.ts` (an exhaustive `Record<DashboardKpiKey, …>`, so adding a KPI without a destination fails `tsc`). |
 | `/appointments` | `app/appointments/page.tsx` | Day/week calendar, create/edit dialogs, Google Calendar sync controls (Local: gated on internet reachability + per-appointment "non synchronisé"/Push-to-Google via `useConnectivity()`) |
 | `/recurring-series` | `app/recurring-series/page.tsx` | Recurring appointment series ("Rendez-vous récurrents") — create/list via `appointmentsApi` |
 | `/waiting-list` | `app/waiting-list/page.tsx` | "Salle d'attente / Liste d'attente" (`waitingListApi`) — queue + promote to appointment |

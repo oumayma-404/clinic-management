@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button"
 import { Search, Filter, Plus } from "lucide-react"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
+import { formatDateFr } from "@/lib/format"
 
 export default function PatientsPage() {
   const router = useRouter()
@@ -19,17 +20,38 @@ export default function PatientsPage() {
   const [showFlaggedOnly, setShowFlaggedOnly] = useState(false)
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
+  // Registration-date window from the dashboard's « Nouveaux patients » drill-through.
+  const [createdFrom, setCreatedFrom] = useState<string | undefined>()
+  const [createdTo, setCreatedTo] = useState<string | undefined>()
 
   // Real-time: refetch the table when any client of this clinic adds/edits a patient (remounts via key).
   useClinicRealtime(RealtimeResource.Patients, () => setRefreshKey((prev) => prev + 1))
 
-  // Dashboard "Urgents" drill-through: arriving with ?flagged=1 pre-applies the flagged filter. Read from
-  // window.location (client-only, in an effect) to avoid a useSearchParams Suspense boundary.
+  // Dashboard drill-throughs: ?flagged=1 pre-applies the flagged filter, and ?createdFrom/?createdTo narrow the list
+  // to the patients registered in the window the KPI counted. Read from window.location (client-only, in an effect)
+  // to avoid a useSearchParams Suspense boundary.
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("flagged") === "1") {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get("flagged") === "1") {
       setShowFlaggedOnly(true)
     }
+    // A malformed date is ignored rather than refused — a stale link lands on the full list, never a broken state.
+    const from = params.get("createdFrom")
+    const to = params.get("createdTo")
+    if (from && !Number.isNaN(Date.parse(from))) setCreatedFrom(from)
+    if (to && !Number.isNaN(Date.parse(to))) setCreatedTo(to)
   }, [])
+
+  const clearDateWindow = () => {
+    setCreatedFrom(undefined)
+    setCreatedTo(undefined)
+    const url = new URL(window.location.href)
+    url.searchParams.delete("createdFrom")
+    url.searchParams.delete("createdTo")
+    window.history.replaceState({}, "", url)
+  }
+
+  const hasDateWindow = Boolean(createdFrom || createdTo)
 
   return (
     <ClinicGuard>
@@ -80,8 +102,31 @@ export default function PatientsPage() {
                 </div>
               </div>
 
+              {/* The active date window, stated explicitly and removable. An invisible filter is how a user
+                  concludes their patients have disappeared. */}
+              {hasDateWindow && (
+                <div
+                  role="status"
+                  className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/40 p-3 text-sm"
+                >
+                  <span className="min-w-0 flex-1">
+                    Inscrits {createdFrom ? `du ${formatDateFr(createdFrom)}` : ""}
+                    {createdTo ? ` au ${formatDateFr(createdTo)}` : ""}
+                  </span>
+                  <Button size="sm" variant="outline" onClick={clearDateWindow}>
+                    Afficher tous les patients
+                  </Button>
+                </div>
+              )}
+
               {/* Patients Table */}
-              <PatientsTable key={refreshKey} searchQuery={searchQuery} showFlaggedOnly={showFlaggedOnly} />
+              <PatientsTable
+                key={refreshKey}
+                searchQuery={searchQuery}
+                showFlaggedOnly={showFlaggedOnly}
+                createdFrom={createdFrom}
+                createdTo={createdTo}
+              />
 
               {/* Create Patient Dialog */}
               <EditPatientDialog

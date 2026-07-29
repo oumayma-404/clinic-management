@@ -78,10 +78,26 @@ public class TreatmentPlan : AggregateRoot<Guid>
         RecomputeTotal();
     }
 
-    /// <summary>Update the title / notes. Draft only.</summary>
+    /// <summary>
+    /// Update the title / notes.
+    /// <para>
+    /// Allowed on a draft <b>and</b> on an accepted or in-progress devis. It used to be <c>EnsureDraft</c>-only,
+    /// which meant a typo in the title a patient reads on their devis printout froze permanently at acceptance
+    /// and the only way to fix it was to cancel the devis and retype it — losing its number. Neither field is
+    /// money and neither is the number itself, and an amendment that changes the printed title bumps
+    /// <see cref="RevisionNumber"/> through the same <see cref="RecordAmendment"/> its caller already calls, so
+    /// an earlier printout stays identifiable. Refused on a Completed or Cancelled plan, matching the two
+    /// windows its callers live in (the draft editor and <c>EnsureAmendable</c>).
+    /// </para>
+    /// </summary>
     public void UpdateDetails(string title, string? notes)
     {
-        EnsureDraft();
+        if (Status != TreatmentPlanStatus.Draft
+            && Status != TreatmentPlanStatus.Accepted
+            && Status != TreatmentPlanStatus.InProgress)
+        {
+            throw new InvalidOperationException("Seul un devis brouillon, accepté ou en cours peut être modifié.");
+        }
         if (string.IsNullOrWhiteSpace(title))
             throw new ArgumentException("Le titre du plan est requis.", nameof(title));
 
@@ -359,7 +375,8 @@ public class TreatmentPlan : AggregateRoot<Guid>
     //
     // Before this, a plan froze the instant it was accepted: SetItems/SetInstallments are EnsureDraft()-only,
     // so the first time treatment changed the only escape was Cancel + retype, losing the devis number, the
-    // échéancier and every réalisé act. These four methods let an accepted plan evolve instead.
+    // échéancier and every réalisé act. These methods let an accepted plan evolve instead: add acts, revise the
+    // ones already on it, remove them, re-spread the échéancier, reorder, and stamp the revision.
     //
     // The caller (the amend handler) is responsible for the one rule this aggregate cannot see: a plan with a
     // linked non-cancelled invoice must refuse every amendment, because the money reads treat that invoice as
@@ -406,6 +423,64 @@ public class TreatmentPlan : AggregateRoot<Guid>
         if (added == 0)
         {
             return;
+        }
+
+        RecomputeTotal();
+        Touch();
+    }
+
+    /// <summary>
+    /// Correct acts **already on** an accepted or in-progress plan, in place — designation, fee, teeth, and the
+    /// catalog/procedure links — keeping each act's id.
+    /// <para>
+    /// This is the third amendment verb, and its absence was the gap: <see cref="AddItems"/> and
+    /// <see cref="RemoveItem"/> could only ever express "change this act" as remove-then-add, which re-issues
+    /// the id (orphaning any appointment or fiche link pointing at it) and is refused outright for an act that
+    /// is <c>Done</c> or booked. So the one correction a dentist actually needs most — a wrong price on work
+    /// already scheduled or carried out — was the one the amendment window could not make.
+    /// </para>
+    /// <para>
+    /// Each line's <see cref="TreatmentPlanItemInput.Id"/> must name an act on this plan; an unknown id is
+    /// refused rather than silently added, because a caller asking to *revise* a specific act and getting a new
+    /// one instead would double the line and the total. Recomputes <see cref="TotalPlanned"/>, so the caller
+    /// carries the same obligation as after an add or a remove: a changed total must be followed by a
+    /// re-spread échéancier.
+    /// </para>
+    /// </summary>
+    public void UpdateItems(IEnumerable<TreatmentPlanItemInput> items)
+    {
+        EnsureAmendable();
+
+        var list = items.ToList();
+        if (list.Count == 0)
+        {
+            return;
+        }
+
+        // Resolve every line before mutating any of them: a partially-applied batch would leave the plan with
+        // some acts revised, some not, and a total that matches neither the old devis nor the new one.
+        var targets = new List<(TreatmentPlanItem Item, TreatmentPlanItemInput Input)>();
+        foreach (var input in list)
+        {
+            if (!input.Id.HasValue)
+            {
+                throw new InvalidOperationException("Un acte à modifier doit désigner l'acte existant concerné.");
+            }
+
+            var item = _items.FirstOrDefault(i => i.Id == input.Id.Value)
+                ?? throw new InvalidOperationException("Acte introuvable.");
+            targets.Add((item, input));
+        }
+
+        foreach (var (item, input) in targets)
+        {
+            item.Revise(
+                input.DesignationFr,
+                input.PlannedCost,
+                input.DentalActCodeId,
+                input.CodeActe,
+                input.ProcedureTypeId,
+                input.ToothNumbers);
         }
 
         RecomputeTotal();

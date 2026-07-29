@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using ClinicManagement.Application.Common.Behaviors;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Services;
+using ClinicManagement.Application.Features.Dashboard.Readers;
 
 namespace ClinicManagement.Application;
 
@@ -39,6 +40,14 @@ public static class Extensions
         services.AddScoped<ICurrentClinicProvider, CurrentClinicProvider>();
         // Indicative CNAM reimbursable/out-of-pocket split for invoices + devis (caches the catalog per request).
         services.AddScoped<ICnamBillingCalculator, CnamBillingCalculator>();
+        // Dashboard section readers. One per section rather than a single handler doing all of it, so a new KPI
+        // touches one reader and one test class instead of a 25-field god-query. GetDashboardQueryHandler composes
+        // them sequentially — they share the request's DbContext, which is not thread-safe.
+        // DashboardPeriod / PeriodComparison are pure records and deliberately NOT registered.
+        services.AddScoped<IDashboardActivityReader, DashboardActivityReader>();
+        services.AddScoped<IDashboardMoneyReader, DashboardMoneyReader>();
+        services.AddScoped<IDashboardAlertsReader, DashboardAlertsReader>();
+        services.AddScoped<IDashboardTrendReader, DashboardTrendReader>();
 
         return services;
     }

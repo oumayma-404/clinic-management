@@ -96,6 +96,24 @@ public class AppointmentRepository : IAppointmentRepository
         return await query.CountAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyDictionary<AppointmentStatus, int>> CountByStatusBetweenAsync(
+        Guid clinicId, DateTime from, DateTime toInclusive, CancellationToken cancellationToken = default)
+    {
+        // One GROUP BY. The dashboard needs Completed, NoShow, Cancelled and the total over the SAME window (the
+        // taux d'absence denominator); four CountByClinicIdAsync calls would be four round trips whose bounds
+        // could drift apart, which is exactly the failure the single-authority period exists to prevent.
+        // Bounds are inclusive on both ends, matching CountByClinicIdAsync.
+        var rows = await _context.Appointments
+            .Where(a => a.ClinicId == clinicId
+                        && a.AppointmentDateTime >= from
+                        && a.AppointmentDateTime <= toInclusive)
+            .GroupBy(a => a.Status)
+            .Select(g => new { Status = g.Key, Count = g.Count() })
+            .ToListAsync(cancellationToken);
+
+        return rows.ToDictionary(r => r.Status, r => r.Count);
+    }
+
     public async Task<IEnumerable<Appointment>> GetByPatientIdAsync(Guid patientId, CancellationToken cancellationToken = default)
     {
         return await _context.Appointments

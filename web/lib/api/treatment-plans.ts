@@ -34,12 +34,32 @@ export interface TreatmentPlanInstallmentInput {
   amount: number;
 }
 
-/** Amend an accepted devis: add/remove acts and re-spread the échéancier in one call. */
+/**
+ * Amend an accepted devis: add acts, edit the acts already on it, remove acts, retitle it and re-spread the
+ * échéancier — in one call, so the schedule can never be left out of sync with a total that just changed.
+ */
 export interface AmendTreatmentPlanRequest {
   addItems?: TreatmentPlanItemInput[];
+  /**
+   * Acts already on the plan to correct in place. Each entry's `id` is required and must name an act on this
+   * plan; the act keeps that id, so every appointment and fiche link pointing at it survives the amendment.
+   * This is what makes "fix a wrong price" possible on an act that is done or booked — remove-then-add is
+   * refused for exactly those acts.
+   */
+  updateItems?: TreatmentPlanItemInput[];
   removeItemIds?: string[];
+  /** Omitted or blank leaves the title untouched. */
+  title?: string;
+  /**
+   * Tri-state server-side: omit the key to leave the notes alone, send `null` to clear them. The form always
+   * sends the field, and the server compares it against the stored value, so re-submitting unchanged notes
+   * does not count as an amendment.
+   */
+  notes?: string | null;
   /** Required whenever the amendment changes the total; the server rejects a mismatch. */
   installments?: TreatmentPlanInstallmentInput[];
+  /** The `version` the client read, so a concurrent edit 409s instead of silently overwriting a fee. */
+  version?: number;
 }
 
 export interface CreateTreatmentPlanRequest {
@@ -65,11 +85,18 @@ export interface RecordInstallmentPaymentRequest {
 }
 
 export const treatmentPlansApi = {
+  /**
+   * `from`/`to` bound the CREATION date; `acceptedFrom`/`acceptedTo` bound `acceptedDate`. Both exist because the
+   * dashboard's « Devis acceptés » counts by acceptance, so drilling into it with the created-date range would list a
+   * different set of devis than the card counted.
+   */
   list: async (params?: {
     patientId?: string;
     status?: string;
     from?: string;
     to?: string;
+    acceptedFrom?: string;
+    acceptedTo?: string;
   }): Promise<TreatmentPlanDto[]> => apiGet<TreatmentPlanDto[]>('/treatment-plans', params),
 
   get: async (id: string): Promise<TreatmentPlanDto> => apiGet<TreatmentPlanDto>(`/treatment-plans/${id}`),
@@ -109,7 +136,7 @@ export const treatmentPlansApi = {
   markItemUndone: async (id: string, itemId: string): Promise<TreatmentPlanDto> =>
     apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/items/${itemId}/undone`, {}),
 
-  /** Add/remove acts on an accepted devis (+ the matching échéancier). Server-side: AdminOrDoctor. */
+  /** Add/edit/remove acts on an accepted devis (+ title, notes and the matching échéancier). AdminOrDoctor. */
   amend: async (id: string, data: AmendTreatmentPlanRequest): Promise<TreatmentPlanDto> =>
     apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/amend`, data),
 

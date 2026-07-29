@@ -45,6 +45,8 @@ public class PatientRepository : IPatientRepository
     public async Task<IEnumerable<Patient>> GetByClinicIdAsync(
         Guid clinicId,
         bool includeArchived = false,
+        DateTime? createdFrom = null,
+        DateTime? createdTo = null,
         CancellationToken cancellationToken = default)
     {
         var query = _context.Patients
@@ -56,7 +58,38 @@ public class PatientRepository : IPatientRepository
             query = query.Where(p => !p.IsArchived);
         }
 
+        // Both bounds are inclusive, matching CountCreatedBetweenAsync — the dashboard's « Nouveaux patients »
+        // links here with the same window, and a half-open list against a closed count would show a different
+        // number of rows than the card that opened it.
+        if (createdFrom.HasValue)
+        {
+            query = query.Where(p => p.CreatedAt >= createdFrom.Value);
+        }
+
+        if (createdTo.HasValue)
+        {
+            query = query.Where(p => p.CreatedAt <= createdTo.Value);
+        }
+
         return await query.ToListAsync(cancellationToken);
+    }
+
+    public async Task<int> CountCreatedBetweenAsync(
+        Guid clinicId,
+        DateTime from,
+        DateTime toInclusive,
+        bool includeArchived = false,
+        CancellationToken cancellationToken = default)
+    {
+        var query = _context.Patients
+            .Where(p => p.ClinicId == clinicId && p.CreatedAt >= from && p.CreatedAt <= toInclusive);
+
+        if (!includeArchived)
+        {
+            query = query.Where(p => !p.IsArchived);
+        }
+
+        return await query.CountAsync(cancellationToken);
     }
 
     /// <summary>
@@ -79,9 +112,13 @@ public class PatientRepository : IPatientRepository
     /// </para>
     /// </summary>
     public async Task<IReadOnlyList<RecallCandidate>> GetRecallCandidatesAsync(
-        Guid clinicId, DateTime anchorOnOrBeforeUtc, DateTime nowUtc, CancellationToken cancellationToken = default)
+        Guid clinicId,
+        DateTime anchorOnOrBeforeUtc,
+        DateTime nowUtc,
+        IReadOnlyCollection<Guid>? alwaysIncludePatientIds = null,
+        CancellationToken cancellationToken = default)
     {
-        return await RecallCandidateQuery(_context, clinicId, anchorOnOrBeforeUtc, nowUtc)
+        return await RecallCandidateQuery(_context, clinicId, anchorOnOrBeforeUtc, nowUtc, alwaysIncludePatientIds)
             .ToListAsync(cancellationToken);
     }
 
@@ -92,9 +129,15 @@ public class PatientRepository : IPatientRepository
     /// this one changed, which is the failure mode it is meant to catch. Nothing else should call it.
     /// </summary>
     public static IQueryable<RecallCandidate> RecallCandidateQuery(
-        ApplicationDbContext context, Guid clinicId, DateTime anchorOnOrBeforeUtc, DateTime nowUtc)
+        ApplicationDbContext context,
+        Guid clinicId,
+        DateTime anchorOnOrBeforeUtc,
+        DateTime nowUtc,
+        IReadOnlyCollection<Guid>? alwaysIncludePatientIds = null)
     {
         var completed = AppointmentStatus.Completed;
+        // Materialised once so EF parameterises a single array rather than re-evaluating the collection per row.
+        var includeIds = alwaysIncludePatientIds is { Count: > 0 } ? alwaysIncludePatientIds.ToArray() : null;
 
         return context.Patients
             .Where(p => p.ClinicId == clinicId)
@@ -123,8 +166,12 @@ public class PatientRepository : IPatientRepository
                     .Where(a => a.PatientId == p.Id && a.Status == completed)
                     .Max(a => (DateTime?)a.AppointmentDateTime),
             })
-            // The date bound, applied to the same anchor the handler will measure from.
-            .Where(x => (x.LastCompletedVisit ?? x.CreatedAt) <= anchorOnOrBeforeUtc)
+            // The date bound, applied to the same anchor the handler will measure from — OR the patient is one the
+            // caller already knows qualifies for another reason (a stalled devis, an overdue échéance), which has
+            // nothing to do with when they were last seen. The bound itself is never dropped: doing so would return
+            // every eligible patient in the clinic on each page load, undoing AC-P4.41.
+            .Where(x => (x.LastCompletedVisit ?? x.CreatedAt) <= anchorOnOrBeforeUtc
+                        || (includeIds != null && includeIds.Contains(x.Id)))
             .Select(x => new RecallCandidate(
                 x.Id,
                 x.FirstName,

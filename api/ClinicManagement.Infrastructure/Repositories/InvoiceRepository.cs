@@ -99,6 +99,22 @@ public class InvoiceRepository : IInvoiceRepository
             .SumAsync(p => (decimal?)p.Amount, cancellationToken) ?? 0m;
     }
 
+    public async Task<decimal> GetInvoicedBetweenAsync(
+        Guid clinicId, DateTime from, DateTime toInclusive, CancellationToken cancellationToken = default)
+    {
+        // Same rule as GetInvoiceRevenueQuery's « Total facturé »: only numbered (issued) invoices count, and a
+        // cancelled one is void. Dated by IssueDate — a draft has none, which is why the null check is not
+        // redundant with the status filter for a legacy row.
+        return await _context.Invoices
+            .Where(i => i.ClinicId == clinicId
+                        && i.Status != InvoiceStatus.Draft
+                        && i.Status != InvoiceStatus.Cancelled
+                        && i.IssueDate != null
+                        && i.IssueDate >= from
+                        && i.IssueDate <= toInclusive)
+            .SumAsync(i => (decimal?)i.TotalTtc, cancellationToken) ?? 0m;
+    }
+
     public async Task<IReadOnlyList<(Guid PatientId, decimal Outstanding)>> GetOutstandingByPatientAsync(
         Guid clinicId, CancellationToken cancellationToken = default)
     {

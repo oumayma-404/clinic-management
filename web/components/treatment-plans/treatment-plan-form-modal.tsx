@@ -684,16 +684,14 @@ export function TreatmentPlanFormModal({
                       {line.codeActe && (
                         <Badge variant="secondary" className="gap-1 font-mono text-xs">
                           {line.codeActe}
-                          {!isExistingAct && (
-                            <button
-                              type="button"
-                              onClick={() => detachAct(index)}
-                              className="ml-1 rounded-full hover:text-destructive"
-                              title="Détacher du catalogue (texte libre)"
-                            >
-                              <X className="h-3 w-3" />
-                            </button>
-                          )}
+                          <button
+                            type="button"
+                            onClick={() => detachAct(index)}
+                            className="ml-1 rounded-full hover:text-destructive"
+                            title="Détacher du catalogue (texte libre)"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
                         </Badge>
                       )}
                       {removalBlocked && (

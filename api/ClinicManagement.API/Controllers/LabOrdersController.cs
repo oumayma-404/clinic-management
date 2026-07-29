@@ -24,10 +24,14 @@ public class LabOrdersController : ApiControllerBase
     }
 
     /// <summary>List the clinic's lab work orders, or a single patient's when patientId is given (newest first).</summary>
+    /// <param name="status">Optional stage filter (Sent / InProgress / Received / Fitted). An unknown value is
+    /// ignored rather than refused, so a stale deep link lands on the full list instead of an error.</param>
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<LabWorkOrderDto>>> GetLabWorkOrders([FromQuery] Guid? patientId = null)
+    public async Task<ActionResult<IEnumerable<LabWorkOrderDto>>> GetLabWorkOrders(
+        [FromQuery] Guid? patientId = null,
+        [FromQuery] string? status = null)
     {
-        var result = await _mediator.Send(new GetLabWorkOrdersQuery { PatientId = patientId });
+        var result = await _mediator.Send(new GetLabWorkOrdersQuery { PatientId = patientId, Status = status });
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
     }
 

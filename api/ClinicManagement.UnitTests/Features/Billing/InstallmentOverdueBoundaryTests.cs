@@ -71,7 +71,7 @@ public class InstallmentOverdueBoundaryTests
             .ReturnsAsync(new List<Invoice>());
         _plans.Setup(p => p.GetFilteredAsync(
                 ClinicId, It.IsAny<Guid?>(), It.IsAny<TreatmentPlanStatus?>(), It.IsAny<DateTime?>(),
-                It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
+                It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<TreatmentPlan> { PlanDueOn(dueDate) });
         _cnam.Setup(c => c.ComputeAsync(
                 It.IsAny<IReadOnlyCollection<CnamBillingLine>>(), It.IsAny<decimal>(),

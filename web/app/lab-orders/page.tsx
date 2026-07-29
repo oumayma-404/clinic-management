@@ -19,6 +19,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   Dialog,
   DialogContent,
@@ -45,6 +46,8 @@ import type { LabWorkOrderDto, PatientDto } from "@/lib/api/types"
 // The four lifecycle stages a lab work order moves through (mirrors the backend enum).
 type LabOrderStatus = "Sent" | "InProgress" | "Received" | "Fitted"
 
+
+const ALL_STATUSES = "all"
 
 const STATUS_LABELS: Record<LabOrderStatus, string> = {
   Sent: "Envoyé",
@@ -333,12 +336,15 @@ export default function LabOrdersPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [orderToDelete, setOrderToDelete] = useState<LabWorkOrderDto | null>(null)
   const [deleting, setDeleting] = useState(false)
+  // The list had no filter of any kind, which left the dashboard's « Prothèses en retard » card with nowhere truthful
+  // to land. ALL_STATUSES keeps the default behaviour (the full list) unchanged.
+  const [statusFilter, setStatusFilter] = useState<string>(ALL_STATUSES)
 
   const loadOrders = useCallback(async () => {
     try {
       setLoading(true)
       setError(null)
-      const data = await labOrdersApi.list()
+      const data = await labOrdersApi.list(undefined, statusFilter === ALL_STATUSES ? undefined : statusFilter)
       setOrders(data)
     } catch (err) {
       const message = err instanceof ApiError ? err.message : "Échec du chargement des bons de laboratoire"
@@ -347,7 +353,7 @@ export default function LabOrdersPage() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [statusFilter])
 
   // Patients back the "Nouveau bon" picker; a failure there shouldn't blank the page, just warn.
   const loadPatients = useCallback(async () => {
@@ -363,6 +369,14 @@ export default function LabOrdersPage() {
     loadOrders()
     loadPatients()
   }, [loadOrders, loadPatients])
+
+  // Dashboard drill-through (« Prothèses en retard »): ?status=Sent narrows to the work still at the laboratory.
+  // window.location in an effect rather than useSearchParams — the repo's idiom. An unknown value is ignored, so a
+  // stale link lands on the full list.
+  useEffect(() => {
+    const urlStatus = new URLSearchParams(window.location.search).get("status")
+    if (urlStatus && urlStatus in STATUS_LABELS) setStatusFilter(urlStatus)
+  }, [])
 
   // AC-P4.21/4.26 — a bon de prothèse has a status lifecycle two people drive: the assistant sends it, the
   // dentist marks it received. `laborders` was emitted by the backend from the start with nothing listening,
@@ -433,10 +447,30 @@ export default function LabOrdersPage() {
                   </p>
                 </div>
 
-                <Button onClick={handleAddNew} className="gap-2">
-                  <Plus className="h-4 w-4" />
-                  Nouveau bon
-                </Button>
+                <div className="flex flex-wrap items-end gap-2">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="lab-status" className="text-sm text-muted-foreground">
+                      Étape
+                    </Label>
+                    <Select value={statusFilter} onValueChange={setStatusFilter}>
+                      <SelectTrigger id="lab-status" className="w-44">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={ALL_STATUSES}>Toutes</SelectItem>
+                        {Object.entries(STATUS_LABELS).map(([value, label]) => (
+                          <SelectItem key={value} value={value}>
+                            {label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Button onClick={handleAddNew} className="gap-2">
+                    <Plus className="h-4 w-4" />
+                    Nouveau bon
+                  </Button>
+                </div>
               </div>
 
               {/* Orders Table */}

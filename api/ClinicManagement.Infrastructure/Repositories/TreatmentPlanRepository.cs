@@ -42,6 +42,8 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
         TreatmentPlanStatus? status = null,
         DateTime? from = null,
         DateTime? to = null,
+        DateTime? acceptedFrom = null,
+        DateTime? acceptedTo = null,
         CancellationToken cancellationToken = default)
     {
         var query = _context.TreatmentPlans
@@ -70,9 +72,88 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
             query = query.Where(p => p.CreatedAt <= to.Value);
         }
 
+        // AcceptedDate, not CreatedAt — the dashboard's « Devis acceptés » counts when the patient said yes, and
+        // drilling into that figure with the created-date range would list a different set of devis than the card
+        // counted. A plan with no AcceptedDate has not been accepted, so it cannot fall in an accepted-date window.
+        if (acceptedFrom.HasValue)
+        {
+            query = query.Where(p => p.AcceptedDate != null && p.AcceptedDate >= acceptedFrom.Value);
+        }
+
+        if (acceptedTo.HasValue)
+        {
+            query = query.Where(p => p.AcceptedDate != null && p.AcceptedDate <= acceptedTo.Value);
+        }
+
         return await query
             .OrderByDescending(p => p.CreatedAt)
             .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<RecallPlanFact>> GetRecallPlanFactsAsync(
+        Guid clinicId, CancellationToken cancellationToken = default)
+    {
+        // Item counts are computed in SQL (two correlated COUNTs), so no TreatmentPlanItem row is materialised.
+        // Cancelled is void and Completed has nothing left to do, so neither can put a patient on the worklist.
+        var rows = await _context.TreatmentPlans
+            .Where(p => p.ClinicId == clinicId
+                        && p.Status != TreatmentPlanStatus.Cancelled
+                        && p.Status != TreatmentPlanStatus.Completed)
+            .Select(p => new
+            {
+                p.PatientId,
+                PlanId = p.Id,
+                p.Number,
+                p.Status,
+                p.CreatedAt,
+                p.AcceptedDate,
+                TotalItems = p.Items.Count,
+                DoneItems = p.Items.Count(i => i.Status == TreatmentPlanItemStatus.Done)
+            })
+            .ToListAsync(cancellationToken);
+
+        return rows
+            .Select(r => new RecallPlanFact(
+                r.PatientId, r.PlanId, r.Number, r.Status, r.CreatedAt, r.AcceptedDate, r.TotalItems, r.DoneItems))
+            .ToList();
+    }
+
+    public async Task<int> CountByStatusAsync(
+        Guid clinicId,
+        TreatmentPlanStatus status,
+        DateTime? from = null,
+        DateTime? toInclusive = null,
+        bool byAcceptedDate = false,
+        CancellationToken cancellationToken = default)
+    {
+        var query = _context.TreatmentPlans.Where(p => p.ClinicId == clinicId && p.Status == status);
+
+        if (byAcceptedDate)
+        {
+            if (from.HasValue)
+            {
+                query = query.Where(p => p.AcceptedDate != null && p.AcceptedDate >= from.Value);
+            }
+
+            if (toInclusive.HasValue)
+            {
+                query = query.Where(p => p.AcceptedDate != null && p.AcceptedDate <= toInclusive.Value);
+            }
+        }
+        else
+        {
+            if (from.HasValue)
+            {
+                query = query.Where(p => p.CreatedAt >= from.Value);
+            }
+
+            if (toInclusive.HasValue)
+            {
+                query = query.Where(p => p.CreatedAt <= toInclusive.Value);
+            }
+        }
+
+        return await query.CountAsync(cancellationToken);
     }
 
     public async Task<int> GetMaxSequenceForYearAsync(Guid clinicId, int year, CancellationToken cancellationToken = default)
