@@ -119,9 +119,18 @@ interface RecordToothChartProps {
   paint: Map<number, ToothPaint>
   onToggleTooth: (toothNumber: number) => void
   disabled?: boolean
+  /**
+   * Native hover text for a tooth, replacing the default « Dent 16 ». Newlines are honoured by browsers, so a
+   * caller can list several lines.
+   *
+   * Deliberately the `title` attribute rather than the `ui/tooltip` primitive: this chart is rendered
+   * `disabled` in read-only uses, and a disabled button fires no pointer events, so a Radix tooltip would
+   * simply never open. `title` still shows.
+   */
+  toothTitle?: (toothNumber: number) => string
 }
 
-export function RecordToothChart({ isAdult, paint, onToggleTooth, disabled }: RecordToothChartProps) {
+export function RecordToothChart({ isAdult, paint, onToggleTooth, disabled, toothTitle }: RecordToothChartProps) {
   const teeth = isAdult ? ADULT_TEETH : CHILD_TEETH
 
   const renderTooth = (num: number) => {
@@ -137,7 +146,7 @@ export function RecordToothChart({ isAdult, paint, onToggleTooth, disabled }: Re
         type="button"
         disabled={disabled}
         onClick={() => onToggleTooth(num)}
-        title={`Dent ${num}`}
+        title={toothTitle?.(num) ?? `Dent ${num}`}
         className="group flex flex-col items-center focus:outline-none disabled:cursor-not-allowed"
       >
         <span className={cn("relative rounded-md p-0.5 transition-all group-hover:scale-105", selected && "ring-2 ring-primary")}>

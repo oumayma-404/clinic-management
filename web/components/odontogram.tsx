@@ -5,15 +5,27 @@ import { toast } from "sonner"
 import { Plus, Trash2, Stethoscope, ClipboardList } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import { odontogramApi } from "@/lib/api/odontogram"
+import { dentalRecordsApi } from "@/lib/api/dental-records"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
-import type { ToothStateDto, ProcedureTypeDto } from "@/lib/api/types"
+import type { ToothStateDto, ProcedureTypeDto, DentalRecordDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import { formatDateFr } from "@/lib/format"
 import { CONDITION_ORDER, conditionStyle, SURFACE_LABELS, serializeSurfaces } from "@/components/odontogram-conditions"
+import { OdontogramActsChart } from "@/components/odontogram-acts-chart"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 
@@ -79,6 +91,10 @@ interface OdontogramProps {
 export function Odontogram({ patientId, onCreatePlan }: OdontogramProps) {
   const [isAdult, setIsAdult] = useState(true)
   const [byTooth, setByTooth] = useState<Map<number, ToothStateDto[]>>(new Map())
+  // The same states, flat — the « Actes réalisés » tab filters by source rather than by tooth.
+  const [entries, setEntries] = useState<ToothStateDto[]>([])
+  // The patient's fiches, joined to the treatment-sourced states for the act names.
+  const [records, setRecords] = useState<DentalRecordDto[]>([])
   const [procedureTypes, setProcedureTypes] = useState<ProcedureTypeDto[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -88,6 +104,9 @@ export function Odontogram({ patientId, onCreatePlan }: OdontogramProps) {
       setLoading(true)
       setError(null)
       const data = await odontogramApi.get(patientId)
+      // Kept flat as well: the « Actes réalisés » tab filters by source itself and does not want the
+      // by-tooth grouping the diagnosis chart is built around.
+      setEntries(data)
       // Group entries by tooth, newest first within each tooth.
       const map = new Map<number, ToothStateDto[]>()
       for (const entry of data) {
@@ -99,6 +118,16 @@ export function Odontogram({ patientId, onCreatePlan }: OdontogramProps) {
         list.sort((a, b) => new Date(b.treatmentDate).getTime() - new Date(a.treatmentDate).getTime())
       }
       setByTooth(map)
+
+      // The fiches, for the act NAMES in the « Actes réalisés » tab: a tooth state carries the resulting
+      // condition but not the act that produced it. Fetched here rather than passed in so this component stays
+      // self-loading (and so the realtime refetch below covers both halves). Best-effort — a failure leaves the
+      // acts tab falling back to the condition label rather than breaking the diagnosis chart beside it.
+      try {
+        setRecords(await dentalRecordsApi.list(patientId))
+      } catch {
+        setRecords([])
+      }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Échec du chargement de l'odontogramme.")
     } finally {
@@ -195,11 +224,6 @@ export function Odontogram({ patientId, onCreatePlan }: OdontogramProps) {
         )}
       </div>
 
-      <p className="text-xs text-muted-foreground">
-        Cliquez sur une dent pour noter un diagnostic (à traiter). Les actes réalisés s'ajoutent
-        automatiquement lors de l'enregistrement d'un acte médical.
-      </p>
-
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
           {error}
@@ -209,6 +233,22 @@ export function Odontogram({ patientId, onCreatePlan }: OdontogramProps) {
       {loading ? (
         <p className="py-8 text-center text-muted-foreground">Chargement de l'odontogramme…</p>
       ) : (
+        /* Two views over the same mouth. « Diagnostics » is the chart that has always been here and stays the
+           default — it is where charting happens. « Actes réalisés » is read-only and reflects what the fiches
+           recorded, which the server writes on its own. The dentition toggle above is shared on purpose: it is
+           the same patient's mouth, and making each tab remember its own would be a second source of truth for
+           one setting. */
+        <Tabs defaultValue="diagnostics" className="w-full">
+          <TabsList>
+            <TabsTrigger value="diagnostics">Diagnostics</TabsTrigger>
+            <TabsTrigger value="acts">Actes réalisés</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="diagnostics" className="mt-3 space-y-2">
+            <p className="text-xs text-muted-foreground">
+              Cliquez sur une dent pour noter un diagnostic (à traiter). Les actes réalisés s&apos;ajoutent
+              automatiquement lors de l&apos;enregistrement d&apos;un acte médical.
+            </p>
         <div className="overflow-x-auto rounded-lg border border-border bg-card p-3">
           <div className="space-y-1.5">
             <div className="text-center text-[10px] font-medium text-muted-foreground">Maxillaire (haut)</div>
@@ -246,6 +286,12 @@ export function Odontogram({ patientId, onCreatePlan }: OdontogramProps) {
             <div className="text-center text-[10px] font-medium text-muted-foreground">Mandibule (bas)</div>
           </div>
         </div>
+          </TabsContent>
+
+          <TabsContent value="acts" className="mt-3">
+            <OdontogramActsChart isAdult={isAdult} entries={entries} records={records} />
+          </TabsContent>
+        </Tabs>
       )}
 
       {/* Legend */}
@@ -313,13 +359,30 @@ function ToothCell({ toothNum, entries, patientId, onChanged }: ToothCellProps) 
     }
   }
 
-  const handleRemove = async (id: string) => {
+  /**
+   * The entry the dentist asked to remove, held while the confirm dialog is open.
+   *
+   * <p>Removal used to fire on a single click of a 10px text link inside a tooth popover — a destructive write with
+   * no confirmation, against the repo's own rule that destructive flows go through `ui/alert-dialog`. In a chart of
+   * 32 targets a few pixels apart, that is one slip away from deleting real charting.</p>
+   */
+  const [pendingRemoval, setPendingRemoval] = useState<ToothStateDto | null>(null)
+  const [removing, setRemoving] = useState(false)
+
+  const handleRemove = async () => {
+    if (!pendingRemoval) return
+    setRemoving(true)
     try {
-      await odontogramApi.removeCondition(patientId, id)
-      toast.success("Diagnostic retiré")
+      await odontogramApi.removeCondition(patientId, pendingRemoval.id)
+      toast.success(`Diagnostic retiré (dent ${toothNum})`)
+      setPendingRemoval(null)
       onChanged()
     } catch (err) {
+      // Leave the dialog open on failure so the refusal is read where the action was taken — the server's message
+      // is the authority (e.g. a treatment-sourced entry cannot be removed here).
       toast.error(err instanceof ApiError ? err.message : "Échec de la suppression du diagnostic.")
+    } finally {
+      setRemoving(false)
     }
   }
 
@@ -398,14 +461,28 @@ function ToothCell({ toothNum, entries, patientId, onChanged }: ToothCellProps) 
                 </div>
                 {e.surfaces && <p className="mt-1 text-muted-foreground">Faces : {e.surfaces.split("").join(", ")}</p>}
                 {e.note && <p className="mt-1 text-foreground">{e.note}</p>}
-                {isDiagnosis(e) && (
-                  <button
+                {isDiagnosis(e) ? (
+                  /* A real, hit-able control rather than the 10px text link this used to be: correcting a
+                     mis-charted tooth is routine, and an affordance nobody can find is the same as none. */
+                  <Button
                     type="button"
-                    onClick={() => handleRemove(e.id)}
-                    className="mt-1 flex items-center gap-1 text-[10px] font-medium text-red-600 hover:underline"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setPendingRemoval(e)}
+                    aria-label={`Retirer le diagnostic ${conditionStyle(e.condition).label} de la dent ${toothNum}`}
+                    className="mt-1.5 h-7 gap-1.5 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
                   >
-                    <Trash2 className="h-3 w-3" /> Retirer le diagnostic
-                  </button>
+                    <Trash2 className="h-3.5 w-3.5" aria-hidden="true" /> Retirer ce diagnostic
+                  </Button>
+                ) : (
+                  /* A treatment-sourced state is deliberately NOT removable here — the server refuses it, because
+                     deleting it would erase the chart while its fiche still says the act was done. Saying so is the
+                     point: before, these rows simply had no button and no explanation, which reads as "the app
+                     won't let me fix my mistake". */
+                  <p className="mt-1.5 flex items-start gap-1.5 text-[11px] text-muted-foreground">
+                    <ClipboardList className="mt-px h-3 w-3 shrink-0" aria-hidden="true" />
+                    <span>Acte réalisé — se corrige via sa fiche de soins, pas ici.</span>
+                  </p>
                 )}
               </li>
             ))}
@@ -457,6 +534,34 @@ function ToothCell({ toothNum, entries, patientId, onChanged }: ToothCellProps) 
           </Button>
         </div>
       </PopoverContent>
+
+      {/* Rendered inside the Popover but outside PopoverContent so closing the popover does not unmount the dialog
+          mid-confirmation. Naming the tooth and the condition matters here: the whole point is correcting a state
+          charted on the WRONG tooth, so the dialog has to let the dentist check they are undoing the right one. */}
+      <AlertDialog open={pendingRemoval !== null} onOpenChange={(o) => !o && setPendingRemoval(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Retirer ce diagnostic ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingRemoval && (
+                <>
+                  « {conditionStyle(pendingRemoval.condition).label} » sera retiré de la{" "}
+                  <span className="font-medium text-foreground">dent {toothNum}</span>. Cette entrée disparaîtra de
+                  l&apos;odontogramme. Les actes réalisés ne sont pas affectés.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={removing}>Annuler</AlertDialogCancel>
+            {/* A plain Button, not AlertDialogAction: an AlertDialogAction closes the dialog on click, so a failed
+                removal would dismiss the dialog and hide the reason. */}
+            <Button variant="destructive" onClick={handleRemove} disabled={removing}>
+              {removing ? "Suppression…" : "Retirer le diagnostic"}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Popover>
   )
 }
