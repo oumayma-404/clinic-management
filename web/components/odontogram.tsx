@@ -91,8 +91,6 @@ interface OdontogramProps {
 export function Odontogram({ patientId, onCreatePlan }: OdontogramProps) {
   const [isAdult, setIsAdult] = useState(true)
   const [byTooth, setByTooth] = useState<Map<number, ToothStateDto[]>>(new Map())
-  // The same states, flat — the « Actes réalisés » tab filters by source rather than by tooth.
-  const [entries, setEntries] = useState<ToothStateDto[]>([])
   // The patient's fiches, joined to the treatment-sourced states for the act names.
   const [records, setRecords] = useState<DentalRecordDto[]>([])
   const [procedureTypes, setProcedureTypes] = useState<ProcedureTypeDto[]>([])
@@ -104,9 +102,6 @@ export function Odontogram({ patientId, onCreatePlan }: OdontogramProps) {
       setLoading(true)
       setError(null)
       const data = await odontogramApi.get(patientId)
-      // Kept flat as well: the « Actes réalisés » tab filters by source itself and does not want the
-      // by-tooth grouping the diagnosis chart is built around.
-      setEntries(data)
       // Group entries by tooth, newest first within each tooth.
       const map = new Map<number, ToothStateDto[]>()
       for (const entry of data) {
@@ -304,12 +299,7 @@ export function Odontogram({ patientId, onCreatePlan }: OdontogramProps) {
           </TabsContent>
 
           <TabsContent value="acts" className="mt-3">
-            <OdontogramActsChart
-              teeth={teeth}
-              entries={entries}
-              records={records}
-              procedureTypes={procedureTypes}
-            />
+            <OdontogramActsChart teeth={teeth} records={records} procedureTypes={procedureTypes} />
           </TabsContent>
         </Tabs>
       )}

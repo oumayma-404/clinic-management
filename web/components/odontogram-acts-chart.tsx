@@ -2,10 +2,9 @@
 
 import { useMemo, useState } from "react"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { conditionStyle } from "@/components/odontogram-conditions"
 import { cn } from "@/lib/utils"
 import { formatDateFr } from "@/lib/format"
-import type { DentalRecordDto, ProcedureTypeDto, ToothStateDto } from "@/lib/api/types"
+import type { DentalRecordDto, ProcedureTypeDto } from "@/lib/api/types"
 
 /**
  * « Actes réalisés » — the read-only half of the odontogram: which teeth were worked on, and with which act.
@@ -23,8 +22,14 @@ import type { DentalRecordDto, ProcedureTypeDto, ToothStateDto } from "@/lib/api
  *   <li><b>It coloured by resulting condition, not by act.</b> Four teeth all came out the same grey because
  *   « Extraction » resolves to <i>Extrait / Absent</i> — the chart said "something happened here" and nothing
  *   more. Each tooth now takes the colour of the <b>procedure</b> performed (<c>ProcedureType.ColorHex</c>, the
- *   palette the clinic already picked for its acts), so an extraction and an implant are distinguishable at a
+ *   palette the clinic already picked for its acts), so an extraction and a prothèse are distinguishable at a
  *   glance.</li>
+ *   <li><b>It showed only the acts that change a tooth's state.</b> The worst of the three, because it looked
+ *   like a display bug and was a wrong source: the chart was built from the odontogram's <c>ToothState</c> rows,
+ *   and one of those exists only when the act has a <c>ResultingCondition</c>. Extraction has one; Consultation,
+ *   Blanchiment and Prothèse amovible do not — so a patient with five fiches across nine teeth showed four. It
+ *   now reads the fiches' own acts, so « worked on » means <b>every tooth an act names</b>, which is the question
+ *   the tab asks. Tooth states are not consulted here at all.</li>
  *   <li><b>The legend listed all nine conditions.</b> It was rendered outside the tabs, so the diagnosis
  *   palette appeared under this chart where it means nothing. The legend below lists <b>only the acts actually
  *   on this chart</b>.</li>
@@ -37,9 +42,8 @@ import type { DentalRecordDto, ProcedureTypeDto, ToothStateDto } from "@/lib/api
  * desktop reading stays hover-only and the same markup works under a finger. Radix keeps outside-click and
  * Escape dismissal, which a tooltip does not offer at all.</p>
  *
- * <p>The act name is the one thing a tooth state does not carry: it holds the resulting condition, while the act
- * lives on <c>DentalRecordAct</c>. Reached through the state's <c>dentalRecordId</c> and joined here — both
- * sides are already loaded by the parent, so this is a join and not a new endpoint.</p>
+ * <p>Everything comes from data the parent already holds — the patient's fiches and the clinic's act catalog —
+ * so this is a derivation, not a new endpoint.</p>
  */
 
 /** One act performed on a tooth. */
@@ -56,15 +60,13 @@ const UNKNOWN_ACT_COLOR = "#94a3b8"
 interface OdontogramActsChartProps {
   /** FDI layout, passed in so both tabs lay the mouth out identically (and so `isAdult` lives in one place). */
   teeth: { upperRight: number[]; upperLeft: number[]; lowerRight: number[]; lowerLeft: number[] }
-  /** Every tooth state of the patient — this component picks out the treatment-sourced ones itself. */
-  entries: ToothStateDto[]
-  /** The patient's fiches, for the act names. */
+  /** The patient's fiches — the authority on which teeth were worked on, and with which act. */
   records: DentalRecordDto[]
   /** The clinic's act catalog, for each act's colour. */
   procedureTypes: ProcedureTypeDto[]
 }
 
-export function OdontogramActsChart({ teeth, entries, records, procedureTypes }: OdontogramActsChartProps) {
+export function OdontogramActsChart({ teeth, records, procedureTypes }: OdontogramActsChartProps) {
   /**
    * Which tooth's acts are showing, tracked in two independent channels so the two input methods cannot fight:
    * a tap pins the panel open until it is dismissed, while hover opens it only while the pointer is over the
@@ -75,46 +77,31 @@ export function OdontogramActsChart({ teeth, entries, records, procedureTypes }:
   const [hoveredTooth, setHoveredTooth] = useState<number | null>(null)
   /** tooth number → acts performed on it, newest session first. */
   const actsByTooth = useMemo(() => {
-    const recordsById = new Map(records.map((r) => [r.id, r]))
     const colorById = new Map(procedureTypes.map((p) => [p.id, p.colorHex]))
     const map = new Map<number, ToothAct[]>()
 
-    for (const entry of entries) {
-      if (entry.source !== "Treatment") continue
-
-      const record = entry.dentalRecordId ? recordsById.get(entry.dentalRecordId) : undefined
-      const performed = record?.acts?.filter((a) => (a.toothNumbers ?? []).includes(entry.toothNumber)) ?? []
-
-      const acts: ToothAct[] = performed.length > 0
-        ? performed.map((a) => ({
-            name: a.procedureName,
-            // The clinic's own colour for that act. A free-text act has no catalog entry and no colour.
-            color: (a.procedureTypeId ? colorById.get(a.procedureTypeId) : undefined) ?? UNKNOWN_ACT_COLOR,
-            date: record!.interventionDate,
-          }))
-        // No act to name: the fiche was deleted, or the state predates the record link. Falling back to the
-        // resulting condition is honest — it is what the state actually records — and beats a blank tooltip on a
-        // tooth the reader can plainly see is coloured.
-        : [{
-            name: conditionStyle(entry.condition).label,
-            color: conditionStyle(entry.condition).color,
-            date: entry.treatmentDate,
-          }]
-
-      const existing = map.get(entry.toothNumber) ?? []
-      // One entry per act per tooth. Two states on one tooth from the same fiche (an extraction *and* an implant)
-      // would otherwise list every act of that fiche twice.
-      for (const act of acts) {
-        if (!existing.some((a) => a.name === act.name && a.date === act.date)) existing.push(act)
+    // Straight from the fiches: every act, on every tooth it names. See the note above on why this is NOT
+    // driven by the odontogram's tooth states.
+    for (const record of records) {
+      for (const act of record.acts ?? []) {
+        for (const tooth of act.toothNumbers ?? []) {
+          const acts = map.get(tooth) ?? []
+          acts.push({
+            name: act.procedureName,
+            // The clinic's own colour for that act; a free-text act has no catalog entry and no colour.
+            color: (act.procedureTypeId ? colorById.get(act.procedureTypeId) : undefined) ?? UNKNOWN_ACT_COLOR,
+            date: record.interventionDate,
+          })
+          map.set(tooth, acts)
+        }
       }
-      map.set(entry.toothNumber, existing)
     }
 
     for (const acts of map.values()) {
       acts.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
     }
     return map
-  }, [entries, records, procedureTypes])
+  }, [records, procedureTypes])
 
   /** Only the acts actually on this chart, in the order a reader meets them. */
   const legend = useMemo(() => {
