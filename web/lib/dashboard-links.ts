@@ -15,6 +15,7 @@ export type DashboardKpiKey =
   | 'acceptedPlans'
   | 'collected'
   | 'invoiced'
+  | 'refunds'
   | 'expenses'
   | 'net'
   | 'receivables'
@@ -77,6 +78,10 @@ export const DASHBOARD_LINKS: Record<DashboardKpiKey, (period: DashboardPeriodDt
 
   collected: (p) => `/factures${query(range(p))}`,
   invoiced: (p) => `/factures${query({ ...range(p), status: 'Issued' })}`,
+
+  // An avoir lives on the invoice it credits, and la caisse's « extrait » is the only screen that lists refunds
+  // as movements in their own right — which is exactly what a reader clicking this figure wants to see.
+  refunds: (p) => `/caisse${query(range(p))}`,
 
   // La caisse nets expenses against collections over a range, which is where both figures come from.
   expenses: (p) => `/caisse${query(range(p))}`,

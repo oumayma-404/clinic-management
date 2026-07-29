@@ -12,7 +12,7 @@ import { invoicesApi } from "@/lib/api/invoices"
 import { billingApi } from "@/lib/api/billing"
 import { ApiError } from "@/lib/api/client"
 import type { InvoiceDto } from "@/lib/api/types"
-import { formatDT } from "@/lib/format"
+import { formatDT, todayLocalIso } from "@/lib/format"
 import { downloadBlob } from "@/lib/download"
 import { PAYMENT_METHODS, paymentMethodLabel } from "./invoice-labels"
 
@@ -34,7 +34,7 @@ export function PaymentModal({ open, onOpenChange, invoice, onSuccess }: Payment
     if (!open || !invoice) return
     setAmount(invoice.outstanding > 0 ? String(invoice.outstanding) : "")
     setMethod("Cash")
-    setPaidOn(new Date().toISOString().slice(0, 10))
+    setPaidOn(todayLocalIso())
     setError(null)
   }, [open, invoice])
 

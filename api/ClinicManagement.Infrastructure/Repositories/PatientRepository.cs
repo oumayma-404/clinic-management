@@ -25,6 +25,26 @@ public class PatientRepository : IPatientRepository
             .FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
     }
 
+    public async Task<IReadOnlyDictionary<Guid, Patient>> GetByIdsAsync(
+        Guid clinicId,
+        IReadOnlyCollection<Guid> ids,
+        CancellationToken cancellationToken = default)
+    {
+        if (ids.Count == 0)
+        {
+            return new Dictionary<Guid, Patient>();
+        }
+
+        // Deliberately no `Include`: the callers of this batch need identity (the full name), not the aggregate.
+        // Pulling flags and both history collections for every patient with a balance is the cost the per-row
+        // `GetByIdAsync` was already paying, and the read this replaces is the « Créances » list.
+        var distinct = ids.Distinct().ToArray();
+
+        return await _context.Patients
+            .Where(p => p.ClinicId == clinicId && distinct.Contains(p.Id))
+            .ToDictionaryAsync(p => p.Id, cancellationToken);
+    }
+
     public async Task<Patient?> GetByIdWithAppointmentsAsync(Guid id, CancellationToken cancellationToken = default)
     {
         return await _context.Patients

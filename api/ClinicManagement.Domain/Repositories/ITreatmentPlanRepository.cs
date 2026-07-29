@@ -20,6 +20,22 @@ public sealed record RecallPlanFact(
     int TotalItems,
     int DoneItems);
 
+/// <summary>
+/// One échéance-collection row behind the caisse statement — the plan side of <see cref="CaissePaymentRow"/>.
+/// Keyed on the devis's own number, not an invoice's: an échéancier is collected against the devis.
+/// </summary>
+public sealed record CaisseInstallmentPaymentRow(
+    Guid PaymentId,
+    Guid TreatmentPlanId,
+    string? PlanNumber,
+    Guid PatientId,
+    decimal Amount,
+    PaymentMethod Method,
+    DateTime PaidOn,
+    bool IsVoided,
+    string? VoidReason,
+    string? VoidedByName);
+
 public interface ITreatmentPlanRepository
 {
     /// <summary>Load a treatment plan with its items and installments.</summary>
@@ -120,6 +136,23 @@ public interface ITreatmentPlanRepository
     /// counted through that invoice instead. Required (pass an empty set for none) so a new money read
     /// cannot silently omit the de-duplication and drift from « Solde patient ».
     /// </param>
+    /// <summary>
+    /// Every échéance collection recorded in <c>[from, toInclusive]</c>, for the « extrait de caisse ».
+    /// <para>
+    /// The row-level sibling of <see cref="GetInstallmentCollectedBetweenAsync"/> and it must stay
+    /// predicate-for-predicate identical to it — including <paramref name="excludedPlanIds"/>. That parameter is
+    /// not optional: a devis bridged into an issued invoice has its collections carried across onto the invoice
+    /// track, so a statement that listed them here as well would show the same money twice *and* stop summing to
+    /// the totals. Voided rows are returned (the caller strikes them through and excludes them from the balance).
+    /// </para>
+    /// </summary>
+    Task<IReadOnlyList<CaisseInstallmentPaymentRow>> GetInstallmentPaymentsBetweenAsync(
+        Guid clinicId,
+        DateTime from,
+        DateTime toInclusive,
+        IReadOnlyCollection<Guid> excludedPlanIds,
+        CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<(Guid PatientId, decimal Outstanding, DateTime? OldestOverdueDueDate)>> GetInstallmentOutstandingByPatientAsync(
         Guid clinicId, DateTime asOfUtc, IReadOnlyCollection<Guid> excludedPlanIds, CancellationToken cancellationToken = default);
 

@@ -19,15 +19,18 @@ public class GetAppointmentsQuery : IRequest<Result<IEnumerable<AppointmentDto>>
 public class GetAppointmentsQueryHandler : IRequestHandler<GetAppointmentsQuery, Result<IEnumerable<AppointmentDto>>>
 {
     private readonly IAppointmentRepository _appointmentRepository;
+    private readonly IInvoiceRepository _invoiceRepository;
     private readonly IUserRepository _userRepository;
     private readonly IClinicContext _clinicContext;
 
     public GetAppointmentsQueryHandler(
         IAppointmentRepository appointmentRepository,
+        IInvoiceRepository invoiceRepository,
         IUserRepository userRepository,
         IClinicContext clinicContext)
     {
         _appointmentRepository = appointmentRepository;
+        _invoiceRepository = invoiceRepository;
         _userRepository = userRepository;
         _clinicContext = clinicContext;
     }
@@ -59,7 +62,14 @@ public class GetAppointmentsQueryHandler : IRequestHandler<GetAppointmentsQuery,
                 request.DoctorId,
                 cancellationToken);
 
-            var dtos = appointments.Select(a => new AppointmentDto
+            // Which of these visits are already billed (AC-P6.13). One batched read for the whole window, not
+            // one per row — and bounded by the window, so the agenda does not pull every appointment-linked
+            // invoice the clinic has ever raised.
+            var appointmentList = appointments.ToList();
+            var invoiceLinks = await AppointmentInvoiceLinks.ResolveAsync(
+                _invoiceRepository, clinicId, appointmentList.Select(a => a.Id).ToList(), cancellationToken);
+
+            var dtos = appointmentList.Select(a => new AppointmentDto
             {
                 Id = a.Id,
                 ClinicId = a.ClinicId,
@@ -76,6 +86,8 @@ public class GetAppointmentsQueryHandler : IRequestHandler<GetAppointmentsQuery,
                 ProcedureTypeName = a.ProcedureType?.Name,
                 ProcedureColorHex = a.ProcedureColorHex,
                 TreatmentPlanItemId = a.TreatmentPlanItemId,
+                InvoiceId = invoiceLinks.GetValueOrDefault(a.Id)?.InvoiceId,
+                InvoiceNumber = invoiceLinks.GetValueOrDefault(a.Id)?.Number,
                 CreatedAt = a.CreatedAt,
                 Version = a.Version,
                 IsSyncedToGoogle = a.GoogleCalendarEventId != null

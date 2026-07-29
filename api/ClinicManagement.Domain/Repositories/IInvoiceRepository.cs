@@ -3,6 +3,27 @@ using ClinicManagement.Domain.Enums;
 
 namespace ClinicManagement.Domain.Repositories;
 
+/// <summary>
+/// One payment row behind the caisse statement. A projection rather than a <c>Payment</c>: the statement needs
+/// the owning invoice's number, which a bare <c>Payment</c> cannot reach.
+/// <para>
+/// It carries <c>PatientId</c> and <b>not</b> the patient's name: <c>Invoice</c> has no <c>Patient</c> navigation
+/// property, so there is nothing to project from. The caller resolves every name in one pass through
+/// <c>IPatientRepository.GetByIdsAsync</c> — which exists for exactly this shape of problem.
+/// </para>
+/// </summary>
+public sealed record CaissePaymentRow(
+    Guid PaymentId,
+    Guid InvoiceId,
+    string? InvoiceNumber,
+    Guid PatientId,
+    decimal Amount,
+    PaymentMethod Method,
+    DateTime PaidOn,
+    bool IsVoided,
+    string? VoidReason,
+    string? VoidedByName);
+
 public interface IInvoiceRepository
 {
     /// <summary>Load an invoice with its lines and payments.</summary>
@@ -76,6 +97,41 @@ public interface IInvoiceRepository
     /// </summary>
     Task<IReadOnlyList<(Guid DentalRecordId, Guid InvoiceId, string? Number, InvoiceStatus Status)>>
         GetDentalRecordLinksAsync(Guid clinicId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// One row per invoice raised against one of <paramref name="appointmentIds"/>: the visit, and the invoice's
+    /// id, number and status (AC-P6.13). The third sibling of <see cref="GetTreatmentPlanLinksAsync"/> and
+    /// <see cref="GetDentalRecordLinksAsync"/>, answering "is this visit billed, and on which note?".
+    /// <para>
+    /// Bounded by the id set rather than clinic-wide like its two siblings, deliberately: those answer a
+    /// per-patient question over a naturally small set, while this one is read by the agenda, whose caller has a
+    /// date window. Returning every appointment-linked invoice the clinic has ever raised in order to annotate one
+    /// week of the calendar grows without limit.
+    /// </para>
+    /// <para>Cancelled invoices are included — the caller decides whether a cancelled note still bills the visit.</para>
+    /// </summary>
+    Task<IReadOnlyList<(Guid AppointmentId, Guid InvoiceId, string? Number, InvoiceStatus Status)>>
+        GetAppointmentLinksAsync(
+            Guid clinicId,
+            IReadOnlyCollection<Guid> appointmentIds,
+            CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Every payment row recorded in <c>[from, toInclusive]</c>, for the « extrait de caisse ».
+    /// <para>
+    /// The row-level sibling of <see cref="GetCollectedBetweenAsync"/>, and it must stay predicate-for-predicate
+    /// identical to it: same clinic filter, same <c>Status != Cancelled</c> exclusion, same inclusive bounds, and
+    /// <b>voided rows are returned</b> rather than filtered. The sum excludes them; the statement shows them
+    /// struck through (§ 1 keeps a void visible, motif and actor included), so the filter lives in the caller
+    /// where both behaviours can be derived from one read.
+    /// </para>
+    /// <para>
+    /// A light projection, not <c>GetFilteredAsync</c> — the statement needs eleven scalars per row, not every
+    /// invoice of the clinic with its lines (§ 9.7).
+    /// </para>
+    /// </summary>
+    Task<IReadOnlyList<CaissePaymentRow>> GetPaymentsBetweenAsync(
+        Guid clinicId, DateTime from, DateTime toInclusive, CancellationToken cancellationToken = default);
 
     /// <summary>Load the invoice that owns a given payment (with lines + payments), or null. Clinic-agnostic — the caller guards the clinic.</summary>
     Task<Invoice?> GetByPaymentIdAsync(Guid paymentId, CancellationToken cancellationToken = default);

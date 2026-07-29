@@ -14,6 +14,7 @@ import {
   PhoneCall,
   Receipt,
   Scale,
+  Undo2,
   UserPlus,
   Users,
   Wallet,
@@ -183,6 +184,12 @@ export default function DashboardPage() {
                   })}
                   {kpi("invoiced", money(data?.money.invoiced.current), Receipt, {
                     comparison: data?.money.invoiced,
+                  })}
+                  {kpi("refunds", money(data?.money.refunds.current), Undo2, {
+                    comparison: data?.money.refunds,
+                    // Refunding more is not good news either. « Encaissé » is now gross, so this figure is no
+                    // longer hidden inside it — a month with a large avoir used to just look like a weak month.
+                    sense: "up-is-bad",
                   })}
                   {kpi("expenses", money(data?.money.expenses.current), PackageMinus, {
                     comparison: data?.money.expenses,

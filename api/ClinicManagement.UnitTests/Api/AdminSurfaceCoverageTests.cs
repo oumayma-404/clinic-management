@@ -40,6 +40,24 @@ public class AdminSurfaceCoverageTests
         { typeof(RecallController), nameof(RecallController.SetSettings) },
     };
 
+    /// <summary>
+    /// Catalog actions that use a mutating HTTP verb but <b>write nothing</b>, with the reason each is here.
+    /// Deliberately a per-action list keyed by declaring type + name, not a predicate: a rule like "POST actions
+    /// whose name starts with Get" would silently exempt the next real write somebody names badly, which is the
+    /// failure mode this whole test exists to prevent.
+    /// </summary>
+    private static readonly (Type Controller, string Action)[] NonMutatingExemptions =
+    {
+        // AC-P6.15: the batch reimbursement estimate. It is a read — the acts of one bulletin are a list, and a
+        // GET would have to encode N cotations plus N care dates into the query string. It persists nothing and
+        // never appears on the BS1 PDF (AC-P6.16); gating it AdminOnly would put the estimate out of reach of the
+        // secretary who fills the bulletin in.
+        (typeof(CnamNomenclatureController), nameof(CnamNomenclatureController.GetReimbursementEstimates)),
+    };
+
+    private static bool IsExemptFromWriteGate(MethodInfo method) =>
+        NonMutatingExemptions.Any(e => e.Controller == method.DeclaringType && e.Action == method.Name);
+
     private static bool IsMutating(MethodInfo method) =>
         method.GetCustomAttribute<HttpPostAttribute>() is not null
         || method.GetCustomAttribute<HttpPutAttribute>() is not null
@@ -63,6 +81,7 @@ public class AdminSurfaceCoverageTests
         var unguarded = CatalogControllers
             .SelectMany(Actions)
             .Where(IsMutating)
+            .Where(m => !IsExemptFromWriteGate(m))
             .Where(m => !RequiresAdmin(m))
             .Select(m => $"{m.DeclaringType!.Name}.{m.Name}")
             .OrderBy(n => n)
@@ -113,6 +132,17 @@ public class AdminSurfaceCoverageTests
             var controller = (Type)row[0];
             var actionName = (string)row[1];
 
+            Assert.Single(Actions(controller).Where(m => m.Name == actionName));
+        }
+    }
+
+    [Fact]
+    public void Every_write_gate_exemption_still_names_a_real_action() // an exemption must not outlive its action
+    {
+        // Same reasoning as the test above, pointed at the other list. A renamed or deleted action would leave a
+        // dead exemption behind — harmless today, and a pre-approved hole the moment the name is reused.
+        foreach (var (controller, actionName) in NonMutatingExemptions)
+        {
             Assert.Single(Actions(controller).Where(m => m.Name == actionName));
         }
     }

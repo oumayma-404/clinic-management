@@ -70,4 +70,30 @@ public static class ClinicClock
 
     /// <summary>The exclusive end of a clinic-local day, as a UTC instant.</summary>
     public static DateTime EndOfLocalDayUtc(DateTime clinicLocalDate) => ToUtc(clinicLocalDate.Date.AddDays(1));
+
+    /// <summary>
+    /// The last representable instant <b>inside</b> a clinic-local day, as UTC.
+    /// <para>
+    /// ⚠️ The distinction from <see cref="EndOfLocalDayUtc"/> is load-bearing, not cosmetic: that one is the *next*
+    /// midnight (exclusive) while every money read — <c>GetCollectedBetweenAsync</c> and friends — is inclusive on
+    /// <b>both</b> ends. Handing them the exclusive instant counts a payment recorded at exactly midnight in both
+    /// adjacent periods (finding #20). The subtraction lives here once rather than at each call site.
+    /// </para>
+    /// </summary>
+    public static DateTime LastTickOfLocalDayUtc(DateTime clinicLocalDate) =>
+        EndOfLocalDayUtc(clinicLocalDate).AddTicks(-1);
+
+    /// <summary>
+    /// A clinic-local calendar day as the inclusive-on-both-ends UTC range the money reads expect (AC-P6.2).
+    /// </summary>
+    public static (DateTime From, DateTime ToInclusive) LocalDayRangeUtc(DateTime clinicLocalDate) =>
+        (StartOfLocalDayUtc(clinicLocalDate), LastTickOfLocalDayUtc(clinicLocalDate));
+
+    /// <summary>
+    /// « Aujourd'hui » as an inclusive UTC range — the <b>single authority</b> for what a query means by today
+    /// (AC-P6.2). Every read that used to default to <c>DateTime.UtcNow.Date</c> ran the clinic's day from 01:00
+    /// to 01:00 Tunis (§ 4.1); they all go through here instead.
+    /// </summary>
+    public static (DateTime From, DateTime ToInclusive) TodayRangeUtc(DateTime? nowUtc = null) =>
+        LocalDayRangeUtc(ClinicToday(nowUtc));
 }

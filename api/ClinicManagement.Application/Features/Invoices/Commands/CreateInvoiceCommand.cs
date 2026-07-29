@@ -22,6 +22,7 @@ public class CreateInvoiceCommandHandler : IRequestHandler<CreateInvoiceCommand,
 {
     private readonly IInvoiceRepository _invoiceRepository;
     private readonly IPatientRepository _patientRepository;
+    private readonly IAppointmentRepository _appointmentRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<CreateInvoiceCommandHandler> _logger;
@@ -29,12 +30,14 @@ public class CreateInvoiceCommandHandler : IRequestHandler<CreateInvoiceCommand,
     public CreateInvoiceCommandHandler(
         IInvoiceRepository invoiceRepository,
         IPatientRepository patientRepository,
+        IAppointmentRepository appointmentRepository,
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
         ILogger<CreateInvoiceCommandHandler> logger)
     {
         _invoiceRepository = invoiceRepository;
         _patientRepository = patientRepository;
+        _appointmentRepository = appointmentRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
         _logger = logger;
@@ -55,6 +58,25 @@ public class CreateInvoiceCommandHandler : IRequestHandler<CreateInvoiceCommand,
             if (patient == null || patient.ClinicId != clinicId)
             {
                 return Result<InvoiceDto>.Failure("Patient introuvable.");
+            }
+
+            // The visit this note bills, when it was raised from an appointment context (AC-P6.12). The column
+            // has existed since the invoice was written and nothing ever populated it, so nothing ever checked
+            // it either: an id is now verified to be a real appointment of THIS clinic AND of this patient.
+            // Without that, a crafted request could pin another clinic's visit onto the invoice — and a visit
+            // belonging to a different patient would make « facturé » appear on the wrong record.
+            if (request.AppointmentId.HasValue)
+            {
+                var appointment = await _appointmentRepository.GetByIdAsync(request.AppointmentId.Value, cancellationToken);
+                if (appointment == null || appointment.ClinicId != clinicId)
+                {
+                    return Result<InvoiceDto>.Failure("Rendez-vous introuvable.");
+                }
+                if (appointment.PatientId != request.PatientId)
+                {
+                    return Result<InvoiceDto>.Failure(
+                        "Ce rendez-vous appartient à un autre patient : la facture ne peut pas y être rattachée.");
+                }
             }
 
             var invoice = new Invoice(

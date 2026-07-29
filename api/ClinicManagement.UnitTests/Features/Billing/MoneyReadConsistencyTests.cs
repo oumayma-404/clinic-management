@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -108,6 +109,15 @@ public class MoneyReadConsistencyTests
 
         var patient = PatientFixture();
         _patients.Setup(r => r.GetByIdAsync(PatientId, It.IsAny<CancellationToken>())).ReturnsAsync(patient);
+        // Mirrors PatientRepository.GetByIdsAsync: the requested ids, narrowed to the clinic. « Créances »
+        // resolves its names through this batch (AC-P6.21) instead of one GetByIdAsync per row — and per R-10
+        // this fake is part of the repository's contract, so it moves with it or the suite passes against the
+        // old shape.
+        _patients.Setup(r => r.GetByIdsAsync(ClinicId, It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Guid _, IReadOnlyCollection<Guid> ids, CancellationToken _) =>
+                (IReadOnlyDictionary<Guid, Patient>)(ids.Contains(PatientId)
+                    ? new Dictionary<Guid, Patient> { [PatientId] = patient }
+                    : new Dictionary<Guid, Patient>()));
         _patients.Setup(r => r.CountByClinicIdAsync(ClinicId, It.IsAny<CancellationToken>())).ReturnsAsync(1);
         _patients.Setup(r => r.CountFlaggedByClinicIdAsync(ClinicId, It.IsAny<CancellationToken>())).ReturnsAsync(0);
         _appointments.Setup(r => r.CountByClinicIdAsync(
@@ -359,18 +369,27 @@ public class MoneyReadConsistencyTests
         var (money, _) = await DashboardMoneyAsync();
         var caisse = await CaisseAsync(period);
 
+        // FOUR figures now, not three. `CashIn` is gross and the avoir has its own line on both reads — the split
+        // arrived with the caisse statement, which shows a refund as money leaving and so could not be reconciled
+        // against a total that had already absorbed it.
         Assert.Equal(caisse.CashIn, money.Collected.Current);
+        Assert.Equal(caisse.Refunds, money.Refunds.Current);
         Assert.Equal(caisse.CashOut, money.Expenses.Current);
         Assert.Equal(caisse.Net, money.Net.Current);
 
-        // And the dashboard's own three figures must be internally consistent, or a caisse that does not add up is
+        // And the dashboard's own figures must be internally consistent, or a caisse that does not add up is
         // shown to the user even when each figure is individually right.
-        Assert.Equal(money.Collected.Current - money.Expenses.Current, money.Net.Current);
+        Assert.Equal(
+            money.Collected.Current - money.Refunds.Current - money.Expenses.Current,
+            money.Net.Current);
     }
 
-    // [AC-6] The avoir is genuinely netted, not merely equal-by-coincidence to a caisse that also ignores it.
+    // [AC-6] The avoir is genuinely accounted for, not merely equal-by-coincidence to a caisse that also ignores it.
+    // It is no longer *netted into* « Encaissé » — it is its own reported figure, and « Net » is what nets it. That
+    // reversal is deliberate: a statement lists a refund as money leaving, so a gross Collected is the only version
+    // the lines can be reconciled against. A month with a large avoir also used to just look like a weak month.
     [Fact]
-    public async Task Dashboard_Collected_Nets_Avoirs_Refunded_In_The_Window()
+    public async Task Dashboard_Reports_Avoirs_Separately_And_Nets_Them_In_Net()
     {
         Wire(Array.Empty<Invoice>(), Array.Empty<TreatmentPlan>());
 
@@ -381,7 +400,69 @@ public class MoneyReadConsistencyTests
 
         var (money, _) = await DashboardMoneyAsync();
 
-        Assert.Equal(750m, money.Collected.Current);
+        Assert.Equal(1000m, money.Collected.Current);
+        Assert.Equal(250m, money.Refunds.Current);
+        Assert.Equal(750m, money.Net.Current);
+    }
+
+    // [AC-P6.11] § 6.2 arrives already closed by the § 1 merge, so this is a REGRESSION pin, not a fix. The two
+    // cases above cover an avoir inside a window with real receipts; this one is the loud case: a window whose only
+    // movement is a refund, where netting it takes cash-in NEGATIVE. A read that quietly dropped the refund term
+    // would report 0 here — indistinguishable from « rien encaissé » — while its sibling reported −180,500.
+    [Fact]
+    public async Task Dashboard_And_Caisse_Agree_When_A_Window_Holds_Only_A_Refund() // [AC-P6.11]
+    {
+        Wire(Array.Empty<Invoice>(), Array.Empty<TreatmentPlan>());
+
+        _creditNotes.Setup(r => r.GetRefundedBetweenAsync(
+            ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>())).ReturnsAsync(180.500m);
+
+        var period = DashboardPeriod.Resolve(DashboardPeriodKey.Month, FixedNow);
+        var (money, _) = await DashboardMoneyAsync();
+        var caisse = await CaisseAsync(period);
+
+        // With the split, a refund-only window reads honestly: nothing came in, 180,500 went out, net is negative.
+        // Under the old netting this was a *negative CashIn*, which is not a thing a till can have.
+        Assert.Equal(0m, caisse.CashIn);
+        Assert.Equal(180.500m, caisse.Refunds);
+        Assert.Equal(-180.500m, caisse.Net);
+        Assert.Equal(caisse.CashIn, money.Collected.Current);
+        Assert.Equal(caisse.Refunds, money.Refunds.Current);
+        Assert.Equal(caisse.Net, money.Net.Current);
+    }
+
+    // [AC-P6.3] La caisse with no arguments means the CLINIC's day, not the UTC one. The browser callers always
+    // sent their own bounds, so this defect only ever bit a direct API caller — but it sat in the read the clinic
+    // reconciles its till against, and « aujourd'hui » running 01:00 to 01:00 is not a thing anyone would notice
+    // until a payment went missing from the day it was taken.
+    [Fact]
+    public async Task La_Caisse_Defaults_To_The_Clinic_Local_Day() // [AC-P6.3]
+    {
+        Wire(Array.Empty<Invoice>(), Array.Empty<TreatmentPlan>());
+
+        DateTime? askedFrom = null;
+        DateTime? askedTo = null;
+        _invoices.Setup(r => r.GetCollectedBetweenAsync(
+                ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .Callback((Guid _, DateTime from, DateTime to, CancellationToken _) => { askedFrom = from; askedTo = to; })
+            .ReturnsAsync(0m);
+
+        var handler = new GetCaisseSummaryQueryHandler(
+            _invoices.Object, _plans.Object, _expenses.Object, _creditNotes.Object, _clinicResolver.Object,
+            NullLogger<GetCaisseSummaryQueryHandler>.Instance);
+
+        var result = await handler.Handle(new GetCaisseSummaryQuery(), CancellationToken.None);
+        Assert.True(result.IsSuccess);
+
+        var (expectedFrom, expectedTo) = ClinicClock.TodayRangeUtc();
+        Assert.Equal(expectedFrom, askedFrom);
+        Assert.Equal(expectedTo, askedTo);
+
+        // The bounds are a clinic-local day, so the lower one is 23:00 UTC — an hour before UTC midnight. That is
+        // the assertion the old `DateTime.UtcNow.Date` default fails.
+        Assert.Equal(23, askedFrom!.Value.Hour);
+        // Inclusive on both ends (finding #20): the upper bound is inside the day, never the next midnight.
+        Assert.True(askedTo < ClinicClock.EndOfLocalDayUtc(ClinicClock.ClinicToday()));
     }
 
     // [AC-3][AC-6] The previous window is read with its OWN bounds, not the current ones. Without this the delta on

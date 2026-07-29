@@ -49,6 +49,11 @@ public class DashboardMoneyReader : IDashboardMoneyReader
         var previousCollected = await CollectedAsync(
             clinicId, period.PreviousFrom, period.PreviousToInclusive, billedPlanIds, cancellationToken);
 
+        var refunds = await _creditNoteRepository.GetRefundedBetweenAsync(
+            clinicId, period.From, period.ToInclusive, cancellationToken);
+        var previousRefunds = await _creditNoteRepository.GetRefundedBetweenAsync(
+            clinicId, period.PreviousFrom, period.PreviousToInclusive, cancellationToken);
+
         var invoiced = await _invoiceRepository.GetInvoicedBetweenAsync(
             clinicId, period.From, period.ToInclusive, cancellationToken);
         var previousInvoiced = await _invoiceRepository.GetInvoicedBetweenAsync(
@@ -63,13 +68,14 @@ public class DashboardMoneyReader : IDashboardMoneyReader
         {
             Collected = PeriodComparison.Of(collected, previousCollected),
             Invoiced = PeriodComparison.Of(Round(invoiced), Round(previousInvoiced)),
+            Refunds = PeriodComparison.Of(Round(refunds), Round(previousRefunds)),
             Expenses = PeriodComparison.Of(Round(expenses), Round(previousExpenses)),
-            // Net is derived from the already-rounded halves rather than rounded again from raw sums, so
-            // Collected − Expenses = Net holds exactly as displayed. A caisse that does not add up is a caisse
-            // nobody trusts, even when every individual figure is right.
+            // Net is derived from the already-rounded parts rather than rounded again from raw sums, so
+            // Collected − Refunds − Expenses = Net holds exactly as displayed. A caisse that does not add up is a
+            // caisse nobody trusts, even when every individual figure is right.
             Net = PeriodComparison.Of(
-                Round(collected - Round(expenses)),
-                Round(previousCollected - Round(previousExpenses)))
+                Round(collected - Round(refunds) - Round(expenses)),
+                Round(previousCollected - Round(previousRefunds) - Round(previousExpenses)))
         };
 
         var receivables = new DashboardReceivablesDto
@@ -81,8 +87,9 @@ public class DashboardMoneyReader : IDashboardMoneyReader
     }
 
     /// <summary>
-    /// « Encaissé » over a window: invoice payments + treatment-plan installment collections − avoirs refunded.
-    /// Identical composition to <c>GetCaisseSummaryQuery</c>'s <c>CashIn</c>.
+    /// « Encaissé » over a window: invoice payments + treatment-plan installment collections, <b>gross</b>.
+    /// Identical composition to <c>GetCaisseSummaryQuery</c>'s <c>CashIn</c> — refunds are read separately by the
+    /// caller and reported on their own figure, because the caisse statement shows a refund as money leaving.
     /// </summary>
     private async Task<decimal> CollectedAsync(
         Guid clinicId,
@@ -95,13 +102,8 @@ public class DashboardMoneyReader : IDashboardMoneyReader
             clinicId, from, toInclusive, cancellationToken);
         var installmentCollected = await _planRepository.GetInstallmentCollectedBetweenAsync(
             clinicId, from, toInclusive, billedPlanIds, cancellationToken);
-        // Avoirs refunded in the window reduce what the clinic actually kept. Netted here for the same reason la
-        // caisse nets them into CashIn: without it the dashboard and the caisse report different cash from the very
-        // same rows over the very same window.
-        var refunds = await _creditNoteRepository.GetRefundedBetweenAsync(
-            clinicId, from, toInclusive, cancellationToken);
 
-        return Round(invoiceCollected + installmentCollected - refunds);
+        return Round(invoiceCollected + installmentCollected);
     }
 
     /// <summary>

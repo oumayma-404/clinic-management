@@ -26,7 +26,7 @@ import { procedureTypesApi } from "@/lib/api/procedure-types"
 import { patientsApi } from "@/lib/api/patients"
 import { ApiError } from "@/lib/api/client"
 import type { TreatmentPlanDto, PatientDto, DentalActDto, ProcedureTypeDto } from "@/lib/api/types"
-import { formatDT } from "@/lib/format"
+import { formatDT, todayLocalIso } from "@/lib/format"
 import { ToothMultiSelect } from "@/components/tooth-multiselect"
 import { conditionStyle } from "@/components/odontogram-conditions"
 import { cn } from "@/lib/utils"
@@ -330,7 +330,7 @@ export function TreatmentPlanFormModal({
   const addInstallment = () =>
     setInstallments((prev) => [
       ...prev,
-      { id: null, dueDate: new Date().toISOString().slice(0, 10), amount: "", amountPaid: 0 },
+      { id: null, dueDate: todayLocalIso(), amount: "", amountPaid: 0 },
     ])
   const removeInstallment = (index: number) => setInstallments((prev) => prev.filter((_, i) => i !== index))
 

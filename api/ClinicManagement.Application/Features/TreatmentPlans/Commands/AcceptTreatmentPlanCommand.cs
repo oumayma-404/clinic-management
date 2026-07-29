@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
@@ -59,7 +60,9 @@ public class AcceptTreatmentPlanCommandHandler : IRequestHandler<AcceptTreatment
                 return Result<TreatmentPlanDto>.Failure("Plan de traitement introuvable.");
             }
 
-            var year = DateTime.UtcNow.Year;
+            // The clinic's fiscal year, not the UTC one (AC-P6.8) — same defect and same reasoning as the
+            // invoice sequence in `IssueInvoiceCommand`.
+            var year = ClinicClock.ClinicYear();
 
             for (var attempt = 1; attempt <= MaxNumberingAttempts; attempt++)
             {

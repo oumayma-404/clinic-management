@@ -100,9 +100,13 @@ export interface DashboardActivityDto {
 }
 
 export interface DashboardMoneyDto {
+  /** **Gross** encaissements — refunds are `refunds`, not netted in here. */
   collected: PeriodComparison;
   invoiced: PeriodComparison;
+  /** Avoirs refunded in the window. */
+  refunds: PeriodComparison;
   expenses: PeriodComparison;
+  /** `collected - refunds - expenses`. */
   net: PeriodComparison;
 }
 
@@ -307,6 +311,13 @@ export interface AppointmentDto {
   procedureColorHex?: string;
   /** The treatment-plan step this appointment schedules, if any. */
   treatmentPlanItemId?: string | null;
+  /**
+   * The note d'honoraires raised against this visit, if any (AC-P6.13). Null = not billed yet, which is what
+   * « Facturer cette consultation » keys off. A cancelled invoice does not count as billing the visit.
+   */
+  invoiceId?: string | null;
+  /** The billing invoice's number, or null while it is still a draft (a draft consumes no number). */
+  invoiceNumber?: string | null;
   /** True when the appointment is reflected in Google Calendar (derived server-side from the event id). */
   isSyncedToGoogle: boolean;
 }
@@ -701,13 +712,63 @@ export interface ExpenseDto {
   updatedAt?: string | null;
 }
 
-/** The caisse (daily cash) summary — encaissements (cash in) minus dépenses (cash out) and the net. */
+/**
+ * The caisse (daily cash) summary. `cashIn` is **gross** — refunds are their own figure, not a subtraction hidden
+ * inside it, because the « extrait » below shows a refund as money leaving and the lines have to sum to the totals.
+ * `net === cashIn - refunds - cashOut`.
+ */
 export interface CaisseSummaryDto {
   fromDate: string;
   toDate: string;
   cashIn: number;
+  /** Avoirs refunded in the window — money out, reported apart from expenses. */
+  refunds: number;
   cashOut: number;
   net: number;
+}
+
+/** Which ledger a caisse movement came from. Mirrors the backend `CaisseMovementKind`. */
+export type CaisseMovementKind = 'InvoicePayment' | 'InstallmentPayment' | 'Refund' | 'Expense';
+
+/** Which way the money went. Explicit rather than inferred from the sign of `amount`. */
+export type CaisseMovementDirection = 'In' | 'Out';
+
+/**
+ * One line of the « extrait de caisse ». Derived server-side from the rows the totals sum — there is no
+ * movement table, which is what lets Σ(movements) be asserted equal to the summary above it.
+ *
+ * A **voided** row is present with its motif and actor (§ 1 keeps a void visible and struck through) and is
+ * excluded from `runningBalance` and from every total.
+ */
+export interface CaisseMovementDto {
+  id: string;
+  kind: CaisseMovementKind;
+  direction: CaisseMovementDirection;
+  /** The date the movement is attributed to (paidOn / refundedOn / expenseDate) — never its creation time. */
+  occurredOn: string;
+  /** Always positive; `direction` carries the sign. */
+  amount: number;
+  method?: string | null;
+  /** French one-line description, built server-side so the four kinds share one wording. */
+  label: string;
+  /** The document number, when the movement has one (a draft invoice does not). */
+  reference?: string | null;
+  patientId?: string | null;
+  patientName?: string | null;
+  /** The aggregate to open — invoice / devis / the invoice an avoir credits / the expense. */
+  targetId?: string | null;
+  isVoided: boolean;
+  voidReason?: string | null;
+  voidedByName?: string | null;
+  /** Cumulative net **across the shown window only** — it opens at zero, it is not an account balance. */
+  runningBalance: number;
+}
+
+/** The statement plus the window it covers. Carries no totals: those live in `CaisseSummaryDto`. */
+export interface CaisseLedgerDto {
+  fromDate: string;
+  toDate: string;
+  movements: CaisseMovementDto[];
 }
 
 /** A salle-d'attente entry. `priority` is Low|Normal|High; `status` is Waiting|Promoted|Cancelled. */

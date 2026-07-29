@@ -26,6 +26,19 @@ public class AppointmentDto
     public string? ProcedureColorHex { get; set; }
     /// <summary>The treatment-plan step this appointment schedules, if any.</summary>
     public Guid? TreatmentPlanItemId { get; set; }
+
+    /// <summary>
+    /// The note d'honoraires raised against this visit, if any — the read side of <c>Invoice.AppointmentId</c>
+    /// (AC-P6.13). Null means the visit is not billed yet, which is what the « Facturer » action keys off.
+    /// <para>
+    /// A <b>cancelled</b> invoice does not count as billing the visit: it would show « Facturé » with no money
+    /// behind it and hide the action needed to raise a replacement. Same rule the plan and fiche links apply.
+    /// </para>
+    /// </summary>
+    public Guid? InvoiceId { get; set; }
+
+    /// <summary>The billing invoice's number, or null while it is still a draft (a draft consumes no number).</summary>
+    public string? InvoiceNumber { get; set; }
     public DateTime CreatedAt { get; set; }
 
     /// <summary>

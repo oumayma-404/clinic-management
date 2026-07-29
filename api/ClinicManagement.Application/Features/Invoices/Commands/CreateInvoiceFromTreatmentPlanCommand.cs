@@ -79,8 +79,14 @@ public class CreateInvoiceFromTreatmentPlanCommandHandler
 
             // Refuse a second bridge invoice for the same plan (edge case) — the existing non-cancelled one
             // already represents this work.
-            var patientInvoices = await _invoiceRepository.GetFilteredAsync(clinicId, patientId: plan.PatientId, cancellationToken: cancellationToken);
-            if (patientInvoices.Any(i => i.TreatmentPlanId == plan.Id && i.Status != InvoiceStatus.Cancelled))
+            //
+            // Read through the light bridge projection (AC-P6.22). This used to be `GetFilteredAsync`, which
+            // loads every invoice of the patient **with its lines and payments** in order to test one
+            // `TreatmentPlanId` — the § 9.7 over-fetch. `GetTreatmentPlanLinksAsync` exists for exactly this
+            // question and is already the shared authority the money reads de-duplicate through, so the guard
+            // and those reads can no longer disagree about what « déjà facturé » means.
+            var planLinks = await _invoiceRepository.GetTreatmentPlanLinksAsync(clinicId, cancellationToken);
+            if (planLinks.Any(l => l.TreatmentPlanId == plan.Id && l.Status != InvoiceStatus.Cancelled))
             {
                 return Result<InvoiceDto>.Failure("Ce devis a déjà été facturé.");
             }

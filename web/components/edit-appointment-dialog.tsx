@@ -31,7 +31,7 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { format, parseISO } from "date-fns"
-import { CalendarIcon, Clock, User, Stethoscope, FileText, X, Save } from "lucide-react"
+import { CalendarIcon, Clock, User, Stethoscope, FileText, X, Save, Receipt } from "lucide-react"
 import { cn, parseDurationToMinutes } from "@/lib/utils"
 import { appointmentsApi } from "@/lib/api/appointments"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
@@ -41,6 +41,8 @@ import { ApiError } from "@/lib/api/client"
 import { useDoctors } from "@/lib/hooks/use-doctors"
 import { useAppointmentOverlap } from "@/lib/hooks/use-appointment-overlap"
 import { specialtyLabel } from "@/lib/specialties"
+import Link from "next/link"
+import { InvoiceFormModal } from "@/components/factures/invoice-form-modal"
 import {
   APPOINTMENT_STATUSES,
   appointmentStatusBadgeClass,
@@ -63,6 +65,8 @@ interface EditAppointmentDialogProps {
 export function EditAppointmentDialog({ open, onOpenChange, appointment, onSuccess }: EditAppointmentDialogProps) {
   // State for all appointment fields
   const [patientName, setPatientName] = useState("")
+  // « Facturer cette consultation » — the draft note d'honoraires raised from this visit (AC-P6.12).
+  const [billingOpen, setBillingOpen] = useState(false)
   const [date, setDate] = useState<Date | undefined>(new Date())
   const [selectedDoctorId, setSelectedDoctorId] = useState<string>("")
   // `appointmentType` removed with the `Type: ` prefix (AC-P1.51) — the act is `procedureTypeId` alone.
@@ -731,6 +735,51 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
               </div>
             </div>
 
+            {/* Facturation (AC-P6.13) — a visit says which note d'honoraires bills it, and offers to raise one
+                when it does not. The link was write-only before: the column existed, nothing populated it, and
+                no screen read it, so « cette consultation a-t-elle été facturée ? » had no answer anywhere. */}
+            {appointment?.patientId && (
+              <div className="space-y-3 p-4 rounded-lg border bg-muted/30">
+                <div className="flex items-center gap-2">
+                  <Receipt className="h-5 w-5 text-muted-foreground" />
+                  <h3 className="font-semibold">Facturation</h3>
+                </div>
+                {appointment.invoiceId ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="outline" className="gap-1">
+                      <Receipt className="h-3 w-3" />
+                      Facturé
+                    </Badge>
+                    <span className="text-sm text-muted-foreground">
+                      {appointment.invoiceNumber
+                        ? `Note n° ${appointment.invoiceNumber}`
+                        : /* A draft consumes no number yet — say so rather than printing an empty « n° ». */
+                          "Brouillon de note d'honoraires"}
+                    </span>
+                    <Button asChild type="button" variant="link" size="sm" className="h-auto p-0">
+                      <Link href="/factures">Ouvrir dans « Factures »</Link>
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setBillingOpen(true)}
+                      disabled={loading}
+                    >
+                      <Receipt className="h-4 w-4 mr-2" />
+                      Facturer cette consultation
+                    </Button>
+                    <p className="text-xs text-muted-foreground">
+                      Crée un brouillon de note d&apos;honoraires rattaché à ce rendez-vous.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Notes Section */}
             <div className="space-y-4 p-4 rounded-lg border bg-muted/30">
               <div className="flex items-center gap-2">
@@ -768,6 +817,24 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* The invoice draft is raised from an appointment context, so it carries `appointmentId` (AC-P6.12).
+          Rendered as a sibling of the dialog rather than inside it — nesting a Dialog inside a Dialog fights
+          over the focus trap. */}
+      {appointment?.patientId && (
+        <InvoiceFormModal
+          open={billingOpen}
+          onOpenChange={setBillingOpen}
+          presetPatientId={appointment.patientId}
+          presetPatientName={appointment.patientName}
+          appointmentId={appointment.id}
+          onSuccess={() => {
+            setBillingOpen(false)
+            // Refetch so the « Facturé » badge above replaces the button without a manual reload.
+            onSuccess?.()
+          }}
+        />
+      )}
 
       {/* Cancel Appointment Confirmation Dialog */}
       <AlertDialog open={showCancelDialog} onOpenChange={setShowCancelDialog}>

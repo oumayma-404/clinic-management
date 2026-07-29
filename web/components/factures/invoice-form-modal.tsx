@@ -41,6 +41,13 @@ interface InvoiceFormModalProps {
   presetLines?: InvoiceLineInput[]
   /** Optional source dental-record link, persisted on the created draft (create mode only). */
   dentalRecordId?: string
+  /**
+   * The visit this note bills, persisted on the created draft (create mode only) — AC-P6.12. The backend
+   * column has always existed and nothing populated it, so an invoice could never say which consultation it
+   * was for. Passed only when the form is opened from an appointment context; the server verifies the
+   * appointment belongs to this clinic and this patient.
+   */
+  appointmentId?: string
   onSuccess?: () => void
 }
 
@@ -72,6 +79,7 @@ export function InvoiceFormModal({
   presetPatientName,
   presetLines,
   dentalRecordId,
+  appointmentId,
   onSuccess,
 }: InvoiceFormModalProps) {
   const [patients, setPatients] = useState<PatientDto[]>([])
@@ -216,6 +224,7 @@ export function InvoiceFormModal({
         const payload: CreateInvoiceRequest = { patientId, lines: parsedLines }
         // Persist the source dental-record link on the new draft (spec AC-2).
         if (dentalRecordId) payload.dentalRecordId = dentalRecordId
+        if (appointmentId) payload.appointmentId = appointmentId
         await invoicesApi.create(payload)
         toast.success("Brouillon de facture créé")
       }

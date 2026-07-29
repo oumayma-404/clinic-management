@@ -42,6 +42,7 @@ import { labOrdersApi, type LabWorkOrderPayload } from "@/lib/api/lab-orders"
 import { patientsApi } from "@/lib/api/patients"
 import { ApiError } from "@/lib/api/client"
 import type { LabWorkOrderDto, PatientDto } from "@/lib/api/types"
+import { formatDT } from "@/lib/format"
 
 // The four lifecycle stages a lab work order moves through (mirrors the backend enum).
 type LabOrderStatus = "Sent" | "InProgress" | "Received" | "Fitted"
@@ -82,9 +83,12 @@ function formatDateFr(iso?: string | null): string {
   }
 }
 
-// Tunisian dinar with millime precision (3 decimals); "—" when no cost recorded.
+// Tunisian dinar through the app's one money formatter; "—" when no cost recorded (AC-P6.18).
+// It used to interpolate `toFixed(3)` by hand, which printed a period and no thousands grouping — every other
+// amount in the product reads « 1 234,500 DT ». `formatDT` treats null as 0, hence the explicit null branch:
+// « 0,000 DT » and « pas de coût saisi » are different facts.
 function formatCost(cost?: number | null): string {
-  return cost != null ? `${cost.toFixed(3)} DT` : "—"
+  return cost != null ? formatDT(cost) : "—"
 }
 
 // An ISO date string begins with yyyy-MM-dd, exactly what <input type="date"> expects as its value.

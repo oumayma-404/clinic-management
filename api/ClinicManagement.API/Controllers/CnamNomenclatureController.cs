@@ -66,6 +66,23 @@ public class CnamNomenclatureController : ApiControllerBase
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
     }
 
+    /// <summary>
+    /// Indicative reimbursement estimates for <b>all acts of one bulletin</b>, in one round trip (AC-P6.15).
+    /// Any authenticated user (editor aid). Never persisted / never printed.
+    /// <para>
+    /// A <c>POST</c> for a read, deliberately: the acts are a list, and a GET would have to encode N cotations
+    /// plus N care dates into the query string. It mutates nothing — the sibling single-act GET above is what a
+    /// cacheable one-act lookup uses.
+    /// </para>
+    /// </summary>
+    [HttpPost("reimbursement-estimates")]
+    public async Task<ActionResult<IEnumerable<ReimbursementEstimateDto>>> GetReimbursementEstimates(
+        [FromBody] GetReimbursementEstimatesQuery query)
+    {
+        var result = await _mediator.Send(query);
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
     /// <summary>Create a catalog entry. AdminOnly (FR-5.3/5.4).</summary>
     [HttpPost]
     [Authorize(Policy = AuthorizationPolicies.AdminOnly)]

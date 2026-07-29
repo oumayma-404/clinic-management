@@ -72,6 +72,22 @@ public sealed record RecallCandidate(
 public interface IPatientRepository
 {
     Task<Patient?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The patients behind a set of ids, in one round trip and already narrowed to the clinic (AC-P6.21).
+    /// Written for « Créances », which resolved a name per row with a <c>GetByIdAsync</c> inside its merge loop —
+    /// one query per patient with a balance, on the screen a clinic opens to chase money.
+    /// <para>
+    /// The clinic filter is a parameter rather than the caller's job because the whole point of the batch is that
+    /// the caller no longer sees each aggregate individually; a per-row <c>ClinicId</c> check it can silently
+    /// forget is worse than one it cannot express. Ids outside the clinic are simply absent from the result.
+    /// </para>
+    /// <returns>A lookup keyed by patient id. Archived patients are included — a balance still has to be chased.</returns>
+    /// </summary>
+    Task<IReadOnlyDictionary<Guid, Patient>> GetByIdsAsync(
+        Guid clinicId,
+        IReadOnlyCollection<Guid> ids,
+        CancellationToken cancellationToken = default);
     Task<Patient?> GetByIdWithAppointmentsAsync(Guid id, CancellationToken cancellationToken = default);
     Task<IEnumerable<Patient>> GetAllAsync(CancellationToken cancellationToken = default);
 

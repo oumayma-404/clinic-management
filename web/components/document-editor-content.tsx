@@ -18,7 +18,7 @@ import { medicalDocumentsApi } from "@/lib/api/medical-documents"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
 import { clinicsApi } from "@/lib/api/clinics"
 import { dentalRecordsApi } from "@/lib/api/dental-records"
-import { cnamNomenclatureApi, estimateReimbursement } from "@/lib/api/cnam-nomenclature"
+import { cnamNomenclatureApi, estimateReimbursements, parseCotation } from "@/lib/api/cnam-nomenclature"
 import { medicationsApi } from "@/lib/api/medications"
 import type { PatientDto, MedicalDocumentDto, ProcedureTypeDto, DentalRecordDto, CnamNomenclatureEntryDto, MedicationDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
@@ -402,8 +402,6 @@ export function DocumentEditorContent() {
   }>({ careType: "APCI", apciCode: "", actsFrom: "", actsTo: "", acts: [] })
   const [dentalRecords, setDentalRecords] = useState<DentalRecordDto[]>([])
   const [cnamNomenclature, setCnamNomenclature] = useState<CnamNomenclatureEntryDto[]>([])
-  // Admin-managed VLC values (lettre clé → dinar value), fed to the indicative reimbursement estimate.
-  const [cnamLetterValues, setCnamLetterValues] = useState<Record<string, number>>({})
   const [medicationCatalog, setMedicationCatalog] = useState<MedicationDto[]>([])
   const [openActLookup, setOpenActLookup] = useState<number | null>(null)
   // Certificat: whether the optional "Repos médical" block is expanded (opened automatically when editing a
@@ -704,25 +702,18 @@ export function DocumentEditorContent() {
     return () => { cancelled = true }
   }, [documentType, selectedPatient])
 
-  // Load the DB-backed CNAM nomenclature + VLC values once when editing a bulletin (searched client-side).
+  // Load the DB-backed CNAM nomenclature once when editing a bulletin (searched client-side for the act
+  // picker). The VLC values are no longer fetched here: their only consumer was the client-side estimate
+  // calculator that AC-P6.15 replaced with the backend endpoint, which resolves them itself.
   useEffect(() => {
     if (documentType !== "bulletin-cnam") return
     let cancelled = false
     ;(async () => {
       try {
-        const [entries, letterValues] = await Promise.all([
-          cnamNomenclatureApi.list(),
-          cnamNomenclatureApi.listLetterValues(),
-        ])
-        if (!cancelled) {
-          setCnamNomenclature(entries)
-          setCnamLetterValues(Object.fromEntries(letterValues.map((v) => [v.lettreCle.toUpperCase(), v.value])))
-        }
+        const entries = await cnamNomenclatureApi.list()
+        if (!cancelled) setCnamNomenclature(entries)
       } catch {
-        if (!cancelled) {
-          setCnamNomenclature([])
-          setCnamLetterValues({})
-        }
+        if (!cancelled) setCnamNomenclature([])
       }
     })()
     return () => { cancelled = true }
@@ -826,19 +817,87 @@ export function DocumentEditorContent() {
     setOpenActLookup(null)
   }
 
-  // Indicative reimbursement (catalog-backed acts only). Editor-only — never persisted / never on the PDF.
-  // Uses the admin-managed VLC values + the age-based CNAM rate (70% ages 4–18 inclusive, 60% otherwise),
-  // computed from the patient's DOB and the act's care date (mirrors the authoritative backend calculator).
+  // Indicative reimbursement (catalog-backed acts only). Editor-only — never persisted / never on the PDF
+  // (AC-P6.16). The arithmetic is the BACKEND's: this component used to call a client-side calculator that
+  // carried its own copy of the CNAM rates, which is the duplication AC-P6.15 removes. One request covers the
+  // whole acts table, so the estimate is still per-act and still live.
   const bulletinPatientDob = patients.find((p) => p.id === selectedPatient)?.dateOfBirth ?? null
-  const actCareDate = (actDate: string) =>
-    actDate ? new Date(actDate) : formFields.date ? new Date(formFields.date) : new Date()
-  const actReimbursement = (act: { cotation: string; date: string }) =>
-    estimateReimbursement(act.cotation, cnamLetterValues, bulletinPatientDob, actCareDate(act.date))
-  const bulletinEstimateTotal = bulletinFields.acts.reduce((sum, act) => {
-    const e = actReimbursement(act)
-    return e != null ? sum + e : sum
-  }, 0)
-  const hasAnyBulletinEstimate = bulletinFields.acts.some((act) => actReimbursement(act) != null)
+
+  // Estimates aligned by act index; `null` = not estimable (free text, unknown lettre clé, no coefficient).
+  const [actEstimates, setActEstimates] = useState<Array<number | null>>([])
+  // A failed call must SAY so (AC-P6.17). Showing an empty column instead is indistinguishable from
+  // « aucun acte remboursable » — the reader would conclude the CNAM pays nothing.
+  const [estimateFailed, setEstimateFailed] = useState(false)
+
+  // Only the cotation and the care date move the estimate, so the effect keys on those alone — not on the whole
+  // acts array, which changes on every honoraires or teeth keystroke and would re-request for nothing.
+  const estimateInputsKey = JSON.stringify(
+    bulletinFields.acts.map((act) => [act.cotation, act.date]),
+  )
+
+  useEffect(() => {
+    if (documentType !== "bulletin-cnam") return
+
+    const parsed: Array<{ lettreCle: string; coefficient: number } | null> =
+      bulletinFields.acts.map((act) => parseCotation(act.cotation))
+    const requestIndexes = parsed.flatMap((p, i) => (p ? [i] : []))
+
+    if (requestIndexes.length === 0) {
+      setActEstimates(bulletinFields.acts.map(() => null))
+      setEstimateFailed(false)
+      return
+    }
+
+    // Drop stale estimates for rows that no longer exist BEFORE the debounce. The estimates are held by index,
+    // so removing act 2 would otherwise leave act 3's figure rendered against act 2's row for up to 350 ms —
+    // a wrong money-adjacent number on the wrong line, which is worse than showing none.
+    setActEstimates((prev) =>
+      prev.length === bulletinFields.acts.length
+        ? prev
+        : bulletinFields.acts.map((_, i) => (i < prev.length ? prev[i] : null)),
+    )
+
+    let cancelled = false
+    // Debounced: the cotation is typed character by character, and « D 1 » is a valid cotation on the way to
+    // « D 15 ».
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          const results = await estimateReimbursements(
+            requestIndexes.map((i) => ({
+              lettreCle: parsed[i]!.lettreCle,
+              coefficient: parsed[i]!.coefficient,
+              careDate: bulletinFields.acts[i].date || null,
+            })),
+            bulletinPatientDob,
+            formFields.date || null,
+          )
+          if (cancelled) return
+          const byIndex = bulletinFields.acts.map(() => null as number | null)
+          requestIndexes.forEach((actIndex, resultIndex) => {
+            byIndex[actIndex] = results[resultIndex]?.estimate ?? null
+          })
+          setActEstimates(byIndex)
+          setEstimateFailed(false)
+        } catch {
+          if (cancelled) return
+          setActEstimates([])
+          setEstimateFailed(true)
+        }
+      })()
+    }, 350)
+
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+    // `estimateInputsKey` stands in for the acts' cotations and dates (see above); the array itself is a new
+    // object on every keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [documentType, estimateInputsKey, bulletinPatientDob, formFields.date])
+
+  const bulletinEstimateTotal = actEstimates.reduce<number>((sum, e) => (e != null ? sum + e : sum), 0)
+  const hasAnyBulletinEstimate = actEstimates.some((e) => e != null)
 
   // Shared bulletin ContentJson (also the PDF data). When the malade is the insured, the assuré identity
   // defaults to the patient's own name (spec edge case — no double entry).
@@ -2120,7 +2179,7 @@ export function DocumentEditorContent() {
                   ) : (
                     <div className="space-y-3">
                       {bulletinFields.acts.map((act, index) => {
-                        const actEstimate = actReimbursement(act)
+                        const actEstimate = actEstimates[index] ?? null
                         return (
                         <div key={index} className="p-3 border rounded-lg space-y-2">
                           <div className="flex items-center justify-between">
@@ -2178,7 +2237,16 @@ export function DocumentEditorContent() {
                     Ajouter un acte
                   </Button>
 
-                  {hasAnyBulletinEstimate && (
+                  {estimateFailed && (
+                    <div role="status" className="rounded-lg border border-dashed border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/20 p-3">
+                      <p className="text-xs text-amber-800 dark:text-amber-300">
+                        Estimation du remboursement indisponible — le calcul n'a pas pu être effectué. Le bulletin
+                        reste valide&nbsp;: l'estimation est indicative et ne figure pas sur le formulaire.
+                      </p>
+                    </div>
+                  )}
+
+                  {!estimateFailed && hasAnyBulletinEstimate && (
                     <div className="rounded-lg border border-dashed p-3 space-y-1">
                       <div className="flex items-center justify-between">
                         <span className="text-sm font-medium text-foreground">Remboursement indicatif (total)</span>

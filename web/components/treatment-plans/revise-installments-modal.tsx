@@ -12,7 +12,7 @@ import { toast } from "sonner"
 import { treatmentPlansApi, type TreatmentPlanInstallmentInput } from "@/lib/api/treatment-plans"
 import { ApiError } from "@/lib/api/client"
 import type { TreatmentPlanDto } from "@/lib/api/types"
-import { formatDT } from "@/lib/format"
+import { formatDT, todayLocalIso } from "@/lib/format"
 
 interface Row {
   /** The existing échéance this row revises; null for a row the user just added. */
@@ -63,7 +63,7 @@ export function ReviseInstallmentsModal({ open, onOpenChange, plan, onSuccess }:
   const addRow = () =>
     setRows((prev) => [
       ...prev,
-      { id: null, dueDate: new Date().toISOString().slice(0, 10), amount: "", amountPaid: 0 },
+      { id: null, dueDate: todayLocalIso(), amount: "", amountPaid: 0 },
     ])
 
   const removeRow = (index: number) => setRows((prev) => prev.filter((_, i) => i !== index))

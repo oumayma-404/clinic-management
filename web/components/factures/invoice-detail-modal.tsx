@@ -9,13 +9,14 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Loader2, FileDown, Undo2 } from "lucide-react"
+import { Loader2, FileDown, Undo2, CalendarClock } from "lucide-react"
 import { toast } from "sonner"
 import { invoicesApi } from "@/lib/api/invoices"
+import { appointmentsApi } from "@/lib/api/appointments"
 import { billingApi } from "@/lib/api/billing"
 import { ApiError } from "@/lib/api/client"
-import type { CreditNoteDto, InvoiceDto, PaymentDto } from "@/lib/api/types"
-import { formatDT, formatDateFr } from "@/lib/format"
+import type { AppointmentDto, CreditNoteDto, InvoiceDto, PaymentDto } from "@/lib/api/types"
+import { formatDT, formatDateFr, formatDateTime } from "@/lib/format"
 import { downloadBlob } from "@/lib/download"
 import { useSession } from "@/lib/auth/session"
 import { canReverseFinancials, REVERSAL_FORBIDDEN_HINT } from "@/lib/auth/can"
@@ -41,6 +42,10 @@ interface InvoiceDetailModalProps {
  */
 export function InvoiceDetailModal({ open, onOpenChange, invoiceId, onChanged }: InvoiceDetailModalProps) {
   const [invoice, setInvoice] = useState<InvoiceDto | null>(null)
+  // The visit this note bills, when it was raised from an appointment context (AC-P6.13). Fetched separately
+  // rather than denormalised onto InvoiceDto: it is one lookup on a modal open, and every other invoice read
+  // (the list, the revenue KPIs, the PDF) would otherwise pay for a join none of them use.
+  const [billedVisit, setBilledVisit] = useState<AppointmentDto | null>(null)
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -70,6 +75,7 @@ export function InvoiceDetailModal({ open, onOpenChange, invoiceId, onChanged }:
   useEffect(() => {
     if (!open) {
       setInvoice(null)
+      setBilledVisit(null)
       setLoadError(null)
       setVoidTarget(null)
       setVoidReason("")
@@ -78,6 +84,27 @@ export function InvoiceDetailModal({ open, onOpenChange, invoiceId, onChanged }:
     }
     load()
   }, [open, load])
+
+  // Resolve the billed visit once the invoice is in hand. A failure leaves the block hidden rather than
+  // erroring the modal: the visit line is context, and the payments below it are what the modal exists for.
+  useEffect(() => {
+    const appointmentId = invoice?.appointmentId
+    if (!open || !appointmentId) {
+      setBilledVisit(null)
+      return
+    }
+
+    let cancelled = false
+    ;(async () => {
+      try {
+        const visit = await appointmentsApi.get(appointmentId)
+        if (!cancelled) setBilledVisit(visit)
+      } catch {
+        if (!cancelled) setBilledVisit(null)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [open, invoice?.appointmentId])
 
   const handleDownloadAvoir = async (creditNote: CreditNoteDto) => {
     try {
@@ -154,6 +181,20 @@ export function InvoiceDetailModal({ open, onOpenChange, invoiceId, onChanged }:
 
         {invoice && !loading && !loadError && (
           <div className="space-y-6">
+            {/* ---- The visit this note bills (AC-P6.13) ---- */}
+            {billedVisit && (
+              <section className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 px-3 py-2">
+                <CalendarClock className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm text-muted-foreground">Consultation facturée&nbsp;:</span>
+                <span className="text-sm font-medium">
+                  {formatDateTime(billedVisit.appointmentDateTime)}
+                </span>
+                {billedVisit.procedureTypeName && (
+                  <Badge variant="outline" className="text-xs">{billedVisit.procedureTypeName}</Badge>
+                )}
+              </section>
+            )}
+
             {/* ---- Acts ---- */}
             <section className="space-y-2">
               <h3 className="text-sm font-semibold">Actes</h3>

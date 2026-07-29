@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
@@ -64,7 +65,10 @@ public class GetPatientBillingSummaryQueryHandler
                 throw new NotFoundException("Patient introuvable.");
             }
 
-            var now = DateTime.UtcNow;
+            // The clinic's calendar day, not the UTC one (AC-P6.4). This read takes no date arguments, so a
+            // caller cannot compensate: between 00:00 and 01:00 Tunis, `DateTime.UtcNow.Date` is still
+            // yesterday, and an échéance due today would be reported « en retard ».
+            var clinicToday = ClinicClock.ClinicToday();
 
             // Invoices — only issued, non-cancelled ones carry a balance.
             var invoices = (await _invoiceRepository.GetFilteredAsync(clinicId, patientId: request.PatientId, cancellationToken: cancellationToken))
@@ -90,7 +94,7 @@ public class GetPatientBillingSummaryQueryHandler
                 // Compared by CALENDAR DAY, not instant. Due dates are stored at midnight, so `DueDate < now`
                 // made an échéance overdue from 00:00 on its own due date — a full day early. It is late only
                 // once its day has passed. Matches GetPatientsToRecallQuery, which already truncates.
-                .Where(i => !i.IsPaid && i.DueDate.Date < now.Date)
+                .Where(i => !i.IsPaid && i.DueDate.Date < clinicToday)
                 .Select(i => (DateTime?)i.DueDate)
                 .DefaultIfEmpty(null)
                 .Min();

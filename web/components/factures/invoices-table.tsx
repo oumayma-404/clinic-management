@@ -25,7 +25,7 @@ import { toast } from "sonner"
 import { invoicesApi } from "@/lib/api/invoices"
 import { ApiError } from "@/lib/api/client"
 import type { InvoiceDto } from "@/lib/api/types"
-import { formatDT, formatDateFr } from "@/lib/format"
+import { formatDT, formatDateFr, todayLocalIso } from "@/lib/format"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { useConnectivity } from "@/lib/connectivity/connectivity"
@@ -135,7 +135,7 @@ export function InvoicesTable({
     // Today, in the browser's own calendar. The API rejects an absent or future date, and the previous
     // dialog sent neither date nor method — so every avoir was stamped "now" with no recorded means of
     // refund, and its PDF had nothing to print.
-    setAvoirRefundedOn(new Date().toISOString().slice(0, 10))
+    setAvoirRefundedOn(todayLocalIso())
   }
 
   const confirmAvoir = async () => {

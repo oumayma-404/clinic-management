@@ -22,8 +22,8 @@ public class NotificationGenerator : INotificationGenerator
     private static readonly TimeSpan ReminderLeadTime = TimeSpan.FromHours(24);
 
     // The app is Tunisia-targeted; appointment date/times are stored UTC but read best in local time.
+    // The conversion itself lives in ClinicClock (AC-P6.1) — this class used to carry its own private copy.
     private static readonly CultureInfo FrCulture = CultureInfo.GetCultureInfo("fr-FR");
-    private static readonly TimeZoneInfo TunisiaTimeZone = ResolveTunisiaTimeZone();
 
     private readonly IStaffNotificationRepository _notifications;
     private readonly IDoctorRepository _doctors;
@@ -400,36 +400,10 @@ public class NotificationGenerator : INotificationGenerator
 
     // An expiry is a calendar date, not a moment — no time-of-day, but still read in clinic-local time so a
     // batch expiring just after midnight UTC is not shown as the previous day.
-    private static string FormatFrDate(DateTime utc)
-    {
-        var local = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), TunisiaTimeZone);
-        return local.ToString("dd/MM/yyyy", FrCulture);
-    }
+    private static string FormatFrDate(DateTime utc) =>
+        ClinicClock.ToClinicLocal(utc).ToString("dd/MM/yyyy", FrCulture);
 
-    private static string FormatFr(DateTime utc)
-    {
-        var local = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), TunisiaTimeZone);
-        return local.ToString("dd/MM/yyyy 'à' HH:mm", FrCulture);
-    }
+    private static string FormatFr(DateTime utc) =>
+        ClinicClock.ToClinicLocal(utc).ToString("dd/MM/yyyy 'à' HH:mm", FrCulture);
 
-    private static TimeZoneInfo ResolveTunisiaTimeZone()
-    {
-        // IANA id works cross-platform on .NET 8 (ICU); the Windows id is the fallback. If neither
-        // resolves, use a fixed UTC+1 (Tunisia has no DST) so formatting still works.
-        foreach (var id in new[] { "Africa/Tunis", "W. Central Africa Standard Time" })
-        {
-            try
-            {
-                return TimeZoneInfo.FindSystemTimeZoneById(id);
-            }
-            catch (TimeZoneNotFoundException)
-            {
-            }
-            catch (InvalidTimeZoneException)
-            {
-            }
-        }
-
-        return TimeZoneInfo.CreateCustomTimeZone("Tunisia", TimeSpan.FromHours(1), "Tunisia", "Tunisia");
-    }
 }

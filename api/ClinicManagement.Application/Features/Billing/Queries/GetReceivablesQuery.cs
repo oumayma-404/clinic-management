@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
@@ -49,6 +50,9 @@ public class GetReceivablesQueryHandler : IRequestHandler<GetReceivablesQuery, R
             var clinicId = clinicResult.Value;
 
             var now = DateTime.UtcNow;
+            // The clinic's calendar day for the « depuis N jours » arithmetic below (AC-P6.4). `now` stays UTC —
+            // the repository call takes an instant, not a date.
+            var clinicToday = ClinicClock.ClinicToday(now);
             var invoiceByPatient = await _invoiceRepository.GetOutstandingByPatientAsync(clinicId, cancellationToken);
 
             // A plan bridged into a real invoice is already counted on the invoice track above; counting its
@@ -76,23 +80,29 @@ public class GetReceivablesQueryHandler : IRequestHandler<GetReceivablesQuery, R
                 }
             }
 
+            // Round and drop the settled rows FIRST, then resolve names in one round trip (AC-P6.21). This loop
+            // used to call `GetByIdAsync` per patient — one query, plus its flags and both history collections,
+            // for every patient with a balance, on the screen the clinic opens to chase money.
+            var owing = totals
+                .Select(kv => (PatientId: kv.Key, Outstanding: InvoiceCalculator.RoundMoney(kv.Value)))
+                .Where(t => t.Outstanding > 0m)
+                .ToList();
+
+            var patients = await _patientRepository.GetByIdsAsync(
+                clinicId, owing.Select(t => t.PatientId).ToList(), cancellationToken);
+
             var receivables = new List<ReceivableDto>();
-            foreach (var (patientId, total) in totals)
+            foreach (var (patientId, outstanding) in owing)
             {
-                var outstanding = InvoiceCalculator.RoundMoney(total);
-                if (outstanding <= 0m)
+                // Absent = outside the clinic or deleted; the repository already applied the clinic filter, so
+                // this keeps the same defensive skip without a per-row ClinicId comparison.
+                if (!patients.TryGetValue(patientId, out var patient))
                 {
                     continue;
                 }
 
-                var patient = await _patientRepository.GetByIdAsync(patientId, cancellationToken);
-                if (patient == null || patient.ClinicId != clinicId)
-                {
-                    continue; // defensive: skip anything outside the clinic
-                }
-
                 var overdue = oldestOverdue.GetValueOrDefault(patientId);
-                int? daysOverdue = overdue is not null ? Math.Max(0, (now.Date - overdue.Value.Date).Days) : null;
+                int? daysOverdue = overdue is not null ? Math.Max(0, (clinicToday - overdue.Value.Date).Days) : null;
 
                 receivables.Add(new ReceivableDto
                 {

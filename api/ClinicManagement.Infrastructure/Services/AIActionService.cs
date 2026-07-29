@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Features.AI.Commands;
 using ClinicManagement.Application.Features.Appointments.Commands;
@@ -382,7 +383,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
             }
             else
             {
-                appointmentDate = DateTime.Today.AddDays(1); // Default to tomorrow
+                appointmentDate = ClinicClock.ClinicToday().AddDays(1); // Default to tomorrow (clinic-local)
             }
 
             // Parse time
@@ -400,17 +401,17 @@ If the user is just asking a question or chatting, set should_execute_action to 
                 }
             }
 
-            // Create DateTime in local time (user's timezone)
-            // This ensures "10am" means 10am in the user's local time, not UTC
-            var appointmentDateTime = new DateTime(
+            // « 10h » means 10:00 on the CLINIC's wall clock, converted to the UTC instant the appointment is
+            // stored as (AC-P6.6). This used to be built as `DateTimeKind.Local` — the *server machine's* zone —
+            // so the same sentence produced a different appointment depending on the clinic PC's OS setting, and
+            // an hour's drift on any host left at UTC.
+            var appointmentDateTime = ClinicClock.ToUtc(new DateTime(
                 appointmentDate.Year,
                 appointmentDate.Month,
                 appointmentDate.Day,
                 hour,
                 minute,
-                0,
-                DateTimeKind.Local
-            );
+                0));
 
             // Find procedure type if specified
             Guid? procedureTypeId = null;
@@ -480,9 +481,16 @@ If the user is just asking a question or chatting, set should_execute_action to 
         }
     }
 
+    /// <summary>
+    /// Resolves « aujourd'hui » / « demain » / a day name against the <b>clinic's</b> calendar day (AC-P6.6).
+    /// Every anchor here used to be <c>DateTime.Today</c> — the server machine's local day, a third time
+    /// convention alongside UTC and clinic-local, so « demain » silently depended on the clinic PC's OS setting
+    /// and on a UTC container resolved to the wrong day for the first hour of every Tunisian day.
+    /// </summary>
     private bool TryParseDate(string dateStr, out DateTime date)
     {
-        date = DateTime.Today;
+        var clinicToday = ClinicClock.ClinicToday();
+        date = clinicToday;
 
         // Try common date formats
         if (DateTime.TryParse(dateStr, out date))
@@ -494,12 +502,12 @@ If the user is just asking a question or chatting, set should_execute_action to 
         var lower = dateStr.ToLower();
         if (lower == "today")
         {
-            date = DateTime.Today;
+            date = clinicToday;
             return true;
         }
         if (lower == "tomorrow")
         {
-            date = DateTime.Today.AddDays(1);
+            date = clinicToday.AddDays(1);
             return true;
         }
 
@@ -518,10 +526,9 @@ If the user is just asking a question or chatting, set should_execute_action to 
 
         if (dayOfWeek.HasValue)
         {
-            var today = DateTime.Today;
-            var daysUntil = ((int)dayOfWeek.Value - (int)today.DayOfWeek + 7) % 7;
+            var daysUntil = ((int)dayOfWeek.Value - (int)clinicToday.DayOfWeek + 7) % 7;
             if (daysUntil == 0) daysUntil = 7; // Next week if today is that day
-            date = today.AddDays(daysUntil);
+            date = clinicToday.AddDays(daysUntil);
             return true;
         }
 

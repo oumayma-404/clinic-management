@@ -103,12 +103,13 @@ public sealed record DashboardPeriod(
             LastTickOfLocalDay(previousToDay));
 
     /// <summary>
-    /// The last representable instant inside a clinic-local day, as UTC. <c>EndOfLocalDayUtc</c> is the *next*
-    /// midnight; the money reads are inclusive on both ends, so the tick is subtracted here once rather than at
-    /// each of the twenty-odd call sites.
+    /// The last representable instant inside a clinic-local day, as UTC. Delegates to
+    /// <see cref="ClinicClock.LastTickOfLocalDayUtc"/>: P6 needed the same rule for the caisse's « aujourd'hui »
+    /// default, and a second copy of the tick subtraction is exactly the kind of duplicate this part exists to
+    /// remove (AC-P6.1–6.2).
     /// </summary>
     private static DateTime LastTickOfLocalDay(DateTime clinicLocalDate) =>
-        ClinicClock.EndOfLocalDayUtc(clinicLocalDate).AddTicks(-1);
+        ClinicClock.LastTickOfLocalDayUtc(clinicLocalDate);
 
     /// <summary>
     /// The window covering the trend sparkline: the first day of the month <see cref="TrendMonths"/>−1 months back,

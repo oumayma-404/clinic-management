@@ -175,6 +175,63 @@ public class InvoiceRepository : IInvoiceRepository
             .ToList();
     }
 
+    public async Task<IReadOnlyList<(Guid AppointmentId, Guid InvoiceId, string? Number, InvoiceStatus Status)>>
+        GetAppointmentLinksAsync(
+            Guid clinicId,
+            IReadOnlyCollection<Guid> appointmentIds,
+            CancellationToken cancellationToken = default)
+    {
+        if (appointmentIds.Count == 0)
+        {
+            return Array.Empty<(Guid, Guid, string?, InvoiceStatus)>();
+        }
+
+        // Same light projection as the plan/fiche links, bounded by the caller's id set (see the interface).
+        var ids = appointmentIds.Distinct().ToArray();
+
+        var rows = await _context.Invoices
+            .Where(i => i.ClinicId == clinicId && i.AppointmentId != null && ids.Contains(i.AppointmentId.Value))
+            .Select(i => new { AppointmentId = i.AppointmentId!.Value, InvoiceId = i.Id, i.Number, i.Status })
+            .ToListAsync(cancellationToken);
+
+        return rows
+            .Select(r => (r.AppointmentId, r.InvoiceId, r.Number, r.Status))
+            .ToList();
+    }
+
+    public async Task<IReadOnlyList<CaissePaymentRow>> GetPaymentsBetweenAsync(
+        Guid clinicId, DateTime from, DateTime toInclusive, CancellationToken cancellationToken = default)
+    {
+        // Predicate-for-predicate the same as GetCollectedBetweenAsync — same clinic scope, same
+        // `Status != Cancelled` exclusion, same inclusive bounds — because the statement this feeds must sum to
+        // the figure that method returns. The ONE difference is deliberate and documented on the interface:
+        // voided rows are NOT filtered here. The sum drops them; the statement shows them struck through.
+        var rows = await _context.Invoices
+            .Where(i => i.ClinicId == clinicId && i.Status != InvoiceStatus.Cancelled)
+            .SelectMany(i => i.Payments
+                .Where(p => p.PaidOn >= from && p.PaidOn <= toInclusive)
+                .Select(p => new
+                {
+                    PaymentId = p.Id,
+                    InvoiceId = i.Id,
+                    InvoiceNumber = i.Number,
+                    i.PatientId,
+                    p.Amount,
+                    p.Method,
+                    p.PaidOn,
+                    p.IsVoided,
+                    p.VoidReason,
+                    p.VoidedByName
+                }))
+            .ToListAsync(cancellationToken);
+
+        return rows
+            .Select(r => new CaissePaymentRow(
+                r.PaymentId, r.InvoiceId, r.InvoiceNumber, r.PatientId,
+                r.Amount, r.Method, r.PaidOn, r.IsVoided, r.VoidReason, r.VoidedByName))
+            .ToList();
+    }
+
     public async Task<Invoice?> GetByPaymentIdAsync(Guid paymentId, CancellationToken cancellationToken = default)
     {
         return await _context.Invoices

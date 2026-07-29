@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using MediatR;
 using Microsoft.Extensions.Logging;
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
@@ -196,7 +197,9 @@ public class GetPatientAiSummaryQueryHandler : IRequestHandler<GetPatientAiSumma
             return null;
         }
 
-        var today = DateTime.UtcNow.Date;
+        // The clinic's calendar day (AC-P6.4). On a birthday, `DateTime.UtcNow.Date` reports the patient a year
+        // younger for the first hour of the day in Tunis — and the age is what the CNAM 70 %/60 % rate turns on.
+        var today = ClinicClock.ClinicToday();
         var age = today.Year - dateOfBirth.Year;
         if (dateOfBirth.Date > today.AddYears(-age))
         {

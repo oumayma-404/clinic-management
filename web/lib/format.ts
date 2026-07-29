@@ -46,6 +46,25 @@ export function formatFileSize(bytes: number | null | undefined): string {
 }
 
 /**
+ * Today's calendar date as `YYYY-MM-DD`, read from the **viewer's own clock** — the single authority for
+ * pre-filling a date input (AC-P6.5).
+ *
+ * Never use `new Date().toISOString().slice(0, 10)` for this. `toISOString` converts to **UTC** first, so
+ * between 00:00 and 01:00 in Tunis (UTC+1) it returns *yesterday* — which is how a payment taken at 00:30 was
+ * booked to the previous day, and the previous month on the 1st. The defect was un-overridable in the sense that
+ * matters: the value lands in the form as a plausible date nobody re-reads.
+ *
+ * `getFullYear`/`getMonth`/`getDate` are the local-calendar accessors, so the string is the day the user is
+ * actually having. The server-side counterpart is `ClinicClock.ClinicToday`.
+ */
+export function todayLocalIso(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(
+    now.getDate(),
+  ).padStart(2, "0")}`;
+}
+
+/**
  * True when an ISO date falls strictly before today — i.e. its calendar day has passed.
  *
  * Deliberately a CALENDAR-DAY comparison, not an instant one. Due dates are stored at midnight, so comparing
@@ -57,11 +76,7 @@ export function formatFileSize(bytes: number | null | undefined): string {
  */
 export function isBeforeToday(iso?: string | null): boolean {
   if (!iso) return false;
-  const now = new Date();
-  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(
-    now.getDate(),
-  ).padStart(2, "0")}`;
-  return iso.slice(0, 10) < today;
+  return iso.slice(0, 10) < todayLocalIso();
 }
 
 /** Format an ISO date string as a French short date (e.g. "17 juil. 2026"). Returns "—" when unparseable. */

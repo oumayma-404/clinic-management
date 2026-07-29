@@ -13,7 +13,7 @@ import { toast } from "sonner"
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
 import { ApiError } from "@/lib/api/client"
 import type { InstallmentDto } from "@/lib/api/types"
-import { formatDT, formatDateFr } from "@/lib/format"
+import { formatDT, formatDateFr, todayLocalIso } from "@/lib/format"
 import { downloadBlob } from "@/lib/download"
 import { PAYMENT_METHODS, paymentMethodLabel } from "@/components/factures/invoice-labels"
 
@@ -55,7 +55,7 @@ export function InstallmentPaymentModal({ open, onOpenChange, planId, installmen
     if (!open || !installment) return
     setAmount(installment.outstanding > 0 ? String(installment.outstanding) : "")
     setMethod("Cash")
-    setPaidOn(new Date().toISOString().slice(0, 10))
+    setPaidOn(todayLocalIso())
     setError(null)
   }, [open, installment])
 

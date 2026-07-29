@@ -17,13 +17,17 @@
 | **P3** UX, accessibility & French | 3.3, 6.3, 7.1–7.9, 8.2, 8.6 | — | **complete** — all 13 steps, AC-P3.1–3.54. The manual walk (AC-P3.48) was done **statically**, not in a browser — stated plainly below |
 | **P4** Stock, realtime & schema | 6.6, 6.7, 6.12, 9.1-9.6 | - | **complete** — all 11 steps, AC-P4.1–4.43. Landed in two halves: the schema half (steps 1, 3, 4, 7, 8, 9, 10 + step 2's backend, the one migration) after its gate `verify-schema` (`edecd23`), then the code-only half (step 2's restock dialog, the approaching-expiry notification, step 4's material-list editor, steps **5-6** realtime, step **11** recall bounds). `verify-schema` **exit 0** across both |
 | **P5** Build & tooling | 10.1–10.5 | warnings step **last in story** | not-started |
-| **P6** Money truth & timezone | 4.1, 4.2, 5.10, 6.2, 6.8, 8.5, 9.7 | — | not-started |
+| **P6** Money truth & timezone | 4.1, 4.2, 5.10, 6.2, 6.8, 8.5, 9.7 | — | **complete** — all 9 steps, AC-P6.1–6.23. No migration and no model change, so the schema gate was re-run only to prove it had not moved: `verify-schema` **exit 0** (« schema matches the model »). Suite **1402 / 0 failed** (+25) |
 | **P7** Audit trail, duplicate prevention, anonymize | 6.4 | P7a first | not-started |
 | **P8** CNAM claims & reconciliation | 6.5 | **Q-1…Q-6 unanswered** | blocked |
 
-**Bullets closed: 43 / 57 · ACs: ~224 / 301** — all of P1 (§§ 3.1, 3.2, 3.4, 5.4, 6.1, 6.9, 8.1, 8.4), all of P2
-(§§ 5.1–5.3, 5.5–5.9, 5.11, 5.12, 6.10, 6.11, 8.3), all of P3 (§§ 3.3, 6.3, 7.1–7.9, 8.2, 8.6) and all of P4
-(§§ 6.6, 6.7, 6.12, 9.1–9.6), plus adjacent defects **A-1 … A-19**.
+**Bullets closed: 50 / 57 · ACs: ~247 / 301** — all of P1 (§§ 3.1, 3.2, 3.4, 5.4, 6.1, 6.9, 8.1, 8.4), all of P2
+(§§ 5.1–5.3, 5.5–5.9, 5.11, 5.12, 6.10, 6.11, 8.3), all of P3 (§§ 3.3, 6.3, 7.1–7.9, 8.2, 8.6), all of P4
+(§§ 6.6, 6.7, 6.12, 9.1–9.6) and all of P6 (§§ 4.1, 4.2, 5.10, 6.2, 6.8, 8.5, 9.7), plus adjacent defects
+**A-1 … A-23**.
+
+**Remaining: P5** (§§ 10.1–10.5 + A-24…A-26, build & tooling), **P7** (§ 6.4, audit trail) and **P8** (§ 6.5, CNAM
+claims — still blocked on Q-1…Q-6). P6 closed the last 🔴 in the audit (§ 4.2).
 
 ## Working tree note (start of session, 2026-07-28)
 
@@ -201,6 +205,12 @@ service takes a list of act ids and would need only a second resolution branch.
 | `document-editor-content.tsx`'s `colorHex: "#3b82f6"` changed to a palette colour | Trivial (one literal, no API change) | Found while wiring AC-P2.36. `#3b82f6` is **not** on the `ColorHex` curated palette, so that create-procedure call threw `ArgumentException` every time it ran. Exactly the drift A-14 is about; leaving it would have been shipping a known crash next to its own fix. |
 | `CUSTOM_PROCEDURE_COLORS` (`create-appointment-dialog.tsx`) left hardcoded | Trivial (comment only) | AC-P2.37 names *the* hardcoded array — the picker in `procedure-type-form-modal.tsx`, now server-fed. This second copy is a rotation **seed** for an on-the-fly procedure, all of whose values are on the palette, and fetching it would add a round-trip to the booking dialog for a colour the dentist never sees. Comment now points at the authority. |
 | `mode` destructure removed from `dashboard-sidebar.tsx` | Trivial (internal, same file) | Step 8 deleted its only use; leaving the binding reads as a mode gate that no longer exists. |
+| **P6** — `CreateCreditNoteCommand`'s year also taken from `ClinicClock` | Trivial (same construct, same file family) | § 4.2 names the invoice and devis sequences. The **avoir** sequence is byte-identical `DateTime.UtcNow.Year` and was added by § 1 *after* the audit was written. Fixing two of three would have left the credit note as the one numbered document that still rolls into the closed year. |
+| **P6** — `todayLocalIso()` applied to five date prefills, not only `payment-modal.tsx` | Trivial (one shared helper, five call sites) | AC-P6.5 names the payment modal. The avoir refund date (`invoices-table.tsx`), the installment payment date and the two échéancier due-date seeds carried the **identical** `new Date().toISOString().slice(0, 10)`. Three of the five are money dates; fixing one and leaving the others is the drift § 4.1 already is. `isBeforeToday` was refactored onto the same helper — it had the local-day logic inline and correct, so there were two right answers and three wrong ones in one file's worth of code. |
+| **P6** — `CreateInvoiceCommand` now **validates** `AppointmentId` (clinic + patient) | Trivial (closes a hole this AC opens) | AC-P6.12 only says the form sends the id. But nothing had ever written that column, so nothing had ever checked it: the first request to populate it could have pinned another clinic's visit — or another patient's — onto an invoice. Shipping the write without the check would have been introducing the defect, not closing one. |
+| **P6** — a batch endpoint (`POST /cnam-nomenclature/reimbursement-estimates`) rather than N calls to the single-act GET | Trivial (additive read, shares the existing calculator) | AC-P6.15 says "call the endpoint instead of reimplementing the calculator". The editor shows an estimate **per act row, live per keystroke**, so the single-act endpoint would be N requests per keystroke — not a usable substitute, and the pressure that would put the client-side copy back. One call per bulletin, one VLC read per call. |
+| **P6** — one named exemption added to `AdminSurfaceCoverageTests` | Trivial (the test's own message invites it) | The batch estimate is a `POST` on a catalog controller, so the "every mutating catalog action is admin-gated" rule flags it. It writes nothing, and gating it `AdminOnly` would put the estimate out of reach of the secretary who fills the bulletin in. Recorded as a per-action entry keyed on declaring type + name — **not** a predicate — plus a second test asserting every exemption still names a real action, so a rename cannot leave a pre-approved hole behind. |
+| **P6** — `AIActionService` builds the appointment instant through `ClinicClock.ToUtc` | Trivial (removes a dependency, adds none) | AC-P6.6 says the 5 × `DateTime.Today` use the clinic timezone. Fixing only the *date* would have left the neighbouring `new DateTime(..., DateTimeKind.Local)` converting « 10h » through the **server machine's** zone — so the same sentence still produced a different appointment per host, which is the defect A-22 describes one line further down. |
 
 ## Test Regressions
 
@@ -344,7 +354,70 @@ parallel map on the server, check whether the value it renders is a snapshot of 
 is, one map at the client's derivation point is the whole fix — and make the map idempotent (pass unknown values
 through) so re-saving historical rows is safe.
 
+### A helper that "replaces" duplicates only replaces them if you delete them — check the call sites, not the docstring
+`ClinicClock` was built in P1 and its own XML comment said it "replaces the **two byte-identical private copies**
+of `ResolveTunisiaTimeZone()` (adjacent defect A-21)". It did not. Both copies were still there, still used, in
+`NotificationGenerator` and `ReminderScheduler` — so A-21 read as closed in three places (the class comment, the
+Application `CLAUDE.md`, the P1 log) while the codebase had **three** implementations instead of two. It took one
+grep to find, and only because P6 listed AC-P6.1 as a step rather than trusting the note.
+**Recommendation:** when a change is « extract a shared helper and retire the copies », the evidence is a grep for
+the retired symbol returning **zero** hits outside the new home — not the new file existing. Write the grep result
+into the log. And treat "X replaces Y" in a docstring as a claim about intent, never about the current state: the
+same sentence is true the moment the helper is written and false until the last caller moves.
+
+### Two ACs over one line can hide a third defect between them
+AC-P6.6 says the 5 × `DateTime.Today` in `AIActionService` should use the clinic timezone. Doing exactly that
+leaves the very next statement building the appointment as `new DateTime(..., DateTimeKind.Local)` — the *server
+machine's* zone — so « 10h demain » would have had a correct clinic-local **date** and a server-local **time**,
+which is worse than uniformly wrong: it is right on the developer's machine and an hour out on a UTC host, and the
+date fix makes it look handled. The AC and the adjacent defect A-22 describe the same sentence from two ends.
+**Recommendation:** for a timezone fix, follow the value to the point it is **persisted**, not to the end of the
+AC. A conversion is only correct if every hop from wall clock to stored instant uses one zone; a half-converted
+value is the hardest kind to spot afterwards because both halves individually look deliberate.
+
+### A guard test that invites an exemption is telling you where to write the reasoning down — take the invitation literally
+`AdminSurfaceCoverageTests` fails any mutating action on a catalog controller that is not `AdminOnly`, and its
+message ends « — or a deliberate decision recorded here about why it does not ». The batch estimate is a `POST`
+that writes nothing, so it tripped the rule. The lazy fixes were both available and both bad: a predicate
+("exempt POSTs whose name starts with `Get`") would pre-approve the next real write somebody names badly, and
+moving the endpoint to another controller would have split one calculator's two entry points across two files to
+satisfy a test. The narrow fix is a per-action list keyed on declaring type **plus** name — and it needs a
+**second** test asserting every entry still names a real action, or a rename leaves a dead exemption that becomes
+a hole the moment the name is reused.
+**Recommendation:** when you must weaken a guard, make the exemption as narrow as the thing you are exempting
+(one action, not a shape), put the reason at the exemption rather than in a commit message, and add the test that
+fails when the exemption outlives its subject. This is the same shape as the P4 « an exclusion that silences a
+true positive is worse than the false one it removed » learning, applied to a coverage rule instead of a schema
+check.
+
 ## Session log
+
+### 2026-07-29 — **P6 COMPLETE**: money truth & timezone (no migration, no model change)
+
+All nine plan steps, AC-P6.1–6.23, §§ 4.1, 4.2, 5.10, 6.2, 6.8, 8.5, 9.7 + A-20…A-23. **§ 4.2 was the audit's only
+🔴 and is now closed.** No schema touched, so the gate was re-run purely to prove it had not moved —
+`verify-schema` **exit 0**, « schema matches the model ». Suite **1402 passed / 0 failed** (+25).
+
+| # | Step | ACs | What landed |
+|---|---|---|---|
+| 1 | One clinic-timezone helper | AC-P6.1–6.2 | `ClinicClock` already existed (P1 built it) but **had not actually replaced the two private copies** — `NotificationGenerator` and `ReminderScheduler` still carried byte-identical `ResolveTunisiaTimeZone()`. Both retired. `ClinicClock` gained `LastTickOfLocalDayUtc` / `LocalDayRangeUtc` / `TodayRangeUtc`, and `DashboardPeriod` now **delegates** its private tick subtraction to the first of those rather than keeping a second copy |
+| 2 | Local-day defaults | AC-P6.3–6.4, 6.6 | `GetCaisseSummaryQuery` defaults to the clinic day (inclusive both ends, so finding #20 stays closed); the four un-overridable reads — `GetPatientBillingSummaryQuery`, `GetReceivablesQuery`, `GetPatientsToRecallQuery`, `GetPatientAiSummaryQuery` — now compare calendar days in the clinic's zone; the 5 × `DateTime.Today` in `AIActionService` plus its `DateTimeKind.Local` instant go through `ClinicClock` |
+| 3 | Local-date prefills | AC-P6.5 | `todayLocalIso()` in `lib/format.ts`, applied to the payment modal, the avoir refund date, the installment payment date and the two échéancier seeds; `isBeforeToday` refactored onto it |
+| 4 | Numbering from the clinic year | AC-P6.7–6.10 | `IssueInvoiceCommand`, `AcceptTreatmentPlanCommand` **and** `CreateCreditNoteCommand` take the year from `ClinicClock.ClinicYear()`. `IssueInvoiceCommandHandlerTests` no longer recomputes `DateTime.UtcNow.Year` — it captures the year the handler asked the repository for; the wrong-year rule is pinned at **fixed instants** by the new `ClinicClockTests` |
+| 5 | § 6.2 regression pin | AC-P6.11 | Arrived closed by § 1. `MoneyReadConsistencyTests` already covered an avoir inside a window with receipts; added the loud case — a window whose **only** movement is a refund, where netting it takes cash-in negative and a read that dropped the term would report `0` |
+| 6 | invoice↔appointment link | AC-P6.12–6.14 | `IInvoiceRepository.GetAppointmentLinksAsync` (bounded by the caller's id set, unlike its two clinic-wide siblings) + `AppointmentInvoiceLinks` (one shared rule: cancelled does not bill, issued beats a stray draft) → `AppointmentDto.InvoiceId`/`InvoiceNumber` on both appointment reads. `CreateInvoiceCommand` validates the id against clinic **and** patient. UI: « Facturation » block in `edit-appointment-dialog.tsx` (badge or « Facturer cette consultation »), « Consultation facturée » line in `invoice-detail-modal.tsx` |
+| 7 | One CNAM calculator | AC-P6.15–6.17 | `GetReimbursementEstimatesQuery` + `POST /api/cnam-nomenclature/reimbursement-estimates` (batch, one VLC read); the client-side `CHILD_RATE`/`ADULT_RATE` + `estimateReimbursement` **deleted**; the editor debounces one call per bulletin and shows « Estimation indisponible » on failure. The VLC fetch went with it — its only consumer was the deleted calculator |
+| 8 | Currency | AC-P6.18–6.20 | `lab-orders/page.tsx`'s `formatCost` routed through `formatDT`. AC-P6.19 (`DollarSign`) and AC-P6.20 (`fr-TN` on dashboard counters) arrived **already closed** by `dashboard-insights`; AC-P6.18's other half (`procedure-types-table.tsx`) was taken in P3 as a recorded deviation |
+| 9 | The two query fixes | AC-P6.21–6.23 | `IPatientRepository.GetByIdsAsync` (clinic-filtered batch, no `Include`s) replaces the per-row `GetByIdAsync` in « Créances »; `CreateInvoiceFromTreatmentPlanCommand`'s already-billed guard reads `GetTreatmentPlanLinksAsync` instead of every invoice of the patient with its lines and payments. **`MoneyReadConsistencyTests.Wire()` was mirrored in the same change** (R-10) — its 8 failures were the first thing the suite reported |
+
+**New tests (25):** `ClinicClockTests` (7 — all fixed-instant), `InvoiceAppointmentLinkTests` (8),
+`ReimbursementEstimatesQueryTests` (7), plus 2 in `MoneyReadConsistencyTests` and 1 extra guard in
+`AdminSurfaceCoverageTests`. Three existing fixtures were updated, all of them drifting behind a shipped change
+rather than defects: `MoneyReadConsistencyTests.Wire()` (the new batch read), `AppointmentSyncMappingTests` (both
+appointment handlers gained `IInvoiceRepository`), `IssueInvoiceCommandHandlerTests` (AC-P6.9 itself).
+
+**Gates:** `dotnet vstest` 1402/0 · `tsc --noEmit` clean · `npm run build` 27/27 · `verify-schema` exit 0
+(re-run, unchanged — P6 adds no migration).
 
 ### 2026-07-28 — **P4 COMPLETE**: part 2 of 2 — the six code-only items (no schema touched)
 

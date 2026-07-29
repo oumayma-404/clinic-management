@@ -218,6 +218,52 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
             .SumAsync(p => (decimal?)p.Amount, cancellationToken) ?? 0m;
     }
 
+    public async Task<IReadOnlyList<CaisseInstallmentPaymentRow>> GetInstallmentPaymentsBetweenAsync(
+        Guid clinicId,
+        DateTime from,
+        DateTime toInclusive,
+        IReadOnlyCollection<Guid> excludedPlanIds,
+        CancellationToken cancellationToken = default)
+    {
+        // Predicate-for-predicate the same as GetInstallmentCollectedBetweenAsync, for the same reason its
+        // invoice-side twin mirrors GetCollectedBetweenAsync: the statement must sum to the figure that method
+        // returns. Committed plans only, bridged plans excluded (their collections live on the invoice track),
+        // same inclusive bounds. The one deliberate difference: voided rows are returned, not filtered.
+        //
+        // Rooted at the clinic-filtered TreatmentPlans set and reached by SelectMany — that traversal IS the
+        // tenant scoping for a great-grandchild with no ClinicId and no DbSet of its own.
+        var debtStatuses = PlanBillingRules.DebtBearingPlanStatuses;
+        var excluded = excludedPlanIds as ICollection<Guid> ?? excludedPlanIds.ToList();
+
+        var rows = await _context.TreatmentPlans
+            .Where(p => p.ClinicId == clinicId
+                        && debtStatuses.Contains(p.Status)
+                        && !excluded.Contains(p.Id))
+            .SelectMany(plan => plan.Installments
+                .SelectMany(i => i.Payments
+                    .Where(pay => pay.PaidOn >= from && pay.PaidOn <= toInclusive)
+                    .Select(pay => new
+                    {
+                        PaymentId = pay.Id,
+                        TreatmentPlanId = plan.Id,
+                        PlanNumber = plan.Number,
+                        plan.PatientId,
+                        pay.Amount,
+                        pay.Method,
+                        pay.PaidOn,
+                        pay.IsVoided,
+                        pay.VoidReason,
+                        pay.VoidedByName
+                    })))
+            .ToListAsync(cancellationToken);
+
+        return rows
+            .Select(r => new CaisseInstallmentPaymentRow(
+                r.PaymentId, r.TreatmentPlanId, r.PlanNumber, r.PatientId,
+                r.Amount, r.Method, r.PaidOn, r.IsVoided, r.VoidReason, r.VoidedByName))
+            .ToList();
+    }
+
     public async Task<IReadOnlyList<(Guid PatientId, decimal Outstanding, DateTime? OldestOverdueDueDate)>> GetInstallmentOutstandingByPatientAsync(
         Guid clinicId, DateTime asOfUtc, IReadOnlyCollection<Guid> excludedPlanIds, CancellationToken cancellationToken = default)
     {

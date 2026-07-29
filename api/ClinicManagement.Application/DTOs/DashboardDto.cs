@@ -62,16 +62,23 @@ public class DashboardActivityDto
 /// </summary>
 public class DashboardMoneyDto
 {
-    /// <summary>Invoice payments + treatment-plan installments − avoirs refunded.</summary>
+    /// <summary>
+    /// <b>Gross</b> encaissements: invoice payments + treatment-plan installment collections. Refunds are
+    /// <see cref="Refunds"/>, not a subtraction hidden in here — see <c>CaisseSummaryDto</c> for why the split
+    /// arrived with the caisse statement.
+    /// </summary>
     public PeriodComparison Collected { get; set; } = PeriodComparison.Of(0m, 0m);
 
     /// <summary>Issued (numbered, non-cancelled) invoice totals TTC.</summary>
     public PeriodComparison Invoiced { get; set; } = PeriodComparison.Of(0m, 0m);
 
+    /// <summary>Avoirs refunded to patients in the window — money out, kept distinct from expenses.</summary>
+    public PeriodComparison Refunds { get; set; } = PeriodComparison.Of(0m, 0m);
+
     /// <summary>Recorded clinic expenses (caisse cash-out).</summary>
     public PeriodComparison Expenses { get; set; } = PeriodComparison.Of(0m, 0m);
 
-    /// <summary><see cref="Collected"/> − <see cref="Expenses"/>. Can legitimately be negative.</summary>
+    /// <summary><c>Collected − Refunds − Expenses</c>. Can legitimately be negative.</summary>
     public PeriodComparison Net { get; set; } = PeriodComparison.Of(0m, 0m);
 }
 

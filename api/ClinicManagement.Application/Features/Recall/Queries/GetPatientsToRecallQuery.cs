@@ -1,4 +1,5 @@
 using MediatR;
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
@@ -154,8 +155,14 @@ public class GetPatientsToRecallQueryHandler : IRequestHandler<GetPatientsToReca
         }
     }
 
+    /// <summary>
+    /// How many days an échéance has been late, counted in <b>calendar days of the clinic's own day</b>
+    /// (AC-P6.4). `nowUtc.Date` was the UTC day, so between 00:00 and 01:00 Tunis every « en retard depuis N
+    /// jours » on this list was a day short — and this read takes no date arguments, so no caller could correct
+    /// it.
+    /// </summary>
     private static int DaysOverdue(DateTime dueSince, DateTime nowUtc) =>
-        Math.Max(0, (nowUtc.Date - dueSince.Date).Days);
+        Math.Max(0, (ClinicClock.ClinicToday(nowUtc) - dueSince.Date).Days);
 
     private static int ReasonRank(string kind) =>
         Enum.TryParse<RecallReasonKind>(kind, out var parsed) ? (int)parsed : int.MaxValue;

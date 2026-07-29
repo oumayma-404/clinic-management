@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Exceptions;
 using MediatR;
 using ClinicManagement.Application.Common.Models;
@@ -42,7 +43,8 @@ public class GetReimbursementEstimateQueryHandler
                 return Result<ReimbursementEstimateDto>.Failure("La lettre clé est obligatoire.");
             }
 
-            var careDate = request.CareDate ?? DateTime.UtcNow;
+            // The clinic's day, not the UTC one (AC-P6.4) — the rate turns on the patient's age at the care date.
+            var careDate = request.CareDate ?? ClinicClock.ClinicToday();
             var vlcRow = await _repository.GetLetterValueByCleAsync(request.LettreCle, cancellationToken);
             decimal? vlc = vlcRow?.Value;
 
