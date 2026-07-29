@@ -1,7 +1,7 @@
 "use client"
 
-import { useMemo } from "react"
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
+import { useMemo, useState } from "react"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { conditionStyle } from "@/components/odontogram-conditions"
 import { cn } from "@/lib/utils"
 import { formatDateFr } from "@/lib/format"
@@ -29,6 +29,13 @@ import type { DentalRecordDto, ProcedureTypeDto, ToothStateDto } from "@/lib/api
  *   palette appeared under this chart where it means nothing. The legend below lists <b>only the acts actually
  *   on this chart</b>.</li>
  * </ol>
+ *
+ * <h4>Why a Popover and not a Tooltip</h4>
+ * <p>A tooltip opens on hover and focus, which on a tablet means the act names are simply unreachable — and this
+ * is the only place they appear, so on touch the view would show coloured teeth with no way to learn what was
+ * done. The popover opens on <b>tap</b> natively and is also opened on <b>hover</b> for mouse users, so the
+ * desktop reading stays hover-only and the same markup works under a finger. Radix keeps outside-click and
+ * Escape dismissal, which a tooltip does not offer at all.</p>
  *
  * <p>The act name is the one thing a tooth state does not carry: it holds the resulting condition, while the act
  * lives on <c>DentalRecordAct</c>. Reached through the state's <c>dentalRecordId</c> and joined here — both
@@ -58,6 +65,14 @@ interface OdontogramActsChartProps {
 }
 
 export function OdontogramActsChart({ teeth, entries, records, procedureTypes }: OdontogramActsChartProps) {
+  /**
+   * Which tooth's acts are showing, tracked in two independent channels so the two input methods cannot fight:
+   * a tap pins the panel open until it is dismissed, while hover opens it only while the pointer is over the
+   * tooth. Held here rather than per-cell so only one panel is ever open — 32 cells a few pixels apart would
+   * otherwise stack panels as the pointer crosses them.
+   */
+  const [tappedTooth, setTappedTooth] = useState<number | null>(null)
+  const [hoveredTooth, setHoveredTooth] = useState<number | null>(null)
   /** tooth number → acts performed on it, newest session first. */
   const actsByTooth = useMemo(() => {
     const recordsById = new Map(records.map((r) => [r.id, r]))
@@ -157,33 +172,55 @@ export function OdontogramActsChart({ teeth, entries, records, procedureTypes }:
     if (!acts) return <span key={toothNum}>{cell}</span>
 
     return (
-      <Tooltip key={toothNum}>
-        {/* `tabIndex` so the acts are reachable by keyboard too: a hover-only affordance is unusable without a
-            mouse, and this is the only place the act name appears. */}
-        <TooltipTrigger asChild>
-          <span tabIndex={0} className="cursor-help rounded-md focus-visible:outline-none">
+      <Popover
+        key={toothNum}
+        open={tappedTooth === toothNum || hoveredTooth === toothNum}
+        // Radix reports its own dismissals (outside click, Escape) here; clearing both channels is what makes a
+        // tap-pinned panel closable without another tap on the same tooth.
+        onOpenChange={(open) => {
+          if (!open) {
+            setTappedTooth((t) => (t === toothNum ? null : t))
+            setHoveredTooth((t) => (t === toothNum ? null : t))
+          }
+        }}
+      >
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            // A real button, so tap, click, Enter and Space all reach it — this is the only place the act name
+            // appears, and a hover-only affordance would hide it from every tablet.
+            onClick={() => setTappedTooth((t) => (t === toothNum ? null : toothNum))}
+            onMouseEnter={() => setHoveredTooth(toothNum)}
+            onMouseLeave={() => setHoveredTooth((t) => (t === toothNum ? null : t))}
+            aria-label={`Dent ${toothNum} — ${acts.length} acte${acts.length > 1 ? "s" : ""} réalisé${acts.length > 1 ? "s" : ""}`}
+            className="rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
             {cell}
-          </span>
-        </TooltipTrigger>
-        <TooltipContent side="top" className="max-w-xs">
-          <p className="mb-1 font-semibold">Dent {toothNum}</p>
-          <ul className="space-y-0.5">
+          </button>
+        </PopoverTrigger>
+        <PopoverContent side="top" align="center" className="w-auto max-w-xs p-3 text-xs">
+          <p className="mb-1.5 font-semibold">Dent {toothNum}</p>
+          <ul className="space-y-1">
             {acts.map((a, i) => (
-              <li key={`${a.name}-${a.date}-${i}`} className="flex items-center gap-1.5">
-                <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: a.color }} />
-                <span>{a.name}</span>
-                <span className="opacity-70">— {formatDateFr(a.date)}</span>
+              <li key={`${a.name}-${a.date}-${i}`} className="flex items-start gap-1.5">
+                <span
+                  className="mt-1 h-2 w-2 shrink-0 rounded-full"
+                  style={{ backgroundColor: a.color }}
+                />
+                <span>
+                  {a.name}
+                  <span className="text-muted-foreground"> — {formatDateFr(a.date)}</span>
+                </span>
               </li>
             ))}
           </ul>
-        </TooltipContent>
-      </Tooltip>
+        </PopoverContent>
+      </Popover>
     )
   }
 
   return (
-    <TooltipProvider delayDuration={150}>
-      <div className="space-y-3">
+    <div className="space-y-3">
         {/* Same container and arch labels as the diagnosis chart. */}
         <div className="overflow-x-auto rounded-lg border border-border bg-card p-3">
           <div className="space-y-1.5">
@@ -208,8 +245,8 @@ export function OdontogramActsChart({ teeth, entries, records, procedureTypes }:
         </div>
 
         <p className="text-xs text-muted-foreground">
-          Survolez une dent colorée pour voir les actes réalisés. Vue en lecture seule — les actes proviennent des
-          fiches de soins.
+          Touchez ou survolez une dent colorée pour voir les actes réalisés. Vue en lecture seule — les actes
+          proviennent des fiches de soins.
         </p>
 
         {/* Only the acts on this chart. The full catalog under a chart showing three of them is noise. */}
@@ -220,8 +257,7 @@ export function OdontogramActsChart({ teeth, entries, records, procedureTypes }:
               <span className="text-muted-foreground">{a.name}</span>
             </div>
           ))}
-        </div>
       </div>
-    </TooltipProvider>
+    </div>
   )
 }
