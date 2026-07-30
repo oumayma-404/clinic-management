@@ -1,10 +1,14 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useCallback, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { DataTablePagination } from "@/components/ui/data-table-pagination"
+import { usePagedList } from "@/lib/hooks/use-paged-list"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -31,33 +35,30 @@ interface DentalActsTableProps {
 }
 
 export function DentalActsTable({ onEdit, onAdd, onChanged, reloadToken }: DentalActsTableProps) {
-  const [acts, setActs] = useState<DentalActDto[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [search, setSearch] = useState("")
   const [actToDelete, setActToDelete] = useState<DentalActDto | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [confirming, setConfirming] = useState(false)
 
-  useEffect(() => {
-    let active = true
-    const run = async () => {
-      try {
-        setLoading(true)
-        setError(null)
-        // Admin screen: include deactivated rows too.
-        const data = await dentalActsApi.list(undefined, undefined, true)
-        if (active) setActs(data)
-      } catch (err) {
-        if (active) setError(err instanceof ApiError ? err.message : "Échec du chargement du catalogue.")
-      } finally {
-        if (active) setLoading(false)
-      }
-    }
-    run()
-    return () => {
-      active = false
-    }
-  }, [reloadToken])
+  // Admin screen: include deactivated rows too. Paging, ordering and the free-text search all run
+  // server-side — the catalog is the one list that really does grow without bound, and a search that
+  // only saw the current page would miss the act being looked for most of the time.
+  const fetchPage = useCallback(
+    ({ page, pageSize, search }: { page: number; pageSize: number; search?: string }) =>
+      dentalActsApi.listPaged({ page, pageSize, search, includeInactive: true }),
+    [],
+  )
+
+  const {
+    items: acts,
+    page: pageInfo,
+    loading,
+    refreshing,
+    error,
+    setPage,
+    setPageSize,
+    isSearching,
+  } = usePagedList<DentalActDto>({ fetchPage, search, refreshKey: reloadToken })
 
   const confirmDelete = async () => {
     if (!actToDelete) return
@@ -124,7 +125,7 @@ export function DentalActsTable({ onEdit, onAdd, onChanged, reloadToken }: Denta
               <ClipboardList className="h-5 w-5" />
               Catalogue des actes dentaires
               <Badge variant="secondary" className="ml-2">
-                {acts.length} {acts.length === 1 ? "acte" : "actes"}
+                {pageInfo.totalCount} {pageInfo.totalCount === 1 ? "acte" : "actes"}
               </Badge>
             </CardTitle>
             <Button onClick={onAdd} size="sm" className="gap-2">
@@ -139,7 +140,18 @@ export function DentalActsTable({ onEdit, onAdd, onChanged, reloadToken }: Denta
               {error}
             </div>
           )}
-          <div className="overflow-x-auto">
+          <div className="mb-4">
+            <Label htmlFor="dental-acts-search" className="sr-only">
+              Rechercher un acte (code, désignation)…
+            </Label>
+            <Input
+              id="dental-acts-search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Rechercher un acte (code, désignation)…"
+            />
+          </div>
+          <div className={`overflow-x-auto${refreshing ? " opacity-60 transition-opacity" : ""}`}>
             <Table>
               <TableHeader>
                 <TableRow>
@@ -177,7 +189,7 @@ export function DentalActsTable({ onEdit, onAdd, onChanged, reloadToken }: Denta
                         <div className="flex flex-wrap gap-1">
                           {!act.isActive && <Badge variant="secondary">Inactif</Badge>}
                           {act.requiresAccordPrealable && (
-                            <Badge variant="outline" className="border-sky-400 text-sky-700 dark:text-sky-300">
+                            <Badge variant="outline" className="border-primary/40 text-primary">
                               Accord préalable
                             </Badge>
                           )}
@@ -212,6 +224,13 @@ export function DentalActsTable({ onEdit, onAdd, onChanged, reloadToken }: Denta
                 )}
               </TableBody>
             </Table>
+            <DataTablePagination
+              page={pageInfo}
+              onPageChange={setPage}
+              onPageSizeChange={setPageSize}
+              loading={refreshing}
+              label={["acte", "actes"]}
+            />
           </div>
         </CardContent>
       </Card>

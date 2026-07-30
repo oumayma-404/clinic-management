@@ -46,8 +46,10 @@ public class GetInvoiceRevenueQueryHandler : IRequestHandler<GetInvoiceRevenueQu
             }
             var clinicId = clinicResult.Value;
 
-            var invoices = await _invoiceRepository.GetFilteredAsync(
-                clinicId, request.From, request.To, null, null, cancellationToken);
+            // Unpaged: these are period totals, so every invoice in the window has to be summed. A page would
+            // report the revenue of 25 invoices as the revenue of the month.
+            var invoices = (await _invoiceRepository.GetFilteredAsync(
+                clinicId, request.From, request.To, cancellationToken: cancellationToken)).Items;
 
             // Only issued (numbered) invoices count; drafts carry no number and cancelled ones are excluded
             // from invoiced/outstanding.

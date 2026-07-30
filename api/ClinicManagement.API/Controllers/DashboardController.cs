@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using MediatR;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Dashboard;
+using ClinicManagement.Application.Features.Dashboard.Commands;
 using ClinicManagement.Application.Features.Dashboard.Queries;
 using Microsoft.AspNetCore.Authorization;
 
@@ -34,6 +35,51 @@ public class DashboardController : ApiControllerBase
         [FromQuery] DashboardPeriodKey period = DashboardPeriodKey.Month)
     {
         var result = await _mediator.Send(new GetDashboardQuery { Period = period });
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+
+        return Ok(result.Value);
+    }
+
+    /// <summary>
+    /// The signed-in user's dashboard layout choices, plus every block the dashboard can show.
+    /// </summary>
+    /// <remarks>
+    /// Per-user, not per-clinic: the user is resolved from the token, never from a route or query parameter, so
+    /// there is no addressable way to read or write anyone else's layout.
+    /// </remarks>
+    [HttpGet("preferences")]
+    public async Task<ActionResult<DashboardPreferencesDto>> GetPreferences()
+    {
+        var result = await _mediator.Send(new GetDashboardPreferencesQuery());
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+
+        return Ok(result.Value);
+    }
+
+    /// <summary>
+    /// Replaces the signed-in user's hidden-block set and returns the persisted state.
+    /// </summary>
+    /// <remarks>
+    /// <c>PUT</c> rather than <c>PATCH</c> because the semantics really are replace: the customiser always holds
+    /// the full intended state, and a merge could not express "show this one again".
+    /// <para>
+    /// Not admin-gated, and it must not be: this is the user's own view of their own dashboard. It is also the
+    /// reason there is no clinic-wide realtime broadcast (see <c>UpdateDashboardPreferencesCommand</c>).
+    /// </para>
+    /// </remarks>
+    [HttpPut("preferences")]
+    public async Task<ActionResult<DashboardPreferencesDto>> UpdatePreferences(
+        [FromBody] UpdateDashboardPreferencesCommand command)
+    {
+        var result = await _mediator.Send(command ?? new UpdateDashboardPreferencesCommand());
 
         if (result.IsFailure)
         {

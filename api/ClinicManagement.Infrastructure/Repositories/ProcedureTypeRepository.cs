@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using ClinicManagement.Application.Common;
+using ClinicManagement.Domain.Common;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Infrastructure.Persistence;
@@ -33,22 +35,44 @@ public class ProcedureTypeRepository : IProcedureTypeRepository
     // The list reads Include the material list for the same reason GetByIdAsync does (AC-P4.14): the catalog
     // screen shows which acts consume stock, and a silently-empty list is indistinguishable from an act that
     // has opted out (AC-P4.11). This is a small per-clinic catalog, so the extra join is not a concern.
-    public async Task<IEnumerable<ProcedureType>> GetAllAsync(CancellationToken cancellationToken = default)
+    /// <summary>
+    /// The single list read for the act catalog. It replaced <c>GetAllAsync</c> + <c>GetActiveAsync</c>, which
+    /// differed only by one <c>Where</c> and would have needed the same paging and the same search predicate
+    /// added to both — two copies of a list read is how they drift.
+    /// </summary>
+    public async Task<PagedResult<ProcedureType>> GetFilteredAsync(
+        Guid clinicId,
+        bool includeInactive = false,
+        string? searchTerm = null,
+        PageRequest? paging = null,
+        CancellationToken cancellationToken = default)
     {
-        return await _context.ProcedureTypes
+        // The clinic predicate is explicit and in SQL. The handler used to apply it in memory AFTER the read,
+        // for defense-in-depth over the fail-open global filter — harmless when the read returned everything,
+        // but with a page it would filter rows out of an already-cut window and shrink pages unpredictably.
+        var query = _context.ProcedureTypes
             .Include(pt => pt.Materials)
+            .Where(pt => pt.ClinicId == clinicId);
+
+        if (!includeInactive)
+        {
+            query = query.Where(pt => pt.IsActive);
+        }
+
+        var pattern = SearchTerm.ToLikePattern(searchTerm);
+        if (pattern is not null)
+        {
+            query = query.Where(pt =>
+                EF.Functions.ILike(SqlSearch.Unaccent(pt.Name)!, pattern, SqlSearch.EscapeString) ||
+                EF.Functions.ILike(SqlSearch.Unaccent(pt.Description)!, pattern, SqlSearch.EscapeString));
+        }
+
+        return await query
             .OrderBy(pt => pt.Name)
-            .ToListAsync(cancellationToken);
+            .ThenBy(pt => pt.Id)
+            .ToPagedResultAsync(paging, cancellationToken);
     }
 
-    public async Task<IEnumerable<ProcedureType>> GetActiveAsync(CancellationToken cancellationToken = default)
-    {
-        return await _context.ProcedureTypes
-            .Include(pt => pt.Materials)
-            .Where(pt => pt.IsActive)
-            .OrderBy(pt => pt.Name)
-            .ToListAsync(cancellationToken);
-    }
 
     public async Task<bool> ExistsByNameAsync(string name, Guid? excludeId = null, CancellationToken cancellationToken = default)
     {

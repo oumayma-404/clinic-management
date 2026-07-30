@@ -5,11 +5,13 @@ import { useRouter } from "next/navigation"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { DashboardSidebar } from "@/components/dashboard-sidebar"
 import { ClinicGuard } from "@/components/clinic-guard"
+import { PageHeader } from "@/components/ui/page-header"
+import { ListToolbar, FilterChip } from "@/components/ui/list-toolbar"
 import { PatientsTable } from "@/components/patients-table"
 import { EditPatientDialog } from "@/components/edit-patient-dialog"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-import { Search, Filter, Plus } from "lucide-react"
+import { Plus } from "lucide-react"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { formatDateFr } from "@/lib/format"
@@ -63,44 +65,37 @@ export default function PatientsPage() {
 
           <main className="flex-1 overflow-y-auto p-4 md:p-6">
             <div className="mx-auto max-w-7xl space-y-6">
-              {/* Page Header */}
-              <div>
-                <h1 className="text-3xl font-semibold text-foreground">Patients</h1>
-                <p className="mt-1 text-sm text-muted-foreground">Consultez et gérez tous les dossiers patients</p>
-              </div>
-
-              {/* Search and Filters */}
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                <div className="relative flex-1 max-w-md">
-                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    type="text"
-                    placeholder="Rechercher par nom ou téléphone…"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-9"
-                  />
-                </div>
-
-                <div className="flex gap-2">
-                  <Button
-                    variant={showFlaggedOnly ? "default" : "outline"}
-                    onClick={() => setShowFlaggedOnly(!showFlaggedOnly)}
-                    className="gap-2"
-                  >
-                    <Filter className="h-4 w-4" />
-                    {showFlaggedOnly ? "Signalés affichés" : "Afficher les signalés"}
-                  </Button>
-                  
-                  <Button
-                    onClick={() => setCreateDialogOpen(true)}
-                    className="gap-2"
-                  >
+              {/* The page's ONE primary action lives in the header, not in the filter row — a create button and a
+                  filter had the same weight there, which left the row with no single meaning. */}
+              <PageHeader
+                zone="Dossiers"
+                title="Patients"
+                subtitle="Rechercher un dossier, ou en créer un."
+                actions={
+                  <Button onClick={() => setCreateDialogOpen(true)} className="gap-2">
                     <Plus className="h-4 w-4" />
                     Ajouter un patient
                   </Button>
-                </div>
-              </div>
+                }
+              />
+
+              {/* Only what NARROWS the list. « Signalés » is a chip with a stable label and `aria-pressed`, where it
+                  used to be a Button whose text flipped between « Afficher les signalés » and « Signalés affichés »
+                  — so the only way to know the filter was on was to read a sentence and infer its tense. */}
+              <ListToolbar
+                search={{
+                  value: searchQuery,
+                  onChange: setSearchQuery,
+                  placeholder: "Nom ou téléphone…",
+                  label: "Rechercher un patient",
+                }}
+              >
+                <FilterChip
+                  label="Signalés"
+                  active={showFlaggedOnly}
+                  onToggle={() => setShowFlaggedOnly(!showFlaggedOnly)}
+                />
+              </ListToolbar>
 
               {/* The active date window, stated explicitly and removable. An invisible filter is how a user
                   concludes their patients have disappeared. */}

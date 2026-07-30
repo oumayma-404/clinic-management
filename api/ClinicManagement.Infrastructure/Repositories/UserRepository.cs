@@ -1,3 +1,5 @@
+using ClinicManagement.Application.Common;
+using ClinicManagement.Domain.Common;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Infrastructure.Persistence;
@@ -28,12 +30,31 @@ public class UserRepository : IUserRepository
             .ToListAsync(cancellationToken);
     }
 
-    public async Task<IEnumerable<User>> GetByClinicIdAsync(Guid clinicId, CancellationToken cancellationToken = default)
+    public async Task<PagedResult<User>> GetByClinicIdAsync(
+        Guid clinicId,
+        string? searchTerm = null,
+        PageRequest? paging = null,
+        CancellationToken cancellationToken = default)
     {
-        return await _context.Users
+        var query = _context.Users
             .Include(u => u.Clinic)
-            .Where(u => u.ClinicId == clinicId)
-            .ToListAsync(cancellationToken);
+            .Where(u => u.ClinicId == clinicId);
+
+        var pattern = SearchTerm.ToLikePattern(searchTerm);
+        if (pattern is not null)
+        {
+            query = query.Where(u =>
+                EF.Functions.ILike(SqlSearch.Unaccent(u.FullName)!, pattern, SqlSearch.EscapeString) ||
+                EF.Functions.ILike(SqlSearch.Unaccent(u.Email)!, pattern, SqlSearch.EscapeString));
+        }
+
+        // The list had no ordering at all — fine while it returned every row and the client sorted, but an
+        // unordered paged read is the one thing paging cannot tolerate. Name first, then the id: `User.Id` is a
+        // string (the Auth0 `sub` or `local|{guid}`) and still unique, so it settles ties.
+        return await query
+            .OrderBy(u => u.FullName)
+            .ThenBy(u => u.Id)
+            .ToPagedResultAsync(paging, cancellationToken);
     }
 
     public async Task<User?> GetByAuth0SubAsync(string auth0Sub, CancellationToken cancellationToken = default)

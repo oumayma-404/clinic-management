@@ -3,6 +3,8 @@ using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Infrastructure.Persistence;
 
+using ClinicManagement.Application.Common;
+using ClinicManagement.Domain.Common;
 namespace ClinicManagement.Infrastructure.Repositories;
 
 /// <summary>
@@ -25,7 +27,12 @@ public class DentalActCodeRepository : IDentalActCodeRepository
             .FirstOrDefaultAsync(e => e.Id == id, cancellationToken);
     }
 
-    public async Task<IEnumerable<DentalActCode>> GetAllAsync(bool includeInactive = false, CancellationToken cancellationToken = default)
+    public async Task<PagedResult<DentalActCode>> GetAllAsync(
+        bool includeInactive = false,
+        string? category = null,
+        string? searchTerm = null,
+        PageRequest? paging = null,
+        CancellationToken cancellationToken = default)
     {
         var query = _context.DentalActCodes.AsQueryable();
         if (!includeInactive)
@@ -33,10 +40,25 @@ public class DentalActCodeRepository : IDentalActCodeRepository
             query = query.Where(e => e.IsActive);
         }
 
+        if (!string.IsNullOrWhiteSpace(category))
+        {
+            var trimmed = category.Trim();
+            query = query.Where(e => e.Category.ToLower() == trimmed.ToLower());
+        }
+
+        var pattern = SearchTerm.ToLikePattern(searchTerm);
+        if (pattern is not null)
+        {
+            query = query.Where(e =>
+                EF.Functions.ILike(SqlSearch.Unaccent(e.CodeActe)!, pattern, SqlSearch.EscapeString) ||
+                EF.Functions.ILike(SqlSearch.Unaccent(e.DesignationFr)!, pattern, SqlSearch.EscapeString));
+        }
+
         return await query
             .OrderBy(e => e.Category)
             .ThenBy(e => e.CodeActe)
-            .ToListAsync(cancellationToken);
+            .ThenBy(e => e.Id)
+            .ToPagedResultAsync(paging, cancellationToken);
     }
 
     public async Task<bool> CodeActeExistsAsync(string codeActe, Guid? excludeId = null, CancellationToken cancellationToken = default)

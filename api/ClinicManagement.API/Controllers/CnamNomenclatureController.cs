@@ -8,6 +8,8 @@ using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.CnamNomenclature.Commands;
 using ClinicManagement.Application.Features.CnamNomenclature.Queries;
 
+using ClinicManagement.Domain.Common;
+
 namespace ClinicManagement.API.Controllers;
 
 [ApiController]
@@ -27,10 +29,21 @@ public class CnamNomenclatureController : ApiControllerBase
     /// Global reference data (not clinic-scoped); requires an authenticated user. Active-only by default.
     /// </summary>
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<CnamNomenclatureEntryDto>>> GetNomenclature(
-        [FromQuery] string? q = null, [FromQuery] string? category = null, [FromQuery] bool includeInactive = false)
+    public async Task<ActionResult<PagedResult<CnamNomenclatureEntryDto>>> GetNomenclature(
+        [FromQuery] string? q = null,
+        [FromQuery] string? category = null,
+        [FromQuery] bool includeInactive = false,
+        [FromQuery] int? page = null,
+        [FromQuery] int? pageSize = null)
     {
-        var query = new GetCnamNomenclatureQuery { Q = q, Category = category, IncludeInactive = includeInactive };
+        var query = new GetCnamNomenclatureQuery
+        {
+            Q = q,
+            Category = category,
+            IncludeInactive = includeInactive,
+            Page = page,
+            PageSize = pageSize
+        };
         var result = await _mediator.Send(query);
 
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);

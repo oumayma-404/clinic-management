@@ -7,6 +7,9 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { DataTablePagination } from "@/components/ui/data-table-pagination"
+import { DEFAULT_PAGE_SIZE } from "@/lib/api/paging"
+import type { StockPageDto } from "@/lib/api/types"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   AlertDialog,
@@ -40,10 +43,16 @@ interface StockTableProps {
 }
 
 export function StockTable({ refreshKey, onEdit, highlightItemId, initialFilter }: StockTableProps) {
-  const [items, setItems] = useState<StockItemDto[]>([])
+  const [data, setData] = useState<StockPageDto | null>(null)
+  // No `filteredItems`: the server already applied the search and every filter, so the rows that arrived ARE the
+  // rows to render. Re-filtering here would narrow an already-cut page.
+  const items = data?.items ?? []
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
+  const [debouncedSearch, setDebouncedSearch] = useState("")
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
   const [categoryFilter, setCategoryFilter] = useState<string>("all")
   const [lowStockOnly, setLowStockOnly] = useState(initialFilter === "low")
   // Mirrors the « expiration » column's own reading (StockBatch.IsExpired / IsExpiringSoon, surfaced as the two DTO
@@ -73,8 +82,15 @@ export function StockTable({ refreshKey, onEdit, highlightItemId, initialFilter 
     try {
       setLoading(true)
       setError(null)
-      const data = await stockApi.list()
-      setItems(data)
+      const data = await stockApi.listPaged({
+        page,
+        pageSize,
+        search: debouncedSearch || undefined,
+        lowStockOnly: lowStockOnly || undefined,
+        expiringOnly: expiringOnly || undefined,
+        category: categoryFilter === "all" ? undefined : categoryFilter,
+      })
+      setData(data)
     } catch (err) {
       const message = err instanceof ApiError ? err.message : "Échec du chargement des articles"
       setError(message)
@@ -82,7 +98,18 @@ export function StockTable({ refreshKey, onEdit, highlightItemId, initialFilter 
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [page, pageSize, debouncedSearch, lowStockOnly, expiringOnly, categoryFilter])
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchQuery.trim()), 300)
+    return () => clearTimeout(timer)
+  }, [searchQuery])
+
+  // Any change to the search or a filter must send the table back to page 1 — otherwise toggling
+  // « Stock faible » while on page 4 lands on an empty page of a two-page result.
+  useEffect(() => {
+    setPage(1)
+  }, [debouncedSearch, lowStockOnly, expiringOnly, categoryFilter])
 
   useEffect(() => {
     loadItems()
@@ -102,23 +129,12 @@ export function StockTable({ refreshKey, onEdit, highlightItemId, initialFilter 
     hasScrolledRef.current = true
   }, [loading, highlightItemId])
 
-  const categories = useMemo(() => Array.from(new Set(items.map((i) => i.category))).sort(), [items])
-
-  const filteredItems = useMemo(() => {
-    return items.filter((item) => {
-      const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase())
-      const matchesCategory = categoryFilter === "all" || item.category === categoryFilter
-      const matchesLowStock = !lowStockOnly || item.isLowStock
-      const matchesExpiring = !expiringOnly || item.isExpiringSoon || item.hasExpiredStock
-      return matchesSearch && matchesCategory && matchesLowStock && matchesExpiring
-    })
-  }, [items, searchQuery, categoryFilter, lowStockOnly, expiringOnly])
-
-  const lowStockCount = useMemo(() => items.filter((i) => i.isLowStock).length, [items])
-  const expiringCount = useMemo(
-    () => items.filter((i) => i.isExpiringSoon || i.hasExpiredStock).length,
-    [items],
-  )
+  // All three come from the response, clinic-wide. Derived from `items` they would describe the current page:
+  // the dropdown would only offer the categories that page happened to contain, and « Stock faible (N) » would
+  // report the low items among 25 rows while the stockroom had far more — the figure someone reorders from.
+  const categories = data?.categories ?? []
+  const lowStockCount = data?.lowStockCount ?? 0
+  const expiringCount = data?.expiringCount ?? 0
 
   const handleDelete = (item: StockItemDto) => {
     setItemToDelete(item)
@@ -202,7 +218,7 @@ export function StockTable({ refreshKey, onEdit, highlightItemId, initialFilter 
               <Package className="h-5 w-5" />
               Articles en stock
               <Badge variant="secondary" className="ml-2">
-                {filteredItems.length} articles
+                {data?.totalCount ?? 0} articles
               </Badge>
               {lowStockCount > 0 && (
                 <Button
@@ -281,16 +297,18 @@ export function StockTable({ refreshKey, onEdit, highlightItemId, initialFilter 
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredItems.length === 0 ? (
+                  {items.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={8} className="h-24 text-center">
                         <p className="text-muted-foreground">
-                          {items.length === 0 ? "Aucun article en stock" : "Aucun article ne correspond à vos filtres"}
+                          {debouncedSearch || lowStockOnly || expiringOnly || categoryFilter !== "all"
+                            ? "Aucun article ne correspond à vos filtres"
+                            : "Aucun article en stock"}
                         </p>
                       </TableCell>
                     </TableRow>
                   ) : (
-                    filteredItems.map((item) => {
+                    items.map((item) => {
                       const isHighlighted = highlightItemId === item.id
                       return (
                       <TableRow
@@ -373,6 +391,15 @@ export function StockTable({ refreshKey, onEdit, highlightItemId, initialFilter 
                   )}
                 </TableBody>
               </Table>
+              {data && (
+                <DataTablePagination
+                  page={data}
+                  onPageChange={setPage}
+                  onPageSizeChange={setPageSize}
+                  loading={loading}
+                  label={["article", "articles"]}
+                />
+              )}
             </div>
           )}
         </CardContent>

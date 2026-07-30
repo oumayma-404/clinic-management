@@ -5,6 +5,8 @@ using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Domain.Services;
 using ClinicManagement.Infrastructure.Persistence;
 
+using ClinicManagement.Application.Common;
+using ClinicManagement.Domain.Common;
 namespace ClinicManagement.Infrastructure.Repositories;
 
 public class TreatmentPlanRepository : ITreatmentPlanRepository
@@ -36,7 +38,7 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
             .ToListAsync(cancellationToken);
     }
 
-    public async Task<IEnumerable<TreatmentPlan>> GetFilteredAsync(
+    public async Task<PagedResult<TreatmentPlan>> GetFilteredAsync(
         Guid clinicId,
         Guid? patientId = null,
         TreatmentPlanStatus? status = null,
@@ -44,6 +46,8 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
         DateTime? to = null,
         DateTime? acceptedFrom = null,
         DateTime? acceptedTo = null,
+        string? searchTerm = null,
+        PageRequest? paging = null,
         CancellationToken cancellationToken = default)
     {
         var query = _context.TreatmentPlans
@@ -85,9 +89,24 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
             query = query.Where(p => p.AcceptedDate != null && p.AcceptedDate <= acceptedTo.Value);
         }
 
+        // Devis number, title, notes, or the patient's name. The patient half is an EXISTS for the same reason
+        // as on the invoice side: names are resolved by a batched lookup after the page is cut.
+        var pattern = SearchTerm.ToLikePattern(searchTerm);
+        if (pattern is not null)
+        {
+            query = query.Where(p =>
+                EF.Functions.ILike(SqlSearch.Unaccent(p.Number)!, pattern, SqlSearch.EscapeString)
+                || EF.Functions.ILike(SqlSearch.Unaccent(p.Title)!, pattern, SqlSearch.EscapeString)
+                || EF.Functions.ILike(SqlSearch.Unaccent(p.Notes)!, pattern, SqlSearch.EscapeString)
+                || _context.Patients.Any(pa => pa.Id == p.PatientId
+                    && EF.Functions.ILike(
+                        SqlSearch.Unaccent(pa.FirstName + " " + pa.LastName)!, pattern, SqlSearch.EscapeString)));
+        }
+
         return await query
             .OrderByDescending(p => p.CreatedAt)
-            .ToListAsync(cancellationToken);
+            .ThenBy(p => p.Id)
+            .ToPagedResultAsync(paging, cancellationToken);
     }
 
     public async Task<IReadOnlyList<RecallPlanFact>> GetRecallPlanFactsAsync(

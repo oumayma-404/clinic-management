@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -20,6 +20,8 @@ import { EditPatientDialog } from "@/components/edit-patient-dialog"
 import { PatientSummaryModal } from "@/components/patient-summary-modal"
 import { useSession } from "@/lib/auth/session"
 import { formatDate } from "@/lib/format"
+import { DataTablePagination } from "@/components/ui/data-table-pagination"
+import { usePagedList } from "@/lib/hooks/use-paged-list"
 
 interface PatientsTableProps {
   searchQuery: string
@@ -40,9 +42,10 @@ const PATIENT_COLUMN_WIDTHS = ["w-[22%]", "w-[16%]", "w-[16%]", "w-[22%]", "w-[1
 
 export function PatientsTable({ searchQuery, showFlaggedOnly, createdFrom, createdTo }: PatientsTableProps) {
   const router = useRouter()
-  const [patients, setPatients] = useState<PatientDto[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  // Bumped to refetch the current page after a mutation (edit / archive / delete). The list is server-paged, so
+  // patching a row in place is no longer right: an edit can change the patient's name and therefore which page
+  // they belong on, and a delete changes the total the pager renders.
+  const [refreshKey, setRefreshKey] = useState(0)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [selectedPatient, setSelectedPatient] = useState<PatientDto | null>(null)
   const [summaryModalOpen, setSummaryModalOpen] = useState(false)
@@ -83,7 +86,7 @@ export function PatientsTable({ searchQuery, showFlaggedOnly, createdFrom, creat
     try {
       setDeleting(true)
       await patientsApi.delete(patientToDelete.id)
-      setPatients((prev) => prev.filter((p) => p.id !== patientToDelete.id))
+      refreshList()
       toast.success(`Patient « ${patientToDelete.firstName} ${patientToDelete.lastName} » supprimé`)
       setPatientToDelete(null)
     } catch (err) {
@@ -99,7 +102,7 @@ export function PatientsTable({ searchQuery, showFlaggedOnly, createdFrom, creat
       setDeleting(true)
       await patientsApi.archive(patientToDelete.id)
       // Archived patients leave the list — the list read excludes them.
-      setPatients((prev) => prev.filter((p) => p.id !== patientToDelete.id))
+      refreshList()
       toast.success(`Patient « ${patientToDelete.firstName} ${patientToDelete.lastName} » archivé`)
       setPatientToDelete(null)
     } catch (err) {
@@ -109,45 +112,35 @@ export function PatientsTable({ searchQuery, showFlaggedOnly, createdFrom, creat
     }
   }
 
-  // Load patients from API
-  useEffect(() => {
-    // Guard against out-of-order responses: each keystroke fires a request; only the latest may apply its
-    // result (a slower earlier request must not overwrite a newer one's patients).
-    let ignore = false
-    const loadPatients = async () => {
-      try {
-        setLoading(true)
-        setError(null)
-        const term = searchQuery.trim()
-        const data = await patientsApi.list({
-          searchTerm: term || undefined,
-          createdFrom,
-          createdTo,
-        })
-        if (!ignore) setPatients(data)
-      } catch (err) {
-        if (!ignore) setError(getErrorMessage(err, "Échec du chargement des patients"))
-      } finally {
-        if (!ignore) setLoading(false)
-      }
-    }
+  // Search, the flag filter, the date window, the ordering and the page are ALL server-side now. The flag filter
+  // in particular used to be a `.filter()` over the fetched array, which was only ever equivalent because the
+  // fetch returned every patient in the clinic; over a page it would hide flagged patients on other pages and
+  // badge a count of "the flagged ones among these 25".
+  const fetchPage = useCallback(
+    ({ page, pageSize, search }: { page: number; pageSize: number; search?: string }) =>
+      patientsApi.listPaged({
+        page,
+        pageSize,
+        search,
+        flaggedOnly: showFlaggedOnly || undefined,
+        createdFrom,
+        createdTo,
+      }),
+    [showFlaggedOnly, createdFrom, createdTo],
+  )
 
-    loadPatients()
-    return () => {
-      ignore = true
-    }
-  }, [searchQuery, createdFrom, createdTo]) // Reload when the search term or the date window changes
+  const {
+    items: patients,
+    page: pageInfo,
+    loading,
+    refreshing,
+    error,
+    setPage,
+    setPageSize,
+    isSearching,
+  } = usePagedList<PatientDto>({ fetchPage, search: searchQuery, refreshKey })
 
-  // Filter patients based on flagged status (search is handled by API)
-  const filteredPatients = useMemo(() => {
-    if (showFlaggedOnly) {
-      return patients.filter((patient) => {
-        const hasActiveFlags = patient.flags && patient.flags.some(flag => flag.isActive)
-        return hasActiveFlags
-      })
-    }
-    return patients
-  }, [patients, showFlaggedOnly])
+  const refreshList = () => setRefreshKey((key) => key + 1)
 
   // Calculate age from date of birth
   const calculateAge = (dob: string | undefined) => {
@@ -186,28 +179,12 @@ export function PatientsTable({ searchQuery, showFlaggedOnly, createdFrom, creat
 
   // AC-P3.23 — refresh the edited ROW, not the page. The dialog hands back the saved patient, so the row is
   // replaced in place; only if that is somehow missing do we fall back to re-reading the list.
-  const handleEditSuccess = (updated?: PatientDto | null) => {
+  // Refetches instead of patching the row in place (which is what it did before paging). An edit can change the
+  // surname the list is ordered by, so the saved patient may not belong on this page any more — replacing the row
+  // would leave it visibly out of order until the next load.
+  const handleEditSuccess = () => {
     setEditDialogOpen(false)
-    if (updated?.id) {
-      setPatients((prev) => prev.map((p) => (p.id === updated.id ? updated : p)))
-      return
-    }
-
-    const loadPatients = async () => {
-      try {
-        const term = searchQuery.trim()
-        const data = await patientsApi.list({
-          searchTerm: term || undefined,
-          createdFrom,
-          createdTo,
-        })
-        setPatients(data)
-      } catch (err) {
-        // The save itself succeeded; only the re-read failed. Say so instead of leaving a stale row silently.
-        showErrorToast(err, "Patient enregistré, mais la liste n'a pas pu être actualisée.")
-      }
-    }
-    loadPatients()
+    refreshList()
   }
 
   const handleOpenSummary = async (patient: PatientDto) => {
@@ -241,7 +218,7 @@ export function PatientsTable({ searchQuery, showFlaggedOnly, createdFrom, creat
           <Users className="h-5 w-5" />
           Dossiers patients
           <Badge variant="secondary" className="ml-auto">
-            {filteredPatients.length} {filteredPatients.length === 1 ? "patient" : "patients"}
+            {pageInfo.totalCount} {pageInfo.totalCount === 1 ? "patient" : "patients"}
           </Badge>
         </CardTitle>
       </CardHeader>
@@ -270,6 +247,9 @@ export function PatientsTable({ searchQuery, showFlaggedOnly, createdFrom, creat
             ))}
           </div>
         ) : (
+          // `refreshing` dims the rows already on screen instead of blanking them, so a debounced search does not
+          // strobe the table between keystrokes.
+          <div className={refreshing ? "opacity-60 transition-opacity" : undefined}>
           <Table>
             <TableHeader>
               <TableRow>
@@ -282,16 +262,20 @@ export function PatientsTable({ searchQuery, showFlaggedOnly, createdFrom, creat
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredPatients.length === 0 ? (
+              {patients.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={6} className="h-24 text-center">
                     <p className="text-muted-foreground">
-                      {showFlaggedOnly ? "Aucun patient signalé" : searchQuery ? "Aucun patient ne correspond à votre recherche" : "Aucun patient"}
+                      {isSearching
+                        ? "Aucun patient ne correspond à votre recherche"
+                        : showFlaggedOnly
+                          ? "Aucun patient signalé"
+                          : "Aucun patient"}
                     </p>
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredPatients.map((patient) => {
+                patients.map((patient) => {
                   const age = calculateAge(patient.dateOfBirth)
                   const hasFlags = hasActiveFlags(patient)
                   return (
@@ -395,6 +379,14 @@ export function PatientsTable({ searchQuery, showFlaggedOnly, createdFrom, creat
               )}
             </TableBody>
           </Table>
+          <DataTablePagination
+            page={pageInfo}
+            onPageChange={setPage}
+            onPageSizeChange={setPageSize}
+            loading={refreshing}
+            label={["patient", "patients"]}
+          />
+          </div>
         )}
       </CardContent>
 

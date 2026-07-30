@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using ClinicManagement.Domain.Entities;
+using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.ValueObjects;
 
 namespace ClinicManagement.Infrastructure.Persistence.Configurations;
@@ -30,6 +31,19 @@ public class PatientConfiguration : IEntityTypeConfiguration<Patient>
         builder.Property(p => p.Gender)
             .IsRequired()
             .HasMaxLength(20);
+
+        // Which teeth this patient is charted on.
+        //
+        // ⚠️ Deliberately NO HasDefaultValue, unlike IsArchived below. A database-generated default is only safe when
+        // it equals the CLR default of the type: EF cannot distinguish "not set" from "set to the CLR default", so it
+        // sends nothing and lets the database decide. `DentitionType.Child` IS the CLR default (0), so
+        // HasDefaultValue(Adult) would silently store **Adult for every child** — the one case this column exists
+        // for. (EF says so itself: "configured with a database-generated default, but has no configured sentinel".)
+        // The column is instead made NOT NULL by its migration, which adds it nullable, backfills from date of birth,
+        // then tightens it — so existing paediatric rows get the child chart rather than a wrong default.
+        builder.Property(p => p.Dentition)
+            .IsRequired()
+            .HasConversion<int>();
 
         // Value Objects
         // Both optional, like EmergencyContactPhone below. The columns were NOT NULL, which is what forced
@@ -95,6 +109,19 @@ public class PatientConfiguration : IEntityTypeConfiguration<Patient>
                 .HasColumnName("EmergencyContactPhone")
                 .HasMaxLength(20);
         });
+
+        // « Adressé par » — the referring practitioner, free text (usually outside this clinic).
+        builder.Property(p => p.ReferredBy)
+            .HasMaxLength(200);
+
+        // Patient-level notes. `text`, not a bounded varchar, for the same reason as MedicalHistory/Allergies
+        // above: these are paragraphs a dentist types over years, and a length cap here surfaces as a failed save
+        // on the one visit where it finally matters.
+        builder.Property(p => p.Notes)
+            .HasColumnType("text");
+
+        builder.Property(p => p.ImportantNotes)
+            .HasColumnType("text");
 
         // Patient recall / relance (clinical-workflow-depth).
         builder.Property(p => p.RecallReason)

@@ -18,8 +18,19 @@ public abstract class ApiControllerBase : ControllerBase
     /// Render a failed <see cref="Result"/> as <c>{ error }</c> with the given status code
     /// (default 400). The action keeps ownership of the status code (400/401/403/404/…).
     /// </summary>
+    /// <remarks>
+    /// When the result carries a <see cref="Result.Code"/>, it is added as <c>code</c> beside <c>error</c> so a
+    /// client can branch on the refusal instead of pattern-matching the French message. The body stays
+    /// <c>{ error }</c> for every failure without one, so no existing consumer changes.
+    /// </remarks>
     protected ActionResult HandleFailure(Result result, int statusCode = StatusCodes.Status400BadRequest)
-        => Failure(result.Error, statusCode);
+        => string.IsNullOrWhiteSpace(result.Code)
+            ? Failure(result.Error, statusCode)
+            : StatusCode(statusCode, new
+            {
+                error = string.IsNullOrWhiteSpace(result.Error) ? ErrorMessages.Generic : result.Error,
+                code = result.Code,
+            });
 
     /// <summary>
     /// Render an error message as <c>{ error }</c> with the given status code (default 400).

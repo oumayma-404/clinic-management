@@ -1,0 +1,993 @@
+<title>Notes du patient — quatre traitements</title>
+
+<style>
+  /* ─────────────────────────────────────────────────────────────────────────
+     Tokens lifted from web/app/globals.css so the mockups are the real thing,
+     not an approximation. Semantic amber is Tailwind's, as the app uses it.
+     Theme: media query first, then data-theme overriding in BOTH directions.
+     ───────────────────────────────────────────────────────────────────────── */
+  :root {
+    --bg: oklch(0.99 0 0);
+    --card: oklch(1 0 0);
+    --ink: oklch(0.18 0 0);
+    --muted: oklch(0.97 0.005 250);
+    --muted-ink: oklch(0.48 0.01 250);
+    --border: oklch(0.93 0.005 250);
+    --accent: oklch(0.52 0.14 245);
+
+    /* Page chrome — the same neutral family, pushed further from the card so
+       the mockups read as objects sitting on a surface. */
+    --page: oklch(0.965 0.006 250);
+    --rule: oklch(0.90 0.006 250);
+
+    --warn-bg: #FFFBEB;
+    --warn-bg-soft: #FEFCE8;
+    --warn-border: #FCD34D;
+    --warn-border-soft: #FDE68A;
+    --warn-icon: #B45309;
+    --warn-label: #92400E;
+    --warn-ink: #451A03;
+    --warn-chip-bg: #FEF3C7;
+
+    --ok: oklch(0.55 0.13 155);
+    --bad: oklch(0.55 0.19 25);
+
+    --radius: 0.5rem;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, monospace;
+    --snap: cubic-bezier(0.23, 1, 0.32, 1);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: oklch(0.12 0.005 250);
+      --card: oklch(0.16 0.008 250);
+      --ink: oklch(0.97 0.005 250);
+      --muted: oklch(0.22 0.01 250);
+      --muted-ink: oklch(0.58 0.01 250);
+      --border: oklch(0.24 0.01 250);
+      --accent: oklch(0.6 0.16 245);
+      --page: oklch(0.09 0.005 250);
+      --rule: oklch(0.20 0.01 250);
+
+      --warn-bg: color-mix(in oklab, #451A03 42%, transparent);
+      --warn-bg-soft: color-mix(in oklab, #451A03 34%, transparent);
+      --warn-border: #92400E;
+      --warn-border-soft: #92400E;
+      --warn-icon: #FBBF24;
+      --warn-label: #FCD34D;
+      --warn-ink: #FEF3C7;
+      --warn-chip-bg: color-mix(in oklab, #78350F 55%, transparent);
+
+      --ok: oklch(0.68 0.14 155);
+      --bad: oklch(0.66 0.18 25);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg: oklch(0.12 0.005 250);
+    --card: oklch(0.16 0.008 250);
+    --ink: oklch(0.97 0.005 250);
+    --muted: oklch(0.22 0.01 250);
+    --muted-ink: oklch(0.58 0.01 250);
+    --border: oklch(0.24 0.01 250);
+    --accent: oklch(0.6 0.16 245);
+    --page: oklch(0.09 0.005 250);
+    --rule: oklch(0.20 0.01 250);
+    --warn-bg: color-mix(in oklab, #451A03 42%, transparent);
+    --warn-bg-soft: color-mix(in oklab, #451A03 34%, transparent);
+    --warn-border: #92400E;
+    --warn-border-soft: #92400E;
+    --warn-icon: #FBBF24;
+    --warn-label: #FCD34D;
+    --warn-ink: #FEF3C7;
+    --warn-chip-bg: color-mix(in oklab, #78350F 55%, transparent);
+    --ok: oklch(0.68 0.14 155);
+    --bad: oklch(0.66 0.18 25);
+  }
+
+  :root[data-theme="light"] {
+    --bg: oklch(0.99 0 0);
+    --card: oklch(1 0 0);
+    --ink: oklch(0.18 0 0);
+    --muted: oklch(0.97 0.005 250);
+    --muted-ink: oklch(0.48 0.01 250);
+    --border: oklch(0.93 0.005 250);
+    --accent: oklch(0.52 0.14 245);
+    --page: oklch(0.965 0.006 250);
+    --rule: oklch(0.90 0.006 250);
+    --warn-bg: #FFFBEB;
+    --warn-bg-soft: #FEFCE8;
+    --warn-border: #FCD34D;
+    --warn-border-soft: #FDE68A;
+    --warn-icon: #B45309;
+    --warn-label: #92400E;
+    --warn-ink: #451A03;
+    --warn-chip-bg: #FEF3C7;
+    --ok: oklch(0.55 0.13 155);
+    --bad: oklch(0.55 0.19 25);
+  }
+
+  /* ── page chrome ────────────────────────────────────────────────────────── */
+  body {
+    margin: 0;
+    background: var(--page);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 48px 24px 96px; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--muted-ink);
+    margin: 0;
+  }
+  h1 {
+    font-size: clamp(26px, 3.4vw, 36px);
+    line-height: 1.12;
+    letter-spacing: -0.02em;
+    font-weight: 650;
+    text-wrap: balance;
+    margin: 10px 0 0;
+  }
+  .lede { max-width: 62ch; color: var(--muted-ink); margin: 14px 0 0; }
+  .lede strong { color: var(--ink); font-weight: 600; }
+
+  hr.rule { border: 0; border-top: 1px solid var(--rule); margin: 40px 0; }
+
+  /* One option = mockup left, reasoning right. Stacks under 900px. */
+  .band { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 32px; align-items: start; }
+  @media (max-width: 900px) { .band { grid-template-columns: minmax(0, 1fr); gap: 20px; } }
+
+  .band-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin: 0 0 4px; }
+  .band-head h2 {
+    font-size: 20px; font-weight: 620; letter-spacing: -0.01em; margin: 0;
+  }
+  .thesis { color: var(--muted-ink); margin: 0 0 18px; max-width: 60ch; font-size: 14.5px; }
+
+  /* The stage: the app's own page background, so the card reads correctly. */
+  .stage {
+    background: var(--bg);
+    border: 1px solid var(--rule);
+    border-radius: 14px;
+    padding: 20px;
+    overflow-x: auto;
+  }
+  .stage-inner { min-width: 460px; max-width: 660px; }
+  .stage-label {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--muted-ink);
+    margin: 0 0 12px;
+  }
+  .stage + .stage { margin-top: 12px; }
+
+  .notes-col { display: flex; flex-direction: column; gap: 8px; }
+
+  /* reasoning column */
+  .why { display: flex; flex-direction: column; gap: 18px; }
+  .why h3 {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--muted-ink); margin: 0 0 6px; font-weight: 500;
+  }
+  .why p { margin: 0; font-size: 14px; color: var(--ink); }
+  .why p.dim { color: var(--muted-ink); }
+
+  .metric {
+    display: flex; align-items: baseline; gap: 8px;
+    border-top: 1px solid var(--rule); padding-top: 12px;
+  }
+  .metric .n {
+    font-family: var(--mono); font-variant-numeric: tabular-nums;
+    font-size: 25px; font-weight: 600; letter-spacing: -0.02em;
+  }
+  .metric .u { font-family: var(--mono); font-size: 11px; color: var(--muted-ink); }
+
+  .verdict {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.06em;
+    text-transform: uppercase; padding: 3px 8px; border-radius: 999px;
+    border: 1px solid currentColor;
+  }
+  .verdict.pick { color: var(--ok); }
+  .verdict.no { color: var(--bad); }
+  .dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+
+  ul.pts { margin: 0; padding-left: 17px; font-size: 14px; }
+  ul.pts li { margin: 0 0 4px; }
+  ul.pts li::marker { color: var(--muted-ink); }
+  ul.pts.minus li::marker { color: var(--bad); }
+
+  /* ─────────────────────────────────────────────────────────────────────────
+     app-*  =  faithful reproduction of the real components.
+     Prefixed so nothing in the chrome above can collide with it.
+     ───────────────────────────────────────────────────────────────────────── */
+  .app-warn {
+    display: flex; align-items: flex-start; gap: 10px;
+    border: 1px solid var(--warn-border); background: var(--warn-bg);
+    border-radius: var(--radius); padding: 10px 12px;
+  }
+  .app-warn-ico { flex: none; margin-top: 2px; color: var(--warn-icon); }
+  .app-warn-label {
+    font-size: 11px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.04em; color: var(--warn-label); margin: 0 0 2px;
+  }
+  .app-warn-body {
+    font-size: 14px; font-weight: 500; line-height: 1.35;
+    color: var(--warn-ink); margin: 0; white-space: pre-wrap;
+  }
+
+  .app-row {
+    border: 1px solid var(--border); background: var(--card);
+    border-radius: var(--radius);
+  }
+  .app-trigger {
+    display: flex; align-items: center; gap: 8px; width: 100%;
+    background: none; border: 0; cursor: pointer; text-align: left;
+    padding: 8px 12px; border-radius: var(--radius);
+    font: inherit; color: var(--ink);
+    transition: background-color 150ms ease-out;
+  }
+  .app-trigger:hover { background: color-mix(in oklab, var(--muted) 60%, transparent); }
+  .app-trigger:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .app-triggerbar { display: flex; align-items: center; gap: 4px; padding-right: 8px; }
+  .app-chev {
+    flex: none; color: var(--muted-ink);
+    transition: transform 200ms var(--snap);
+  }
+  .app-row[data-open="true"] .app-chev { transform: rotate(90deg); }
+  .app-ico { flex: none; color: var(--muted-ink); display: inline-flex; }
+  .app-label { font-size: 14px; font-weight: 500; }
+
+  .app-badge {
+    display: inline-flex; align-items: center; height: 20px; padding: 0 6px;
+    border-radius: 999px; font-size: 12px; font-variant-numeric: tabular-nums;
+    background: var(--muted); color: var(--muted-ink); border: 1px solid transparent;
+  }
+  .app-badge.warn {
+    background: var(--warn-chip-bg); color: var(--warn-label);
+    border-color: var(--warn-border-soft); gap: 3px; font-weight: 600;
+  }
+  .app-badge.out { background: transparent; border-color: var(--border); color: var(--ink); }
+
+  .app-edit {
+    display: inline-flex; align-items: center; gap: 6px; flex: none;
+    height: 28px; padding: 0 8px; border: 0; background: none; cursor: pointer;
+    border-radius: 6px; font: inherit; font-size: 12px; color: var(--muted-ink);
+    transition: background-color 150ms ease-out;
+  }
+  .app-edit:hover { background: color-mix(in oklab, var(--muted) 60%, transparent); }
+  .app-edit:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+  /* 0fr → 1fr, exactly as QuickDisclosure does it. */
+  .app-panel {
+    display: grid; grid-template-rows: 0fr; opacity: 0;
+    transition: grid-template-rows 200ms var(--snap), opacity 200ms var(--snap);
+  }
+  .app-row[data-open="true"] .app-panel,
+  .app-warn-stack[data-open="true"] .app-panel { grid-template-rows: 1fr; opacity: 1; }
+  .app-panel > div { overflow: hidden; }
+  .app-panel-pad { padding: 4px 12px 12px; }
+
+  .app-sub {
+    font-size: 11px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.04em; color: var(--muted-ink); margin: 0 0 6px;
+  }
+  .app-seances { display: flex; flex-direction: column; gap: 10px; max-height: 200px; overflow-y: auto; padding-right: 4px; }
+  .app-seance { display: flex; flex-direction: column; gap: 4px; }
+  .app-seance-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .app-date {
+    display: inline-flex; align-items: center; height: 20px; padding: 0 6px;
+    border: 1px solid var(--border); border-radius: 999px;
+    font-size: 12px; font-variant-numeric: tabular-nums; color: var(--ink);
+  }
+  .app-acte { font-size: 12px; font-weight: 500; }
+  .app-note {
+    margin: 0; font-size: 14px; line-height: 1.35; padding: 4px 8px;
+    border-radius: 4px; background: color-mix(in oklab, var(--muted) 50%, transparent);
+  }
+  .app-note.warn {
+    background: var(--warn-bg); border: 1px solid var(--warn-border-soft); color: var(--warn-ink);
+  }
+  .app-plain { font-size: 14px; line-height: 1.35; margin: 0; white-space: pre-wrap; }
+
+  /* Option A/B — warning lines: date, then text, one row each. */
+  /* Inline flow, not flex: date + act are inline spans inside the paragraph, so a long act name wraps
+     instead of needing truncation, and no alert ever costs a second row. */
+  .app-wline { font-size: 14px; line-height: 1.35; color: var(--warn-ink); margin: 0; }
+  .app-wline .d {
+    font-size: 11px; font-weight: 500; font-variant-numeric: tabular-nums;
+    color: var(--warn-label); opacity: 0.9; margin-right: 6px; white-space: nowrap;
+  }
+  .app-wline .p { font-size: 11px; color: var(--warn-label); opacity: 0.75; margin-right: 6px; }
+  .app-wline .t { font-weight: 500; }
+  .app-wchips { display: flex; flex-wrap: wrap; gap: 5px; }
+  .app-wchip {
+    display: inline-flex; align-items: center; height: 22px; padding: 0 8px;
+    border-radius: 999px; background: var(--warn-chip-bg);
+    border: 1px solid var(--warn-border-soft);
+    font-size: 12.5px; font-weight: 600; color: var(--warn-ink);
+  }
+  /* The collapsed window: a height, not a count of items — see COLLAPSED_BAND_PX in the component. */
+  .prose-clip { max-height: 48px; overflow: hidden; display: flex; flex-direction: column; gap: 4px; }
+  .app-warn-stack[data-open="true"] .prose-clip { max-height: 168px; overflow-y: auto; }
+
+  .app-more {
+    border: 0; background: none; padding: 0; cursor: pointer; font: inherit;
+    font-size: 12px; font-weight: 600; color: var(--warn-label);
+    text-decoration: underline; text-underline-offset: 2px;
+  }
+  .app-more:focus-visible { outline: 2px solid var(--warn-icon); outline-offset: 2px; }
+
+  /* Option B — one card, amber rail. */
+  .app-rail {
+    border: 1px solid var(--border); background: var(--card);
+    border-radius: var(--radius); border-left: 3px solid var(--warn-border);
+    overflow: hidden;
+  }
+  .app-rail-warn { padding: 9px 12px 10px; display: flex; flex-direction: column; gap: 6px; }
+  .app-rail-sep { border-top: 1px solid var(--border); }
+
+  /* Option C — the guard line. */
+  .app-guard {
+    display: flex; align-items: center; gap: 8px; width: 100%;
+    border: 1px solid var(--warn-border); background: var(--warn-bg);
+    border-radius: var(--radius); padding: 6px 10px;
+    cursor: pointer; font: inherit; text-align: left; color: var(--warn-ink);
+    transition: background-color 150ms ease-out;
+  }
+  .app-guard:hover { background: color-mix(in oklab, var(--warn-border) 22%, var(--warn-bg)); }
+  .app-guard:focus-visible { outline: 2px solid var(--warn-icon); outline-offset: 2px; }
+  .app-guard .n { font-size: 13px; font-weight: 700; flex: none; }
+  .app-guard .keys {
+    font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    color: var(--warn-label); font-weight: 500;
+  }
+  .app-guard .plus {
+    flex: none; font-size: 11.5px; font-weight: 600; color: var(--warn-label);
+    background: var(--warn-chip-bg); border: 1px solid var(--warn-border-soft);
+    border-radius: 999px; padding: 0 6px; line-height: 18px;
+  }
+  .app-guard-panel {
+    display: grid; grid-template-rows: 0fr; opacity: 0;
+    transition: grid-template-rows 200ms var(--snap), opacity 200ms var(--snap);
+  }
+  .app-guardwrap[data-open="true"] .app-guard-panel { grid-template-rows: 1fr; opacity: 1; }
+  .app-guard-panel > div { overflow: hidden; }
+  .app-guard-list {
+    display: flex; flex-direction: column; gap: 6px;
+    border: 1px solid var(--warn-border-soft); border-top: 0;
+    border-radius: 0 0 var(--radius) var(--radius);
+    background: var(--warn-bg-soft); padding: 9px 12px;
+  }
+
+  /* annotation callout on the current state */
+  .flaw {
+    display: flex; gap: 9px; align-items: flex-start;
+    font-size: 13.5px; color: var(--ink); margin: 0;
+  }
+  .flaw .num {
+    flex: none; font-family: var(--mono); font-size: 10.5px; font-weight: 600;
+    color: var(--bad); border: 1px solid currentColor; border-radius: 4px;
+    padding: 0 4px; line-height: 17px; margin-top: 2px;
+  }
+  .flaws { display: flex; flex-direction: column; gap: 9px; }
+
+  .closing {
+    border: 1px solid var(--rule); background: var(--card);
+    border-radius: 14px; padding: 24px 26px;
+  }
+  .closing h2 { margin: 0 0 10px; font-size: 19px; font-weight: 620; letter-spacing: -0.01em; }
+  .closing p { margin: 0 0 12px; max-width: 68ch; }
+  .closing p:last-child { margin-bottom: 0; }
+  .closing dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 14px; }
+  .closing dt { font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted-ink); padding-top: 3px; }
+  .closing dd { margin: 0; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
+</style>
+
+<div class="wrap">
+
+  <header>
+    <p class="eyebrow">Fiche patient · bloc notes</p>
+    <h1>Les notes importantes des séances doivent se lire sans un clic</h1>
+    <p class="lede">
+      Aujourd'hui le bandeau ambre ne porte que les notes <strong>du patient</strong>. Les notes importantes
+      <strong>des séances</strong> — « difficult patient », « senna tkasret » — sont enfermées dans la ligne
+      « Notes » replié&nbsp;: il faut l'ouvrir pour les voir. Une alerte qu'on doit déplier n'est pas une alerte.
+      Quatre traitements ci-dessous, tous mesurés à la même contrainte&nbsp;: <strong>l'odontogramme reste
+      au-dessus de la ligne de flottaison.</strong>
+    </p>
+  </header>
+
+  <hr class="rule" />
+
+  <!-- ════════════════ CURRENT ════════════════ -->
+  <section class="band">
+    <div>
+      <div class="band-head">
+        <p class="eyebrow">État actuel</p>
+        <h2>Deux ambres imbriqués</h2>
+      </div>
+      <p class="thesis">Le bandeau, puis la ligne repliée. Ouvrez-la&nbsp;: les alertes de séance sont dedans.</p>
+
+      <div class="stage">
+        <div class="stage-inner notes-col">
+          <div class="app-warn">
+            <svg class="app-warn-ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+            <div style="min-width:0">
+              <p class="app-warn-label">Note importante</p>
+              <p class="app-warn-body">- sida
+- comportement aggressif</p>
+            </div>
+          </div>
+
+          <div class="app-row" data-open="false" id="cur">
+            <div class="app-triggerbar">
+              <button class="app-trigger" type="button" aria-expanded="false" aria-controls="cur-p" onclick="tog('cur')">
+                <svg class="app-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+                <span class="app-ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11l5-5V5a2 2 0 0 0-2-2Z"/><path d="M15 21v-5h5"/></svg></span>
+                <span class="app-label">Notes</span>
+                <span class="app-badge">4</span>
+              </button>
+              <button class="app-edit" type="button">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497Z"/></svg>
+                Modifier
+              </button>
+            </div>
+            <div class="app-panel" id="cur-p">
+              <div><div class="app-panel-pad">
+                <p class="app-plain" style="margin-bottom:10px">patient anxieux</p>
+                <p class="app-sub">Notes des séances</p>
+                <div class="app-seances">
+                  <div class="app-seance">
+                    <div class="app-seance-head"><span class="app-date">30/07/2026</span><span class="app-acte">Traitement de canal (dévitalisation)</span></div>
+                    <p class="app-note warn">⚠ difficult patient</p>
+                  </div>
+                  <div class="app-seance">
+                    <div class="app-seance-head"><span class="app-date">29/07/2026</span><span class="app-acte">Extraction chirurgicale (sagesse / dent incluse)</span></div>
+                    <p class="app-note warn">⚠ senna tkasret</p>
+                  </div>
+                  <div class="app-seance">
+                    <div class="app-seance-head"><span class="app-date">28/07/2026</span><span class="app-acte">Blanchiment dentaire</span></div>
+                    <p class="app-note">detartrage aggressif</p>
+                  </div>
+                </div>
+              </div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="why">
+      <div>
+        <h3>Ce qui coince</h3>
+        <div class="flaws">
+          <p class="flaw"><span class="num">1</span><span>Les alertes de séance ne sont visibles qu'ouvert. C'est le point que vous soulevez.</span></p>
+          <p class="flaw"><span class="num">2</span><span>Deux ambres identiques pour deux choses différentes&nbsp;: un fait permanent du patient, et une observation d'une visite.</span></p>
+          <p class="flaw"><span class="num">3</span><span>Le compteur « 4 » mélange notes et alertes&nbsp;: il ne dit pas combien il y a d'avertissements.</span></p>
+          <p class="flaw"><span class="num">4</span><span>Chaque séance coûte deux lignes (l'en-tête, puis la note). Trois séances remplissent déjà la zone.</span></p>
+        </div>
+      </div>
+      <div class="metric">
+        <span class="n">122</span><span class="u">px replié</span>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule" />
+
+  <!-- ════════════════ OPTION A ════════════════ -->
+  <section class="band">
+    <div>
+      <div class="band-head">
+        <p class="eyebrow">Option A</p>
+        <h2>Le bandeau devient le poste d'alerte</h2>
+        <span class="verdict pick"><span class="dot"></span>Retenu · implémenté</span>
+      </div>
+      <p class="thesis">
+        Un seul ambre porte <em>tous</em> les avertissements. Les faits du patient deviennent des pastilles — deux
+        mots tiennent sur une ligne au lieu de deux. Les alertes de séance suivent, une ligne chacune portant
+        <strong>sa date et son acte</strong>. Le bandeau entier est plafonné à une <strong>fenêtre de deux
+        lignes</strong> — ce qui dépasse est replié derrière « +N », mesuré et non estimé. Les notes ordinaires
+        restent dans la ligne repliée.
+      </p>
+
+      <div class="stage">
+        <p class="stage-label">Cas réel — 2 faits patient, 2 alertes de séance</p>
+        <div class="stage-inner notes-col">
+          <div class="app-warn app-warn-stack" data-open="false" id="a1">
+            <svg class="app-warn-ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+            <div style="min-width:0;flex:1;display:flex;flex-direction:column;gap:7px">
+              <div class="app-wchips">
+                <span class="app-wchip">sida</span>
+                <span class="app-wchip">comportement agressif</span>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:4px">
+                <p class="app-wline"><span class="d">30/07/2026</span><span class="p">Traitement de canal (dévitalisation)</span><span class="t">difficult patient</span></p>
+                <p class="app-wline"><span class="d">29/07/2026</span><span class="p">Extraction chirurgicale (sagesse / dent incluse)</span><span class="t">senna tkasret</span></p>
+              </div>
+            </div>
+          </div>
+
+          <div class="app-row" data-open="false" id="a2">
+            <div class="app-triggerbar">
+              <button class="app-trigger" type="button" aria-expanded="false" aria-controls="a2-p" onclick="tog('a2')">
+                <svg class="app-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+                <span class="app-ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11l5-5V5a2 2 0 0 0-2-2Z"/><path d="M15 21v-5h5"/></svg></span>
+                <span class="app-label">Notes</span>
+                <span class="app-badge">2</span>
+              </button>
+              <button class="app-edit" type="button">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497Z"/></svg>
+                Modifier
+              </button>
+            </div>
+            <div class="app-panel" id="a2-p">
+              <div><div class="app-panel-pad">
+                <p class="app-plain" style="margin-bottom:10px">patient anxieux</p>
+                <p class="app-sub">Notes des séances</p>
+                <div class="app-seances">
+                  <div class="app-seance">
+                    <div class="app-seance-head"><span class="app-date">28/07/2026</span><span class="app-acte">Blanchiment dentaire</span></div>
+                    <p class="app-note">detartrage aggressif</p>
+                  </div>
+                </div>
+              </div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="stage">
+        <p class="stage-label">Plafond — au-delà de deux lignes · cliquez « +3 »</p>
+        <div class="stage-inner notes-col">
+          <div class="app-warn app-warn-stack" data-open="false" id="a3">
+            <svg class="app-warn-ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+            <div style="min-width:0;flex:1;display:flex;flex-direction:column;gap:7px">
+              <div class="app-wchips">
+                <span class="app-wchip">sida</span>
+                <span class="app-wchip">comportement agressif</span>
+                <span class="app-wchip">allergie pénicilline</span>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:4px">
+                <p class="app-wline"><span class="d">30/07/2026</span><span class="p">Traitement de canal (dévitalisation)</span><span class="t">difficult patient</span></p>
+                <p class="app-wline"><span class="d">29/07/2026</span><span class="p">Extraction chirurgicale (sagesse / dent incluse)</span><span class="t">senna tkasret</span></p>
+                <div class="app-panel">
+                  <div><div style="display:flex;flex-direction:column;gap:4px;padding-top:4px">
+                    <p class="app-wline"><span class="d">12/06/2026</span><span class="p">Pose de couronne</span><span class="t">syncope au fauteuil — prévoir position semi-assise</span></p>
+                    <p class="app-wline"><span class="d">03/05/2026</span><span class="p">Extraction simple</span><span class="t">saignement prolongé après extraction</span></p>
+                    <p class="app-wline"><span class="d">14/02/2026</span><span class="p">Soin conservateur</span><span class="t">refuse l'anesthésie tronculaire</span></p>
+                  </div></div>
+                </div>
+                <button class="app-more" type="button" aria-expanded="false" onclick="more('a3', this)">+3 autres alertes</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="app-row" data-open="false">
+            <div class="app-triggerbar">
+              <button class="app-trigger" type="button" aria-expanded="false" onclick="tog(this.closest('.app-row'))">
+                <svg class="app-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+                <span class="app-ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11l5-5V5a2 2 0 0 0-2-2Z"/><path d="M15 21v-5h5"/></svg></span>
+                <span class="app-label">Notes</span>
+                <span class="app-badge">7</span>
+              </button>
+              <button class="app-edit" type="button">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497Z"/></svg>
+                Modifier
+              </button>
+            </div>
+            <div class="app-panel"><div><div class="app-panel-pad">
+              <p class="app-plain">patient anxieux</p>
+            </div></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="stage">
+        <p class="stage-label">Note en prose plus longue que la fenêtre — « Tout afficher »</p>
+        <div class="stage-inner notes-col">
+          <div class="app-warn app-warn-stack" data-open="false" id="a4">
+            <svg class="app-warn-ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+            <div style="min-width:0;flex:1;display:flex;flex-direction:column;gap:7px">
+              <div class="prose-clip">
+                <p class="app-wline" style="font-weight:500">Prémédication antibiotique obligatoire avant tout acte sanglant — voir le courrier du cardiologue du 12/03. Ne pas utiliser de vasoconstricteur.</p>
+                <p class="app-wline"><span class="d">30/07/2026</span><span class="p">Traitement de canal (dévitalisation)</span><span class="t">difficult patient</span></p>
+              </div>
+              <button class="app-more" type="button" aria-expanded="false" onclick="more('a4', this, 'Tout afficher')">Tout afficher</button>
+            </div>
+          </div>
+        </div>
+        <p style="margin:10px 0 0;font-size:13px;color:var(--muted-ink)">
+          Une phrase n'est jamais transformée en pastille&nbsp;; et comme les lignes coupées n'ont pas de nombre,
+          le libellé devient « Tout afficher » plutôt qu'un « +N » faux.
+        </p>
+      </div>
+
+      <div class="stage">
+        <p class="stage-label">Aucune alerte — le bandeau disparaît entièrement</p>
+        <div class="stage-inner notes-col">
+          <div class="app-row" data-open="false">
+            <div class="app-triggerbar">
+              <button class="app-trigger" type="button" aria-expanded="false" onclick="tog(this.closest('.app-row'))">
+                <svg class="app-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+                <span class="app-ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11l5-5V5a2 2 0 0 0-2-2Z"/><path d="M15 21v-5h5"/></svg></span>
+                <span class="app-label">Notes</span>
+                <span class="app-badge">3</span>
+              </button>
+              <button class="app-edit" type="button">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497Z"/></svg>
+                Modifier
+              </button>
+            </div>
+            <div class="app-panel"><div><div class="app-panel-pad">
+              <p class="app-plain">patient anxieux</p>
+            </div></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="why">
+      <div>
+        <h3>Ce que ça résout</h3>
+        <ul class="pts">
+          <li>Toutes les alertes se lisent d'un coup d'œil, séances comprises.</li>
+          <li>La <em>forme</em> distingue les deux natures&nbsp;: pastille = fait permanent, ligne datée = observation d'une visite. Plus d'ambre dans l'ambre.</li>
+          <li>Les pastilles compressent&nbsp;: 2 mots-clés sur une ligne, pas deux.</li>
+          <li>Le compteur de la ligne repliée ne compte plus que ce qui est vraiment replié.</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Le coût</h3>
+        <ul class="pts minus">
+          <li>Un patient très chargé fait grandir le bandeau — d'où le plafond à 2 lignes + « +N ».</li>
+          <li>Les alertes anciennes remontent au même niveau que celles d'hier. La date les départage, l'ordre aussi.</li>
+        </ul>
+      </div>
+      <div class="metric">
+        <span class="n">116</span><span class="u">px replié · −6</span>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule" />
+
+  <!-- ════════════════ OPTION B ════════════════ -->
+  <section class="band">
+    <div>
+      <div class="band-head">
+        <p class="eyebrow">Option B</p>
+        <h2>Un seul objet, liseré de gravité</h2>
+      </div>
+      <p class="thesis">
+        Plus de bandeau séparé&nbsp;: une seule carte, bordée à gauche d'un liseré ambre quand il y a des alertes.
+        Les avertissements occupent le haut, la ligne « Notes » devient la dernière rangée de la même carte. Le bloc
+        se lit comme un en-tête de patient, pas comme deux composants empilés.
+      </p>
+
+      <div class="stage">
+        <p class="stage-label">Cas réel</p>
+        <div class="stage-inner">
+          <div class="app-rail" data-open="false" id="b1">
+            <div class="app-rail-warn">
+              <div style="display:flex;align-items:center;gap:8px">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="color:var(--warn-icon);flex:none"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+                <div class="app-wchips">
+                  <span class="app-wchip">sida</span>
+                  <span class="app-wchip">comportement agressif</span>
+                </div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:4px;padding-left:22px">
+                <p class="app-wline"><span class="d">30/07/2026</span><span class="p">Traitement de canal (dévitalisation)</span><span class="t">difficult patient</span></p>
+                <p class="app-wline"><span class="d">29/07/2026</span><span class="p">Extraction chirurgicale (sagesse / dent incluse)</span><span class="t">senna tkasret</span></p>
+              </div>
+            </div>
+            <div class="app-rail-sep"></div>
+            <div class="app-triggerbar">
+              <button class="app-trigger" type="button" aria-expanded="false" onclick="tog('b1')">
+                <svg class="app-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+                <span class="app-ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11l5-5V5a2 2 0 0 0-2-2Z"/><path d="M15 21v-5h5"/></svg></span>
+                <span class="app-label">Notes</span>
+                <span class="app-badge">2</span>
+              </button>
+              <button class="app-edit" type="button">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497Z"/></svg>
+                Modifier
+              </button>
+            </div>
+            <div class="app-panel"><div><div class="app-panel-pad">
+              <p class="app-plain" style="margin-bottom:10px">patient anxieux</p>
+              <p class="app-sub">Notes des séances</p>
+              <div class="app-seances">
+                <div class="app-seance">
+                  <div class="app-seance-head"><span class="app-date">28/07/2026</span><span class="app-acte">Blanchiment dentaire</span></div>
+                  <p class="app-note">detartrage aggressif</p>
+                </div>
+              </div>
+            </div></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="stage">
+        <p class="stage-label">Aucune alerte — le liseré tombe, la carte reste</p>
+        <div class="stage-inner">
+          <div class="app-row" data-open="false">
+            <div class="app-triggerbar">
+              <button class="app-trigger" type="button" aria-expanded="false" onclick="tog(this.closest('.app-row'))">
+                <svg class="app-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+                <span class="app-ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11l5-5V5a2 2 0 0 0-2-2Z"/><path d="M15 21v-5h5"/></svg></span>
+                <span class="app-label">Notes</span>
+                <span class="app-badge">3</span>
+              </button>
+              <button class="app-edit" type="button">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497Z"/></svg>
+                Modifier
+              </button>
+            </div>
+            <div class="app-panel"><div><div class="app-panel-pad">
+              <p class="app-plain">patient anxieux</p>
+            </div></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="why">
+      <div>
+        <h3>Ce que ça résout</h3>
+        <ul class="pts">
+          <li>Le plus compact des quatre à information égale&nbsp;: une bordure et un fond partagés au lieu de deux.</li>
+          <li>Le liseré encode la gravité sans consommer de hauteur.</li>
+          <li>Un seul objet sous le nom du patient&nbsp;: moins de découpage visuel avant l'odontogramme.</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Le coût</h3>
+        <ul class="pts minus">
+          <li>Mettre l'alerte permanente dans la même carte que le contrôle repliable peut la faire lire comme faisant partie de ce qui est replié.</li>
+          <li>L'ambre est réduit à un liseré de 3&nbsp;px&nbsp;: moins criant qu'un fond plein.</li>
+        </ul>
+      </div>
+      <div class="metric">
+        <span class="n">104</span><span class="u">px replié · −18</span>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule" />
+
+  <!-- ════════════════ OPTION C ════════════════ -->
+  <section class="band">
+    <div>
+      <div class="band-head">
+        <p class="eyebrow">Option C</p>
+        <h2>La ligne de garde</h2>
+      </div>
+      <p class="thesis">
+        Le minimum absolu&nbsp;: une ligne ambre de 32&nbsp;px qui annonce le nombre et les premiers mots-clés.
+        Un clic la déroule en liste complète. Hauteur fixe quel que soit le nombre d'alertes.
+      </p>
+
+      <div class="stage">
+        <p class="stage-label">Replié puis déroulé — cliquez la ligne ambre</p>
+        <div class="stage-inner notes-col">
+          <div class="app-guardwrap" data-open="false" id="c1">
+            <button class="app-guard" type="button" aria-expanded="false" onclick="tog('c1')">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="color:var(--warn-icon);flex:none"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+              <span class="n">4 alertes</span>
+              <span class="keys">sida · comportement agressif · difficult patient…</span>
+              <span class="plus">tout voir</span>
+            </button>
+            <div class="app-guard-panel">
+              <div><div class="app-guard-list">
+                <div class="app-wchips">
+                  <span class="app-wchip">sida</span>
+                  <span class="app-wchip">comportement agressif</span>
+                </div>
+                <p class="app-wline"><span class="d">30/07/2026</span><span class="p">Traitement de canal (dévitalisation)</span><span class="t">difficult patient</span></p>
+                <p class="app-wline"><span class="d">29/07/2026</span><span class="p">Extraction chirurgicale (sagesse / dent incluse)</span><span class="t">senna tkasret</span></p>
+              </div></div>
+            </div>
+          </div>
+
+          <div class="app-row" data-open="false">
+            <div class="app-triggerbar">
+              <button class="app-trigger" type="button" aria-expanded="false" onclick="tog(this.closest('.app-row'))">
+                <svg class="app-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+                <span class="app-ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11l5-5V5a2 2 0 0 0-2-2Z"/><path d="M15 21v-5h5"/></svg></span>
+                <span class="app-label">Notes</span>
+                <span class="app-badge">2</span>
+              </button>
+              <button class="app-edit" type="button">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497Z"/></svg>
+                Modifier
+              </button>
+            </div>
+            <div class="app-panel"><div><div class="app-panel-pad">
+              <p class="app-plain" style="margin-bottom:10px">patient anxieux</p>
+              <p class="app-sub">Notes des séances</p>
+              <div class="app-seances">
+                <div class="app-seance">
+                  <div class="app-seance-head"><span class="app-date">28/07/2026</span><span class="app-acte">Blanchiment dentaire</span></div>
+                  <p class="app-note">detartrage aggressif</p>
+                </div>
+              </div>
+            </div></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="why">
+      <div>
+        <h3>Ce que ça résout</h3>
+        <ul class="pts">
+          <li>De loin le plus économe&nbsp;: l'odontogramme gagne 46&nbsp;px, quel que soit le dossier.</li>
+          <li>Le nombre est toujours là&nbsp;: on sait immédiatement <em>qu'il y a</em> quatre choses à savoir.</li>
+          <li>Un patient à vingt alertes coûte exactement la même hauteur qu'un patient à une.</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Le coût</h3>
+        <ul class="pts minus">
+          <li>La troncature. « sida · comportement agressif · difficult patient… » — la fin se lit après un clic, et une alerte tronquée est une demi-alerte.</li>
+          <li>Sur un écran étroit il ne reste que le nombre et le premier mot-clé.</li>
+        </ul>
+      </div>
+      <div class="metric">
+        <span class="n">76</span><span class="u">px replié · −46</span>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule" />
+
+  <!-- ════════════════ OPTION D ════════════════ -->
+  <section class="band">
+    <div>
+      <div class="band-head">
+        <p class="eyebrow">Option D</p>
+        <h2>Deux compteurs, alertes épinglées</h2>
+        <span class="verdict no"><span class="dot"></span>Ne répond pas à la demande</span>
+      </div>
+      <p class="thesis">
+        Le bandeau actuel ne change pas. La ligne repliée gagne un second compteur ambre « ⚠&nbsp;2 », et les
+        alertes de séance sont épinglées en haut du panneau. Inclus comme référence&nbsp;: c'est le plus petit
+        changement possible — et le seul des quatre où il faut encore cliquer pour lire l'alerte.
+      </p>
+
+      <div class="stage">
+        <div class="stage-inner notes-col">
+          <div class="app-warn">
+            <svg class="app-warn-ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+            <div style="min-width:0">
+              <p class="app-warn-label">Note importante</p>
+              <p class="app-warn-body">- sida
+- comportement aggressif</p>
+            </div>
+          </div>
+
+          <div class="app-row" data-open="false" id="d1">
+            <div class="app-triggerbar">
+              <button class="app-trigger" type="button" aria-expanded="false" onclick="tog('d1')">
+                <svg class="app-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+                <span class="app-ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11l5-5V5a2 2 0 0 0-2-2Z"/><path d="M15 21v-5h5"/></svg></span>
+                <span class="app-label">Notes</span>
+                <span class="app-badge warn">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+                  2
+                </span>
+                <span class="app-badge">2</span>
+              </button>
+              <button class="app-edit" type="button">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497Z"/></svg>
+                Modifier
+              </button>
+            </div>
+            <div class="app-panel"><div><div class="app-panel-pad">
+              <p class="app-sub">Alertes des séances</p>
+              <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:10px">
+                <p class="app-wline"><span class="d">30/07/2026</span><span class="p">Traitement de canal (dévitalisation)</span><span class="t">difficult patient</span></p>
+                <p class="app-wline"><span class="d">29/07/2026</span><span class="p">Extraction chirurgicale (sagesse / dent incluse)</span><span class="t">senna tkasret</span></p>
+              </div>
+              <p class="app-plain" style="margin-bottom:10px">patient anxieux</p>
+              <p class="app-sub">Notes des séances</p>
+              <div class="app-seances">
+                <div class="app-seance">
+                  <div class="app-seance-head"><span class="app-date">28/07/2026</span><span class="app-acte">Blanchiment dentaire</span></div>
+                  <p class="app-note">detartrage aggressif</p>
+                </div>
+              </div>
+            </div></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="why">
+      <div>
+        <h3>Ce que ça résout</h3>
+        <ul class="pts">
+          <li>Le compteur ambre dit <em>qu'il existe</em> deux alertes de séance — c'est déjà mieux que « 4 ».</li>
+          <li>Épinglées en haut du panneau, on les trouve sans faire défiler.</li>
+          <li>Changement minimal&nbsp;: aucun composant nouveau.</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Le coût</h3>
+        <ul class="pts minus">
+          <li>Il faut toujours cliquer pour lire l'alerte. C'est exactement ce que vous voulez supprimer.</li>
+          <li>Deux compteurs côte à côte sur une ligne de 36&nbsp;px commencent à faire du bruit.</li>
+          <li>Ne corrige ni l'ambre dans l'ambre, ni les deux lignes par séance.</li>
+        </ul>
+      </div>
+      <div class="metric">
+        <span class="n">122</span><span class="u">px replié · ±0</span>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule" />
+
+  <section class="closing">
+    <h2>Décision : A</h2>
+    <p>
+      <strong>A est retenu et implémenté</strong> (<code>patient-notes-strip.tsx</code>), avec l'acte de la séance
+      ajouté à côté de la date sur chaque ligne d'alerte. B / C / D restent ci-dessus comme trace des arbitrages.
+    </p>
+    <p>
+      <strong>A</strong>, et si la hauteur devient un problème, <strong>B</strong>. Les deux rendent chaque alerte
+      lisible sans clic, ce qui est la demande&nbsp;; les deux distinguent un fait permanent d'une observation de
+      séance par la <em>forme</em> plutôt que par deux ambres identiques&nbsp;; et les deux tiennent dans la même
+      hauteur qu'aujourd'hui ou moins, parce que les pastilles compriment ce que le bandeau actuel étale sur une
+      ligne par mot-clé.
+    </p>
+    <p>
+      <strong>C</strong> est le bon choix si l'odontogramme doit gagner de la place à tout prix — mais une alerte
+      tronquée demande un clic pour être sûre, ce qui ramène le problème d'origine sous une autre forme.
+      <strong>D</strong> est là pour la comparaison&nbsp;: il est honnête sur les compteurs, et insuffisant sur le
+      fond.
+    </p>
+    <dl>
+      <dt>Commun aux quatre</dt>
+      <dd>Chaque alerte de séance porte sa date — « difficult patient » d'hier et de l'an dernier ne sont pas le même fait.</dd>
+      <dt>Commun à A / B / C</dt>
+      <dd>Le compteur de la ligne repliée ne compte plus que ce qui est réellement replié.</dd>
+      <dt>Écriture</dt>
+      <dd>« comportement agressif » — l'orthographe est corrigée à l'affichage nulle part&nbsp;: c'est la saisie du praticien, rendue telle quelle.</dd>
+    </dl>
+  </section>
+
+</div>
+
+<script>
+  function tog(target) {
+    var el = typeof target === "string" ? document.getElementById(target) : target;
+    if (!el) return;
+    var open = el.getAttribute("data-open") !== "true";
+    el.setAttribute("data-open", open ? "true" : "false");
+    var btn = el.querySelector(".app-trigger, .app-guard");
+    if (btn) btn.setAttribute("aria-expanded", open ? "true" : "false");
+  }
+
+  function more(id, btn, collapsedLabel) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    var open = el.getAttribute("data-open") !== "true";
+    el.setAttribute("data-open", open ? "true" : "false");
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+    btn.textContent = open ? "Réduire" : (collapsedLabel || "+3 autres alertes");
+  }
+</script>

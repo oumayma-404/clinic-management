@@ -598,7 +598,7 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
             // includeArchived: matching must see archived patients. Hiding them here would not protect anything —
             // the very next line auto-creates a placeholder patient, so excluding them would silently produce a
             // DUPLICATE record for someone the clinic already has.
-            var patients = await _patientRepository.GetByClinicIdAsync(clinicId, includeArchived: true, cancellationToken: cancellationToken);
+            var patients = (await _patientRepository.GetByClinicIdAsync(clinicId, includeArchived: true, cancellationToken: cancellationToken)).Items;
             
             // Try exact match first (case-insensitive)
             var patient = patients.FirstOrDefault(p => 
@@ -666,6 +666,10 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                 // No contact details: a patient conjured from a calendar event title genuinely has none.
                 // This was the second, undocumented sentinel source — unknown@example.com / 000-000-0000 —
                 // and unlike the create form nobody ever saw the form that "filled it in".
+                // Dentition is deliberately left at the entity's Adult default and NOT derived from dateOfBirth:
+                // that value is DateTime.UtcNow, a placeholder standing in for "unknown", so the age rule would
+                // compute age 0 and chart an adult conjured from a calendar title on baby teeth. Whoever opens this
+                // patient sets the real dentition in patient info.
                 var newPatient = new Patient(
                     Guid.NewGuid(),
                     clinicId,

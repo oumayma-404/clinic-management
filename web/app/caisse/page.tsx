@@ -11,6 +11,8 @@ import { toast } from "sonner"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { DashboardSidebar } from "@/components/dashboard-sidebar"
 import { ClinicGuard } from "@/components/clinic-guard"
+import { PageHeader } from "@/components/ui/page-header"
+import { KpiGrid } from "@/components/dashboard/kpi-grid"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -37,9 +39,11 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { ArrowDownCircle, ArrowLeftRight, ArrowUpCircle, Loader2, Pencil, Plus, Trash2, Undo2, Wallet } from "lucide-react"
+import { ArrowLeftRight, Loader2, Pencil, Plus, Search, Trash2, Wallet } from "lucide-react"
 import { expensesApi, type ExpensePayload } from "@/lib/api/expenses"
 import { CaisseLedgerTable } from "@/components/caisse/caisse-ledger-table"
+import { DataTablePagination } from "@/components/ui/data-table-pagination"
+import { DEFAULT_PAGE_SIZE, emptyPage, type PagedResponse } from "@/lib/api/paging"
 import { ApiError } from "@/lib/api/client"
 import { formatDT } from "@/lib/format"
 import type { CaisseLedgerDto, CaisseSummaryDto, ExpenseDto } from "@/lib/api/types"
@@ -99,7 +103,16 @@ export default function CaissePage() {
   // The « extrait »: every movement behind the three totals above it. Fetched alongside them from the same
   // window, so the lines and the figures can never describe different periods.
   const [ledger, setLedger] = useState<CaisseLedgerDto | null>(null)
-  const [expenses, setExpenses] = useState<ExpenseDto[]>([])
+  const [expensePage, setExpensePage] = useState<PagedResponse<ExpenseDto>>(() => emptyPage<ExpenseDto>())
+  const expenses = expensePage.items
+
+  // One search box drives BOTH tables below, because they describe the same money from two angles and searching
+  // « loyer » should not mean one thing in the statement and another in the dépenses list. The term is sent to the
+  // server for each, so it matches across the whole period rather than the rows currently rendered.
+  const [search, setSearch] = useState("")
+  const [ledgerPageNumber, setLedgerPageNumber] = useState(1)
+  const [expensePageNumber, setExpensePageNumber] = useState(1)
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -120,14 +133,28 @@ export default function CaissePage() {
     try {
       setLoading(true)
       setError(null)
+      // The summary stays unpaged and unsearched on purpose: the four figures above are the totals for the whole
+      // period, and narrowing them to a page (or to a search) would make them contradict the header they sit under.
       const [summaryData, ledgerData, expensesData] = await Promise.all([
         expensesApi.caisseSummary(from, to),
-        expensesApi.caisseLedger(from, to),
-        expensesApi.list(from, to),
+        expensesApi.caisseLedger({
+          from,
+          to,
+          page: ledgerPageNumber,
+          pageSize,
+          search: search.trim() || undefined,
+        }),
+        expensesApi.listPaged({
+          from,
+          to,
+          page: expensePageNumber,
+          pageSize,
+          search: search.trim() || undefined,
+        }),
       ])
       setSummary(summaryData)
       setLedger(ledgerData)
-      setExpenses(expensesData)
+      setExpensePage(expensesData)
     } catch (err) {
       const message = err instanceof ApiError ? err.message : "Échec du chargement de la caisse"
       setError(message)
@@ -135,11 +162,17 @@ export default function CaissePage() {
     } finally {
       setLoading(false)
     }
-  }, [from, to])
+  }, [from, to, ledgerPageNumber, expensePageNumber, pageSize, search])
 
   useEffect(() => {
     loadData()
   }, [loadData])
+
+  // A new search must not leave either table on a page its result set no longer has.
+  useEffect(() => {
+    setLedgerPageNumber(1)
+    setExpensePageNumber(1)
+  }, [search, from, to])
 
   // Dashboard drill-through (« Dépenses » / « Net »): ?from=&to= opens the range the KPI was computed over, so la
   // caisse and the dashboard show the same three figures. window.location in an effect rather than useSearchParams —
@@ -215,10 +248,7 @@ export default function CaissePage() {
             <div className="mx-auto max-w-7xl space-y-6">
               {/* Page Header */}
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h1 className="text-3xl font-semibold text-foreground">Caisse</h1>
-                  <p className="mt-1 text-sm capitalize text-muted-foreground">{dayLabel}</p>
-                </div>
+                <PageHeader zone="Argent" title="Caisse" subtitle={<span className="capitalize">{dayLabel}</span>} />
 
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
                   <div className="flex items-end gap-2">
@@ -264,53 +294,26 @@ export default function CaissePage() {
                   card. They used to be silently subtracted inside it, which stopped working the moment the
                   statement below listed a refund as money leaving — the lines would not have summed to the total
                   printed above them. Net = Encaissements − Avoirs − Dépenses. */}
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium text-muted-foreground">Encaissements</CardTitle>
-                    <ArrowUpCircle className="h-4 w-4 text-emerald-600" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-semibold text-emerald-600">{formatDT(cashIn)}</div>
-                  </CardContent>
-                </Card>
+              {/*
+                The four figures share ONE surface (`KpiGrid`), the same treatment the dashboard uses for the same
+                numbers — four separate `Card`s meant four borders, four shadows and four figures of equal weight,
+                and the two screens reporting identical money looked like two different products.
 
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium text-muted-foreground">Avoirs remboursés</CardTitle>
-                    <Undo2 className="h-4 w-4 text-amber-600" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-semibold text-amber-600">{formatDT(refunds)}</div>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium text-muted-foreground">Dépenses</CardTitle>
-                    <ArrowDownCircle className="h-4 w-4 text-destructive" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-semibold text-destructive">{formatDT(cashOut)}</div>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium text-muted-foreground">Net</CardTitle>
-                    <Wallet className="h-4 w-4 text-muted-foreground" />
-                  </CardHeader>
-                  <CardContent>
-                    <div
-                      className={
-                        net < 0 ? "text-2xl font-semibold text-destructive" : "text-2xl font-semibold text-foreground"
-                      }
-                    >
-                      {formatDT(net)}
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
+                « Net » takes the accent: it is the *result* of the three beside it, which four identical cards had
+                no way of saying. The other three keep their semantic colour (encaissé positive, avoirs warning,
+                dépenses destructive) through the theme tokens rather than raw `emerald-600` / `amber-600`.
+              */}
+              <KpiGrid columns={4}>
+                <CaisseFigure label="Encaissements" hint="brut, hors avoirs" value={formatDT(cashIn)} tone="text-success" />
+                <CaisseFigure label="Avoirs remboursés" hint="rendus aux patients" value={formatDT(refunds)} tone="text-warning-ink" />
+                <CaisseFigure label="Dépenses" hint="sorties de caisse" value={formatDT(cashOut)} tone="text-destructive" />
+                <CaisseFigure
+                  label="Net"
+                  hint="encaissé − avoirs − dépenses"
+                  value={formatDT(net)}
+                  tone={net < 0 ? "text-destructive" : "text-primary"}
+                />
+              </KpiGrid>
 
               {/* The « extrait » — the statement behind the four figures above. It sits above the expenses table
                   because the expenses are a subset of it; that table stays for its edit/delete actions, which
@@ -321,7 +324,7 @@ export default function CaissePage() {
                     <ArrowLeftRight className="h-5 w-5" />
                     Extrait de caisse
                     <Badge variant="secondary" className="ml-2">
-                      {ledger?.movements.length ?? 0}
+                      {ledger?.totalCount ?? 0}
                     </Badge>
                   </CardTitle>
                   <CardDescription>
@@ -331,10 +334,36 @@ export default function CaissePage() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
+                  <div className="mb-4">
+                    <Label htmlFor="caisse-search" className="sr-only">
+                      Rechercher un mouvement
+                    </Label>
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        id="caisse-search"
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        placeholder="Rechercher un mouvement ou une dépense (libellé, patient, référence)…"
+                        className="pl-9"
+                      />
+                    </div>
+                  </div>
                   {error && !loading ? (
                     <p className="py-8 text-center text-sm text-destructive">{error}</p>
                   ) : (
-                    <CaisseLedgerTable movements={ledger?.movements ?? []} loading={loading} />
+                    <>
+                      <CaisseLedgerTable movements={ledger?.movements ?? []} loading={loading} />
+                      {ledger && (
+                        <DataTablePagination
+                          page={ledger}
+                          onPageChange={setLedgerPageNumber}
+                          onPageSizeChange={setPageSize}
+                          loading={loading}
+                          label={["mouvement", "mouvements"]}
+                        />
+                      )}
+                    </>
                   )}
                 </CardContent>
               </Card>
@@ -346,7 +375,7 @@ export default function CaissePage() {
                     <Wallet className="h-5 w-5" />
                     Dépenses du jour
                     <Badge variant="secondary" className="ml-2">
-                      {expenses.length}
+                      {expensePage.totalCount}
                     </Badge>
                   </CardTitle>
                 </CardHeader>
@@ -374,7 +403,11 @@ export default function CaissePage() {
                           {expenses.length === 0 ? (
                             <TableRow>
                               <TableCell colSpan={6} className="h-24 text-center">
-                                <p className="text-muted-foreground">Aucune dépense pour ce jour</p>
+                                <p className="text-muted-foreground">
+                                  {search.trim()
+                                    ? "Aucune dépense ne correspond à votre recherche"
+                                    : "Aucune dépense pour ce jour"}
+                                </p>
                               </TableCell>
                             </TableRow>
                           ) : (
@@ -420,6 +453,13 @@ export default function CaissePage() {
                           )}
                         </TableBody>
                       </Table>
+                      <DataTablePagination
+                        page={expensePage}
+                        onPageChange={setExpensePageNumber}
+                        onPageSizeChange={setPageSize}
+                        loading={loading}
+                        label={["dépense", "dépenses"]}
+                      />
                     </div>
                   )}
                 </CardContent>
@@ -654,5 +694,36 @@ function ExpenseFormModal({ open, onOpenChange, editingExpense, defaultDay, onSa
         </form>
       </DialogContent>
     </Dialog>
+  )
+}
+
+/**
+ * One figure inside la caisse's shared surface.
+ *
+ * <p>`bg-card` is load-bearing — `KpiGrid` is a `bg-border` container showing through `gap-px`, so a cell that does
+ * not paint its own background renders as a solid border block. Deliberately **not** a `KpiCard`: these figures are
+ * not links (there is nothing to drill into from la caisse — the statement below already *is* the detail) and they
+ * carry no period comparison, so reusing that component would mean passing an `href` of `#` and lying about it.</p>
+ */
+function CaisseFigure({
+  label,
+  hint,
+  value,
+  tone,
+}: {
+  label: string
+  hint: string
+  value: string
+  tone: string
+}) {
+  return (
+    <div className="bg-card p-4">
+      <p className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+        <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-primary/70" />
+        {label}
+      </p>
+      <p className={`mt-1 text-2xl font-semibold tabular-nums tracking-tight ${tone}`}>{value}</p>
+      <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p>
+    </div>
   )
 }

@@ -8,6 +8,8 @@ using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Medications.Commands;
 using ClinicManagement.Application.Features.Medications.Queries;
 
+using ClinicManagement.Domain.Common;
+
 namespace ClinicManagement.API.Controllers;
 
 [ApiController]
@@ -27,10 +29,19 @@ public class MedicationsController : ApiControllerBase
     /// (not clinic-scoped); requires an authenticated user. Active-only by default (the ordonnance picker).
     /// </summary>
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<MedicationDto>>> GetMedications(
-        [FromQuery] string? q = null, [FromQuery] bool includeInactive = false)
+    public async Task<ActionResult<PagedResult<MedicationDto>>> GetMedications(
+        [FromQuery] string? q = null,
+        [FromQuery] bool includeInactive = false,
+        [FromQuery] int? page = null,
+        [FromQuery] int? pageSize = null)
     {
-        var query = new GetMedicationsQuery { Q = q, IncludeInactive = includeInactive };
+        var query = new GetMedicationsQuery
+        {
+            Q = q,
+            IncludeInactive = includeInactive,
+            Page = page,
+            PageSize = pageSize
+        };
         var result = await _mediator.Send(query);
 
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);

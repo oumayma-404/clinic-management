@@ -4,6 +4,7 @@ using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Appointments.Commands;
 using ClinicManagement.Application.Features.Appointments.Queries;
 using ClinicManagement.Application.Common.Authorization;
+using ClinicManagement.Domain.Common;
 using Microsoft.AspNetCore.Authorization;
 
 namespace ClinicManagement.API.Controllers;
@@ -80,9 +81,25 @@ public class AppointmentsController : ApiControllerBase
 
     /// <summary>List the clinic's recurring appointment series (active by default).</summary>
     [HttpGet("recurring")]
-    public async Task<ActionResult<IEnumerable<RecurringAppointmentDto>>> GetRecurringSeries([FromQuery] bool activeOnly = true)
+    /// <param name="page">1-based page number. Omit both paging parameters to get every match.</param>
+    /// <param name="pageSize">Rows per page, clamped to <c>PageRequest.MaxPageSize</c>.</param>
+    /// <param name="search">
+    /// Free-text filter over the patient's name, the practitioner and the notes. Applied in SQL before the page
+    /// is cut, so it spans the whole clinic.
+    /// </param>
+    public async Task<ActionResult<PagedResult<RecurringAppointmentDto>>> GetRecurringSeries(
+        [FromQuery] bool activeOnly = true,
+        [FromQuery] int? page = null,
+        [FromQuery] int? pageSize = null,
+        [FromQuery] string? search = null)
     {
-        var result = await _mediator.Send(new GetRecurringSeriesQuery { ActiveOnly = activeOnly });
+        var result = await _mediator.Send(new GetRecurringSeriesQuery
+        {
+            ActiveOnly = activeOnly,
+            Page = page,
+            PageSize = pageSize,
+            SearchTerm = search
+        });
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
     }
 

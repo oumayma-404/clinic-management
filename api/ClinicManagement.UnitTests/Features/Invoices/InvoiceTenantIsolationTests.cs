@@ -1,3 +1,5 @@
+using ClinicManagement.UnitTests.Common;
+using ClinicManagement.Domain.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Features.Invoices.Commands;
@@ -154,10 +156,12 @@ public class InvoiceTenantIsolationTests
         Authenticated();
         _invoices.Setup(r => r.GetFilteredAsync(
                 ClinicId, It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<Guid?>(),
-                It.IsAny<InvoiceStatus?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Array.Empty<Invoice>());
-        _patients.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<bool>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Array.Empty<Patient>());
+                It.IsAny<InvoiceStatus?>(), It.IsAny<string?>(), It.IsAny<PageRequest?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Array.Empty<Invoice>()).AsPage());
+        _patients.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<bool>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<PageRequest?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Array.Empty<Patient>()).AsPage());
 
         var handler = new GetInvoicesQueryHandler(
             _invoices.Object, _patients.Object, _creditNotes.Object, _clinicResolver.Object,
@@ -168,6 +172,7 @@ public class InvoiceTenantIsolationTests
         Assert.True(result.IsSuccess);
         _invoices.Verify(r => r.GetFilteredAsync(
             ClinicId, It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<Guid?>(),
-            It.IsAny<InvoiceStatus?>(), It.IsAny<CancellationToken>()), Times.Once);
+            It.IsAny<InvoiceStatus?>(), It.IsAny<string?>(), It.IsAny<PageRequest?>(),
+                It.IsAny<CancellationToken>()), Times.Once);
     }
 }

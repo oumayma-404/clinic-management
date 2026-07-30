@@ -25,8 +25,11 @@ import type {
   AppointmentDto,
 } from "@/lib/api/types"
 import { formatDT, roundMillimes } from "@/lib/format"
-import { CONDITION_ORDER, conditionStyle, serializeSurfaces } from "@/components/odontogram-conditions"
+import {
+  CONDITION_ORDER, conditionStyle, needsTreatment, serializeSurfaces,
+} from "@/components/odontogram-conditions"
 import { ADULT_FDI, CHILD_FDI, isAdultTooth } from "@/components/tooth-multiselect"
+import { isAdultDentition } from "@/lib/dentition"
 import { RecordToothChart, type ToothPaint } from "@/components/record-tooth-chart"
 import { ActSlot } from "@/components/record/act-slot"
 import { ActDetailFields } from "@/components/record/act-detail-fields"
@@ -94,9 +97,17 @@ export function PatientRecordModal({
 }: PatientRecordModalProps) {
   const [patientName, setPatientName] = useState(initialPatientName)
   const [interventionDate, setInterventionDate] = useState(new Date().toISOString().split("T")[0])
-  // Which dentition the chart displays. Purely a view switch: acts already charted on the other dentition
-  // are kept and stay listed, so a mixed-dentition session is recordable.
-  const [isAdultView, setIsAdultView] = useState(true)
+  /**
+   * Which dentition the chart displays — **derived, no longer a toggle**.
+   *
+   * It used to be a local Adulte/Enfant switch defaulting to Adulte, so recording a child's visit began by noticing
+   * the chart was wrong and flipping it. The answer is a property of the patient and is now stored on them.
+   *
+   * When *editing*, the record's own `isAdultTeeth` wins over the patient's current value: a fiche written years ago
+   * on baby teeth must reopen on baby teeth even if that child is since charted as an adult, or the acts it holds
+   * would all count as "on the other dentition" and the chart would open empty.
+   */
+  const isAdultView = record ? record.isAdultTeeth : isAdultDentition(patient?.dentition)
   const [amountPaid, setAmountPaid] = useState("")
   const [paidDirty, setPaidDirty] = useState(false)
   const [notes, setNotes] = useState<string[]>([])
@@ -157,7 +168,6 @@ export function PatientRecordModal({
 
     if (record) {
       setInterventionDate(new Date(record.interventionDate).toISOString().split("T")[0])
-      setIsAdultView(record.isAdultTeeth)
       setAmountPaid(String(record.amountPaid))
       setPaidDirty(true) // a saved amount is the user's, never re-mirrored from the total
       setNotes([...record.notes])
@@ -170,7 +180,6 @@ export function PatientRecordModal({
       })
     } else {
       setInterventionDate(new Date().toISOString().split("T")[0])
-      setIsAdultView(true)
       setAmountPaid("")
       setPaidDirty(false)
       setNotes([])
@@ -232,11 +241,21 @@ export function PatientRecordModal({
     return map
   }, [priorStates, record])
 
+  /**
+   * Teeth this patient has open work on: their most recent charted state is a **diagnosis** *and* that diagnosis
+   * calls for treatment.
+   *
+   * <p>The `needsTreatment` half is the fix for a banner that over-claimed. It filtered on `source` alone, so a
+   * tooth charted « Obturation » or « Couronne » — an observation that the tooth is *already restored* — was
+   * counted as « à traiter » and bulk-selected alongside the real caries. « 5 dents à traiter » listed teeth that
+   * needed nothing, which is the kind of number a dentist stops trusting after the first time.</p>
+   */
   const openDiagnosisTeeth = useMemo(
     () =>
       Array.from(priorByTooth.entries())
-        .filter(([, s]) => s.source === "Diagnosis")
-        .map(([tooth]) => tooth),
+        .filter(([, s]) => s.source === "Diagnosis" && needsTreatment(s.condition))
+        .map(([tooth]) => tooth)
+        .sort((a, b) => a - b),
     [priorByTooth],
   )
 
@@ -292,13 +311,6 @@ export function PatientRecordModal({
   const upperQuadrants = isAdultView ? [1, 2] : [5, 6]
   const lowerQuadrants = isAdultView ? [3, 4] : [7, 8]
   const teethInQuadrants = (quadrants: number[]) => viewTeeth.filter((t) => quadrants.includes(Math.floor(t / 10)))
-
-  const switchDentition = (adult: boolean) => {
-    if (adult === isAdultView) return
-    setIsAdultView(adult)
-    // A selection on teeth that are no longer on screen would be a lie; the charted acts are untouched.
-    dispatch({ type: "clearSelection" })
-  }
 
   // Linking a plan step carries its designation / cost / teeth into the draft, so the dentist does not
   // retype what the plan already knows. Only an untouched draft is prefilled.
@@ -447,12 +459,26 @@ export function PatientRecordModal({
     return bits.join(" · ")
   }, [hasDraft, draft])
 
-  const actsSummary =
-    acts.length === 0
-      ? "aucun acte confirmé"
-      : `${acts.length} acte${acts.length > 1 ? "s" : ""} · ${formatDT(
-          roundMillimes(acts.reduce((s, a) => s + resolveActCost(a.unitCost, a.perTooth, a.toothNumbers.length), 0)),
-        )}`
+  /**
+   * The collapsed header of « Actes de la séance ». It describes **what will be saved**, not just what has been
+   * confirmed — so it counts the draft and totals to the same figure as the dialog's own footer.
+   *
+   * <p>It used to read « aucun acte confirmé » while the footer showed the draft's price. Both were technically
+   * true and together they were a contradiction, on the one summary a dentist reads before pressing save. « en
+   * cours » is what distinguishes the draft here, rather than pretending it does not exist.</p>
+   */
+  const actsSummary = (() => {
+    const confirmedTotal = roundMillimes(
+      acts.reduce((s, a) => s + resolveActCost(a.unitCost, a.perTooth, a.toothNumbers.length), 0),
+    )
+    if (acts.length === 0 && !hasDraft) return "aucun acte"
+    // While an existing act is being edited the draft REPLACES it, so it is not an extra act to announce.
+    const pendingCount = hasDraft && !editingKey ? 1 : 0
+    const parts: string[] = []
+    if (acts.length > 0) parts.push(`${acts.length} acte${acts.length > 1 ? "s" : ""}`)
+    if (pendingCount > 0) parts.push(acts.length > 0 ? "+ 1 en cours" : "1 acte en cours")
+    return `${parts.join(" ")} · ${formatDT(pendingCount > 0 || editingKey ? grandTotal : confirmedTotal)}`
+  })()
 
   const noteCount = notes.filter((n) => n.trim()).length
   const importantCount = importantNotes.filter((n) => n.trim()).length
@@ -467,6 +493,23 @@ export function PatientRecordModal({
   const proposedFromAppointment =
     !record && !editingAct && acts.length === 0 && draft.procedureTypeId != null &&
     draft.procedureTypeId === appointment?.procedureTypeId
+
+  /**
+   * The séance's other booked acts, resolved against the catalogue and minus anything already in this session
+   * (charted or in the draft) — so the shortcuts thin out as the dentist works through the visit instead of
+   * re-offering an act they have just recorded.
+   */
+  const otherBookedActs = useMemo(() => {
+    const used = new Set<string>([
+      ...acts.map((a) => a.procedureTypeId).filter((id): id is string => !!id),
+      ...(draft.procedureTypeId ? [draft.procedureTypeId] : []),
+    ])
+    return (appointment?.procedures ?? [])
+      .slice()
+      .sort((a, b) => a.sequenceNumber - b.sequenceNumber)
+      .map((p) => (p.procedureTypeId ? procedureTypes.find((pt) => pt.id === p.procedureTypeId) : undefined))
+      .filter((pt): pt is ProcedureTypeDto => !!pt && !used.has(pt.id))
+  }, [appointment?.procedures, procedureTypes, acts, draft.procedureTypeId])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -534,37 +577,18 @@ export function PatientRecordModal({
               disabled={loading}
             />
           </div>
-          <div className="space-y-1.5">
-            <Label>Schéma affiché</Label>
-            <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
-              <Button
-                type="button"
-                variant={isAdultView ? "default" : "ghost"}
-                size="sm"
-                className="h-7 flex-1 px-3 text-xs"
-                onClick={() => switchDentition(true)}
-                disabled={loading}
-              >
-                Adulte
-              </Button>
-              <Button
-                type="button"
-                variant={!isAdultView ? "default" : "ghost"}
-                size="sm"
-                className="h-7 flex-1 px-3 text-xs"
-                onClick={() => switchDentition(false)}
-                disabled={loading}
-              >
-                Enfant
-              </Button>
-            </div>
-            {hiddenDentitionActs > 0 && (
+          {/* The Adulte/Enfant switch that stood here is gone — the arch follows the patient's stored dentition.
+              The warning stays: an act charted on the other dentition is still preserved and must still be visible,
+              which is now only reachable by editing an older fiche. */}
+          {hiddenDentitionActs > 0 && (
+            <div className="space-y-1.5">
+              <Label>Autre dentition</Label>
               <p className="text-[11px] text-amber-600 dark:text-amber-500">
                 {hiddenDentitionActs} acte{hiddenDentitionActs > 1 ? "s" : ""} sur l&apos;autre dentition
                 (conservé{hiddenDentitionActs > 1 ? "s" : ""})
               </p>
-            )}
-          </div>
+            </div>
+          )}
           {planItems.length > 0 && (
             <div className="space-y-1.5">
               <Label htmlFor="plan-item">
@@ -598,6 +622,38 @@ export function PatientRecordModal({
           dispatch={dispatch}
           disabled={loading}
         />
+
+        {/*
+          The rest of the séance. An appointment can carry several acts, and only the first one is *proposed* —
+          proposing all of them would have to commit acts the dentist has not confirmed, with no teeth and no
+          price, which is exactly what the confirm-first flow exists to avoid.
+
+          So the others are named rather than pre-filled, each with a one-tap « Ajouter ». Without this the fiche
+          would silently document one act of a visit booked for three, and nothing on the screen would say so.
+        */}
+        {!record && otherBookedActs.length > 0 && (
+          <div className="rounded-md border border-dashed bg-muted/30 px-3 py-2">
+            <p className="text-xs text-muted-foreground">
+              Aussi prévu à ce rendez-vous — à confirmer un par un :
+            </p>
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              {otherBookedActs.map((booked) => (
+                <Button
+                  key={booked.id}
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 gap-1 text-xs"
+                  disabled={loading}
+                  onClick={() => dispatch({ type: "pickProcedure", procedure: booked })}
+                >
+                  <Plus className="h-3 w-3" />
+                  {booked.name}
+                </Button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* THE TEETH — full width, no longer competing with a form column for space. */}
         <div className="space-y-2">
@@ -743,6 +799,13 @@ export function PatientRecordModal({
         >
           <SessionActsList
             acts={acts}
+            // Only when it is a NEW act. While an existing one is being edited the draft *is* that act, already
+            // listed above — showing it twice would read as two acts and double the apparent work.
+            pendingAct={
+              hasDraft && !editingKey
+                ? { ...draft, key: "pending", toothNumbers: [...selection] }
+                : null
+            }
             editingKey={editingKey}
             onEdit={(key) => {
               dispatch({ type: "beginEditAct", key })

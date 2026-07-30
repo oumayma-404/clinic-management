@@ -79,8 +79,10 @@ public class CnamBillingCalculator : ICnamBillingCalculator
             return;
         }
 
-        var acts = await _actRepository.GetAllAsync(includeInactive: true, cancellationToken);
-        _actsById = acts.ToDictionary(a => a.Id);
+        // Unpaged: this builds the by-id lookup the whole calculation resolves against, so it needs every act.
+        var acts = await _actRepository.GetAllAsync(
+            includeInactive: true, cancellationToken: cancellationToken);
+        _actsById = acts.Items.ToDictionary(a => a.Id);
 
         var letterValues = await _catalogRepository.GetAllLetterValuesAsync(cancellationToken);
         _vlcByLettreCle = letterValues

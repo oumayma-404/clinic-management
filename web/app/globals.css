@@ -3,77 +3,171 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/*
+ * `hover-hover:` — only on devices with a real pointer.
+ *
+ * A touch tap fires `:hover` and leaves it applied until the next tap somewhere else, so any hover effect
+ * that moves or scales becomes a stuck state on a tablet — which is exactly what a dentist holds at the
+ * chair. Gate *movement* hovers behind this; plain colour/background hovers can stay ungated, since a
+ * lingering tint reads as "selected" rather than as broken.
+ */
+@custom-variant hover-hover (@media (hover: hover) and (pointer: fine));
+
+/*
+ * ── Palette: « menthe clinique » ──────────────────────────────────────────────────────────────────────────
+ *
+ * The previous theme read as washed out, and the cause was structural rather than a matter of taste:
+ *
+ *   • `--background` was oklch(0.99 0 0) against `--card` oklch(1 0 0) — **1 % apart**, so no surface ever lifted
+ *     off the page and the whole app was one sheet with hairlines drawn on it.
+ *   • Every surface neutral sat at chroma 0.005–0.01, i.e. grey.
+ *   • `--primary` existed at a respectable chroma and **filled nothing** — it reached one small active button and
+ *     the chart line, so the app had an accent on paper and none on screen.
+ *
+ * What changed, and why each is load-bearing:
+ *
+ *   • The ground is tinted (0.975 at chroma 0.008) and cards stay pure white. A *visible* ground/card gap is what
+ *     makes a surface exist; without it, elevation has nothing to be measured against.
+ *   • Neutrals carry a real hue bias at **215** — between the accent (188) and the old blue (250) — so grey reads
+ *     as chosen rather than inherited.
+ *   • The accent is a deep clinical teal. Teal because this is a dental practice: it is the hue of mouthwash,
+ *     scrubs and hygiene, and it is *not* the institutional blue half of medical software already wears.
+ *   • `--primary` is L 0.49, not the brighter 0.60 the accent reads as elsewhere: it is a **button fill with
+ *     near-white text**, and 0.60 lands around 3.3:1 — under the 4.5:1 floor. `--chart-1` carries the brighter
+ *     step, where contrast with white type is not the constraint.
+ *   • Semantic state (`--success` / `--warning` / `--destructive` + their `-wash` pairs) is deliberately its own
+ *     family, independent of the accent hue. A state that takes the brand colour stops being a state — and the
+ *     washes are what let a delta be a tinted pill instead of bare coloured text.
+ *   • `--radius` 0.5rem → 0.75rem: the "smooth". It flows to every `rounded-md/lg/xl` through the @theme map
+ *     below, so buttons land at 10 px and surfaces at 12–16 px rather than a uniform tight 8.
+ */
 :root {
-  /* Modern medical UI theme with clean blues and neutrals */
-  --background: oklch(0.99 0 0);
-  --foreground: oklch(0.18 0 0);
+  --background: oklch(0.975 0.008 215);
+  --foreground: oklch(0.20 0.015 235);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.18 0 0);
+  --card-foreground: oklch(0.20 0.015 235);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.18 0 0);
-  --primary: oklch(0.52 0.14 245);
-  --primary-foreground: oklch(0.99 0 0);
-  --secondary: oklch(0.97 0.005 250);
-  --secondary-foreground: oklch(0.18 0 0);
-  --muted: oklch(0.97 0.005 250);
-  --muted-foreground: oklch(0.48 0.01 250);
-  --accent: oklch(0.965 0.01 245);
-  --accent-foreground: oklch(0.35 0.12 245);
-  --destructive: oklch(0.58 0.2 25);
+  --popover-foreground: oklch(0.20 0.015 235);
+  --primary: oklch(0.49 0.105 188);
+  --primary-foreground: oklch(0.99 0.005 190);
+  --secondary: oklch(0.965 0.008 215);
+  --secondary-foreground: oklch(0.20 0.015 235);
+  --muted: oklch(0.965 0.008 215);
+  --muted-foreground: oklch(0.50 0.018 225);
+  --accent: oklch(0.955 0.028 190);
+  --accent-foreground: oklch(0.38 0.09 190);
+  --destructive: oklch(0.55 0.19 25);
   --destructive-foreground: oklch(0.99 0 0);
-  --border: oklch(0.93 0.005 250);
-  --input: oklch(0.93 0.005 250);
-  --ring: oklch(0.52 0.14 245);
-  --chart-1: oklch(0.58 0.14 245);
-  --chart-2: oklch(0.62 0.18 200);
-  --chart-3: oklch(0.55 0.16 270);
-  --chart-4: oklch(0.65 0.12 220);
-  --chart-5: oklch(0.7 0.1 190);
-  --radius: 0.5rem;
+  --border: oklch(0.915 0.008 215);
+  --input: oklch(0.915 0.008 215);
+  --ring: oklch(0.49 0.105 188);
+
+  /* Semantic state + the tinted-pill backgrounds. Constant hues; never the accent. */
+  --success: oklch(0.52 0.12 155);
+  --success-wash: oklch(0.955 0.035 155);
+  --warning: oklch(0.62 0.13 72);
+  --warning-wash: oklch(0.965 0.045 80);
+  /* The darkened amber that is legible ON --warning-wash. --warning itself sits at L 0.62, which lands near
+     3.5:1 against its own wash — under the floor for badge text, so a status pill needs this step instead. */
+  --warning-ink: oklch(0.45 0.11 62);
+  --destructive-wash: oklch(0.962 0.03 25);
+
+  /* The hero surface: a filled accent panel — the one bold surface on the dashboard. */
+  --hero-from: oklch(0.455 0.095 190);
+  --hero-to: oklch(0.375 0.085 196);
+  --hero-glow: oklch(0.60 0.115 185);
+  --hero-foreground: oklch(0.99 0.005 190);
+
+  --chart-1: oklch(0.60 0.12 187);
+  --chart-2: oklch(0.58 0.14 240);
+  --chart-3: oklch(0.62 0.13 300);
+  --chart-4: oklch(0.66 0.13 45);
+  --chart-5: oklch(0.55 0.13 155);
+  --radius: 0.75rem;
   --sidebar: oklch(1 0 0);
-  --sidebar-foreground: oklch(0.18 0 0);
-  --sidebar-primary: oklch(0.52 0.14 245);
-  --sidebar-primary-foreground: oklch(0.99 0 0);
-  --sidebar-accent: oklch(0.965 0.01 245);
-  --sidebar-accent-foreground: oklch(0.35 0.12 245);
-  --sidebar-border: oklch(0.93 0.005 250);
-  --sidebar-ring: oklch(0.52 0.14 245);
+  --sidebar-foreground: oklch(0.20 0.015 235);
+  --sidebar-primary: oklch(0.49 0.105 188);
+  --sidebar-primary-foreground: oklch(0.99 0.005 190);
+  --sidebar-accent: oklch(0.955 0.028 190);
+  --sidebar-accent-foreground: oklch(0.38 0.09 190);
+  --sidebar-border: oklch(0.915 0.008 215);
+  --sidebar-ring: oklch(0.49 0.105 188);
 }
 
+/*
+ * Dark is given the same care rather than an inversion. The ground/card gap is *widened* here (0.135 → 0.185, a
+ * 5-point step) because elevation is harder to read on a dark ground, and `--primary` moves up to L 0.52 so a
+ * teal button stays clearly above the surface while still carrying near-white type at an acceptable ratio.
+ */
 .dark {
-  /* Dark mode with softer blue accents for medical context */
-  --background: oklch(0.12 0.005 250);
-  --foreground: oklch(0.97 0.005 250);
-  --card: oklch(0.16 0.008 250);
-  --card-foreground: oklch(0.97 0.005 250);
-  --popover: oklch(0.16 0.008 250);
-  --popover-foreground: oklch(0.97 0.005 250);
-  --primary: oklch(0.6 0.16 245);
-  --primary-foreground: oklch(0.99 0 0);
-  --secondary: oklch(0.22 0.01 250);
-  --secondary-foreground: oklch(0.97 0.005 250);
-  --muted: oklch(0.22 0.01 250);
-  --muted-foreground: oklch(0.58 0.01 250);
-  --accent: oklch(0.22 0.015 245);
-  --accent-foreground: oklch(0.75 0.12 245);
-  --destructive: oklch(0.52 0.2 25);
+  --background: oklch(0.135 0.008 230);
+  --foreground: oklch(0.965 0.006 225);
+  --card: oklch(0.185 0.012 232);
+  --card-foreground: oklch(0.965 0.006 225);
+  --popover: oklch(0.185 0.012 232);
+  --popover-foreground: oklch(0.965 0.006 225);
+  --primary: oklch(0.52 0.105 188);
+  --primary-foreground: oklch(0.98 0.005 190);
+  --secondary: oklch(0.235 0.012 228);
+  --secondary-foreground: oklch(0.965 0.006 225);
+  --muted: oklch(0.235 0.012 228);
+  --muted-foreground: oklch(0.655 0.015 228);
+  --accent: oklch(0.26 0.035 190);
+  --accent-foreground: oklch(0.80 0.10 188);
+  --destructive: oklch(0.55 0.19 25);
   --destructive-foreground: oklch(0.99 0 0);
-  --border: oklch(0.24 0.01 250);
-  --input: oklch(0.24 0.01 250);
-  --ring: oklch(0.6 0.16 245);
-  --chart-1: oklch(0.58 0.14 245);
-  --chart-2: oklch(0.62 0.18 200);
-  --chart-3: oklch(0.55 0.16 270);
-  --chart-4: oklch(0.65 0.12 220);
-  --chart-5: oklch(0.7 0.1 190);
-  --sidebar: oklch(0.16 0.008 250);
-  --sidebar-foreground: oklch(0.97 0.005 250);
-  --sidebar-primary: oklch(0.6 0.16 245);
-  --sidebar-primary-foreground: oklch(0.99 0 0);
-  --sidebar-accent: oklch(0.22 0.015 245);
-  --sidebar-accent-foreground: oklch(0.75 0.12 245);
-  --sidebar-border: oklch(0.24 0.01 250);
-  --sidebar-ring: oklch(0.6 0.16 245);
+  --border: oklch(0.265 0.012 228);
+  --input: oklch(0.265 0.012 228);
+  --ring: oklch(0.62 0.11 187);
+
+  --success: oklch(0.70 0.13 155);
+  --success-wash: oklch(0.27 0.045 155);
+  --warning: oklch(0.76 0.13 78);
+  --warning-wash: oklch(0.29 0.05 78);
+  --warning-ink: oklch(0.86 0.11 80);
+  --destructive-wash: oklch(0.28 0.05 25);
+
+  --hero-from: oklch(0.40 0.075 190);
+  --hero-to: oklch(0.295 0.06 197);
+  --hero-glow: oklch(0.55 0.10 186);
+  --hero-foreground: oklch(0.98 0.005 190);
+
+  --chart-1: oklch(0.70 0.115 186);
+  --chart-2: oklch(0.66 0.14 245);
+  --chart-3: oklch(0.70 0.13 300);
+  --chart-4: oklch(0.74 0.13 50);
+  --chart-5: oklch(0.70 0.13 155);
+  --sidebar: oklch(0.185 0.012 232);
+  --sidebar-foreground: oklch(0.965 0.006 225);
+  --sidebar-primary: oklch(0.52 0.105 188);
+  --sidebar-primary-foreground: oklch(0.98 0.005 190);
+  --sidebar-accent: oklch(0.26 0.035 190);
+  --sidebar-accent-foreground: oklch(0.80 0.10 188);
+  --sidebar-border: oklch(0.265 0.012 228);
+  --sidebar-ring: oklch(0.62 0.11 187);
+}
+
+/*
+ * Motion tokens, declared in `@theme` so Tailwind generates real utilities from them: `ease-snap`,
+ * `ease-smooth`, `ease-panel`. The stock CSS easings are too weak to read as intentional at UI durations,
+ * and typing `ease-[cubic-bezier(…)]` at each call site is how a design system ends up with nine curves.
+ *
+ *   ease-snap    entering / exiting elements — starts fast, so the first frame is visible movement
+ *   ease-smooth  something moving or morphing while already on screen
+ *   ease-panel   the iOS-like panel curve (Ionic's), for the mobile nav Sheet
+ *
+ * Deliberately NOT named `--ease-out` / `--ease-in-out` / `--ease-drawer`: `--ease-*` is Tailwind's own
+ * namespace for the built-in `ease-*` utilities, so those names silently *replace* `ease-out` and
+ * `ease-in-out` everywhere in the app — a global change to every existing transition, made by accident, and
+ * decided by nothing more than which block the bundler happened to emit last.
+ *
+ * There is no `ease-in` counterpart on purpose: `ease-in` delays the first frame, which is the exact moment
+ * the user is watching, so a 200 ms `ease-in` *feels* slower than a 200 ms `ease-out` over the same distance.
+ */
+@theme {
+  --ease-snap: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-smooth: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-panel: cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 @theme inline {
@@ -98,6 +192,15 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  /* Semantic state, so a delta pill is `bg-success-wash text-success` rather than a hardcoded `text-green-700`
+     that no theme can follow. */
+  --color-success: var(--success);
+  --color-success-wash: var(--success-wash);
+  --color-warning: var(--warning);
+  --color-warning-wash: var(--warning-wash);
+  --color-warning-ink: var(--warning-ink);
+  --color-destructive-wash: var(--destructive-wash);
+  --color-hero-foreground: var(--hero-foreground);
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);
@@ -140,5 +243,67 @@
   :focus-visible {
     outline: 2px solid var(--ring);
     outline-offset: 2px;
+  }
+
+  /*
+   * A thin, self-effacing scrollbar for a panel that scrolls *inside* a page that also scrolls.
+   *
+   * The sidebar nav is the only user: nineteen destinations still overflow a short viewport, and a full-width
+   * scrollbar next to `<main>`'s reads as a second *page* scrollbar rather than as "this panel has more below" —
+   * which is exactly what made the app look like it had two scrolls. Firefox gets the standard properties;
+   * WebKit needs its pseudo-elements, and `transparent` on the track keeps the rail's own background showing so
+   * the bar has no gutter of its own.
+   */
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: var(--border);
+    border-radius: 999px;
+  }
+  .scrollbar-thin:hover::-webkit-scrollbar-thumb {
+    background-color: var(--muted-foreground);
+  }
+
+  /*
+   * Reduced motion means *fewer and gentler* animations, not none. Opacity and colour transitions carry
+   * meaning (a dimmed table says "refetching in progress", a fading banner says "this is new") and are kept;
+   * everything that moves or scales is removed, because movement is what causes motion sickness.
+   *
+   * Scoped to transform/translate/scale/rotate rather than `animation: none !important`, so the Radix
+   * enter/exit animations still run — they just cross-fade instead of sliding, and Radix's animation-driven
+   * unmount (`data-[state=closed]`) keeps working. Killing animations outright would leave closed dialogs
+   * mounted, which is a worse outcome than motion.
+   */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      transition-property: color, background-color, border-color, fill, stroke, opacity, box-shadow,
+        text-decoration-color !important;
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      scroll-behavior: auto !important;
+    }
+    /*
+     * Two exceptions, both opacity-only rather than movement: the spinner is the sole signal that a request
+     * is still in flight, and the skeleton pulse is the sole signal that a table is about to fill in.
+     */
+    .animate-spin {
+      animation-duration: 1s !important;
+      animation-iteration-count: infinite !important;
+    }
+    .animate-pulse {
+      animation-duration: 2s !important;
+      animation-iteration-count: infinite !important;
+    }
   }
 }

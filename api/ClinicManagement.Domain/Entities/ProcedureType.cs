@@ -156,13 +156,18 @@ public class ProcedureType : AggregateRoot<Guid>
     }
 
     /// <summary>
-    /// Checks if this procedure type is used by any future appointments
+    /// Checks if this procedure type is used by any future appointments.
+    /// <para>
+    /// Looks at the whole séance, not just its lead act: once an appointment can hold several acts, a procedure
+    /// booked as the *second* act of a future visit is just as much in use, and matching only
+    /// <c>Appointment.ProcedureTypeId</c> would hard-delete it out from under that booking.
+    /// </para>
     /// </summary>
     public bool IsUsedByFutureAppointments(IEnumerable<Appointment> appointments)
     {
         var now = DateTime.UtcNow;
-        return appointments.Any(apt => 
-            apt.ProcedureTypeId == Id && 
+        return appointments.Any(apt =>
+            (apt.ProcedureTypeId == Id || apt.Procedures.Any(p => p.ProcedureTypeId == Id)) &&
             apt.AppointmentDateTime > now &&
             apt.Status != AppointmentStatus.Cancelled &&
             apt.Status != AppointmentStatus.Completed);

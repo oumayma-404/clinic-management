@@ -6,12 +6,27 @@ import { fr } from "date-fns/locale";
  * (e.g. 1234.5 → "1 234,500 DT"). The app targets Tunisia; money is stored in millimes (decimal(18,3)).
  */
 export function formatDT(amount: number | null | undefined): string {
-  const value = amount ?? 0;
-  const formatted = new Intl.NumberFormat("fr-TN", {
+  return `${formatAmount(amount)} DT`;
+}
+
+/**
+ * The same millime-precise fr-TN figure **without the unit** — for a table column that states « (DT) » in its
+ * header once.
+ *
+ * <p>It exists so a money column can be pure number. « DT » repeated down fifteen rows is fifteen copies of one
+ * fact, and because the suffix varies in width it also pushes the digits away from the right edge, undoing the
+ * `tabular-nums` alignment that makes three money columns comparable at a glance.</p>
+ *
+ * <p>⚠️ Still the one rounding/grouping authority — three decimals, fr-TN grouping, decimal comma. Never
+ * hand-format a dinar amount: `toFixed(2)` drops the millime and `toFixed(3)` prints a period where the rest of
+ * the product prints a comma. Use this only where the unit is stated elsewhere on screen; otherwise
+ * {@link formatDT}.</p>
+ */
+export function formatAmount(amount: number | null | undefined): string {
+  return new Intl.NumberFormat("fr-TN", {
     minimumFractionDigits: 3,
     maximumFractionDigits: 3,
-  }).format(value);
-  return `${formatted} DT`;
+  }).format(amount ?? 0);
 }
 
 /**

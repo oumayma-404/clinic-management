@@ -1,9 +1,15 @@
 import { apiGet, apiPost, apiPut } from './client';
 import type { RecallDto, RecallSettingsDto } from './types';
+import { unwrapPaged, type PagedResponse, type PageParams } from './paging';
 
 export const recallsApi = {
   // The "patients à relancer" list (due/overdue), most overdue first.
-  list: async (): Promise<RecallDto[]> => apiGet<RecallDto[]>('/patients/recalls'),
+  list: async (): Promise<RecallDto[]> =>
+    unwrapPaged(await apiGet<PagedResponse<RecallDto>>('/patients/recalls')),
+
+  /** One page of relances. `search` matches patient name / phone server-side over the whole due list. */
+  listPaged: async (params: PageParams): Promise<PagedResponse<RecallDto>> =>
+    apiGet<PagedResponse<RecallDto>>('/patients/recalls', params),
 
   getSettings: async (): Promise<RecallSettingsDto> => apiGet<RecallSettingsDto>('/patients/recalls/settings'),
 

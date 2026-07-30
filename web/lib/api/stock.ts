@@ -1,5 +1,6 @@
 import { apiGet, apiPost, apiPut, apiDelete } from './client';
-import type { StockItemDto } from './types';
+import type { StockItemDto, StockPageDto } from './types';
+import { unwrapPaged, type PagedResponse, type PageParams } from './paging';
 
 export interface StockMovementDto {
   id: string;
@@ -36,8 +37,17 @@ export interface StockItemPayload {
 
 export const stockApi = {
   list: async (lowStockOnly: boolean = false): Promise<StockItemDto[]> => {
-    return apiGet<StockItemDto[]>('/stock', { lowStockOnly });
+    return (await apiGet<StockPageDto>('/stock', { lowStockOnly })).items;
   },
+
+  /**
+   * One page of stock items, plus the clinic-wide low-stock / expiring counts and the category options.
+   * `search` matches name / catégorie / fournisseur server-side over the whole clinic; `category` and
+   * `expiringOnly` are server-side filters too (they used to be applied in the browser).
+   */
+  listPaged: async (
+    params: PageParams & { lowStockOnly?: boolean; category?: string; expiringOnly?: boolean },
+  ): Promise<StockPageDto> => apiGet<StockPageDto>('/stock', params),
 
   create: async (data: StockItemPayload): Promise<StockItemDto> => {
     return apiPost<StockItemDto>('/stock', data);

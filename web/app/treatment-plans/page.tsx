@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { ClinicGuard } from "@/components/clinic-guard"
+import { PageHeader } from "@/components/ui/page-header"
 import { DashboardSidebar } from "@/components/dashboard-sidebar"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { Card, CardContent } from "@/components/ui/card"
@@ -71,10 +72,11 @@ export default function TreatmentPlansPage() {
           <DashboardHeader />
           <main className="flex-1 overflow-auto p-4 md:p-6">
             <div className="mx-auto max-w-7xl space-y-6">
-              <div>
-                <h1 className="text-2xl font-bold">Plans de traitement &amp; Devis</h1>
-                <p className="text-muted-foreground">Plans de soins, devis et échéanciers de paiement.</p>
-              </div>
+              <PageHeader
+                zone="Argent"
+                title="Plans de traitement &amp; devis"
+                subtitle="Plans de soins, devis et échéanciers de paiement."
+              />
 
               {/* Filters */}
               <Card>

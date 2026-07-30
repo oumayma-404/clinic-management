@@ -98,7 +98,7 @@ public class SetProcedureTypeMaterialsCommandHandler
             // consumption service would then draw that clinic's stock down on fiche save.
             if (lines.Count > 0)
             {
-                var clinicItemIds = (await _stockItemRepository.GetByClinicIdAsync(clinicId, cancellationToken: cancellationToken))
+                var clinicItemIds = (await _stockItemRepository.GetByClinicIdAsync(clinicId, cancellationToken: cancellationToken)).Items
                     .Select(i => i.Id)
                     .ToHashSet();
 

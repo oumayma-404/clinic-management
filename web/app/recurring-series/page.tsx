@@ -3,6 +3,11 @@
 import type React from "react"
 
 import { useCallback, useEffect, useState } from "react"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { DataTablePagination } from "@/components/ui/data-table-pagination"
+import { DEFAULT_PAGE_SIZE, emptyPage, type PagedResponse } from "@/lib/api/paging"
+
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { useRouter } from "next/navigation"
@@ -12,11 +17,10 @@ import { toast } from "sonner"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { DashboardSidebar } from "@/components/dashboard-sidebar"
 import { ClinicGuard } from "@/components/clinic-guard"
+import { PageHeader } from "@/components/ui/page-header"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -445,7 +449,15 @@ interface SeriesOutcome {
 }
 
 export default function RecurringSeriesPage() {
-  const [series, setSeries] = useState<RecurringAppointmentDto[]>([])
+  const [seriesPage, setSeriesPage] = useState<PagedResponse<RecurringAppointmentDto>>(
+    () => emptyPage<RecurringAppointmentDto>(),
+  )
+  const series = seriesPage.items
+  const [search, setSearch] = useState("")
+  const [debouncedSearch, setDebouncedSearch] = useState("")
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
+
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [patients, setPatients] = useState<PatientDto[]>([])
@@ -459,8 +471,13 @@ export default function RecurringSeriesPage() {
     try {
       setLoading(true)
       setError(null)
-      const data = await appointmentsApi.listRecurring(true)
-      setSeries(data)
+      const data = await appointmentsApi.listRecurringPaged({
+        page,
+        pageSize,
+        search: debouncedSearch || undefined,
+        activeOnly: true,
+      })
+      setSeriesPage(data)
     } catch (err) {
       const message = err instanceof ApiError ? err.message : "Échec du chargement des séries"
       setError(message)
@@ -468,7 +485,18 @@ export default function RecurringSeriesPage() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [page, pageSize, debouncedSearch])
+
+  // Debounced so a search does not fire a request per keystroke.
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search.trim()), 300)
+    return () => clearTimeout(timer)
+  }, [search])
+
+  // A new term (or filter) must not leave the table on a page the narrowed result set no longer has.
+  useEffect(() => {
+    setPage(1)
+  }, [debouncedSearch])
 
   useEffect(() => {
     loadSeries()
@@ -530,12 +558,11 @@ export default function RecurringSeriesPage() {
             <div className="mx-auto max-w-7xl space-y-6">
               {/* Page Header */}
               <div className="flex items-center justify-between">
-                <div>
-                  <h1 className="text-3xl font-semibold text-foreground">Rendez-vous récurrents (séries)</h1>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Planifiez et gérez des séries de rendez-vous répétés.
-                  </p>
-                </div>
+                <PageHeader
+                  zone="Clinique"
+                  title="Rendez-vous récurrents"
+                  subtitle="Séries de rendez-vous répétés — planification et annulation."
+                />
 
                 <Button onClick={() => setDialogOpen(true)} className="gap-2">
                   <Plus className="h-4 w-4" />
@@ -549,7 +576,7 @@ export default function RecurringSeriesPage() {
                     <Repeat className="h-5 w-5" />
                     Séries actives
                     <Badge variant="secondary" className="ml-2">
-                      {series.length}
+                      {seriesPage.totalCount}
                     </Badge>
                   </CardTitle>
                 </CardHeader>
@@ -560,10 +587,26 @@ export default function RecurringSeriesPage() {
                     </div>
                   ) : error ? (
                     <p className="py-12 text-center text-sm text-destructive">{error}</p>
-                  ) : series.length === 0 ? (
-                    <p className="py-12 text-center text-muted-foreground">Aucune série récurrente</p>
                   ) : (
                     <div className="overflow-x-auto">
+                      <div className="mb-4">
+                        <Label htmlFor="series-search" className="sr-only">
+                          Rechercher une série
+                        </Label>
+                        <Input
+                          id="series-search"
+                          value={search}
+                          onChange={(e) => setSearch(e.target.value)}
+                          placeholder="Rechercher une série (patient, praticien, notes)…"
+                        />
+                      </div>
+                      {series.length === 0 ? (
+                        <p className="py-12 text-center text-muted-foreground">
+                          {debouncedSearch
+                            ? "Aucune série ne correspond à votre recherche"
+                            : "Aucune série récurrente"}
+                        </p>
+                      ) : (
                       <Table>
                         <TableHeader>
                           <TableRow>
@@ -608,6 +651,14 @@ export default function RecurringSeriesPage() {
                           ))}
                         </TableBody>
                       </Table>
+                      )}
+                      <DataTablePagination
+                        page={seriesPage}
+                        onPageChange={setPage}
+                        onPageSizeChange={setPageSize}
+                        loading={loading}
+                        label={["série", "séries"]}
+                      />
                     </div>
                   )}
                 </CardContent>

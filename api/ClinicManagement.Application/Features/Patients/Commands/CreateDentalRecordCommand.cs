@@ -100,6 +100,9 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
                 return Result<DentalRecordDto>.Failure(parsed.Error!);
             }
 
+            // The appointment id is now STORED on the record, not only used for the post-commit side effect below.
+            // It reached this handler from the first version and was thrown away, which is why no screen could tell
+            // which past visits still have no fiche — the question this link exists to answer.
             var record = new DentalRecord(
                 Guid.NewGuid(),
                 request.PatientId,
@@ -107,7 +110,8 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
                 request.AmountPaid,
                 request.IsAdultTeeth,
                 request.Notes,
-                request.ImportantNotes);
+                request.ImportantNotes,
+                request.AppointmentId);
 
             record.SetActs(parsed.Value!);
 

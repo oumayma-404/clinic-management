@@ -16,9 +16,15 @@ public static class RealtimeResourceResolver
 {
     // Feature areas whose commands are not clinic data any list view mirrors — excluded so a login /
     // AI chat / backup does not emit a spurious refetch signal.
+    //
+    // "Dashboard" is here for the same reason plus a sharper one. Its only command saves ONE USER's layout
+    // choices, and a broadcast goes to the whole `clinic-{id}` group — so hiding a card on your own dashboard
+    // would tell every colleague's browser to refetch theirs. Per-user UI state is not clinic data, and the
+    // clinic-wide bus is the wrong channel for it at any volume. (The dashboard *reads* still subscribe to the
+    // nine data keys their figures depend on; that is unaffected — this excludes emitting, not listening.)
     private static readonly HashSet<string> ExcludedAreas = new(StringComparer.OrdinalIgnoreCase)
     {
-        "Auth", "AI", "Backup", "Connectivity"
+        "Auth", "AI", "Backup", "Connectivity", "Dashboard"
     };
 
     public static string? Resolve(Type requestType)

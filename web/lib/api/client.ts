@@ -4,12 +4,37 @@ export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
-    public originalError?: unknown
+    public originalError?: unknown,
+    /**
+     * Machine-readable failure tag from the backend's `{ error, code }` body, when it sent one.
+     *
+     * Lets a caller branch on *which* refusal this is without matching the French message — prose gets reworded,
+     * and a behaviour that hinges on it breaks silently. Undefined for the vast majority of failures, which are
+     * only ever displayed. See `Result.Code` on the backend for the same reasoning.
+     */
+    public code?: string
   ) {
     super(message);
     this.name = 'ApiError';
   }
 }
+
+/** Failure codes the client actually branches on. Mirrors the backend constants that emit them. */
+export const ApiErrorCode = {
+  /**
+   * The appointment falls outside the practitioner's working hours. Advisory, not a prohibition: resubmit with
+   * `allowOutsideWorkingHours: true` to book it anyway (the backend records the exception on the appointment).
+   * Emitted by `AppointmentScheduling.OutsideWorkingHoursCode`.
+   */
+  OutsideWorkingHours: 'outside_working_hours',
+  /**
+   * The slot already holds a booking for the same practitioner. Advisory: retry with `allowOverlap: true` to book it
+   * anyway (the backend records the acknowledgement on the appointment, which is also what exempts the row from the
+   * database's double-booking exclusion constraint).
+   * Emitted by `AppointmentScheduling.SlotTakenCode`.
+   */
+  SlotTaken: 'slot_taken',
+} as const;
 
 /** In-memory access-token cache — see `getAccessToken`. Module scope so every caller shares one token. */
 let cachedToken: { token: string; validUntilMs: number } | null = null;
@@ -45,8 +70,13 @@ const STATUS_FALLBACK_FR: Record<number, string> = {
 async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+    // The backend's optional machine-readable failure tag (`{ error, code }`) — see ApiErrorCode.
+    let errorCode: string | undefined;
     try {
       const errorData = await response.json();
+      if (errorData && typeof errorData.code === 'string' && errorData.code) {
+        errorCode = errorData.code;
+      }
       // Some endpoints return the failure reason as a bare JSON string (e.g. BadRequest(result.Error)).
       // Surface it instead of falling back to the generic "HTTP 400: ..." message.
       if (typeof errorData === 'string') {
@@ -90,7 +120,7 @@ async function handleResponse<T>(response: Response): Promise<T> {
       const french = STATUS_FALLBACK_FR[response.status];
       if (french) errorMessage = french;    }
 
-    throw new ApiError(response.status, errorMessage);
+    throw new ApiError(response.status, errorMessage, undefined, errorCode);
   }
 
   const contentType = response.headers.get('content-type');

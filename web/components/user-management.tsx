@@ -7,6 +7,9 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Input } from "@/components/ui/input"
+import { DataTablePagination } from "@/components/ui/data-table-pagination"
+import { DEFAULT_PAGE_SIZE, emptyPage, type PagedResponse } from "@/lib/api/paging"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -55,7 +58,12 @@ export function UserManagement() {
    * guaranteed dead end: Cloud identities are managed in Auth0.
    */
   const canResetPasswords = mode === "local"
-  const [users, setUsers] = useState<ClinicUserDto[]>([])
+  const [userPage, setUserPage] = useState<PagedResponse<ClinicUserDto>>(() => emptyPage<ClinicUserDto>())
+  const users = userPage.items
+  const [search, setSearch] = useState("")
+  const [debouncedSearch, setDebouncedSearch] = useState("")
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
   const [clinicCode, setClinicCode] = useState<string>("")
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -76,16 +84,26 @@ export function UserManagement() {
     }
   }, [])
 
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search.trim()), 300)
+    return () => clearTimeout(timer)
+  }, [search])
+
+  // A new term must not leave the table on a page the narrowed result set no longer has.
+  useEffect(() => {
+    setPage(1)
+  }, [debouncedSearch])
+
   const loadData = useCallback(async () => {
     try {
       setLoading(true)
       setError(null)
       const [userList, status] = await Promise.all([
-        usersApi.list(),
+        usersApi.listPaged({ page, pageSize, search: debouncedSearch || undefined }),
         clinicsApi.getUserStatus(),
       ])
       if (!mountedRef.current) return
-      setUsers(userList)
+      setUserPage(userList)
       setClinicCode(status.clinic?.code || "")
     } catch (err) {
       if (!mountedRef.current) return
@@ -94,7 +112,7 @@ export function UserManagement() {
     } finally {
       if (mountedRef.current) setLoading(false)
     }
-  }, [])
+  }, [page, pageSize, debouncedSearch])
 
   useEffect(() => {
     loadData()
@@ -161,11 +179,13 @@ export function UserManagement() {
   const formatDate = (value?: string) =>
     value ? new Date(value).toLocaleString("fr-FR") : "Jamais"
 
+  // `min-h-full`, not `min-h-screen` — see the note in `clinic-settings.tsx`: inside `<main>` a full-viewport
+  // minimum is always taller than the container, so it guaranteed an unnecessary scroll and trailing dead space.
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-slate-950">
+    <div className="min-h-full bg-gray-50 dark:bg-slate-950">
       <div className="mx-auto max-w-5xl space-y-4 p-4">
         <div className="mb-2 flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
             <Users className="h-4 w-4 text-white" />
           </div>
           <div>
@@ -187,7 +207,7 @@ export function UserManagement() {
                   {clinicCode ? (
                     <Badge
                       variant="outline"
-                      className="border-blue-300 bg-white px-3 py-1 font-mono text-base font-bold text-blue-700 dark:border-blue-700 dark:bg-slate-900 dark:text-blue-300"
+                      className="border-primary/40 bg-white px-3 py-1 font-mono text-base font-bold text-primary dark:bg-slate-900"
                     >
                       {clinicCode}
                     </Badge>
@@ -215,7 +235,7 @@ export function UserManagement() {
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base">
               Utilisateurs
-              <Badge variant="secondary">{users.length}</Badge>
+              <Badge variant="secondary">{userPage.totalCount}</Badge>
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -232,6 +252,17 @@ export function UserManagement() {
                 se modifient ici dans les deux modes.
               </p>
             )}
+            <div className="mb-4">
+              <Label htmlFor="users-search" className="sr-only">
+                Rechercher un utilisateur
+              </Label>
+              <Input
+                id="users-search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Rechercher un utilisateur (nom, email)…"
+              />
+            </div>
             {loading ? (
               <p className="py-8 text-center text-muted-foreground">Chargement des utilisateurs…</p>
             ) : (
@@ -251,7 +282,9 @@ export function UserManagement() {
                     {users.length === 0 ? (
                       <TableRow>
                         <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
-                          Aucun utilisateur
+                          {debouncedSearch
+                            ? "Aucun utilisateur ne correspond à votre recherche"
+                            : "Aucun utilisateur"}
                         </TableCell>
                       </TableRow>
                     ) : (
@@ -348,6 +381,13 @@ export function UserManagement() {
                     )}
                   </TableBody>
                 </Table>
+                <DataTablePagination
+                  page={userPage}
+                  onPageChange={setPage}
+                  onPageSizeChange={setPageSize}
+                  loading={loading}
+                  label={["utilisateur", "utilisateurs"]}
+                />
               </div>
             )}
           </CardContent>

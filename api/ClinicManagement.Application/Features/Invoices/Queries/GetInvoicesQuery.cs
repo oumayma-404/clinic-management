@@ -7,18 +7,26 @@ using ClinicManagement.Application.DTOs;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 
+using ClinicManagement.Domain.Common;
 namespace ClinicManagement.Application.Features.Invoices.Queries;
 
 /// <summary>List the clinic's invoices for the Recettes view, filtered by period / patient / status.</summary>
-public class GetInvoicesQuery : IRequest<Result<List<InvoiceDto>>>
+public class GetInvoicesQuery : IRequest<Result<PagedResult<InvoiceDto>>>
 {
     public DateTime? From { get; set; }
     public DateTime? To { get; set; }
     public Guid? PatientId { get; set; }
     public string? Status { get; set; }
+    /// <summary>1-based page and page size. Both null = every matching row.</summary>
+    public int? Page { get; set; }
+    public int? PageSize { get; set; }
+
+    /// <summary>Free-text filter, matched in SQL across the whole clinic — never only the requested page.</summary>
+    public string? SearchTerm { get; set; }
+
 }
 
-public class GetInvoicesQueryHandler : IRequestHandler<GetInvoicesQuery, Result<List<InvoiceDto>>>
+public class GetInvoicesQueryHandler : IRequestHandler<GetInvoicesQuery, Result<PagedResult<InvoiceDto>>>
 {
     private readonly IInvoiceRepository _invoiceRepository;
     private readonly IPatientRepository _patientRepository;
@@ -40,7 +48,7 @@ public class GetInvoicesQueryHandler : IRequestHandler<GetInvoicesQuery, Result<
         _logger = logger;
     }
 
-    public async Task<Result<List<InvoiceDto>>> Handle(GetInvoicesQuery request, CancellationToken cancellationToken)
+    public async Task<Result<PagedResult<InvoiceDto>>> Handle(GetInvoicesQuery request, CancellationToken cancellationToken)
     {
         try
         {
@@ -49,7 +57,7 @@ public class GetInvoicesQueryHandler : IRequestHandler<GetInvoicesQuery, Result<
             {
                 if (!Enum.TryParse<InvoiceStatus>(request.Status, ignoreCase: true, out var parsed))
                 {
-                    return Result<List<InvoiceDto>>.Failure("Statut de facture invalide.");
+                    return Result<PagedResult<InvoiceDto>>.Failure("Statut de facture invalide.");
                 }
                 status = parsed;
             }
@@ -57,40 +65,50 @@ public class GetInvoicesQueryHandler : IRequestHandler<GetInvoicesQuery, Result<
             var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
             if (clinicResult.IsFailure)
             {
-                return Result<List<InvoiceDto>>.Failure(clinicResult.Error ?? "Cabinet introuvable.");
+                return Result<PagedResult<InvoiceDto>>.Failure(clinicResult.Error ?? "Cabinet introuvable.");
             }
             var clinicId = clinicResult.Value;
 
-            var invoices = await _invoiceRepository.GetFilteredAsync(
-                clinicId, request.From, request.To, request.PatientId, status, cancellationToken);
+            var page = await _invoiceRepository.GetFilteredAsync(
+                clinicId,
+                request.From,
+                request.To,
+                request.PatientId,
+                status,
+                request.SearchTerm,
+                PageRequest.From(request.Page, request.PageSize),
+                cancellationToken);
+            var invoices = page.Items;
 
-            // One query for patient names, mapped by id (a user's clinic patient set is small).
-            // includeArchived: this resolves NAMES, it is not a picker. An archived patient's invoices must
-            // still show who they belong to.
-            var patients = await _patientRepository.GetByClinicIdAsync(
-                clinicId, includeArchived: true, cancellationToken: cancellationToken);
-            var names = patients.ToDictionary(p => p.Id, p => p.GetFullName());
+            // Patient names for the rows on this page only, via the batched read. This used to load EVERY
+            // patient of the clinic — with their flags and both history collections — to build a name lookup,
+            // which meant paginating the invoices bought nothing: the unbounded read simply moved next door.
+            // `GetByIdsAsync` includes archived patients, which is what this needs: it resolves names, it is not
+            // a picker, and an archived patient's invoices must still show who they belong to.
+            var names = (await _patientRepository.GetByIdsAsync(
+                    clinicId,
+                    invoices.Select(i => i.PatientId).Distinct().ToList(),
+                    cancellationToken))
+                .ToDictionary(kvp => kvp.Key, kvp => kvp.Value.GetFullName());
 
             // One grouped read for the credited totals — the row badges an avoir without an N+1. The avoirs
             // themselves are not loaded here; only the detail modal needs them.
             var credited = await _creditNoteRepository.GetTotalsForInvoicesAsync(
                 invoices.Select(i => i.Id).ToList(), cancellationToken);
 
-            var dtos = invoices
-                .Select(i =>
-                {
-                    var dto = i.ToDto(names.TryGetValue(i.PatientId, out var name) ? name : null);
-                    dto.CreditedTotal = credited.TryGetValue(i.Id, out var total) ? total : 0m;
-                    return dto;
-                })
-                .ToList();
+            var dtos = page.Map(i =>
+            {
+                var dto = i.ToDto(names.TryGetValue(i.PatientId, out var name) ? name : null);
+                dto.CreditedTotal = credited.TryGetValue(i.Id, out var total) ? total : 0m;
+                return dto;
+            });
 
-            return Result<List<InvoiceDto>>.Success(dtos);
+            return Result<PagedResult<InvoiceDto>>.Success(dtos);
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error listing invoices");
-            return Result<List<InvoiceDto>>.Failure("Erreur lors de la récupération des factures.");
+            return Result<PagedResult<InvoiceDto>>.Failure("Erreur lors de la récupération des factures.");
         }
     }
 }

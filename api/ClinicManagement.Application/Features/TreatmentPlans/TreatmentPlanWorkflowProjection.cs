@@ -66,10 +66,15 @@ public static class TreatmentPlanWorkflowProjection
             clinicId, itemIds, cancellationToken);
         var invoiceLinks = await invoiceRepository.GetTreatmentPlanLinksAsync(clinicId, cancellationToken);
 
+        // Flattened over **every** act the appointment carries out, not just the one its parent scalar names
+        // (`LinkedTreatmentPlanItemIds`). A séance deliberately groups several devis acts — « ces deux-là ensemble »
+        // — and keying on the scalar would leave the other acts of that same visit reporting « À planifier »,
+        // offering to book a visit the patient is already coming to.
         var scheduledByItemId = appointments
-            .Where(a => a.TreatmentPlanItemId.HasValue && LiveStatuses.Contains(a.Status))
-            .GroupBy(a => a.TreatmentPlanItemId!.Value)
-            .ToDictionary(g => g.Key, g => PickRepresentative(g, asOfUtc));
+            .Where(a => LiveStatuses.Contains(a.Status))
+            .SelectMany(a => a.LinkedTreatmentPlanItemIds.Select(itemId => (ItemId: itemId, Appointment: a)))
+            .GroupBy(x => x.ItemId)
+            .ToDictionary(g => g.Key, g => PickRepresentative(g.Select(x => x.Appointment), asOfUtc));
 
         // A cancelled bridge no longer represents the plan — the plan re-enters the balance and becomes
         // billable (and amendable) again, mirroring how the money reads exclude cancelled invoices.

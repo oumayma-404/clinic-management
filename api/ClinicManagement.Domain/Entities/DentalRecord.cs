@@ -16,6 +16,26 @@ public class DentalRecord : Entity<Guid>
     public Guid PatientId { get; private set; }
     public DateTime InterventionDate { get; private set; }
 
+    /// <summary>
+    /// The appointment this session documents, when it was recorded from one. Null for a fiche entered without going
+    /// through the agenda.
+    ///
+    /// <para>
+    /// ⚠️ The <c>DentalRecords.AppointmentId</c> column and its index have existed since
+    /// <c>AddDentalRecordAppointmentId</c> (2026-07-17) — but the property did not, so the EF model never declared it,
+    /// nothing populated it, and every row held NULL. The id *was* already reaching the write side: the create command
+    /// takes it, uses it post-commit to mark the visit completed and cancel its post-visit prompt, then discards it.
+    /// Storing it is what finally makes « quelles séances n'ont pas encore de fiche ? » answerable — the same defect,
+    /// and the same repair, as <c>Invoice.AppointmentId</c>.
+    /// </para>
+    ///
+    /// <para>
+    /// It is deliberately NOT a required link and NOT unique: a visit may legitimately produce more than one fiche,
+    /// and a fiche may exist with no appointment behind it.
+    /// </para>
+    /// </summary>
+    public Guid? AppointmentId { get; private set; }
+
     /// <summary>Derived summary of the acts' procedure names (recomputed in <see cref="SetActs"/>).</summary>
     public string ProcedureType { get; private set; } = string.Empty;
     /// <summary>Derived total = sum of act costs (recomputed in <see cref="SetActs"/>).</summary>
@@ -47,7 +67,8 @@ public class DentalRecord : Entity<Guid>
         decimal amountPaid,
         bool isAdultTeeth,
         List<string>? notes = null,
-        List<string>? importantNotes = null)
+        List<string>? importantNotes = null,
+        Guid? appointmentId = null)
     {
         if (amountPaid < 0)
             throw new ArgumentException("Amount paid cannot be negative", nameof(amountPaid));
@@ -57,6 +78,7 @@ public class DentalRecord : Entity<Guid>
         InterventionDate = interventionDate;
         AmountPaid = amountPaid;
         IsAdultTeeth = isAdultTeeth;
+        AppointmentId = appointmentId;
 
         if (notes != null)
             _notes.AddRange(notes.Where(n => !string.IsNullOrWhiteSpace(n)).Select(n => n.Trim()));

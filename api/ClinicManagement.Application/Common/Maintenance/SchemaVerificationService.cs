@@ -69,6 +69,11 @@ public class SchemaVerificationService
     private static readonly (string Name, string Reason)[] RequiredExtensions =
     {
         ("btree_gist", "the appointment exclusion constraint mixes = (uuid) with && (range) in one GiST index"),
+        // Its absence has a nastier signature than a missing index: every paginated list's search predicate calls
+        // unaccent(), so without the extension the searches do not degrade — they throw 42883 (function does not
+        // exist), and only the moment someone types in a search box. A schema check is the only thing that catches
+        // that before a user does, since no unit test touches a database.
+        ("unaccent", "every paginated list's free-text search folds accents in SQL via unaccent()"),
     };
 
     private readonly ISchemaVerificationReader _reader;
@@ -258,6 +263,16 @@ public class SchemaVerificationService
             n => n == 0
                 ? "0 overlapping pair(s) under the constraint's own predicate"
                 : $"{n} overlapping pair(s) — the constraint cannot be installed until these are resolved",
+            n => n == 0);
+
+        // Multi-act séances. Not "did the backfill insert N rows" but the invariant it establishes: the parent's
+        // three procedure scalars are a DERIVED snapshot of the first act, so a scalar with no row behind it means
+        // the agenda paints a visit with an act the edit dialog cannot see — and the first save of that visit
+        // would then persist the emptiness.
+        Add("appointment-act-rows", counts.AppointmentsWithActScalarLackingRow,
+            n => n == 0
+                ? "0 appointment(s) name an act with no AppointmentProcedures row"
+                : $"{n} appointment(s) name an act with NO AppointmentProcedures row — the backfill missed them",
             n => n == 0);
 
         // Phase 1 (pre-migration): did every item with a legacy scalar expiry get an opening batch? Once the

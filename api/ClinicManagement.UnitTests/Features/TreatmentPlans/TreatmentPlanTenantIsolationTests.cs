@@ -1,3 +1,5 @@
+using ClinicManagement.UnitTests.Common;
+using ClinicManagement.Domain.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -304,10 +306,12 @@ public class TreatmentPlanTenantIsolationTests
         Authenticated();
         _plans.Setup(r => r.GetFilteredAsync(
                 ClinicId, It.IsAny<Guid?>(), It.IsAny<TreatmentPlanStatus?>(),
-                It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Array.Empty<TreatmentPlan>());
-        _patients.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<bool>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Array.Empty<Patient>());
+                It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<string?>(), It.IsAny<PageRequest?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Array.Empty<TreatmentPlan>()).AsPage());
+        _patients.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<bool>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<PageRequest?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Array.Empty<Patient>()).AsPage());
         _appointments.Setup(r => r.GetByTreatmentPlanItemIdsAsync(
                 It.IsAny<Guid>(), It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<Appointment>());
@@ -321,9 +325,10 @@ public class TreatmentPlanTenantIsolationTests
         var result = await handler.Handle(new GetTreatmentPlansQuery(), CancellationToken.None);
 
         Assert.True(result.IsSuccess);
-        Assert.Empty(result.Value!);
+        Assert.Empty(result.Value!.Items);
         _plans.Verify(r => r.GetFilteredAsync(
             ClinicId, It.IsAny<Guid?>(), It.IsAny<TreatmentPlanStatus?>(),
-            It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()), Times.Once);
+            It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<string?>(), It.IsAny<PageRequest?>(),
+                It.IsAny<CancellationToken>()), Times.Once);
     }
 }

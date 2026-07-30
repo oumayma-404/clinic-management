@@ -1731,7 +1731,7 @@ export function DocumentEditorContent() {
                 variant="ghost"
                 size="sm"
                 onClick={() => router.push("/documents")}
-                className="hover:bg-blue-50 dark:hover:bg-blue-950 -ml-2"
+                className="hover:bg-accent -ml-2"
               >
                 <ArrowLeft className="w-4 h-4 mr-2" />
                 Retour aux modèles
@@ -1739,7 +1739,7 @@ export function DocumentEditorContent() {
 
               <div className="space-y-2">
                 <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center">
+                  <div className="w-12 h-12 bg-gradient-to-br from-accent0 to-primary/90 rounded-lg flex items-center justify-center">
                     <FileText className="w-6 h-6 text-white" />
                   </div>
                   <div>
@@ -2264,7 +2264,7 @@ export function DocumentEditorContent() {
             {/* Actions */}
             <div className="space-y-3 pt-2">
               <Button 
-                className="w-full h-11 bg-blue-600 hover:bg-blue-700 text-base font-medium"
+                className="w-full h-11 bg-primary hover:bg-primary/90 text-base font-medium"
                 onClick={() => handleSave()}
                 disabled={saving || !selectedPatient}
               >
@@ -2309,7 +2309,7 @@ export function DocumentEditorContent() {
                 </Button>
                 <Button
                   variant="outline"
-                  className="h-11 bg-transparent border-blue-500 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950"
+                  className="h-11 bg-transparent border-primary text-primary hover:bg-accent"
                   onClick={() => generateWord()}
                   disabled={!patientData || saving}
                 >
@@ -2323,7 +2323,7 @@ export function DocumentEditorContent() {
 
         {/* Right Panel - Document Preview. Its own scroll container only from `md:` up — stacked, the outer
             column scrolls once instead of nesting two scrollers on a phone. */}
-        <div className="min-w-0 flex-1 bg-gradient-to-br from-slate-100 to-blue-50 dark:from-slate-900 dark:to-slate-800 p-4 md:overflow-y-auto md:p-12">
+        <div className="min-w-0 flex-1 bg-gradient-to-br from-slate-100 to-accent dark:from-slate-900 dark:to-slate-800 p-4 md:overflow-y-auto md:p-12">
           <div className="max-w-4xl mx-auto">
             {documentType === "bulletin-cnam" ? (
               <>
@@ -2372,7 +2372,7 @@ export function DocumentEditorContent() {
 
                       {bs1PreviewLoading && (
                         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-white/70 dark:bg-slate-900/70 backdrop-blur-sm">
-                          <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+                          <Loader2 className="w-8 h-8 animate-spin text-primary" />
                           <p className="text-sm text-muted-foreground">Génération de l'aperçu…</p>
                         </div>
                       )}
@@ -2403,25 +2403,25 @@ export function DocumentEditorContent() {
                 {/* Letterhead */}
                 <div className="space-y-1 pb-4">
                   <h1
-                    className="font-bold text-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-300 rounded px-1"
+                    className="font-bold text-primary focus:outline-none focus:ring-2 focus:ring-ring rounded px-1"
                     style={{ fontSize: '14pt' }}
                   >
                     {formData.clinicName}
                   </h1>
                   <p
-                    className="text-muted-foreground focus:outline-none focus:ring-2 focus:ring-blue-300 rounded px-1"
+                    className="text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring rounded px-1"
                     style={{ fontSize: '11pt' }}
                   >
                     {formData.clinicAddress}
                   </p>
                   <p
-                    className="text-muted-foreground focus:outline-none focus:ring-2 focus:ring-blue-300 rounded px-1"
+                    className="text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring rounded px-1"
                     style={{ fontSize: '11pt' }}
                   >
                     Tél: {formData.clinicPhone}
                   </p>
                   <p
-                    className="font-bold focus:outline-none focus:ring-2 focus:ring-blue-300 rounded px-1"
+                    className="font-bold focus:outline-none focus:ring-2 focus:ring-ring rounded px-1"
                     style={{ fontSize: '11pt' }}
                   >
                     {formData.doctorName} - {formData.doctorSpecialty}
@@ -2455,7 +2455,7 @@ export function DocumentEditorContent() {
                 {/* Date */}
                 <div className="text-right pb-2">
                   <p
-                    className="focus:outline-none focus:ring-2 focus:ring-blue-300 rounded px-1 inline-block"
+                    className="focus:outline-none focus:ring-2 focus:ring-ring rounded px-1 inline-block"
                     style={{ fontSize: '11pt' }}
                   >
                     {formData.clinicCity ? `${formData.clinicCity}, le ` : "Le "}
@@ -2478,7 +2478,7 @@ export function DocumentEditorContent() {
                     <div>
                       <p className="text-muted-foreground mb-1" style={{ fontSize: '9pt' }}>Patient</p>
                       <p
-                        className="font-bold focus:outline-none focus:ring-2 focus:ring-blue-300 rounded px-1"
+                        className="font-bold focus:outline-none focus:ring-2 focus:ring-ring rounded px-1"
                         style={{ fontSize: '12pt' }}
                       >
                         {patientData ? getPatientName(patientData) : "Sélectionnez un patient"}
@@ -2488,7 +2488,7 @@ export function DocumentEditorContent() {
                       <div>
                         <p className="text-muted-foreground mb-1" style={{ fontSize: '9pt' }}>Date de naissance</p>
                         <p
-                          className="focus:outline-none focus:ring-2 focus:ring-blue-300 rounded px-1"
+                          className="focus:outline-none focus:ring-2 focus:ring-ring rounded px-1"
                           style={{ fontSize: '12pt' }}
                         >
                           {new Date(patientData.dateOfBirth).toLocaleDateString("fr-FR", {
@@ -2569,7 +2569,7 @@ export function DocumentEditorContent() {
                       <div className="pt-4 pb-2 border-t border-slate-300 dark:border-slate-600">
                         <div className="flex justify-between items-center">
                           <span className="font-bold" style={{ fontSize: '12pt' }}>Montant total:</span>
-                          <span className="font-bold text-blue-600" style={{ fontSize: '12pt' }}>{formFields.totalCost || "0,00 €"}</span>
+                          <span className="font-bold text-primary" style={{ fontSize: '12pt' }}>{formFields.totalCost || "0,00 €"}</span>
                         </div>
                       </div>
                     </div>
@@ -2596,13 +2596,13 @@ export function DocumentEditorContent() {
                   </div>
                   <div className="text-right space-y-1">
                     <p
-                      className="font-bold focus:outline-none focus:ring-2 focus:ring-blue-300 rounded px-1"
+                      className="font-bold focus:outline-none focus:ring-2 focus:ring-ring rounded px-1"
                       style={{ fontSize: '12pt' }}
                     >
                       {formData.doctorName}
                     </p>
                     <p
-                      className="text-muted-foreground focus:outline-none focus:ring-2 focus:ring-blue-300 rounded px-1"
+                      className="text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring rounded px-1"
                       style={{ fontSize: '10pt' }}
                     >
                       {formData.doctorSpecialty}

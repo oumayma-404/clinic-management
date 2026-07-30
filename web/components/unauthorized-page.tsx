@@ -9,7 +9,7 @@ export default function UnauthorizedPage() {
   const router = useRouter()
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-slate-50 dark:from-slate-950 dark:to-slate-900 flex items-center justify-center p-6">
+    <div className="min-h-screen bg-gradient-to-br from-accent via-white to-slate-50 dark:from-slate-950 dark:to-slate-900 flex items-center justify-center p-6">
       <div className="w-full max-w-md">
         <Card className="border-red-100 dark:border-red-900/20 shadow-lg">
           <CardHeader className="text-center space-y-4">
@@ -24,8 +24,8 @@ export default function UnauthorizedPage() {
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="p-4 bg-blue-50 dark:bg-blue-950/20 rounded-lg border border-blue-200 dark:border-blue-800">
-              <p className="text-sm text-blue-900 dark:text-blue-100">
+            <div className="p-4 bg-accent/20 rounded-lg border border-primary/25">
+              <p className="text-sm text-accent-foreground">
                 Pour commencer, vous pouvez créer une nouvelle clinique ou en rejoindre une existante à l'aide d'un code de clinique.
               </p>
             </div>
@@ -33,7 +33,7 @@ export default function UnauthorizedPage() {
             <div className="flex flex-col gap-3">
               <Button
                 onClick={() => router.push("/setup")}
-                className="w-full bg-blue-600 hover:bg-blue-700"
+                className="w-full bg-primary hover:bg-primary/90"
                 size="lg"
               >
                 <Plus className="w-4 h-4 mr-2" />
@@ -43,7 +43,7 @@ export default function UnauthorizedPage() {
               <Button
                 onClick={() => router.push("/join")}
                 variant="outline"
-                className="w-full border-blue-200 hover:bg-blue-50 dark:hover:bg-blue-950/20"
+                className="w-full border-primary/25 hover:bg-accent/20"
                 size="lg"
               >
                 <Building2 className="w-4 h-4 mr-2" />

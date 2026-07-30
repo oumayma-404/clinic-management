@@ -1,10 +1,14 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useCallback, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { DataTablePagination } from "@/components/ui/data-table-pagination"
+import { usePagedList } from "@/lib/hooks/use-paged-list"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -31,35 +35,30 @@ interface CnamNomenclatureTableProps {
 }
 
 export function CnamNomenclatureTable({ onEdit, onAdd, onChanged, reloadToken }: CnamNomenclatureTableProps) {
-  const [entries, setEntries] = useState<CnamNomenclatureEntryDto[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [search, setSearch] = useState("")
   const [entryToDelete, setEntryToDelete] = useState<CnamNomenclatureEntryDto | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [confirming, setConfirming] = useState(false)
 
-  // Refetch in place on mount and whenever the parent bumps reloadToken. The `active` guard prevents a
-  // setState after unmount if the component is torn down mid-request.
-  useEffect(() => {
-    let active = true
-    const run = async () => {
-      try {
-        setLoading(true)
-        setError(null)
-        // Admin screen: include deactivated rows too.
-        const data = await cnamNomenclatureApi.list(undefined, undefined, true)
-        if (active) setEntries(data)
-      } catch (err) {
-        if (active) setError(err instanceof ApiError ? err.message : "Échec du chargement de la nomenclature.")
-      } finally {
-        if (active) setLoading(false)
-      }
-    }
-    run()
-    return () => {
-      active = false
-    }
-  }, [reloadToken])
+  // Admin screen: include deactivated rows too. Paging, ordering and the free-text search all run
+  // server-side — the catalog is the one list that really does grow without bound, and a search that
+  // only saw the current page would miss the act being looked for most of the time.
+  const fetchPage = useCallback(
+    ({ page, pageSize, search }: { page: number; pageSize: number; search?: string }) =>
+      cnamNomenclatureApi.listPaged({ page, pageSize, search, includeInactive: true }),
+    [],
+  )
+
+  const {
+    items: entries,
+    page: pageInfo,
+    loading,
+    refreshing,
+    error,
+    setPage,
+    setPageSize,
+    isSearching,
+  } = usePagedList<CnamNomenclatureEntryDto>({ fetchPage, search, refreshKey: reloadToken })
 
   const confirmDelete = async () => {
     if (!entryToDelete) return
@@ -126,7 +125,7 @@ export function CnamNomenclatureTable({ onEdit, onAdd, onChanged, reloadToken }:
               <ClipboardList className="h-5 w-5" />
               Nomenclature CNAM
               <Badge variant="secondary" className="ml-2">
-                {entries.length} {entries.length === 1 ? "acte" : "actes"}
+                {pageInfo.totalCount} {pageInfo.totalCount === 1 ? "acte" : "actes"}
               </Badge>
             </CardTitle>
             <Button onClick={onAdd} size="sm" className="gap-2">
@@ -141,7 +140,18 @@ export function CnamNomenclatureTable({ onEdit, onAdd, onChanged, reloadToken }:
               {error}
             </div>
           )}
-          <div className="overflow-x-auto">
+          <div className="mb-4">
+            <Label htmlFor="cnam-search" className="sr-only">
+              Rechercher un acte (code, désignation, lettre clé)…
+            </Label>
+            <Input
+              id="cnam-search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Rechercher un acte (code, désignation, lettre clé)…"
+            />
+          </div>
+          <div className={`overflow-x-auto${refreshing ? " opacity-60 transition-opacity" : ""}`}>
             <Table>
               <TableHeader>
                 <TableRow>
@@ -205,6 +215,13 @@ export function CnamNomenclatureTable({ onEdit, onAdd, onChanged, reloadToken }:
                 )}
               </TableBody>
             </Table>
+            <DataTablePagination
+              page={pageInfo}
+              onPageChange={setPage}
+              onPageSizeChange={setPageSize}
+              loading={refreshing}
+              label={["acte", "actes"]}
+            />
           </div>
         </CardContent>
       </Card>

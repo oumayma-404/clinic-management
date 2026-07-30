@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -10,9 +10,10 @@ import { Textarea } from "@/components/ui/textarea"
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   ArrowLeft, Ban, CreditCard, FileDown, Loader2, ReceiptText, CheckCheck, ClipboardCheck, FilePen,
-  CalendarClock,
+  CalendarClock, CalendarPlus, Layers, X,
 } from "lucide-react"
 import { toast } from "sonner"
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
@@ -30,7 +31,8 @@ import { PlanTimeline } from "./plan-timeline"
 import { InstallmentPaymentModal } from "./installment-payment-modal"
 import { ReviseInstallmentsModal } from "./revise-installments-modal"
 import { TreatmentPlanFormModal } from "./treatment-plan-form-modal"
-import { CreateAppointmentDialog } from "@/components/create-appointment-dialog"
+import { CreateAppointmentDialog, type PresetPlanAct } from "@/components/create-appointment-dialog"
+import { planItemState } from "./plan-next-action"
 
 interface PlanWorkspaceProps {
   plan: TreatmentPlanDto
@@ -46,7 +48,18 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
   const router = useRouter()
   const [busy, setBusy] = useState(false)
   const [paymentTarget, setPaymentTarget] = useState<InstallmentDto | null>(null)
-  const [scheduleTarget, setScheduleTarget] = useState<TreatmentPlanItemDto | null>(null)
+  /**
+   * Bookings still to make, each element being **one appointment**.
+   *
+   * <p>A queue rather than a single target, because that is what makes « 3 ensemble, 1 à part » one gesture: the
+   * user ticks the acts and says how to split them, and the workspace walks the resulting groups through the same
+   * dialog one at a time. « Ensemble » enqueues one group of N; « Séparément » enqueues N groups of one.</p>
+   */
+  const [bookingQueue, setBookingQueue] = useState<PresetPlanAct[][]>([])
+  /** Plan acts ticked for booking (ids). Only « À planifier » acts can be in here. */
+  const [selectedActIds, setSelectedActIds] = useState<string[]>([])
+  /** True for the one close that follows a successful create — see `finishCurrentBooking`. */
+  const justAdvancedRef = useRef(false)
   const [cancelOpen, setCancelOpen] = useState(false)
   const [cancelReason, setCancelReason] = useState("")
   const [procedureTypes, setProcedureTypes] = useState<ProcedureTypeDto[]>([])
@@ -74,21 +87,35 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
    * key for those rows. Lines from the CNAM catalogue, typed by hand, or renamed after picking match neither
    * way and keep the previous free-text behaviour.
    */
-  const scheduleProcedureTypeId = useMemo(() => {
-    if (!scheduleTarget) return undefined
+  const resolveProcedureTypeId = useCallback(
+    (item: TreatmentPlanItemDto): string | undefined => {
+      const stored = item.procedureTypeId
+      // Still verified against the loaded catalog — a procedure retired since the devis was written must not
+      // preselect an option that no longer exists (the link is a soft reference, with no FK to guarantee it).
+      if (stored && procedureTypes.some((p) => p.id === stored)) return stored
 
-    const stored = scheduleTarget.procedureTypeId
-    // Still verified against the loaded catalog — a procedure retired since the devis was written must not
-    // preselect an option that no longer exists (the link is a soft reference, with no FK to guarantee it).
-    if (stored && procedureTypes.some((p) => p.id === stored)) return stored
+      const designation = item.designationFr?.trim().toLowerCase()
+      if (!designation) return undefined
+      const matches = procedureTypes.filter((p) => p.name.trim().toLowerCase() === designation)
+      // Ambiguity means the catalog holds two procedures with the same name; guessing one would put the wrong
+      // fee and colour on the appointment, so prefer no prefill.
+      return matches.length === 1 ? matches[0].id : undefined
+    },
+    [procedureTypes],
+  )
 
-    const designation = scheduleTarget.designationFr?.trim().toLowerCase()
-    if (!designation) return undefined
-    const matches = procedureTypes.filter((p) => p.name.trim().toLowerCase() === designation)
-    // Ambiguity means the catalog holds two procedures with the same name; guessing one would put the wrong
-    // fee and colour on the appointment, so prefer no prefill.
-    return matches.length === 1 ? matches[0].id : undefined
-  }, [scheduleTarget, procedureTypes])
+  /** One plan act in the shape the booking dialog takes. */
+  const toPresetAct = useCallback(
+    (item: TreatmentPlanItemDto): PresetPlanAct => ({
+      planItemId: item.id,
+      procedureTypeId: resolveProcedureTypeId(item),
+      label:
+        item.toothNumbers.length > 0
+          ? `${item.designationFr} (dents ${item.toothNumbers.join(", ")})`
+          : item.designationFr,
+    }),
+    [resolveProcedureTypeId],
+  )
 
   const isDraft = plan.status === "Draft"
   const isActive = plan.status === "Accepted" || plan.status === "InProgress"
@@ -108,6 +135,71 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
    * `EnsureCorrectable` admits Accepted / InProgress / **Completed** — mirrored here.
    */
   const canCorrectActs = plan.status !== "Draft" && plan.status !== "Cancelled"
+
+  /**
+   * The acts that can be booked right now. Same état the row's own « Planifier » keys off, so the tick boxes and
+   * the per-row button can never disagree about what is bookable.
+   */
+  const schedulableItems = useMemo(
+    () => (isActive ? plan.items.filter((i) => planItemState(i) === "to-schedule") : []),
+    [isActive, plan.items],
+  )
+  const canGroup = schedulableItems.length > 1
+
+  /**
+   * How many acts share each booked appointment — what turns « ces deux-là ensemble » into something the plan can
+   * *show* afterwards. Derived from the read-back the API already supplies, so it needs no extra field: two acts
+   * pointing at one appointment **are** one séance.
+   */
+  const actsPerAppointment = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const item of plan.items) {
+      if (item.scheduledAppointmentId) {
+        counts.set(item.scheduledAppointmentId, (counts.get(item.scheduledAppointmentId) ?? 0) + 1)
+      }
+    }
+    return counts
+  }, [plan.items])
+
+  // Acts that leave the « À planifier » state (a peer books one, a fiche is saved) must not stay ticked, or
+  // « Planifier ensemble » would silently re-book something already scheduled.
+  useEffect(() => {
+    const bookable = new Set(schedulableItems.map((i) => i.id))
+    setSelectedActIds((prev) => {
+      const kept = prev.filter((id) => bookable.has(id))
+      return kept.length === prev.length ? prev : kept
+    })
+  }, [schedulableItems])
+
+  const toggleActSelection = (itemId: string) =>
+    setSelectedActIds((prev) => (prev.includes(itemId) ? prev.filter((id) => id !== itemId) : [...prev, itemId]))
+
+  /** The ticked acts, in the plan's own clinical order rather than the order they were clicked. */
+  const selectedItems = useMemo(
+    () => schedulableItems.filter((i) => selectedActIds.includes(i.id)),
+    [schedulableItems, selectedActIds],
+  )
+
+  /** Queue one appointment per group, then clear the ticks — the dialog walks the queue. */
+  const startBooking = (groups: TreatmentPlanItemDto[][]) => {
+    const queued = groups.filter((g) => g.length > 0).map((g) => g.map(toPresetAct))
+    if (queued.length === 0) return
+    setBookingQueue(queued)
+    setSelectedActIds([])
+  }
+
+  /**
+   * Advance to the next appointment in the queue (or close), then refetch so états update.
+   *
+   * <p>The flag exists because the dialog reports a successful create by calling `onSuccess` and *then*
+   * `onOpenChange(false)` — and closing is what abandons the run. Without distinguishing the two, booking the
+   * first of three séances would shift the queue and immediately discard the rest.</p>
+   */
+  const finishCurrentBooking = () => {
+    justAdvancedRef.current = true
+    setBookingQueue((prev) => prev.slice(1))
+    onChanged()
+  }
 
   const run = async (action: () => Promise<unknown>, success: string, failure: string) => {
     setBusy(true)
@@ -343,9 +435,70 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
       {/* ---- Actes --------------------------------------------------------------------------------- */}
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Actes</CardTitle>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle className="text-base">Actes</CardTitle>
+            {canGroup && selectedActIds.length === 0 && (
+              <p className="text-xs text-muted-foreground">
+                Cochez plusieurs actes pour les regrouper dans une même séance.
+              </p>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
+          {/*
+            The grouping bar. It only exists while acts are ticked, and it offers **both** splits explicitly rather
+            than guessing: « ensemble » is one appointment carrying every ticked act, « séparément » is one
+            appointment each. Neither is the default, because neither is more correct — a détartrage and an
+            obturation on the same tooth belong in one visit, two extractions on opposite sides do not, and only
+            the dentist knows which. Mixed splits fall out of repeating the gesture: tick two → ensemble, tick the
+            rest → séparément.
+          */}
+          {selectedActIds.length > 0 && (
+            <div
+              role="status"
+              className="mb-3 flex flex-wrap items-center gap-2 rounded-md border bg-muted/50 px-3 py-2"
+            >
+              <span className="text-sm font-medium">
+                {selectedActIds.length} acte{selectedActIds.length > 1 ? "s" : ""} sélectionné
+                {selectedActIds.length > 1 ? "s" : ""}
+              </span>
+              <div className="ml-auto flex flex-wrap items-center gap-2">
+                {selectedActIds.length > 1 && (
+                  <Button
+                    size="sm"
+                    className="h-8 gap-1"
+                    disabled={busy}
+                    onClick={() => startBooking([selectedItems])}
+                  >
+                    <Layers className="h-4 w-4" />
+                    Planifier ensemble — 1 RDV
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 gap-1"
+                  disabled={busy}
+                  onClick={() => startBooking(selectedItems.map((i) => [i]))}
+                >
+                  <CalendarPlus className="h-4 w-4" />
+                  {selectedActIds.length > 1
+                    ? `Planifier séparément — ${selectedActIds.length} RDV`
+                    : "Planifier"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 gap-1"
+                  onClick={() => setSelectedActIds([])}
+                >
+                  <X className="h-4 w-4" />
+                  Effacer
+                </Button>
+              </div>
+            </div>
+          )}
+
           {plan.items.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground">Aucun acte planifié.</p>
           ) : (
@@ -353,6 +506,20 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    {canGroup && (
+                      <TableHead className="w-10">
+                        {/* Selects only what is bookable — an already-booked or réalisé act has nothing to plan. */}
+                        <Checkbox
+                          aria-label="Sélectionner tous les actes à planifier"
+                          checked={
+                            selectedActIds.length > 0 && selectedActIds.length === schedulableItems.length
+                          }
+                          onCheckedChange={(checked) =>
+                            setSelectedActIds(checked ? schedulableItems.map((i) => i.id) : [])
+                          }
+                        />
+                      </TableHead>
+                    )}
                     {canReorder && <TableHead className="w-16">Ordre</TableHead>}
                     <TableHead>Désignation</TableHead>
                     <TableHead>Dents</TableHead>
@@ -367,8 +534,24 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                       key={item.id}
                       plan={plan}
                       item={item}
-                      onSchedule={setScheduleTarget}
+                      onSchedule={(target) => startBooking([[target]])}
                       onUndo={canCorrectActs ? setUndoTarget : undefined}
+                      selection={
+                        canGroup
+                          ? {
+                              // Rendered (disabled) even for a non-bookable act, so the column keeps its width
+                              // and the rows stay aligned.
+                              selectable: schedulableItems.some((i) => i.id === item.id),
+                              checked: selectedActIds.includes(item.id),
+                              onToggle: () => toggleActSelection(item.id),
+                            }
+                          : undefined
+                      }
+                      sessionActCount={
+                        item.scheduledAppointmentId
+                          ? actsPerAppointment.get(item.scheduledAppointmentId) ?? 1
+                          : 1
+                      }
                       reorder={
                         canReorder
                           ? {
@@ -517,25 +700,30 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
         }}
       />
 
+      {/*
+        Keyed on the queue's head so React remounts the dialog between two séances of a « séparément » run — the
+        form's own reset runs on close, and reusing one instance would carry the previous visit's time and acts
+        into the next one.
+      */}
       <CreateAppointmentDialog
-        open={!!scheduleTarget}
-        onOpenChange={(open) => !open && setScheduleTarget(null)}
+        key={bookingQueue[0]?.map((a) => a.planItemId).join("|") ?? "idle"}
+        open={bookingQueue.length > 0}
+        onOpenChange={(open) => {
+          if (open) return
+          // A close that follows a successful create is the queue advancing, not the user backing out.
+          if (justAdvancedRef.current) {
+            justAdvancedRef.current = false
+            return
+          }
+          // Cancelling abandons the WHOLE run, not just this appointment: after « Planifier séparément — 3 RDV »,
+          // silently advancing to the next act would leave the user in a dialog they did not ask to reopen.
+          setBookingQueue([])
+        }}
         presetPatientId={plan.patientId}
         presetPatientName={plan.patientName ?? "Patient"}
         presetPlanId={plan.id}
-        presetPlanItemId={scheduleTarget?.id}
-        presetProcedureTypeId={scheduleProcedureTypeId}
-        presetProcedureName={
-          scheduleTarget
-            ? scheduleTarget.toothNumbers.length > 0
-              ? `${scheduleTarget.designationFr} (dents ${scheduleTarget.toothNumbers.join(", ")})`
-              : scheduleTarget.designationFr
-            : undefined
-        }
-        onSuccess={() => {
-          setScheduleTarget(null)
-          onChanged()
-        }}
+        presetPlanActs={bookingQueue[0]}
+        onSuccess={finishCurrentBooking}
       />
 
       <Dialog

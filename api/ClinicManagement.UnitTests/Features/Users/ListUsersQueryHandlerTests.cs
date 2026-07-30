@@ -1,3 +1,5 @@
+using ClinicManagement.UnitTests.Common;
+using ClinicManagement.Domain.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Features.Users.Queries;
 using ClinicManagement.Domain.Entities;
@@ -28,15 +30,16 @@ public class ListUsersQueryHandlerTests
         doctor.Deactivate();
         _context.Setup(c => c.GetUserId()).Returns(admin.Id);
         _users.Setup(r => r.GetByAuth0SubAsync(admin.Id, It.IsAny<CancellationToken>())).ReturnsAsync(admin);
-        _users.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new[] { admin, doctor });
+        _users.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<string?>(), It.IsAny<PageRequest?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((new[] { admin, doctor }).AsPage());
 
         var result = await Handler().Handle(new ListUsersQuery(), CancellationToken.None);
 
         Assert.True(result.IsSuccess);
-        var deactivated = result.Value!.Single(u => u.Role == "doctor");
+        var deactivated = result.Value!.Items.Single(u => u.Role == "doctor");
         Assert.False(deactivated.IsActive);
-        Assert.True(result.Value!.Single(u => u.Role == "admin").IsActive);
+        Assert.True(result.Value!.Items.Single(u => u.Role == "admin").IsActive);
     }
 
     // [AC-5.4] A non-admin cannot list users.
@@ -50,6 +53,7 @@ public class ListUsersQueryHandlerTests
         var result = await Handler().Handle(new ListUsersQuery(), CancellationToken.None);
 
         Assert.True(result.IsFailure);
-        _users.Verify(r => r.GetByClinicIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+        _users.Verify(r => r.GetByClinicIdAsync(It.IsAny<Guid>(), It.IsAny<string?>(), It.IsAny<PageRequest?>(),
+                It.IsAny<CancellationToken>()), Times.Never);
     }
 }

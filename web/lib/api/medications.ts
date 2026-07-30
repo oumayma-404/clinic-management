@@ -1,11 +1,23 @@
 import { apiGet, apiPost, apiPut, apiDelete } from './client';
 import type { MedicationDto } from './types';
+import { unwrapPaged, type PagedResponse, type PageParams } from './paging';
 
 export const medicationsApi = {
   // DB-backed medication catalog. `q` optional (empty → full list). `includeInactive` is used by the
   // admin screen to also show deactivated rows; the ordonnance picker uses the default (active only).
   list: async (q?: string, includeInactive?: boolean): Promise<MedicationDto[]> => {
-    return apiGet<MedicationDto[]>('/medications', { q, includeInactive });
+    return unwrapPaged(await apiGet<PagedResponse<MedicationDto>>('/medications', { q, includeInactive }));
+  },
+
+  /**
+   * One page of the drug catalog. `search` maps to the endpoint's `q` and matches marque / forme / dosage **and
+   * the DCI rows** server-side — prescribers search by molecule as often as by brand.
+   */
+  listPaged: async (
+    params: PageParams & { includeInactive?: boolean },
+  ): Promise<PagedResponse<MedicationDto>> => {
+    const { search, ...rest } = params;
+    return apiGet<PagedResponse<MedicationDto>>('/medications', { ...rest, q: search });
   },
 
   // ── Admin writes ──────────────────────────────────────────────────────────────────────────────

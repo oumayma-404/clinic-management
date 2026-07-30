@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { DashboardSidebar } from "@/components/dashboard-sidebar"
 import { ClinicGuard } from "@/components/clinic-guard"
+import { PageHeader } from "@/components/ui/page-header"
 import { StockTable } from "@/components/stock-table"
 import { StockItemFormModal } from "@/components/stock-item-form-modal"
 import { Button } from "@/components/ui/button"
@@ -85,10 +86,7 @@ export default function StockPage() {
             <div className="mx-auto max-w-7xl space-y-6">
               {/* Page Header */}
               <div className="flex items-center justify-between">
-                <div>
-                  <h1 className="text-3xl font-semibold text-foreground">Gestion du stock</h1>
-                  <p className="mt-1 text-sm text-muted-foreground">Gérez les fournitures médicales et l&apos;inventaire</p>
-                </div>
+                <PageHeader zone="Clinique" title="Stock" subtitle="Fournitures, lots et seuils de réapprovisionnement." />
 
                 <Button onClick={handleAddNew} className="gap-2">
                   <Plus className="h-4 w-4" />

@@ -23,6 +23,7 @@ import { appointmentsApi } from "@/lib/api/appointments"
 import { patientsApi } from "@/lib/api/patients"
 import type { NotificationDto, PatientDto } from "@/lib/api/types"
 import { useSidebar } from "@/contexts/sidebar-context"
+import { cn } from "@/lib/utils"
 import { Bell, Search, LogOut, KeyRound, Loader2, UserCircle, Menu } from "lucide-react"
 
 export function DashboardHeader() {
@@ -40,6 +41,15 @@ export function DashboardHeader() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [searching, setSearching] = useState(false)
   const searchBoxRef = useRef<HTMLDivElement>(null)
+  /**
+   * Which result the keyboard is on; -1 = none.
+   *
+   * This is the fastest route to a patient's file in the whole product, and it was mouse-only: the results
+   * were a plain stack of buttons, so typing a name and then having to lift a hand to the trackpad to pick
+   * the obvious first match was the normal case. ↑/↓ move, Enter opens, Escape closes.
+   */
+  const [activeIndex, setActiveIndex] = useState(-1)
+  const resultsRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const term = searchQuery.trim()
@@ -56,6 +66,9 @@ export function DashboardHeader() {
         if (active) {
           setSearchResults(results)
           setSearchOpen(true)
+          // Preselect the top match: after typing a name, Enter should open the obvious result without a
+          // preparatory ↓. Reset on every new result set so the highlight never points at a stale row.
+          setActiveIndex(results.length > 0 ? 0 : -1)
         }
       } catch {
         if (active) setSearchResults([])
@@ -84,7 +97,35 @@ export function DashboardHeader() {
     setSearchOpen(false)
     setSearchQuery("")
     setSearchResults([])
+    setActiveIndex(-1)
     router.push(`/patients/${id}`)
+  }
+
+  /**
+   * Keyboard on the search field. `preventDefault` on the arrows matters: without it ↓ moves the text
+   * caret to the end of the input instead of moving through the list.
+   */
+  const handleSearchKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Escape") {
+      setSearchOpen(false)
+      setActiveIndex(-1)
+      return
+    }
+    if (!searchOpen || searchResults.length === 0) return
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault()
+      setActiveIndex((i) => (i + 1) % searchResults.length)
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault()
+      setActiveIndex((i) => (i - 1 + searchResults.length) % searchResults.length)
+    } else if (event.key === "Enter") {
+      const target = searchResults[activeIndex]
+      if (target) {
+        event.preventDefault()
+        goToPatient(target.id)
+      }
+    }
   }
 
   const handleNotificationClick = (notification: NotificationDto) => {
@@ -122,9 +163,16 @@ export function DashboardHeader() {
       router.push(`/stock?itemId=${notification.stockItemId}`)
       window.dispatchEvent(new CustomEvent("clinic:deeplink", { detail: { itemId: notification.stockItemId } }))
     } else if (notification.targetKind === "Recall") {
-      // AC-P3.7 — a failed recall carries no appointment; the action it demands is re-contacting the
-      // patient, and AC-P3.5 has just put them back on this list.
-      router.push("/recalls")
+      /*
+       * AC-P3.7 — a failed recall carries no appointment, so it cannot deep-link to a visit.
+       *
+       * It used to land on `/recalls`, the worklist page, which has been removed. It now lands on « Rappels »,
+       * the delivery log, filtered to failures: that is where the failed send itself is listed, with its channel
+       * and its reason. Strictly less than the old destination (the worklist also offered « contacté » and
+       * « relancer »), but it is the only surface that still exists AND actually contains this notification's
+       * subject — pointing at a deleted route, or at an unfiltered patient list, would be worse.
+       */
+      router.push("/rappels?status=failed")
     }
   }
 
@@ -168,6 +216,12 @@ export function DashboardHeader() {
             onFocus={() => {
               if (searchResults.length > 0) setSearchOpen(true)
             }}
+            onKeyDown={handleSearchKeyDown}
+            role="combobox"
+            aria-expanded={searchOpen}
+            aria-controls="patient-search-results"
+            aria-autocomplete="list"
+            aria-activedescendant={activeIndex >= 0 ? `patient-search-option-${activeIndex}` : undefined}
             className="h-10 w-full rounded-lg border border-input bg-background pl-10 pr-9 text-sm outline-none placeholder:text-muted-foreground focus:border-ring focus:ring-1 focus:ring-ring"
           />
           {searching && (
@@ -175,18 +229,33 @@ export function DashboardHeader() {
           )}
 
           {searchOpen && searchQuery.trim().length >= 2 && (
-            <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-80 overflow-y-auto rounded-lg border border-border bg-popover shadow-md">
+            <div
+              id="patient-search-results"
+              ref={resultsRef}
+              role="listbox"
+              aria-label="Résultats de la recherche de patients"
+              className="absolute left-0 right-0 top-full z-50 mt-1 max-h-80 overflow-y-auto rounded-lg border border-border bg-popover shadow-md"
+            >
               {searching && searchResults.length === 0 ? (
                 <p className="px-3 py-2 text-sm text-muted-foreground">Recherche…</p>
               ) : searchResults.length === 0 ? (
                 <p className="px-3 py-2 text-sm text-muted-foreground">Aucun patient trouvé.</p>
               ) : (
-                searchResults.map((patient) => (
+                searchResults.map((patient, index) => (
                   <button
                     key={patient.id}
+                    id={`patient-search-option-${index}`}
+                    role="option"
+                    aria-selected={index === activeIndex}
                     type="button"
+                    // The keyboard highlight and the mouse hover are the same visual state on purpose —
+                    // two competing highlights in one list is how a user loses track of what Enter will do.
+                    onMouseEnter={() => setActiveIndex(index)}
                     onClick={() => goToPatient(patient.id)}
-                    className="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left text-sm hover:bg-accent"
+                    className={cn(
+                      "flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left text-sm transition-colors",
+                      index === activeIndex ? "bg-accent text-accent-foreground" : "hover:bg-accent",
+                    )}
                   >
                     <span className="font-medium">
                       {patient.firstName} {patient.lastName}

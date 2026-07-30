@@ -4,6 +4,8 @@ using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Infrastructure.Persistence;
 
+using ClinicManagement.Application.Common;
+using ClinicManagement.Domain.Common;
 namespace ClinicManagement.Infrastructure.Repositories;
 
 public class LabWorkOrderRepository : ILabWorkOrderRepository
@@ -21,8 +23,13 @@ public class LabWorkOrderRepository : ILabWorkOrderRepository
             .FirstOrDefaultAsync(o => o.Id == id, cancellationToken);
     }
 
-    public async Task<IEnumerable<LabWorkOrder>> GetByClinicIdAsync(
-        Guid clinicId, LabOrderStatus? status = null, CancellationToken cancellationToken = default)
+    public async Task<PagedResult<LabWorkOrder>> GetByClinicIdAsync(
+        Guid clinicId,
+        LabOrderStatus? status = null,
+        Guid? patientId = null,
+        string? searchTerm = null,
+        PageRequest? paging = null,
+        CancellationToken cancellationToken = default)
     {
         var query = _context.LabWorkOrders
             .Include(o => o.Patient)
@@ -33,9 +40,28 @@ public class LabWorkOrderRepository : ILabWorkOrderRepository
             query = query.Where(o => o.Status == status.Value);
         }
 
+        // The patient filter moved in here from the handler, which used to branch to GetByPatientIdAsync and
+        // then re-apply the status filter in memory. Two predicates for one list is how the filtered and
+        // unfiltered views drift — and only one of the two branches could ever have been paged.
+        if (patientId.HasValue)
+        {
+            query = query.Where(o => o.PatientId == patientId.Value);
+        }
+
+        var pattern = SearchTerm.ToLikePattern(searchTerm);
+        if (pattern is not null)
+        {
+            query = query.Where(o =>
+                EF.Functions.ILike(SqlSearch.Unaccent(o.Prosthetist)!, pattern, SqlSearch.EscapeString) ||
+                EF.Functions.ILike(SqlSearch.Unaccent(o.WorkDescription)!, pattern, SqlSearch.EscapeString) ||
+                EF.Functions.ILike(SqlSearch.Unaccent(o.Notes)!, pattern, SqlSearch.EscapeString) ||
+                EF.Functions.ILike(SqlSearch.Unaccent(o.Patient!.FirstName + " " + o.Patient.LastName)!, pattern, SqlSearch.EscapeString));
+        }
+
         return await query
             .OrderByDescending(o => o.CreatedAt)
-            .ToListAsync(cancellationToken);
+            .ThenBy(o => o.Id)
+            .ToPagedResultAsync(paging, cancellationToken);
     }
 
     public async Task<int> CountOverdueAsync(Guid clinicId, DateTime asOfUtc, CancellationToken cancellationToken = default)

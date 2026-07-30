@@ -6,6 +6,8 @@ using ClinicManagement.Application.Features.ProcedureTypes.Commands;
 using ClinicManagement.Application.Features.ProcedureTypes.Queries;
 using ClinicManagement.Domain.ValueObjects;
 
+using ClinicManagement.Domain.Common;
+
 namespace ClinicManagement.API.Controllers;
 
 [ApiController]
@@ -25,10 +27,26 @@ public class ProcedureTypesController : ApiControllerBase
     /// <summary>
     /// Get all procedure types
     /// </summary>
+    /// <param name="page">1-based page number. Omit both paging parameters to get every match.</param>
+    /// <param name="pageSize">Rows per page, clamped to <c>PageRequest.MaxPageSize</c>.</param>
+    /// <param name="search">
+    /// Free-text filter. Applied in SQL <b>before</b> the page is cut, so it searches the whole clinic — a
+    /// search that only saw the current page would answer a different question from the one that was typed.
+    /// </param>
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<Application.DTOs.ProcedureTypeDto>>> GetProcedureTypes([FromQuery] bool includeInactive = false)
+    public async Task<ActionResult<PagedResult<Application.DTOs.ProcedureTypeDto>>> GetProcedureTypes(
+        [FromQuery] bool includeInactive = false,
+        [FromQuery] int? page = null,
+        [FromQuery] int? pageSize = null,
+        [FromQuery] string? search = null)
     {
-        var query = new GetProcedureTypesQuery { IncludeInactive = includeInactive };
+        var query = new GetProcedureTypesQuery
+        {
+            IncludeInactive = includeInactive,
+            Page = page,
+            PageSize = pageSize,
+            SearchTerm = search
+        };
         var result = await _mediator.Send(query);
 
         if (result.IsFailure)

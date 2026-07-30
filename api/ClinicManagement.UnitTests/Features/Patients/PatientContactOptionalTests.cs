@@ -1,3 +1,5 @@
+using ClinicManagement.UnitTests.Common;
+using ClinicManagement.Domain.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -168,14 +170,15 @@ public class PatientContactOptionalTests
     {
         var withPhone = PatientWith(null, new PhoneNumber("20123456"));
         var without = PatientWith(null, null);
-        _patients.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<bool>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new[] { without, withPhone });
+        _patients.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<bool>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<PageRequest?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((new[] { without, withPhone }).AsPage());
 
         var handler = new GetPatientsQueryHandler(_patients.Object, _users.Object, _clinicContext.Object);
         var result = await handler.Handle(new GetPatientsQuery { SearchTerm = "20123456" }, CancellationToken.None);
 
         Assert.True(result.IsSuccess);
-        var match = Assert.Single(result.Value!);
+        var match = Assert.Single(result.Value!.Items);
         Assert.Equal(withPhone.Id, match.Id);
     }
 

@@ -16,6 +16,13 @@ public class CreatePatientCommand : IRequest<Result<PatientDto>>
     public string LastName { get; set; } = string.Empty;
     public DateTime DateOfBirth { get; set; }
     public string Gender { get; set; } = string.Empty;
+    /// <summary>
+    /// <c>"Child"</c> or <c>"Adult"</c>. Required by the form, but **optional on the wire**: omitted or unrecognised
+    /// falls back to <see cref="DentitionRules.FromDateOfBirth"/>. The fallback is what keeps the server-internal
+    /// creators working — the AI dispatcher and the Google→App sync's placeholder patient know nothing about teeth,
+    /// and hard-rejecting them would break appointment sync to make a form field mandatory.
+    /// </summary>
+    public string? Dentition { get; set; }
     public string Email { get; set; } = string.Empty;
     public string PhoneNumber { get; set; } = string.Empty;
     public string? MedicalHistory { get; set; }
@@ -25,6 +32,12 @@ public class CreatePatientCommand : IRequest<Result<PatientDto>>
     public CnamInfoDto? CnamInfo { get; set; }
     public string? EmergencyContactName { get; set; }
     public string? EmergencyContactPhone { get; set; }
+    /// <summary>Optional « adressé par » — the referring practitioner, free text.</summary>
+    public string? ReferredBy { get; set; }
+    /// <summary>Optional patient-level notes; <see cref="ImportantNotes"/> is shown highlighted on the file.</summary>
+    public string? Notes { get; set; }
+    /// <inheritdoc cref="Notes"/>
+    public string? ImportantNotes { get; set; }
     public List<MedicalHistoryEntryDto>? MedicalHistoryEntries { get; set; }
     public List<FamilyHistoryEntryDto>? FamilyHistoryEntries { get; set; }
 
@@ -176,6 +189,19 @@ public class CreatePatientCommandHandler : IRequestHandler<CreatePatientCommand,
                     emergencyPhone);
             }
 
+            // Dentition: what the form chose, else what this patient's age implies. Applied after construction so
+            // the age fallback reads the SAME date of birth the entity was built with (defaults included) rather
+            // than the raw request, which may have been empty.
+            patient.SetDentition(
+                DentitionRules.Parse(request.Dentition) ?? DentitionRules.FromDateOfBirth(patient.DateOfBirth));
+
+            // Optional « adressé par » — blank/omitted leaves it null (the patient came on their own).
+            patient.SetReferredBy(request.ReferredBy);
+
+            // Optional patient-level notes — UpdateNotes normalizes blank to null, so an untouched section
+            // stores nothing rather than two empty strings.
+            patient.UpdateNotes(request.Notes, request.ImportantNotes);
+
             // Optional "Signaler ce patient" flag at creation.
             if (request.IsFlagged == true)
             {
@@ -238,12 +264,16 @@ public class CreatePatientCommandHandler : IRequestHandler<CreatePatientCommand,
                 LastName = patient.LastName,
                 DateOfBirth = patient.DateOfBirth,
                 Gender = patient.Gender,
+                Dentition = patient.Dentition.ToString(),
                 Email = patient.Email?.Value,
                 PhoneNumber = patient.PhoneNumber?.Value,
                 MedicalHistory = patient.MedicalHistory,
                 Allergies = patient.Allergies,
                 EmergencyContactName = patient.EmergencyContactName,
                 EmergencyContactPhone = patient.EmergencyContactPhone?.Value,
+                ReferredBy = patient.ReferredBy,
+                Notes = patient.Notes,
+                ImportantNotes = patient.ImportantNotes,
                 CreatedAt = patient.CreatedAt,
                 Version = patient.Version,
             };

@@ -94,9 +94,9 @@ export default function JoinClinicPage() {
 
   if (userLoading || authLoading || isChecking) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-slate-50 dark:from-slate-950 dark:to-slate-900 flex items-center justify-center p-6">
+      <div className="min-h-screen bg-gradient-to-br from-accent via-white to-slate-50 dark:from-slate-950 dark:to-slate-900 flex items-center justify-center p-6">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
           <p className="text-muted-foreground">Vérification du statut de votre clinique…</p>
         </div>
       </div>
@@ -109,15 +109,15 @@ export default function JoinClinicPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-slate-50 dark:from-slate-950 dark:to-slate-900 flex items-center justify-center p-6">
+    <div className="min-h-screen bg-gradient-to-br from-accent via-white to-slate-50 dark:from-slate-950 dark:to-slate-900 flex items-center justify-center p-6">
       <div className="w-full max-w-md">
-        <Card className="border-blue-100 shadow-lg">
+        <Card className="border-primary/20 shadow-lg">
           <CardHeader className="text-center space-y-4">
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-blue-100 dark:bg-blue-900/20 mx-auto">
-              <Building2 className="w-8 h-8 text-blue-600 dark:text-blue-400" />
+            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-accent/20 mx-auto">
+              <Building2 className="w-8 h-8 text-primary" />
             </div>
             <div>
-              <CardTitle className="text-2xl text-blue-900 dark:text-blue-100">Rejoindre une clinique</CardTitle>
+              <CardTitle className="text-2xl text-accent-foreground">Rejoindre une clinique</CardTitle>
               <CardDescription className="mt-2">
                 Saisissez le code de la clinique fourni par votre administrateur pour rejoindre une clinique existante
               </CardDescription>
@@ -153,7 +153,7 @@ export default function JoinClinicPage() {
 
               <Button
                 type="submit"
-                className="w-full bg-blue-600 hover:bg-blue-700"
+                className="w-full bg-primary hover:bg-primary/90"
                 disabled={!clinicCode.trim() || isLoading}
               >
                 {isLoading ? "Validation…" : "Continuer"}
@@ -165,7 +165,7 @@ export default function JoinClinicPage() {
                   type="button"
                   variant="ghost"
                   onClick={() => router.push("/setup")}
-                  className="text-muted-foreground hover:text-blue-600"
+                  className="text-muted-foreground hover:text-primary"
                 >
                   Vous n'avez pas de code ? Créez plutôt une nouvelle clinique
                 </Button>

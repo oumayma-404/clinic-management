@@ -9,6 +9,7 @@
 //   - the status `<Select>` held the only French copy in the app, hardcoded inline.
 //   - the calendar legend hardcoded three of the six statuses and omitted the rest.
 // One map, one accessor, `?? key` pass-through — the convention `factures/invoice-labels.ts` established.
+import { statusToneClass, type StatusTone } from "@/components/ui/status-tone";
 
 /** The six statuses, in lifecycle order. Backend enum names — this is the wire form. */
 export const APPOINTMENT_STATUSES = [
@@ -31,14 +32,20 @@ export const APPOINTMENT_STATUS_LABELS: Record<string, string> = {
   NoShow: "Absent",
 };
 
-/** Tailwind badge classes per status (light + dark), mirroring the fiscal-status palette. */
-export const APPOINTMENT_STATUS_BADGE_CLASS: Record<string, string> = {
-  Scheduled: "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-200",
-  Confirmed: "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-200",
-  InProgress: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200",
-  Completed: "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-200",
-  Cancelled: "bg-muted text-muted-foreground",
-  NoShow: "bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-200",
+/**
+ * Status → tone, through the shared scale (`components/ui/status-tone.ts`).
+ *
+ * `Scheduled` and `Confirmed` are deliberately two different tones and not one: in an agenda, « the patient said
+ * yes » versus « we put them in the book » is the distinction the colour is actually there to carry, and collapsing
+ * them would leave the desk reading six labels to find the unconfirmed ones.
+ */
+export const APPOINTMENT_STATUS_TONE: Record<string, StatusTone> = {
+  Scheduled: "pending",
+  Confirmed: "accepted",
+  InProgress: "active",
+  Completed: "positive",
+  Cancelled: "neutral",
+  NoShow: "negative",
 };
 
 /**
@@ -53,7 +60,7 @@ export function appointmentStatusLabel(status: string | null | undefined): strin
 
 export function appointmentStatusBadgeClass(status: string | null | undefined): string {
   if (!status) return "bg-muted text-muted-foreground";
-  return APPOINTMENT_STATUS_BADGE_CLASS[normalizeStatus(status)] ?? "bg-muted text-muted-foreground";
+  return statusToneClass(APPOINTMENT_STATUS_TONE[normalizeStatus(status)]);
 }
 
 /**
@@ -96,4 +103,36 @@ export function genderLabel(gender: string | null | undefined): string {
   const trimmed = gender.trim();
   const match = Object.keys(GENDER_LABELS).find((k) => k.toLowerCase() === trimmed.toLowerCase());
   return match ? GENDER_LABELS[match] : trimmed;
+}
+
+/**
+ * How a séance's acts read on a list or a calendar card: « Détartrage + Obturation ».
+ *
+ * <p>One helper rather than a join at each surface, for the same reason the label maps above are shared: the agenda,
+ * the dashboard list and the patient page must describe the same visit the same way. It falls back to the lead-act
+ * name so a response that predates the `procedures` field still renders, and returns `null` — never `""` — when
+ * there is no act, so callers keep choosing their own placeholder (« Rendez-vous », « Occupé »).</p>
+ */
+export function appointmentActsSummary(appointment: {
+  procedures?: { name?: string | null; sequenceNumber: number }[]
+  procedureTypeName?: string | null
+}): string | null {
+  const names = (appointment.procedures ?? [])
+    .slice()
+    .sort((a, b) => a.sequenceNumber - b.sequenceNumber)
+    .map((p) => p.name?.trim())
+    .filter((n): n is string => !!n)
+
+  if (names.length > 0) return names.join(" + ")
+  return appointment.procedureTypeName?.trim() || null
+}
+
+/** Number of acts booked into a séance — `> 1` is what a « +N » marker keys off on a cramped calendar card. */
+export function appointmentActsCount(appointment: {
+  procedures?: unknown[]
+  procedureTypeName?: string | null
+}): number {
+  const count = appointment.procedures?.length ?? 0
+  if (count > 0) return count
+  return appointment.procedureTypeName ? 1 : 0
 }

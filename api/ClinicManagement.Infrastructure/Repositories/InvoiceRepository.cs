@@ -4,6 +4,8 @@ using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Infrastructure.Persistence;
 
+using ClinicManagement.Application.Common;
+using ClinicManagement.Domain.Common;
 namespace ClinicManagement.Infrastructure.Repositories;
 
 public class InvoiceRepository : IInvoiceRepository
@@ -23,12 +25,14 @@ public class InvoiceRepository : IInvoiceRepository
             .FirstOrDefaultAsync(i => i.Id == id, cancellationToken);
     }
 
-    public async Task<IEnumerable<Invoice>> GetFilteredAsync(
+    public async Task<PagedResult<Invoice>> GetFilteredAsync(
         Guid clinicId,
         DateTime? from = null,
         DateTime? to = null,
         Guid? patientId = null,
         InvoiceStatus? status = null,
+        string? searchTerm = null,
+        PageRequest? paging = null,
         CancellationToken cancellationToken = default)
     {
         var query = _context.Invoices
@@ -57,9 +61,26 @@ public class InvoiceRepository : IInvoiceRepository
             query = query.Where(i => i.IssueDate != null && i.IssueDate <= to.Value);
         }
 
+        // Number or patient name — the two things anyone types when hunting a note d'honoraires.
+        //
+        // The patient half is an EXISTS against Patients rather than a join, because `Invoice` has no `Patient`
+        // navigation (it deliberately holds a bare `PatientId`; see GetPaymentsBetweenAsync). It has to be in
+        // SQL all the same: the names are resolved AFTER the page is cut, by the batched id lookup, so a
+        // name-based filter applied in the handler could only ever match rows already on the page.
+        var pattern = SearchTerm.ToLikePattern(searchTerm);
+        if (pattern is not null)
+        {
+            query = query.Where(i =>
+                EF.Functions.ILike(SqlSearch.Unaccent(i.Number)!, pattern, SqlSearch.EscapeString)
+                || _context.Patients.Any(p => p.Id == i.PatientId
+                    && EF.Functions.ILike(
+                        SqlSearch.Unaccent(p.FirstName + " " + p.LastName)!, pattern, SqlSearch.EscapeString)));
+        }
+
         return await query
             .OrderByDescending(i => i.IssueDate ?? i.CreatedAt)
-            .ToListAsync(cancellationToken);
+            .ThenBy(i => i.Id)
+            .ToPagedResultAsync(paging, cancellationToken);
     }
 
     public async Task<int> GetMaxSequenceForYearAsync(Guid clinicId, int year, CancellationToken cancellationToken = default)

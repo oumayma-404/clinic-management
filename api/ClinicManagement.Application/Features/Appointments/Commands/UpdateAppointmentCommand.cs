@@ -64,6 +64,14 @@ public class UpdateAppointmentCommand : IRequest<Result<AppointmentDto>>
     /// </summary>
     public bool AllowOutsideWorkingHours { get; set; }
 
+    /// <summary>
+    /// Confirmed override for a booking that overlaps another for the same practitioner. The sibling of
+    /// <see cref="AllowOutsideWorkingHours"/>, and deliberately the same shape: a double-booking is sometimes real
+    /// work (a second chair, an emergency squeezed in), so the collision is advisory and the acceptance is
+    /// <b>recorded</b> on the appointment via <c>MarkBookedWithOverlap()</c> rather than silently allowed.
+    /// </summary>
+    public bool AllowOverlap { get; set; }
+
     /// <summary>The plan the linked act belongs to — required whenever <see cref="TreatmentPlanItemId"/> is set.</summary>
     public Guid? TreatmentPlanId { get; set; }
 
@@ -72,6 +80,28 @@ public class UpdateAppointmentCommand : IRequest<Result<AppointmentDto>>
     private Guid? _procedureTypeId;
     private Guid? _doctorId;
     private Guid? _treatmentPlanItemId;
+    private List<AppointmentProcedureRequest>? _procedures;
+
+    /// <summary>
+    /// The acts of this séance, replaced wholesale. Tri-state like everything else here: **omit** the key to leave
+    /// the séance's acts untouched, send `[]` to clear them all.
+    /// <para>
+    /// That distinction is load-bearing, and for exactly the reason documented on <see cref="ProcedureTypeId"/>:
+    /// cancelling an appointment posts <c>{ status }</c> alone, so a list read as "an empty list was sent" would
+    /// delete every act of the visit on every cancellation. An empty array is a real instruction (« ce rendez-vous
+    /// n'a plus d'acte »), which is why it cannot be conflated with an absent one.
+    /// </para>
+    /// <para>
+    /// Replace, not patch: the client sends the list the user is looking at. A row-level diff would need the client
+    /// to track each act's id, and <c>AppointmentProcedure</c> holds nothing worth preserving across a save — a
+    /// performed act is recorded on the fiche de soins, not here.
+    /// </para>
+    /// </summary>
+    public List<AppointmentProcedureRequest>? Procedures
+    {
+        get => _procedures;
+        set { _procedures = value; ProceduresSpecified = true; }
+    }
 
     /// <summary>Free-text practitioner label. Explicit <c>null</c> clears it; omitting leaves it.</summary>
     public string? DoctorName
@@ -118,6 +148,7 @@ public class UpdateAppointmentCommand : IRequest<Result<AppointmentDto>>
     [JsonIgnore] public bool ProcedureTypeIdSpecified { get; private set; }
     [JsonIgnore] public bool DoctorIdSpecified { get; private set; }
     [JsonIgnore] public bool TreatmentPlanItemIdSpecified { get; private set; }
+    [JsonIgnore] public bool ProceduresSpecified { get; private set; }
 }
 
 public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointmentCommand, Result<AppointmentDto>>
@@ -274,10 +305,36 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                 appointment.UpdateNotes(request.Notes);
             }
 
+            // The séance's acts, replaced wholesale. Takes precedence over the single-act field below: it is the
+            // newer and strictly more expressive of the two, and applying both would let the one-act path
+            // immediately collapse the list it just set.
+            if (request.ProceduresSpecified)
+            {
+                var requestedProcedures = request.Procedures ?? new List<AppointmentProcedureRequest>();
+
+                var linkResult = await AppointmentPlanLink.ValidateManyAsync(
+                    _treatmentPlanRepository, request.TreatmentPlanId,
+                    AppointmentProcedureSelection.PlanItemIds(requestedProcedures),
+                    clinicResult.Value, appointment.PatientId, cancellationToken);
+                if (linkResult.IsFailure)
+                {
+                    return Result<AppointmentDto>.Failure(linkResult.Error!);
+                }
+
+                var proceduresResult = await AppointmentProcedureSelection.ResolveAsync(
+                    _procedureTypeRepository, clinicResult.Value, requestedProcedures,
+                    linkResult.Value!, cancellationToken);
+                if (proceduresResult.IsFailure)
+                {
+                    return Result<AppointmentDto>.Failure(proceduresResult.Error!);
+                }
+
+                appointment.SetProcedures(proceduresResult.Value!);
+            }
             // Tri-state — THE data-loss fix. Without the Specified guard an omitted key bound to null, compared
             // as "different from the current act", and wiped the procedure type plus its snapshot duration and
             // colour. Cancelling an appointment posts { status } alone, so every cancellation destroyed the act.
-            if (request.ProcedureTypeIdSpecified && request.ProcedureTypeId != appointment.ProcedureTypeId)
+            else if (request.ProcedureTypeIdSpecified && request.ProcedureTypeId != appointment.ProcedureTypeId)
             {
                 if (request.ProcedureTypeId.HasValue)
                 {
@@ -295,7 +352,8 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                     appointment.SetProcedureType(
                         procedureType.Id,
                         procedureType.DefaultDurationMinutes,
-                        procedureType.Color.Value);
+                        procedureType.Color.Value,
+                        procedureType.Name);
                 }
                 else
                 {
@@ -409,9 +467,21 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                     _appointmentRepository, clinicResult.Value, appointment.DoctorId,
                     appointment.AppointmentDateTime, appointment.Duration,
                     excludeAppointmentId: appointment.Id, cancellationToken);
-                if (collision != null)
+                if (collision != null && !request.AllowOverlap)
                 {
-                    return Result<AppointmentDto>.Failure(AppointmentScheduling.SlotTakenMessage(collision));
+                    return Result<AppointmentDto>.Failure(
+                        AppointmentScheduling.SlotTakenMessage(collision), AppointmentScheduling.SlotTakenCode);
+                }
+
+                // Keep the acknowledgement in step with reality: a move INTO a clash records it, a move OUT of one
+                // clears it, so a row rescheduled into a free slot does not keep its constraint exemption forever.
+                if (collision != null && request.AllowOverlap)
+                {
+                    appointment.MarkBookedWithOverlap();
+                }
+                else if (collision == null)
+                {
+                    appointment.ClearOverlapAcknowledgement();
                 }
 
                 // AC-P1.20/1.28: moving an appointment is subject to the same working-hours rule as booking it.
@@ -422,7 +492,10 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                         appointment.AppointmentDateTime, appointment.Duration, cancellationToken);
                     if (hoursCheck.IsFailure)
                     {
-                        return Result<AppointmentDto>.Failure(hoursCheck.Error!);
+                        // FailureFrom, not Failure(Error): the working-hours refusal carries OutsideWorkingHoursCode,
+                    // and that code is the whole point — it is what lets the dialog offer « Continuer quand
+                    // même » instead of presenting a dead end.
+                    return Result<AppointmentDto>.FailureFrom(hoursCheck);
                     }
                 }
                 else
@@ -546,9 +619,10 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                     : DateTime.SpecifyKind(appointment.CreatedAt, DateTimeKind.Utc),
                 Version = appointment.Version,
                 ProcedureTypeId = appointment.ProcedureTypeId,
-                ProcedureTypeName = appointment.ProcedureType?.Name,
+                ProcedureTypeName = appointment.LeadProcedureName(),
                 // Use current procedure type color if available, otherwise use stored color
                 ProcedureColorHex = appointment.ProcedureType?.Color.Value ?? appointment.ProcedureColorHex,
+                Procedures = appointment.ToProcedureDtos(),
                 TreatmentPlanItemId = appointment.TreatmentPlanItemId,
                 // Reflects committed state; the async Google sync below may set the id afterwards, and
                 // the frontend refetches (bumps refreshKey) to clear the "non synchronisé" badge.

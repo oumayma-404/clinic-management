@@ -9,7 +9,24 @@ using ClinicManagement.Domain.Repositories;
 
 namespace ClinicManagement.Application.Features.TreatmentPlans.Commands;
 
-/// <summary>Create a draft treatment plan (devis) with its act lines + optional installment schedule.</summary>
+/// <summary>
+/// Create a treatment plan (devis) with its act lines + optional installment schedule, and **accept it
+/// immediately** — it gets its number and is live from the moment it is created.
+/// <para>
+/// There is no separate « Accepter le devis » step any more. A dentist writing a plan has already agreed it with
+/// the patient sitting in front of them, so the draft stage was a second confirmation of a decision already made,
+/// and it silently held the plan out of « Solde patient » and « Créances » until someone remembered to press a
+/// button. Corrections happen afterwards through <c>AmendTreatmentPlanCommand</c>, which can revise an act's fee
+/// **in place** (keeping its id, so appointment and fiche links survive) as well as add and remove acts.
+/// </para>
+/// <para>
+/// Two consequences worth knowing. (a) A **number is consumed** per created plan — the sequence stays gapless, so
+/// a plan created by mistake is <c>Cancel</c>led (its number kept, motif recorded), never deleted;
+/// <c>CanBeDeleted</c> is Draft-only and no new plan is a Draft. (b) <c>Accept</c> requires at least one act and
+/// auto-creates a single lump-sum échéance when no schedule was supplied, so an empty plan is now refused at
+/// creation rather than saved and left unusable.
+/// </para>
+/// </summary>
 public class CreateTreatmentPlanCommand : IRequest<Result<TreatmentPlanDto>>
 {
     public Guid PatientId { get; set; }
@@ -66,10 +83,21 @@ public class CreateTreatmentPlanCommandHandler : IRequestHandler<CreateTreatment
             plan.SetItems(items);
             plan.SetInstallments(request.Installments.Select(i => (i.DueDate, i.Amount)));
 
-            await _planRepository.AddAsync(plan, cancellationToken);
-            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            // Numbered, accepted and committed in one go, through the same helper the legacy accept path uses.
+            // The insert and the acceptance share a transaction by construction — there is a single
+            // SaveChanges — so a numbering collision can never leave a saved-but-unnumbered plan behind.
+            var accepted = await DevisNumbering.AcceptAndSaveAsync(
+                plan, clinicId, _planRepository, _unitOfWork,
+                ct => _planRepository.AddAsync(plan, ct),
+                _logger, cancellationToken);
+            if (accepted.IsFailure)
+            {
+                return Result<TreatmentPlanDto>.Failure(accepted.Error!);
+            }
 
-            _logger.LogInformation("Created draft treatment plan {PlanId} for patient {PatientId}", plan.Id, plan.PatientId);
+            _logger.LogInformation(
+                "Created treatment plan {PlanId} for patient {PatientId}, accepted as {Number}",
+                plan.Id, plan.PatientId, plan.Number);
             return Result<TreatmentPlanDto>.Success(plan.ToDto(patient.GetFullName()));
         }
         catch (InvalidOperationException ex)

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { DashboardSidebar } from "@/components/dashboard-sidebar"
@@ -17,7 +17,6 @@ import {
   Flag,
   Calendar,
   FileText,
-  Sparkles,
   Download,
   Eye,
   User,
@@ -58,7 +57,6 @@ import {
 import { toast } from "sonner"
 import { useSession } from "@/lib/auth/session"
 import { patientsApi } from "@/lib/api/patients"
-import { useConnectivity } from "@/lib/connectivity/connectivity"
 import { appointmentsApi } from "@/lib/api/appointments"
 import { patientMedicalHistoryApi } from "@/lib/api/patient-medical-history"
 import { patientFamilyHistoryApi } from "@/lib/api/patient-family-history"
@@ -71,22 +69,23 @@ import { EditPatientDialog } from "@/components/edit-patient-dialog"
 import { PatientRecordModal } from "@/components/patient-record-modal"
 import { Edit } from "lucide-react"
 import { Receipt } from "lucide-react"
-import { Smile, ClipboardCheck } from "lucide-react"
+import { Smile, ClipboardCheck, FolderOpen } from "lucide-react"
 import { InvoicesTable } from "@/components/factures/invoices-table"
 import { BillDentalRecordDialog } from "@/components/factures/bill-dental-record-dialog"
 import { Odontogram } from "@/components/odontogram"
+import { PatientNotesStrip } from "@/components/patient/patient-notes-strip"
+import { PatientUndocumentedVisits } from "@/components/patient/patient-undocumented-visits"
 import { TreatmentPlansTable } from "@/components/treatment-plans/treatment-plans-table"
-import { PatientPlanCard } from "@/components/treatment-plans/patient-plan-card"
+import { PatientPlansStrip } from "@/components/treatment-plans/patient-plans-strip"
 import { TreatmentPlanFormModal, type TreatmentPlanSeedLine } from "@/components/treatment-plans/treatment-plan-form-modal"
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
 import type { PlanItemOption } from "@/components/patient-record-modal"
 import { invoicesApi } from "@/lib/api/invoices"
-import { billingApi } from "@/lib/api/billing"
-import type { PatientBillingSummaryDto } from "@/lib/api/types"
-import { HandCoins } from "lucide-react"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
-import { appointmentStatusBadgeClass, appointmentStatusLabel, genderLabel } from "@/components/appointment-labels"
+import {
+  appointmentActsSummary, appointmentStatusBadgeClass, appointmentStatusLabel, genderLabel, normalizeStatus,
+} from "@/components/appointment-labels"
 import { showErrorToast } from "@/lib/errors"
 import { downloadBlob } from "@/lib/download"
 
@@ -129,6 +128,42 @@ const DOCUMENT_TYPE_LABELS: Record<string, string> = {
 }
 const documentTypeLabel = (type: string) => DOCUMENT_TYPE_LABELS[type] ?? type
 
+/**
+ * An empty section, or one that has not been asked for yet.
+ *
+ * Load-bearing since the page began painting its identity before its details: `[]` used to be reachable only
+ * after every request had answered, so « Aucun dossier dentaire » was always true. It is now also the state
+ * *before* the request answers — and a page that tells a dentist their patient has no records, no
+ * appointments and no files, a beat before listing all three, is worse than one that took longer to appear.
+ * Every empty state in the tabs goes through here so none of them can assert an absence we have not verified.
+ */
+function EmptyOrLoading({ loading, children }: { loading: boolean; children: React.ReactNode }) {
+  if (loading) {
+    return (
+      <div className="space-y-2 py-6" role="status" aria-label="Chargement…">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="h-5 animate-pulse rounded bg-muted" />
+        ))}
+      </div>
+    )
+  }
+  return <p className="py-8 text-center text-muted-foreground">{children}</p>
+}
+
+/**
+ * The tab values this page renders, so a `?tab=` param can be validated against them. `odontogram` is
+ * deliberately absent — it is a card above the tabs now, not a tab.
+ */
+const PATIENT_TABS = [
+  "medical-records",
+  "appointments",
+  "notes",
+  "documents",
+  "files",
+  "factures",
+  "treatment-plans",
+]
+
 export default function PatientDetailsPage() {
   const params = useParams()
   const router = useRouter()
@@ -141,7 +176,25 @@ export default function PatientDetailsPage() {
   const [files, setFiles] = useState<PatientFileDto[]>([])
   const [folders, setFolders] = useState<PatientFolderDto[]>([])
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null)
+  /**
+   * `loading` gates the *identity* only — one request. `detailsLoading` gates everything the cards and tabs
+   * below are built from.
+   *
+   * They used to be a single flag over eight requests awaited in three phases (`get`, then `list`, then a
+   * `Promise.all` of six), with `setLoading(false)` in the `finally` — so nothing at all appeared, not even
+   * the patient's *name*, until every one of them had answered. Three serial round trips on a LAN install is
+   * a visibly blank page while the dentist is standing at the chair. The identity now paints after the first
+   * request and the rest fills in behind it.
+   */
   const [loading, setLoading] = useState(true)
+  const [detailsLoading, setDetailsLoading] = useState(true)
+  /**
+   * The patient whose data is currently on screen. A `refreshKey` bump (a save, or a peer's edit arriving over
+   * realtime) must refetch *quietly*; only navigating to a different patient may blank the page. Without this
+   * distinction, recording a payment threw the whole page away and rebuilt it — the same defect the calendar
+   * had with its `key={refreshKey}` remount.
+   */
+  const loadedPatientIdRef = useRef<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [recordModalOpen, setRecordModalOpen] = useState(false)
@@ -155,7 +208,6 @@ export default function PatientDetailsPage() {
   // The note d'honoraires that bills each of those records, so the delete confirmation can NAME it
   // (AC-P2.17) instead of vaguely warning that the fiche is billed. Same pass as the set above.
   const [invoicingNumberByRecordId, setInvoicingNumberByRecordId] = useState<Map<string, string>>(new Map())
-  const [billingSummary, setBillingSummary] = useState<PatientBillingSummaryDto | null>(null)
   const [unarchiving, setUnarchiving] = useState(false)
   // The dental record being invoiced (drives the pre-filled invoice modal); null = closed.
   const [billingRecord, setBillingRecord] = useState<DentalRecordDto | null>(null)
@@ -167,53 +219,29 @@ export default function PatientDetailsPage() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
-  const [aiSummary, setAiSummary] = useState("")
-  const [aiLoading, setAiLoading] = useState(false)
-  const [aiError, setAiError] = useState(false)
   const [treatmentPlans, setTreatmentPlans] = useState<TreatmentPlanDto[]>([])
-  // Controlled so PatientPlanCard can send the user to the plans tab.
+  // Controlled so PatientPlansStrip can send the user to the plans tab.
   const [activeTab, setActiveTab] = useState("medical-records")
+  // The tab strip sits below the odontogram, so a control *above* it that only calls setActiveTab appears to do
+  // nothing on a tall screen — the panel it switched to is off-screen. Anything sending the user to a tab from
+  // higher up the page goes through openTab so the tabs are actually brought into view.
+  const tabsRef = useRef<HTMLDivElement>(null)
+  const openTab = (tab: string) => {
+    setActiveTab(tab)
+    tabsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+  }
   const [medicalDocuments, setMedicalDocuments] = useState<MedicalDocumentDto[]>([])
   const [planSeeds, setPlanSeeds] = useState<TreatmentPlanSeedLine[]>([])
   const [seededPlanOpen, setSeededPlanOpen] = useState(false)
-  const { internetReachable } = useConnectivity()
   // Both delete endpoints are AdminOrDoctor (A-12). Offer the action only to those roles so a secretary is
   // never sent into a guaranteed 403 — the same rationale procedure-types-table.tsx documents for its writes.
   const { user: sessionUser } = useSession()
   const canDeleteClinicalRecords = sessionUser?.role === "admin" || sessionUser?.role === "doctor"
 
-  // Real AI summary (HuggingFace via GET /patients/{id}/ai-summary). Offline (Local) → skip + FR fallback.
-  const loadAiSummary = async () => {
-    if (!internetReachable) {
-      setAiSummary("")
-      setAiError(true)
-      return
-    }
-    setAiLoading(true)
-    setAiError(false)
-    try {
-      const res = await patientsApi.getAiSummary(patientId)
-      setAiSummary(res.summary || "")
-      setAiError(!res.summary)
-    } catch {
-      setAiSummary("")
-      setAiError(true)
-    } finally {
-      setAiLoading(false)
-    }
-  }
-
-  // Auto-generate on page open; re-run automatically when internet becomes reachable again (AC-5/AC-7).
-  useEffect(() => {
-    if (patientId) {
-      loadAiSummary()
-    }
-  }, [patientId, internetReachable])
-
   // Real-time: when any client of this clinic edits this patient's record, appointments, or files, the
   // server signals the resource and we re-run the loader below (bump refreshKey). Additive (AC-5).
   //
-  // TreatmentPlans + Invoices are here for PatientPlanCard (AC-9a): its progress, « prochaine séance » and
+  // TreatmentPlans + Invoices are here for PatientPlansStrip (AC-9a): its progress, « prochaine séance » and
   // « Facturé » badge are derived from three different aggregates, and RealtimeBroadcastBehavior keys off
   // the *command's* namespace — so a peer accepting a plan broadcasts "treatmentplans" and issuing its
   // invoice broadcasts "invoices", neither of which "patients" would catch. Without them the card silently
@@ -233,38 +261,79 @@ export default function PatientDetailsPage() {
     () => setRefreshKey((k) => k + 1),
   )
 
-  // Load patient data
+  // Load patient data — identity first, then everything else.
   useEffect(() => {
+    if (!patientId) return
+
+    // Only an actual navigation to a different patient is allowed to blank the page; a refresh is quiet.
+    const isDifferentPatient = loadedPatientIdRef.current !== patientId
+    if (isDifferentPatient) {
+      setLoading(true)
+      setDetailsLoading(true)
+    }
+
+    let cancelled = false
+
     const loadPatientData = async () => {
+      // ---- Phase 1: the identity. One request; the header, the alerts and the odontogram paint on it. ----
       try {
-        setLoading(true)
-        setError(null)
-        
-        // Load patient
         const patientData = await patientsApi.get(patientId)
+        if (cancelled) return
         setPatient(patientData)
-        
-        // Load patient appointments
-        const appointmentsData = await appointmentsApi.list({ patientId })
-        setAppointments(appointmentsData)
-        
-        // Load medical and family history entries, dental records, files, folders, and invoices
-        // (invoices power the "already billed" guard on the dental-records list).
-        const [medicalHistory, familyHistory, dentalRecordsData, filesData, foldersData, invoicesData, billingSummaryData] = await Promise.all([
+        setError(null)
+        loadedPatientIdRef.current = patientId
+      } catch (err) {
+        if (cancelled) return
+        // A page already on screen is not replaced by an error screen: a transient failure on a background
+        // refresh must not turn a loaded patient into « Patient introuvable ». Say so and keep what we have.
+        if (loadedPatientIdRef.current === patientId) {
+          showErrorToast(err, "Le dossier du patient n'a pas pu être rechargé.")
+        } else {
+          setError(err instanceof ApiError ? err.message : "Échec du chargement des données du patient")
+        }
+        return
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+
+      // ---- Phase 2: everything the cards and tabs read. All seven in parallel; each degrades to empty. ----
+      try {
+        // `appointments` was awaited on its own between the two phases for no reason — nothing in phase 1
+        // needed it, so it cost a whole serial round trip before the other six could even start.
+        // The treatment plans and the saved medical documents used to be fetched by two effects of their own,
+        // keyed on the same `[patientId, refreshKey]`. Folded in here so `detailsLoading` actually covers
+        // everything it gates — a flag that is false while two of the tabs are still empty would put the
+        // « Aucun document enregistré » it is meant to suppress right back on screen.
+        const [
+          appointmentsData,
+          medicalHistory,
+          familyHistory,
+          dentalRecordsData,
+          filesData,
+          foldersData,
+          invoicesData,
+          plansData,
+          documentsData,
+        ] = await Promise.all([
+          appointmentsApi.list({ patientId }).catch(() => []),
           patientMedicalHistoryApi.list(patientId).catch(() => []),
           patientFamilyHistoryApi.list(patientId).catch(() => []),
           dentalRecordsApi.list(patientId).catch(() => []),
           patientFilesApi.getFiles(patientId).catch(() => []),
           patientFilesApi.getFolders(patientId).catch(() => []),
           invoicesApi.list({ patientId }).catch(() => []),
-          billingApi.getPatientSummary(patientId).catch(() => null)
+          treatmentPlansApi.list({ patientId }).catch(() => []),
+          medicalDocumentsApi.list(patientId).catch(() => []),
         ])
+        if (cancelled) return
+        setTreatmentPlans(plansData)
+        setMedicalDocuments(documentsData)
+        setAppointments(appointmentsData)
         setMedicalHistoryEntries(medicalHistory)
         setFamilyHistoryEntries(familyHistory)
         setDentalRecords(dentalRecordsData)
         setFiles(filesData)
         setFolders(foldersData)
-        setBillingSummary(billingSummaryData)
         // A dental record counts as "already invoiced" only if a NON-cancelled invoice links to it
         // (a cancelled invoice frees it for re-billing) — via the header link OR any line link (a
         // multi-record note d'honoraires links each billed record at the line level). Safe degradation:
@@ -288,35 +357,22 @@ export default function PatientDetailsPage() {
         setInvoicedDentalRecordIds(invoicedIds)
         setInvoicingNumberByRecordId(invoicingNumbers)
       } catch (err) {
-        console.error("Failed to load patient data:", err)
-        setError(err instanceof ApiError ? err.message : "Échec du chargement des données du patient")
+        // Every call above already degrades to `[]`, so reaching here means a genuine fault rather than one
+        // endpoint being down. The identity is on screen either way, so this is a toast, not an error page.
+        if (!cancelled) showErrorToast(err, "Certaines données du dossier n'ont pas pu être chargées.")
       } finally {
-        setLoading(false)
+        if (!cancelled) setDetailsLoading(false)
       }
     }
 
-    if (patientId) {
-      loadPatientData()
+    void loadPatientData()
+    return () => {
+      cancelled = true
     }
   }, [patientId, refreshKey])
 
-  // Load the patient's treatment plans (for the record-modal plan-step picker). Refreshes with the page.
-  useEffect(() => {
-    if (!patientId) return
-    treatmentPlansApi
-      .list({ patientId })
-      .then(setTreatmentPlans)
-      .catch(() => setTreatmentPlans([]))
-  }, [patientId, refreshKey])
-
-  // Load the patient's saved medical documents (ordonnances, certificats, BS1…) for the Documents tab.
-  useEffect(() => {
-    if (!patientId) return
-    medicalDocumentsApi
-      .list(patientId)
-      .then(setMedicalDocuments)
-      .catch(() => setMedicalDocuments([]))
-  }, [patientId, refreshKey])
+  // (The treatment plans — for the record modal's plan-step picker and the plan card — and the saved medical
+  // documents are loaded by the phase-2 batch above, not by effects of their own.)
 
   // Deep-link from the post-visit "record the visit" bell (?addRecord=1&appointmentId=…): open the
   // add-record modal (finding #4) and thread the appointment id so saving closes the prompt (finding #10).
@@ -336,9 +392,12 @@ export default function PatientDetailsPage() {
   // to open the medical-records tab rather than dumping the user on the default one. Same window.location
   // idiom as above (useSearchParams would force this page out of static prerendering); the param is left in
   // the URL so a refresh keeps the tab.
+  // Only a tab that still exists is honoured. `odontogram` was one until it became a card of its own, and a
+  // value with no trigger leaves Radix showing an empty panel under an unselected tab strip — so an old
+  // bookmark or a stale link falls back to the default rather than to a blank page.
   useEffect(() => {
     const tab = new URLSearchParams(window.location.search).get("tab")
-    if (tab) setActiveTab(tab)
+    if (tab && PATIENT_TABS.includes(tab)) setActiveTab(tab)
   }, [patientId])
 
   // Reload files when folder changes
@@ -357,40 +416,16 @@ export default function PatientDetailsPage() {
     loadFilesForFolder()
   }, [patientId, currentFolderId])
 
-  const handleEditSuccess = () => {
-    // Reload patient data after successful edit
-    const loadPatientData = async () => {
-      try {
-        const patientData = await patientsApi.get(patientId)
-        setPatient(patientData)
-        
-        // Reload appointments as well
-        const appointmentsData = await appointmentsApi.list({ patientId })
-        setAppointments(appointmentsData)
-        
-        // Reload medical and family history entries, dental records, files, and folders
-        const [medicalHistory, familyHistory, dentalRecordsData, filesData, foldersData, plansData] = await Promise.all([
-          patientMedicalHistoryApi.list(patientId).catch(() => []),
-          patientFamilyHistoryApi.list(patientId).catch(() => []),
-          dentalRecordsApi.list(patientId).catch(() => []),
-          patientFilesApi.getFiles(patientId).catch(() => []),
-          patientFilesApi.getFolders(patientId).catch(() => []),
-          treatmentPlansApi.list({ patientId }).catch(() => [])
-        ])
-        setMedicalHistoryEntries(medicalHistory)
-        setFamilyHistoryEntries(familyHistory)
-        setDentalRecords(dentalRecordsData)
-        setFiles(filesData)
-        setFolders(foldersData)
-        setTreatmentPlans(plansData)
-      } catch (err) {
-        // The edit itself succeeded (the dialog already said so); this is the re-read failing. Saying so
-        // is what stops the user believing their change was lost (AC-P3.33).
-        showErrorToast(err, "Patient enregistré, mais le dossier n'a pas pu être rechargé.")
-      }
-    }
-    loadPatientData()
-  }
+  /**
+   * Re-read after a save, via the page's single loader.
+   *
+   * This used to be a second, hand-written copy of the whole load sequence, and the two had already drifted:
+   * the copy refreshed the treatment plans but *not* the invoices, so editing a patient left the « Facturé »
+   * badges and the double-invoicing guard (`invoicedDentalRecordIds`) stale — while the main loader refreshed
+   * the invoices but not the plans. One loader, one `refreshKey`, which is what every other handler on this
+   * page already does. The « rechargé » failure message it carried lives in the loader now.
+   */
+  const handleEditSuccess = () => setRefreshKey((k) => k + 1)
 
   /**
    * Every devis act whose « réalisé » state is evidenced by this fiche. Deleting the fiche returns each of
@@ -442,9 +477,19 @@ export default function PatientDetailsPage() {
         <DashboardSidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
           <DashboardHeader />
-          <main className="flex flex-1 items-center justify-center">
-            <div className="text-center">
-              <p className="text-muted-foreground">Chargement des données du patient…</p>
+          {/* A skeleton in the shape of the page, so nothing jumps when the identity lands — replacing a
+              single line of centred text that gave no hint of what was coming. This branch is now short-lived
+              (one request) rather than covering eight. */}
+          <main className="flex-1 overflow-y-auto p-4 md:p-6" role="status" aria-label="Chargement du dossier patient">
+            <div className="mx-auto max-w-7xl space-y-6">
+              <div className="h-9 w-48 animate-pulse rounded bg-muted" />
+              <div className="space-y-3">
+                <div className="h-9 w-72 animate-pulse rounded bg-muted" />
+                <div className="h-5 w-full max-w-2xl animate-pulse rounded bg-muted" />
+              </div>
+              <div className="h-64 animate-pulse rounded-lg bg-muted" />
+              <div className="h-10 w-full animate-pulse rounded-lg bg-muted" />
+              <div className="h-48 animate-pulse rounded-lg bg-muted" />
             </div>
           </main>
         </div>
@@ -452,7 +497,9 @@ export default function PatientDetailsPage() {
     )
   }
 
-  if (error || !patient) {
+  // `!patient`, not `error || !patient`: a background refresh that fails now toasts and keeps the page, so
+  // this screen is reserved for the case where there is genuinely nothing to show.
+  if (!patient) {
     return (
       <div className="flex h-screen bg-background">
         <DashboardSidebar />
@@ -606,66 +653,166 @@ export default function PatientDetailsPage() {
               Retour aux patients
             </Button>
 
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <h1 className="text-3xl font-semibold text-foreground">{patientName}</h1>
-                {hasFlags && (
-                  <div className="flex gap-1">
-                    {patient.flags?.filter(flag => flag.isActive).map((flag) => (
-                      <Badge key={flag.id} variant="destructive" className="gap-1">
-                        <Flag className="h-3 w-3" />
-                        {flag.flagType}
-                      </Badge>
-                    ))}
-                  </div>
-                )}
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="min-w-0 space-y-2">
+                <div className="flex min-w-0 flex-wrap items-center gap-3">
+                  {/* `truncate` + `min-w-0` is what makes the `shrink-0` on the action row mean something: without
+                      it the name refuses to shrink below its text, so it keeps pushing until the group wraps
+                      anyway. A very long name ellipsizes and carries the full value in its `title`. */}
+                  <h1 className="min-w-0 truncate text-3xl font-semibold text-foreground" title={patientName}>
+                    {patientName}
+                  </h1>
+                  {hasFlags && (
+                    <div className="flex flex-wrap gap-1">
+                      {patient.flags?.filter(flag => flag.isActive).map((flag) => (
+                        <Badge key={flag.id} variant="destructive" className="gap-1">
+                          <Flag className="h-3 w-3" />
+                          {flag.flagType}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/*
+                  Identity strip — âge · téléphone · assureur, and allergies.
+
+                  Every one of these facts already existed on this page, in the three-card grid at the very
+                  bottom — *below* a full-width odontogram, the plan card and seven tabs of tables. Allergies
+                  in particular sat at the end of the second card, which means the one thing a dentist must
+                  see before injecting anything was several screens of scrolling away, on the page they open
+                  to check it. The cards below stay as the complete record; this is the part that cannot wait.
+
+                  Allergies use `destructive`, the same weight as a patient flag, and the « Aucune allergie
+                  signalée » case is stated explicitly rather than rendering nothing — an empty space cannot
+                  distinguish « nothing to declare » from « nobody has asked yet », and those are different
+                  clinical facts.
+                */}
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+                  {age !== null && (
+                    <span className="text-muted-foreground">
+                      <span className="font-medium text-foreground">{age} ans</span>
+                      {patient.gender ? ` · ${genderLabel(patient.gender)}` : ""}
+                    </span>
+                  )}
+                  {patient.phoneNumber ? (
+                    <a
+                      href={`tel:${patient.phoneNumber}`}
+                      className="font-medium text-foreground underline-offset-2 hover:underline"
+                    >
+                      {patient.phoneNumber}
+                    </a>
+                  ) : (
+                    <span className="text-amber-700 dark:text-amber-400">Aucun téléphone</span>
+                  )}
+                  {patient.insuranceInfo?.provider && (
+                    <span className="text-muted-foreground">{patient.insuranceInfo.provider}</span>
+                  )}
+                  {/* « Adressé par » belongs in the strip and not only in the card below: a referred patient owes
+                      the referrer a lettre de liaison, and that obligation has to be visible on opening the file
+                      rather than three screens down. Rendered only when there is one — a patient who came on
+                      their own has nothing to state. */}
+                  {patient.referredBy && (
+                    <span className="text-muted-foreground">
+                      Adressé par <span className="font-medium text-foreground">{patient.referredBy}</span>
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  {allergiesList.length > 0 ? (
+                    <>
+                      <span className="text-xs font-semibold uppercase tracking-wide text-destructive">
+                        Allergies
+                      </span>
+                      {allergiesList.map((allergy: string, index: number) => (
+                        <Badge key={index} variant="destructive" className="text-xs">
+                          {allergy}
+                        </Badge>
+                      ))}
+                    </>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">Aucune allergie signalée</span>
+                  )}
+                </div>
               </div>
-              <div className="flex gap-2">
-                <Button variant="outline" onClick={() => setEditDialogOpen(true)} className="gap-2">
+
+              {/*
+                `size="sm"` + trimmed labels so the four actions stay on the NAME's line with the rail expanded.
+                At default size and full wording they measured ~780px, which does not fit beside a `text-3xl`
+                name once the sidebar takes its 256px — so the whole group dropped to a second row, pushing the
+                identity strip and everything under it down by a button's height.
+
+                The words removed are the ones the context already supplies: this *is* the patient's page, so
+                « Modifier le patient » is « Modifier », and each button keeps its icon plus a `title` carrying
+                the full phrase. `shrink-0` stops the row being compressed instead of the name.
+
+                `flex-wrap` is kept deliberately as the last resort: below roughly 1100px of content the group
+                genuinely cannot fit, and wrapping there is far better than overflowing horizontally on a phone.
+              */}
+              <div className="flex shrink-0 flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setEditDialogOpen(true)}
+                  className="gap-2"
+                  title="Modifier le patient"
+                >
                   <Edit className="h-4 w-4" />
-                  Modifier le patient
+                  Modifier
                 </Button>
-                <Button variant="outline" onClick={() => setRecordModalOpen(true)} className="gap-2">
+                {/* Files live on their own route, which is the whole manager — folders, upload, delete. It sits in
+                    the action row rather than as a panel above the odontogram: « do they have a panoramique? » is a
+                    question you go and answer, not one worth spending permanent vertical space on. */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => router.push(`/patients/${patient.id}/files`)}
+                  className="gap-2"
+                  title="Fichiers et dossiers du patient"
+                >
+                  <FolderOpen className="h-4 w-4" />
+                  Fichiers
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setRecordModalOpen(true)}
+                  className="gap-2"
+                  title="Ajouter un dossier médical"
+                >
                   <FileText className="h-4 w-4" />
-                  Ajouter un dossier médical
+                  Dossier médical
                 </Button>
-                <Button onClick={() => router.push(`/appointments?patientId=${patient.id}`)}>
-                  Planifier un rendez-vous
+                <Button size="sm" onClick={() => router.push(`/appointments?patientId=${patient.id}`)}>
+                  Planifier un RDV
                 </Button>
               </div>
             </div>
 
-            <Card className="border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-950/20">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-blue-700 dark:text-blue-400">
-                  <Sparkles className="h-5 w-5" />
-                  Résumé du patient généré par l&apos;IA
-                </CardTitle>
-                <CardDescription>Aperçu généré automatiquement à partir des dossiers du patient</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {aiLoading ? (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Génération du résumé…
-                  </div>
-                ) : aiError || !aiSummary ? (
-                  <p className="text-sm text-muted-foreground">
-                    {internetReachable
-                      ? "Résumé indisponible pour le moment. Cliquez sur « Régénérer » pour réessayer."
-                      : "Connexion internet requise pour générer le résumé."}
-                  </p>
-                ) : (
-                  <div className="text-sm leading-relaxed text-foreground whitespace-pre-line">{aiSummary}</div>
-                )}
-                <div className="mt-4 flex items-center gap-2">
-                  <Button variant="outline" size="sm" onClick={loadAiSummary} disabled={aiLoading} className="gap-2">
-                    <Sparkles className="h-3 w-3" />
-                    Régénérer
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+            {/* Past visits with no fiche yet. Renders nothing when there are none, so it costs no space in the
+                steady state — and when it does appear it is the most actionable thing on the page, which is why it
+                sits above the notes rather than below them. */}
+            <PatientUndocumentedVisits
+              appointments={appointments}
+              records={dentalRecords}
+              onRecord={(appointmentId) => {
+                // Exactly the state the `?addRecord=1&appointmentId=…` deep-link sets: thread the visit so the
+                // editor proposes its booked acts and saving closes that visit's post-visit prompt. `editingRecord`
+                // must be cleared first — a stale edit target forces `recordAppointment` to null.
+                setEditingRecord(null)
+                setReviewAppointmentId(appointmentId)
+                setRecordModalOpen(true)
+              }}
+            />
+
+            {/* Notes own this row now — alerts on the left, ordinary notes on the right. Files moved to a button in
+                the action row above, which freed the whole width for the one thing here that must be read. */}
+            <PatientNotesStrip
+              patient={patient}
+              records={dentalRecords}
+              onEdit={() => setEditDialogOpen(true)}
+            />
 
             {/* An archived patient is hidden from every list and search but still reachable by direct URL —
                 which makes this page the only place that can say so. */}
@@ -703,101 +850,88 @@ export default function PatientDetailsPage() {
               </div>
             )}
 
-            {/* Unified per-patient balance (« Solde patient ») across invoices + treatment-plan installments. */}
-            {billingSummary && (
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <HandCoins className="h-5 w-5 text-muted-foreground" />
-                    Solde patient
-                  </CardTitle>
-                  <CardDescription>
-                    Solde unifié sur les deux circuits de facturation (factures + échéanciers).
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                    <div>
-                      <p className="text-xs text-muted-foreground">Solde dû total</p>
-                      <p className={`text-2xl font-semibold ${billingSummary.totalOutstanding > 0 ? "text-amber-600" : "text-foreground"}`}>
-                        {formatDT(billingSummary.totalOutstanding)}
-                      </p>
-                      <p className="text-[11px] text-muted-foreground">= factures + échéanciers</p>
-                      {billingSummary.oldestOverdueDate && (
-                        <Badge variant="destructive" className="mt-1">
-                          En retard depuis le {formatDateFr(billingSummary.oldestOverdueDate)}
-                        </Badge>
-                      )}
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">Solde factures</p>
-                      <p className="text-lg font-medium">{formatDT(billingSummary.invoiceOutstanding)}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">Solde échéanciers</p>
-                      <p className="text-lg font-medium">{formatDT(billingSummary.installmentOutstanding)}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">Estimation CNAM</p>
-                      <p className="text-lg font-medium">{formatDT(billingSummary.cnamReimbursable)}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">Reste à charge patient</p>
-                      <p className="text-lg font-medium">{formatDT(billingSummary.patientOutOfPocket)}</p>
-                      {/* An avoir returns the cash AND cancels the fee, so it leaves the balance at zero.
-                          Without this line a refunded patient is indistinguishable from one who never had
-                          anything to settle. */}
-                      {billingSummary.creditedTotal > 0 && (
-                        <>
-                          <p className="mt-1 text-xs text-muted-foreground">Remboursé (avoirs)</p>
-                          <p className="text-lg font-medium text-blue-700 dark:text-blue-400">
-                            −{formatDT(billingSummary.creditedTotal)}
-                          </p>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
+            {/*
+              The odontogram leads the patient page: for a dentist it is the chart the whole consultation is
+              read off, and it spent its life as the 2nd of 8 tabs — one click away, and invisible until asked
+              for. Promoted to a full-width card of its own (it needs the width: 16 teeth per arch, two
+              dentitions), above the plan card and above the tabs.
 
-            {/* Treatment leads the patient page now. A devis buried in the 8th tab was the whole reason the
-                plan felt disconnected from the patient it belongs to. Renders nothing when there is no plan. */}
-            <PatientPlanCard
+              It deliberately replaced the « Solde patient » card that used to sit here. That card put six money
+              figures across the top of every patient page, two of which measured different things — « Solde dû »
+              is what is still owed, « Reste à charge » is lifetime gross billed minus CNAM's share — so the same
+              patient legitimately read « 90,000 DT » and « 1 770,000 DT » side by side with nothing saying why.
+              Outstanding debt is still one click away in « Créances », the patient's Factures tab, and the plan
+              card's own encaissé / total line.
+            */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2">
+                  <Smile className="h-5 w-5" />
+                  Odontogramme
+                </CardTitle>
+                <CardDescription>
+                  Cliquez sur une dent pour noter un diagnostic (à traiter) ; les actes réalisés s&apos;ajoutent
+                  automatiquement lors de l&apos;enregistrement d&apos;un acte médical.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Odontogram
+                  patientId={patientId}
+                  dentition={patient.dentition}
+                  onCreatePlan={(seeds) => {
+                    setPlanSeeds(seeds)
+                    setSeededPlanOpen(true)
+                  }}
+                />
+              </CardContent>
+            </Card>
+
+            {/* Treatment leads the patient page now. A devis buried in the 8th tab was the whole reason the plan
+                felt disconnected from the patient it belongs to. A band rather than a card since the redesign —
+                ~76 px instead of ~250 — and it renders only when the patient has no plans at all. */}
+            <PatientPlansStrip
               plans={treatmentPlans}
-              onOpen={() => setActiveTab("treatment-plans")}
+              onOpen={() => openTab("treatment-plans")}
               onChanged={() => setRefreshKey((k) => k + 1)}
             />
 
+            <div ref={tabsRef} className="scroll-mt-4" />
             <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-              <TabsList className="grid w-full grid-cols-8">
-                <TabsTrigger value="medical-records" className="gap-2">
+              {/*
+                Seven, not eight: the odontogram is now a card above, not a tab.
+
+                Seven equal columns of icon + French label do not fit a laptop: « Dossiers médicaux » and
+                « Plan de traitement » in one seventh of the width crushed or clipped below roughly 1280 px,
+                and this page is outside the responsive pass. It now wraps into rows — 2 across on a phone,
+                4 on a tablet, 7 only when there is genuinely room — which needs `h-auto` to override the
+                primitive's fixed `h-9`, and `items-stretch` so a wrapped row's triggers keep equal heights.
+              */}
+              <TabsList className="grid h-auto w-full grid-cols-2 items-stretch gap-1 p-1 sm:grid-cols-4 lg:grid-cols-7">
+                <TabsTrigger value="medical-records" className="h-auto min-h-9 gap-2 whitespace-normal py-1.5 text-center leading-tight">
                   <FileCheck className="h-4 w-4" />
                   Dossiers médicaux
                 </TabsTrigger>
-                <TabsTrigger value="odontogram" className="gap-2">
-                  <Smile className="h-4 w-4" />
-                  Odontogramme
-                </TabsTrigger>
-                <TabsTrigger value="appointments" className="gap-2">
+                <TabsTrigger value="appointments" className="h-auto min-h-9 gap-2 whitespace-normal py-1.5 text-center leading-tight">
                   <Calendar className="h-4 w-4" />
                   Rendez-vous
                 </TabsTrigger>
-                <TabsTrigger value="notes" className="gap-2">
+                <TabsTrigger value="notes" className="h-auto min-h-9 gap-2 whitespace-normal py-1.5 text-center leading-tight">
                   <FileText className="h-4 w-4" />
                   Notes
                 </TabsTrigger>
-                <TabsTrigger value="documents" className="gap-2">
+                <TabsTrigger value="documents" className="h-auto min-h-9 gap-2 whitespace-normal py-1.5 text-center leading-tight">
                   <FileText className="h-4 w-4" />
                   Documents
                 </TabsTrigger>
-                <TabsTrigger value="files" className="gap-2">
+                <TabsTrigger value="files" className="h-auto min-h-9 gap-2 whitespace-normal py-1.5 text-center leading-tight">
                   <FileText className="h-4 w-4" />
                   Fichiers
                 </TabsTrigger>
-                <TabsTrigger value="factures" className="gap-2">
+                <TabsTrigger value="factures" className="h-auto min-h-9 gap-2 whitespace-normal py-1.5 text-center leading-tight">
                   <Receipt className="h-4 w-4" />
                   Factures
                 </TabsTrigger>
-                <TabsTrigger value="treatment-plans" className="gap-2">
+                <TabsTrigger value="treatment-plans" className="h-auto min-h-9 gap-2 whitespace-normal py-1.5 text-center leading-tight">
                   <ClipboardCheck className="h-4 w-4" />
                   Plan de traitement
                 </TabsTrigger>
@@ -826,7 +960,7 @@ export default function PatientDetailsPage() {
                   </CardHeader>
                   <CardContent>
                     {dentalRecords.length === 0 ? (
-                      <p className="text-center text-muted-foreground py-8">Aucun dossier dentaire</p>
+                      <EmptyOrLoading loading={detailsLoading}>Aucun dossier dentaire</EmptyOrLoading>
                     ) : (
                       <div className="overflow-x-auto">
                         <Table>
@@ -834,7 +968,8 @@ export default function PatientDetailsPage() {
                             <TableRow>
                               <TableHead>Date</TableHead>
                               <TableHead>Type d'acte</TableHead>
-                              <TableHead>Type de dents</TableHead>
+                              {/* « Type de dents » removed: the dentition is a property of the patient, stated once
+                                  in their file, so repeating it on every row said nothing per-row. */}
                               <TableHead>Dents</TableHead>
                               <TableHead>Montant payé</TableHead>
                               <TableHead>Reste</TableHead>
@@ -849,11 +984,6 @@ export default function PatientDetailsPage() {
                                   {formatDate(record.interventionDate)}
                                 </TableCell>
                                 <TableCell>{record.procedureType}</TableCell>
-                                <TableCell>
-                                  <Badge variant="outline">
-                                    {record.isAdultTeeth ? "Adulte" : "Enfant"}
-                                  </Badge>
-                                </TableCell>
                                 <TableCell>
                                   {record.toothNumbers.length > 0 ? (
                                     <div className="flex flex-wrap gap-1">
@@ -1030,30 +1160,6 @@ export default function PatientDetailsPage() {
                 </Card>
               </TabsContent>
 
-              {/* Odontogramme Tab */}
-              <TabsContent value="odontogram">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Smile className="h-5 w-5" />
-                      Odontogramme
-                    </CardTitle>
-                    <CardDescription>
-                      Cliquez sur une dent pour noter un diagnostic (à traiter) ; les actes réalisés s'ajoutent automatiquement lors de l'enregistrement d'un acte médical.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <Odontogram
-                      patientId={patientId}
-                      onCreatePlan={(seeds) => {
-                        setPlanSeeds(seeds)
-                        setSeededPlanOpen(true)
-                      }}
-                    />
-                  </CardContent>
-                </Card>
-              </TabsContent>
-
               {/* Notes Tab */}
               <TabsContent value="notes">
                 <Card>
@@ -1063,7 +1169,7 @@ export default function PatientDetailsPage() {
                   </CardHeader>
                   <CardContent>
                     {dentalRecords.length === 0 ? (
-                      <p className="text-center text-muted-foreground py-8">Aucun dossier médical</p>
+                      <EmptyOrLoading loading={detailsLoading}>Aucun dossier médical</EmptyOrLoading>
                     ) : (
                       <div className="space-y-4">
                         {dentalRecords
@@ -1164,7 +1270,7 @@ export default function PatientDetailsPage() {
                   </CardHeader>
                   <CardContent>
                     {medicalDocuments.length === 0 ? (
-                      <p className="text-center text-muted-foreground py-8">Aucun document enregistré</p>
+                      <EmptyOrLoading loading={detailsLoading}>Aucun document enregistré</EmptyOrLoading>
                     ) : (
                       <div className="overflow-x-auto">
                         <Table>
@@ -1231,7 +1337,7 @@ export default function PatientDetailsPage() {
                   </CardHeader>
                   <CardContent>
                     {appointments.length === 0 ? (
-                      <p className="text-center text-muted-foreground py-8">Aucun rendez-vous</p>
+                      <EmptyOrLoading loading={detailsLoading}>Aucun rendez-vous</EmptyOrLoading>
                     ) : (
                       <div className="overflow-x-auto">
                         <Table>
@@ -1243,6 +1349,7 @@ export default function PatientDetailsPage() {
                               <TableHead>Durée</TableHead>
                               <TableHead>Statut</TableHead>
                               <TableHead>Notes</TableHead>
+                              <TableHead className="text-right">Actions</TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
@@ -1257,6 +1364,30 @@ export default function PatientDetailsPage() {
                                   ? parseInt(appointment.duration.split(':')[0]) * 60 + parseInt(appointment.duration.split(':')[1] || '0')
                                   : 0
                                 
+                                /*
+                                 * « Enregistrer la fiche » — the same action the post-visit notification offers,
+                                 * reachable from the history instead of only from the bell (which is dismissible,
+                                 * and gone once read).
+                                 *
+                                 * Offered when the visit is OVER and not yet recorded. "Over" is measured from the
+                                 * appointment's END, not its start, matching what makes the post-visit review due
+                                 * server-side — a 30-minute visit is not finished ten minutes in.
+                                 *
+                                 * `Cancelled` / `NoShow` are excluded even though neither is « Terminé ». Saving a
+                                 * fiche calls `Appointment.MarkVisitCompleted`, which returns `Contradicted` for
+                                 * exactly those two and is swallowed by its best-effort caller — so the fiche would
+                                 * persist while the appointment silently stayed cancelled. A visit recorded as not
+                                 * having happened should not offer to record what happened during it.
+                                 */
+                                const status = normalizeStatus(appointment.status)
+                                const endedAt =
+                                  new Date(appointment.appointmentDateTime).getTime() + durationMinutes * 60_000
+                                const canRecordVisit =
+                                  endedAt < Date.now() &&
+                                  status !== "Completed" &&
+                                  status !== "Cancelled" &&
+                                  status !== "NoShow"
+
                                 // Determine row color based on status and procedure type
                                 const isCanceled = appointment.status === "Cancelled"
                                 const rowColor = isCanceled 
@@ -1281,13 +1412,16 @@ export default function PatientDetailsPage() {
                                       {formatDateTime(appointment.appointmentDateTime)}
                                     </TableCell>
                                     <TableCell>
-                                      {appointment.procedureTypeName ? (
+                                      {/* A visit can be several acts; the shared summary joins them
+                                          (« Détartrage + Obturation ») and the dot keeps the lead act's colour,
+                                          which is what the row's own left border already uses. */}
+                                      {appointmentActsSummary(appointment) ? (
                                         <div className="flex items-center gap-2">
                                           <div
-                                            className="h-3 w-3 rounded-full"
+                                            className="h-3 w-3 rounded-full shrink-0"
                                             style={{ backgroundColor: appointment.procedureColorHex || "#6C757D" }}
                                           />
-                                          <span>{appointment.procedureTypeName}</span>
+                                          <span>{appointmentActsSummary(appointment)}</span>
                                         </div>
                                       ) : (
                                         <span className="text-muted-foreground">Rendez-vous général</span>
@@ -1323,6 +1457,37 @@ export default function PatientDetailsPage() {
                                     <span className="text-muted-foreground text-sm">-</span>
                                   )}
                                 </TableCell>
+                                    <TableCell className="text-right">
+                                      {canRecordVisit ? (
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          className="gap-1.5 whitespace-nowrap"
+                                          onClick={() => {
+                                            /*
+                                             * Exactly the state the `?addRecord=1&appointmentId=…` deep-link sets,
+                                             * so the modal prefills identically: `reviewAppointmentId` feeds
+                                             * `recordAppointment`, which proposes the visit's booked act and
+                                             * pre-selects its devis step. Setting it here rather than navigating
+                                             * avoids a round trip through the URL for something already on screen.
+                                             *
+                                             * `setEditingRecord(null)` is required, not tidying: a non-null
+                                             * `editingRecord` forces `recordAppointment` to null (an edit must never
+                                             * be re-proposed), so a stale value would open the modal with no prefill.
+                                             */
+                                            setEditingRecord(null)
+                                            setReviewAppointmentId(appointment.id)
+                                            setRecordModalOpen(true)
+                                          }}
+                                          title="Enregistrer la fiche de soins de cette séance"
+                                        >
+                                          <FileText className="h-3.5 w-3.5" />
+                                          Enregistrer la fiche
+                                        </Button>
+                                      ) : (
+                                        <span className="text-muted-foreground/60">—</span>
+                                      )}
+                                    </TableCell>
                                   </TableRow>
                                 )
                               })}
@@ -1366,7 +1531,9 @@ export default function PatientDetailsPage() {
                     </div>
                   </CardHeader>
                   <CardContent>
-                    {files.length === 0 && folders.length === 0 ? (
+                    {detailsLoading ? (
+                      <EmptyOrLoading loading>Aucun fichier téléversé</EmptyOrLoading>
+                    ) : files.length === 0 && folders.length === 0 ? (
                       <div className="text-center py-8">
                         <FileText className="h-12 w-12 mx-auto mb-3 opacity-50 text-muted-foreground" />
                         <p className="text-sm text-muted-foreground mb-4">
@@ -1386,13 +1553,13 @@ export default function PatientDetailsPage() {
                               {folders.map((folder) => (
                                 <Card
                                   key={folder.id}
-                                  className="p-3 cursor-pointer hover:bg-accent transition-colors hover:border-blue-300 dark:hover:border-blue-700"
+                                  className="p-3 cursor-pointer hover:bg-accent transition-colors hover:border-primary/40"
                                   onClick={() => setCurrentFolderId(folder.id)}
                                 >
                                   <div className="flex items-center justify-between">
                                     <div className="flex items-center gap-3 flex-1 min-w-0">
-                                      <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/30">
-                                        <Folder className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                                      <div className="p-2 rounded-lg bg-accent/30">
+                                        <Folder className="h-5 w-5 text-primary" />
                                       </div>
                                       <div className="flex-1 min-w-0">
                                         <p className="text-sm font-semibold truncate text-foreground">{folder.name}</p>
@@ -1534,8 +1701,8 @@ export default function PatientDetailsPage() {
                     <CardDescription>Notes d'honoraires du patient — création, émission, paiement et PDF.</CardDescription>
                   </CardHeader>
                   <CardContent>
-                    {/* onChanged was missing: recording a payment here left « Solde patient » and the plan
-                        card above showing the pre-payment figures until a manual refresh. */}
+                    {/* onChanged was missing: recording a payment here left the plan card above showing the
+                        pre-payment figures until a manual refresh. */}
                     <InvoicesTable
                       patientId={patientId}
                       patientName={patientName}
@@ -1577,6 +1744,11 @@ export default function PatientDetailsPage() {
                   <div>
                     <p className="text-xs font-medium text-muted-foreground">Nom complet</p>
                     <p className="text-sm text-foreground">{patientName}</p>
+                  </div>
+                  <Separator />
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground">Adressé par</p>
+                    <p className="text-sm text-foreground">{patient.referredBy || "Non renseigné"}</p>
                   </div>
                   <Separator />
                   <div>
@@ -1912,7 +2084,7 @@ export default function PatientDetailsPage() {
               <div className={`relative flex items-start justify-center flex-1 min-h-0 ${previewFile && isPdfFile(previewFile) ? 'bg-slate-100 dark:bg-slate-900 p-6 overflow-auto' : 'bg-black/5 p-6 overflow-auto'}`}>
                 {previewLoading ? (
                   <div className="flex flex-col items-center justify-center gap-3 h-full">
-                    <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
                     <p className="text-sm text-muted-foreground">Chargement de l&apos;aperçu…</p>
                   </div>
                 ) : previewUrl ? (

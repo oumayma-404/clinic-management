@@ -39,6 +39,24 @@ export interface StockItemDto {
   updatedAt?: string;
 }
 
+/**
+ * One page of stock items plus the three clinic-wide figures the stockroom screen shows around them.
+ *
+ * ⚠️ `lowStockCount`, `expiringCount` and `categories` are clinic-wide and ignore the active filters/search — they
+ * are the chips telling staff how much is wrong in the stockroom. Never derive them from `items`: over a page that
+ * becomes "the low-stock items among these 25" and a dropdown missing most categories.
+ */
+export interface StockPageDto {
+  items: StockItemDto[];
+  lowStockCount: number;
+  expiringCount: number;
+  categories: string[];
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  totalPages: number;
+}
+
 export interface NotificationDto {
   id: string;
   /** AppointmentCreated | AppointmentCancelled | AppointmentRescheduled | Reminder | LowStock */
@@ -130,6 +148,18 @@ export interface MonthlyCollectedPointDto {
   /** Clinic-local calendar month as `yyyy-MM`. */
   month: string;
   collected: number;
+}
+
+/**
+ * One user's dashboard layout choices.
+ *
+ * `availableKpis` is the set the server validates writes against, sent so the customiser never has to hold its own
+ * copy of what the dashboard contains — a second list would drift, and the first block added without updating it
+ * would be visible on the page but absent from the panel, i.e. impossible to hide.
+ */
+export interface DashboardPreferencesDto {
+  hiddenKpis: string[];
+  availableKpis: string[];
 }
 
 export interface DashboardDto {
@@ -281,6 +311,20 @@ export interface InvoiceRevenueDto {
   outstanding: number;
 }
 
+/** One act booked into a séance. */
+export interface AppointmentProcedureDto {
+  id: string;
+  /** The catalog act, or null once that procedure was retired (`name` still stands). */
+  procedureTypeId?: string | null;
+  /** Live catalog name when the link resolves, else the snapshot taken at booking. */
+  name?: string | null;
+  durationMinutes?: number | null;
+  colorHex?: string | null;
+  /** The devis act this line carries out — how a grouped séance reports each of its steps. */
+  treatmentPlanItemId?: string | null;
+  sequenceNumber: number;
+}
+
 export interface AppointmentDto {
   /**
    * Optimistic-concurrency token (PostgreSQL `xmin`). Send it back on the matching update so the save is
@@ -306,10 +350,22 @@ export interface AppointmentDto {
    */
   allowedNextStatuses?: string[];
   createdAt: string;
+  /** The visit's **lead** act — the first of `procedures`. What paints the agenda card. */
   procedureTypeId?: string;
   procedureTypeName?: string;
   procedureColorHex?: string;
-  /** The treatment-plan step this appointment schedules, if any. */
+  /**
+   * Every act booked into this séance, in the dentist's order. A visit is routinely several
+   * (« détartrage + deux obturations »); before this existed the second one could only go in the notes.
+   *
+   * Empty on a « créneau occupé » or a visit booked with no act — a real state, not a missing one. Older
+   * responses may omit the key entirely, so read it as `procedures ?? []`.
+   */
+  procedures?: AppointmentProcedureDto[];
+  /**
+   * The treatment-plan step this appointment schedules, if any — the **first** one when a séance groups several
+   * devis acts. Each act's own link is on its `procedures` entry.
+   */
   treatmentPlanItemId?: string | null;
   /**
    * The note d'honoraires raised against this visit, if any (AC-P6.13). Null = not billed yet, which is what
@@ -381,6 +437,12 @@ export interface PatientDto {
   lastName: string;
   dateOfBirth: string;
   gender: string;
+  /**
+   * Which teeth this patient is charted on — `"Child"` or `"Adult"`. Asked once here instead of by a toggle on the
+   * odontogram and another in the fiche editor. See `lib/dentition.ts` for the labels and the known mixed-dentition
+   * limitation.
+   */
+  dentition: string;
   /** Null when the patient gave none — never a placeholder address. */
   email?: string | null;
   /** Null when the patient gave none. Such a patient receives no reminder and no relance. */
@@ -389,6 +451,18 @@ export interface PatientDto {
   allergies?: string;
   emergencyContactName?: string;
   emergencyContactPhone?: string;
+  /**
+   * « Adressé par » — who referred the patient. Free text (the referrer is usually outside this clinic).
+   * On update: omit to leave unchanged, send `""` to clear.
+   */
+  referredBy?: string | null;
+  /**
+   * Patient-level notes — what to be reminded of on every visit, as opposed to a dental record's notes, which
+   * describe one séance. On update: omit to leave unchanged, send `""` to clear.
+   */
+  notes?: string | null;
+  /** Same as `notes` but rendered highlighted at the top of the patient's file. */
+  importantNotes?: string | null;
   address?: {
     street: string;
     city: string;
@@ -512,6 +586,11 @@ export interface DentalRecordDto {
   version: number;
   id: string;
   patientId: string;
+  /**
+   * The appointment this fiche documents, or null when it was entered outside the agenda. Lets a screen answer
+   * « cette séance a-t-elle déjà une fiche ? » — nothing could before, because the column was never populated.
+   */
+  appointmentId?: string | null;
   interventionDate: string;
   /** Derived summary string over the acts (read-only). */
   procedureType: string;
@@ -793,10 +872,38 @@ export interface CaisseMovementDto {
 }
 
 /** The statement plus the window it covers. Carries no totals: those live in `CaisseSummaryDto`. */
+/**
+ * « Créances »: one page of debtors plus the clinic-wide total the header shows.
+ *
+ * ⚠️ `totalOutstanding` covers **every** matching debtor, not `items`. Never sum `items` for the header — that is
+ * the total of one page, and it would be presented as the clinic's receivables.
+ */
+export interface ReceivablesPageDto {
+  items: ReceivableDto[];
+  totalOutstanding: number;
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  totalPages: number;
+}
+
 export interface CaisseLedgerDto {
   fromDate: string;
   toDate: string;
+  /** The movements on the requested page (or all of them when no paging was asked for). */
   movements: CaisseMovementDto[];
+
+  /**
+   * Page metadata for `movements`, inlined rather than wrapping the response in a `PagedResponse`: the statement
+   * is not a list, it is a period (`fromDate`/`toDate`) that happens to contain one.
+   *
+   * ⚠️ Each movement keeps the `runningBalance` it had in the **unfiltered, unpaged** window — « Solde de la
+   * période » is a fact about where the till stood after that movement, not about the current page or search.
+   */
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  totalPages: number;
 }
 
 /** A salle-d'attente entry. `priority` is Low|Normal|High; `status` is Waiting|Promoted|Cancelled. */

@@ -3,6 +3,11 @@
 import type React from "react"
 
 import { useCallback, useEffect, useState } from "react"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { DataTablePagination } from "@/components/ui/data-table-pagination"
+import { DEFAULT_PAGE_SIZE, emptyPage, type PagedResponse } from "@/lib/api/paging"
+
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { format, parseISO } from "date-fns"
@@ -12,11 +17,10 @@ import { Plus, Pencil, Trash2, Loader2, FlaskConical } from "lucide-react"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { DashboardSidebar } from "@/components/dashboard-sidebar"
 import { ClinicGuard } from "@/components/clinic-guard"
+import { PageHeader } from "@/components/ui/page-header"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -330,7 +334,13 @@ function LabOrderFormModal({ open, onOpenChange, editingOrder, patients, onSaved
 }
 
 export default function LabOrdersPage() {
-  const [orders, setOrders] = useState<LabWorkOrderDto[]>([])
+  const [orderPage, setOrderPage] = useState<PagedResponse<LabWorkOrderDto>>(() => emptyPage<LabWorkOrderDto>())
+  const orders = orderPage.items
+  const [search, setSearch] = useState("")
+  const [debouncedSearch, setDebouncedSearch] = useState("")
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
+
   const [patients, setPatients] = useState<PatientDto[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -348,8 +358,13 @@ export default function LabOrdersPage() {
     try {
       setLoading(true)
       setError(null)
-      const data = await labOrdersApi.list(undefined, statusFilter === ALL_STATUSES ? undefined : statusFilter)
-      setOrders(data)
+      const data = await labOrdersApi.listPaged({
+        page,
+        pageSize,
+        search: debouncedSearch || undefined,
+        status: statusFilter === ALL_STATUSES ? undefined : statusFilter,
+      })
+      setOrderPage(data)
     } catch (err) {
       const message = err instanceof ApiError ? err.message : "Échec du chargement des bons de laboratoire"
       setError(message)
@@ -357,7 +372,18 @@ export default function LabOrdersPage() {
     } finally {
       setLoading(false)
     }
-  }, [statusFilter])
+  }, [statusFilter, page, pageSize, debouncedSearch])
+
+  // Debounced so a search does not fire a request per keystroke.
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search.trim()), 300)
+    return () => clearTimeout(timer)
+  }, [search])
+
+  // A new term (or filter) must not leave the table on a page the narrowed result set no longer has.
+  useEffect(() => {
+    setPage(1)
+  }, [debouncedSearch, statusFilter])
 
   // Patients back the "Nouveau bon" picker; a failure there shouldn't blank the page, just warn.
   const loadPatients = useCallback(async () => {
@@ -444,12 +470,11 @@ export default function LabOrdersPage() {
             <div className="mx-auto max-w-7xl space-y-6">
               {/* Page Header */}
               <div className="flex items-center justify-between">
-                <div>
-                  <h1 className="text-3xl font-semibold text-foreground">Laboratoire — bons de prothèse</h1>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Suivez les travaux prothétiques envoyés au laboratoire
-                  </p>
-                </div>
+                <PageHeader
+                  zone="Clinique"
+                  title="Laboratoire"
+                  subtitle="Bons de prothèse — travaux envoyés au laboratoire et leur étape."
+                />
 
                 <div className="flex flex-wrap items-end gap-2">
                   <div className="space-y-1.5">
@@ -484,7 +509,7 @@ export default function LabOrdersPage() {
                     <FlaskConical className="h-5 w-5" />
                     Bons de laboratoire
                     <Badge variant="secondary" className="ml-2">
-                      {orders.length}
+                      {orderPage.totalCount}
                     </Badge>
                   </CardTitle>
                 </CardHeader>
@@ -497,6 +522,17 @@ export default function LabOrdersPage() {
                     <p className="py-12 text-center text-sm text-destructive">{error}</p>
                   ) : (
                     <div className="overflow-x-auto">
+                      <div className="mb-4">
+                        <Label htmlFor="lab-orders-search" className="sr-only">
+                          Rechercher un bon
+                        </Label>
+                        <Input
+                          id="lab-orders-search"
+                          value={search}
+                          onChange={(e) => setSearch(e.target.value)}
+                          placeholder="Rechercher un bon (prothésiste, description, patient)…"
+                        />
+                      </div>
                       <Table>
                         <TableHeader>
                           <TableRow>
@@ -591,6 +627,13 @@ export default function LabOrdersPage() {
                           )}
                         </TableBody>
                       </Table>
+                      <DataTablePagination
+                        page={orderPage}
+                        onPageChange={setPage}
+                        onPageSizeChange={setPageSize}
+                        loading={loading}
+                        label={["bon", "bons"]}
+                      />
                     </div>
                   )}
                 </CardContent>

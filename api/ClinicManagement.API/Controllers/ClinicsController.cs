@@ -307,6 +307,47 @@ public class ClinicsController : ApiControllerBase
     }
 
     /// <summary>
+    /// The « Rappels » page: one filtered, paged view of the reminder outbox plus the clinic's three counters.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Deliberately not <c>AdminOnly</c></b>, unlike <c>reminder-status</c> above. Reading the log is what
+    /// a secretary fielding « je n'ai reçu aucun message » needs to do, and a row carries a patient name and a
+    /// phone masked to its last two digits — no credentials, no template bodies, nothing the admin gate was
+    /// protecting. Every <b>write</b> to the channel settings stays admin-gated.</para>
+    /// <para>All four filters are optional and <b>tolerant</b>: an unknown status or channel is ignored rather than
+    /// refused, so a stale bookmark shows the full log instead of a French error about a query parameter.</para>
+    /// </remarks>
+    [HttpGet("reminder-log")]
+    public async Task<IActionResult> GetReminderLog(
+        [FromQuery] string? status = null,
+        [FromQuery] string? channel = null,
+        [FromQuery] string? from = null,
+        [FromQuery] string? to = null,
+        [FromQuery] int? page = null,
+        [FromQuery] int? pageSize = null,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _mediator.Send(
+            new GetClinicReminderLogQuery
+            {
+                Status = status,
+                Channel = channel,
+                From = from,
+                To = to,
+                Page = page,
+                PageSize = pageSize,
+            },
+            cancellationToken);
+
+        if (!result.IsSuccess)
+        {
+            return HandleFailure(result);
+        }
+
+        return Ok(result);
+    }
+
+    /// <summary>
     /// Connect the current clinic's WhatsApp via Meta Embedded Signup (admin-only, Cloud-only). Exchanges the
     /// one-time code, subscribes the app, registers the phone number, and stores the encrypted credentials —
     /// atomically. Returns the secret-masked settings (status Connected). 404 in Local mode.

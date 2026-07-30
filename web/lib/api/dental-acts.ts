@@ -1,5 +1,6 @@
 import { apiGet, apiPost, apiPut, apiDelete } from './client';
 import type { DentalActDto } from './types';
+import { unwrapPaged, type PagedResponse, type PageParams } from './paging';
 
 export interface DentalActInput {
   codeActe: string;
@@ -15,7 +16,17 @@ export const dentalActsApi = {
   // DB-backed dental act catalog. `q`/`category` optional (empty → full list). `includeInactive` is used
   // by the admin screen to also show deactivated rows.
   list: async (q?: string, category?: string, includeInactive?: boolean): Promise<DentalActDto[]> => {
-    return apiGet<DentalActDto[]>('/dental-acts', { q, category, includeInactive });
+    return unwrapPaged(
+      await apiGet<PagedResponse<DentalActDto>>('/dental-acts', { q, category, includeInactive }),
+    );
+  },
+
+  /** One page of the DCH catalog. `search` maps to `q` and matches code / désignation server-side. */
+  listPaged: async (
+    params: PageParams & { category?: string; includeInactive?: boolean },
+  ): Promise<PagedResponse<DentalActDto>> => {
+    const { search, ...rest } = params;
+    return apiGet<PagedResponse<DentalActDto>>('/dental-acts', { ...rest, q: search });
   },
 
   // ── Admin writes ──────────────────────────────────────────────────────────────────────────────

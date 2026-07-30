@@ -7,6 +7,8 @@ using ClinicManagement.Application.Common.Authorization;
 using ClinicManagement.API.Models;
 using Microsoft.AspNetCore.Authorization;
 
+using ClinicManagement.Domain.Common;
+
 namespace ClinicManagement.API.Controllers;
 
 [ApiController]
@@ -24,10 +26,19 @@ public class UsersController : ApiControllerBase
     /// <summary>
     /// Get all users for the current admin's clinic, with account status (AC-5.1).
     /// </summary>
+    /// <param name="page">1-based page number. Omit both paging parameters to get every match.</param>
+    /// <param name="pageSize">Rows per page, clamped to <c>PageRequest.MaxPageSize</c>.</param>
+    /// <param name="search">
+    /// Free-text filter. Applied in SQL <b>before</b> the page is cut, so it searches the whole clinic — a
+    /// search that only saw the current page would answer a different question from the one that was typed.
+    /// </param>
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<ClinicUserDto>>> GetUsers()
+    public async Task<ActionResult<PagedResult<ClinicUserDto>>> GetUsers(
+        [FromQuery] int? page = null,
+        [FromQuery] int? pageSize = null,
+        [FromQuery] string? search = null)
     {
-        var query = new ListUsersQuery();
+        var query = new ListUsersQuery { Page = page, PageSize = pageSize, SearchTerm = search };
         var result = await _mediator.Send(query);
 
         if (result.IsFailure)

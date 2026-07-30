@@ -7,6 +7,7 @@ using ClinicManagement.Application.DTOs;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Domain.Services;
 
+using ClinicManagement.Domain.Common;
 namespace ClinicManagement.Application.Features.Recall.Queries;
 
 /// <summary>
@@ -25,11 +26,20 @@ namespace ClinicManagement.Application.Features.Recall.Queries;
 /// outstanding (which already computes the oldest overdue due date for « Créances »), and the bridge links needed to
 /// de-duplicate a devis already billed to an invoice.</para>
 /// </summary>
-public class GetPatientsToRecallQuery : IRequest<Result<IEnumerable<RecallDto>>>
+public class GetPatientsToRecallQuery : IRequest<Result<PagedResult<RecallDto>>>
 {
+    /// <summary>1-based page and page size. Both null = every patient due.</summary>
+    public int? Page { get; set; }
+    public int? PageSize { get; set; }
+
+    /// <summary>
+    /// Free-text filter over the patient's name and phone. Matched <b>in memory</b>, like « Créances » — see the
+    /// paging comment below for why this read has no queryable final set.
+    /// </summary>
+    public string? SearchTerm { get; set; }
 }
 
-public class GetPatientsToRecallQueryHandler : IRequestHandler<GetPatientsToRecallQuery, Result<IEnumerable<RecallDto>>>
+public class GetPatientsToRecallQueryHandler : IRequestHandler<GetPatientsToRecallQuery, Result<PagedResult<RecallDto>>>
 {
     private readonly IPatientRepository _patientRepository;
     private readonly IClinicRepository _clinicRepository;
@@ -51,13 +61,13 @@ public class GetPatientsToRecallQueryHandler : IRequestHandler<GetPatientsToReca
         _clinicResolver = clinicResolver;
     }
 
-    public async Task<Result<IEnumerable<RecallDto>>> Handle(GetPatientsToRecallQuery request, CancellationToken cancellationToken)
+    public async Task<Result<PagedResult<RecallDto>>> Handle(GetPatientsToRecallQuery request, CancellationToken cancellationToken)
     {
         try
         {
             var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
             if (clinicResult.IsFailure)
-                return Result<IEnumerable<RecallDto>>.Failure(clinicResult.Error ?? "Cabinet introuvable.");
+                return Result<PagedResult<RecallDto>>.Failure(clinicResult.Error ?? "Cabinet introuvable.");
             var clinicId = clinicResult.Value;
 
             var clinic = await _clinicRepository.GetByIdAsync(clinicId, cancellationToken);
@@ -147,11 +157,22 @@ public class GetPatientsToRecallQueryHandler : IRequestHandler<GetPatientsToReca
                 .ThenBy(r => r.PatientName)
                 .ToList();
 
-            return Result<IEnumerable<RecallDto>>.Success(sorted);
+            // Filtered and paged in memory, and unavoidably so: SQL returns a deliberate SUPERSET (the recall
+            // anchor bound is widened by three days because inverting `AddMonths` is not equivalent at month
+            // boundaries — AC-P4.42), and the exact `RecallDueRule.IsDue` test plus the reason ranking are both
+            // applied here. Which patients are actually due, and in what order, is therefore not known until this
+            // point, so there is no query to put a LIMIT on. The SQL read is already bounded by the candidate
+            // predicate, not by the clinic's whole patient list.
+            var filtered = string.IsNullOrWhiteSpace(request.SearchTerm)
+                ? sorted
+                : sorted.Where(r => SearchTerm.Matches(request.SearchTerm, r.PatientName, r.PhoneNumber)).ToList();
+
+            return Result<PagedResult<RecallDto>>.Success(
+                PagedResult<RecallDto>.FromSource(filtered, PageRequest.From(request.Page, request.PageSize)));
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<IEnumerable<RecallDto>>.Failure($"Erreur lors du calcul des patients à rappeler : {ex.Message}");
+            return Result<PagedResult<RecallDto>>.Failure($"Erreur lors du calcul des patients à rappeler : {ex.Message}");
         }
     }
 

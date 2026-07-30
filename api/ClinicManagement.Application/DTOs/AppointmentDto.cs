@@ -21,10 +21,29 @@ public class AppointmentDto
     /// completed appointment, which is now a legal cancellation).
     /// </summary>
     public List<string> AllowedNextStatuses { get; set; } = new();
+    /// <summary>
+    /// The visit's <b>lead</b> act — the first of <see cref="Procedures"/>. Kept alongside the list because it is
+    /// what paints the agenda card and what the fiche de soins proposes; a client that only cares about "what is
+    /// this visit" still reads these three and needs no notion of a list.
+    /// </summary>
     public Guid? ProcedureTypeId { get; set; }
     public string? ProcedureTypeName { get; set; }
     public string? ProcedureColorHex { get; set; }
-    /// <summary>The treatment-plan step this appointment schedules, if any.</summary>
+
+    /// <summary>
+    /// Every act booked into this séance, in the dentist's order. A visit is routinely several acts
+    /// (« détartrage + deux obturations »), and before this existed the second one could only live in the notes.
+    /// <para>
+    /// Empty on a « créneau occupé » or a visit booked without an act — a real state, not a missing one. A
+    /// one-act visit has exactly one entry, and it agrees with the three lead-act fields above.
+    /// </para>
+    /// </summary>
+    public List<AppointmentProcedureDto> Procedures { get; set; } = new();
+
+    /// <summary>
+    /// The treatment-plan step this appointment schedules, if any — the <b>first</b> linked one when a séance
+    /// groups several devis acts. Each act's own link is on its <see cref="AppointmentProcedureDto"/>.
+    /// </summary>
     public Guid? TreatmentPlanItemId { get; set; }
 
     /// <summary>
@@ -54,4 +73,24 @@ public class AppointmentDto
     /// Local offline UX (US-3). Additive — Cloud consumers ignore it.
     /// </summary>
     public bool IsSyncedToGoogle { get; set; }
+}
+
+/// <summary>One act booked into a séance — the read side of <c>AppointmentProcedure</c>.</summary>
+public class AppointmentProcedureDto
+{
+    public Guid Id { get; set; }
+
+    /// <summary>The catalog act, or null once that procedure has been retired (the name still stands).</summary>
+    public Guid? ProcedureTypeId { get; set; }
+
+    /// <summary>Live catalog name when the link still resolves, else the snapshot taken at booking.</summary>
+    public string? Name { get; set; }
+
+    public int? DurationMinutes { get; set; }
+    public string? ColorHex { get; set; }
+
+    /// <summary>The devis act this line carries out, if any — how a grouped séance reports each of its steps.</summary>
+    public Guid? TreatmentPlanItemId { get; set; }
+
+    public int SequenceNumber { get; set; }
 }

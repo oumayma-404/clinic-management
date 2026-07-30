@@ -32,7 +32,16 @@ export function isForbiddenError(err: unknown): boolean {
   return err instanceof ApiError && err.status === 403
 }
 
+/**
+ * How long an error toast stays. The global default (`app/layout.tsx`) is 4 s, which is right for a success
+ * confirmation but not for a refusal: a success toast repeats something the screen already shows, while an
+ * error toast is the *only* place the reason exists, and several of ours are full French sentences with a
+ * cause and a suggested action. Dismissed early by the `closeButton` sonner renders on every toast, so the
+ * longer life never traps anyone.
+ */
+const ERROR_TOAST_DURATION_MS = 8000
+
 /** Show a single, non-blocking error toast for any thrown value (replaces `alert()` / silent swallows). */
 export function showErrorToast(err: unknown, fallback: string = DEFAULT_ERROR_MESSAGE): void {
-  toast.error(getErrorMessage(err, fallback))
+  toast.error(getErrorMessage(err, fallback), { duration: ERROR_TOAST_DURATION_MS })
 }

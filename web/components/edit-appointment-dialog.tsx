@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useRef } from "react"
 import {
   Dialog,
   DialogContent,
@@ -30,16 +30,19 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
+import { TimeField } from "@/components/ui/time-field"
 import { format, parseISO } from "date-fns"
 import { CalendarIcon, Clock, User, Stethoscope, FileText, X, Save, Receipt } from "lucide-react"
 import { cn, parseDurationToMinutes } from "@/lib/utils"
 import { appointmentsApi } from "@/lib/api/appointments"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
+import { AppointmentActsPicker, totalActsDuration, type SelectedAct } from "@/components/appointment-acts-picker"
 import { getErrorMessage } from "@/lib/errors"
 import type { AppointmentDto, ProcedureTypeDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import { useDoctors } from "@/lib/hooks/use-doctors"
 import { useAppointmentOverlap } from "@/lib/hooks/use-appointment-overlap"
+import { ApiErrorCode } from "@/lib/api/client"
 import { specialtyLabel } from "@/lib/specialties"
 import Link from "next/link"
 import { InvoiceFormModal } from "@/components/factures/invoice-form-modal"
@@ -77,7 +80,15 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
 
   // Procedure type state
   const [procedureTypes, setProcedureTypes] = useState<ProcedureTypeDto[]>([])
-  const [selectedProcedureTypeId, setSelectedProcedureTypeId] = useState<string | undefined>(undefined)
+  /** The acts of this séance — several are the normal case, not the exception. */
+  const [selectedActs, setSelectedActs] = useState<SelectedAct[]>([])
+  /**
+   * Has the user set the duration by hand *during this editing session*? Until they do, it follows the sum of the
+   * acts; afterwards it is left alone. Seeded true when the form hydrates, because a booked visit's stored
+   * duration is already a decision someone made — re-deriving it from the acts on open would silently rewrite the
+   * length of every appointment merely opened for a look.
+   */
+  const [durationTouched, setDurationTouched] = useState(true)
   const [loadingProcedureTypes, setLoadingProcedureTypes] = useState(false)
   // AC-P3.31 — why the acte list is empty (C-4: this dialog swallowed the failure without even a comment).
   const [procedureTypesError, setProcedureTypesError] = useState<string | null>(null)
@@ -95,6 +106,19 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
   const [error, setError] = useState<string | null>(null)
   const [showCancelDialog, setShowCancelDialog] = useState(false)
   const [showPastTimeConfirm, setShowPastTimeConfirm] = useState(false)
+  // The server's out-of-hours reason while its confirm is open, or null. See create-appointment-dialog.
+  const [outsideHoursPrompt, setOutsideHoursPrompt] = useState<string | null>(null)
+  // Double-booking prompt — the collision is advisory, exactly like the out-of-hours one below.
+  const [slotTakenPrompt, setSlotTakenPrompt] = useState<string | null>(null)
+  /**
+   * Overrides the user has already granted in this submit sequence.
+   *
+   * <p>Needed because the server checks the collision BEFORE the working hours, so a booking that is both
+   * double-booked and out-of-hours prompts twice. Without carrying the first grant forward, confirming the overlap
+   * and then confirming the hours would retry with `allowOverlap` lost and prompt for the overlap again — a loop.</p>
+   */
+  const grantedOverridesRef = useRef({ hours: false, overlap: false })
+
 
   // Calculate duration from end time
   const calculatedDuration = useMemo(() => {
@@ -131,7 +155,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
   }, [appointment?.status, appointment?.allowedNextStatuses])
 
   // Advisory overlap warning (AC-3): excludes the appointment being edited; non-blocking.
-  const { warning: overlapWarning, blocking: overlapBlocking } = useAppointmentOverlap({
+  const { warning: overlapWarning, samePractitioner: overlapSamePractitioner } = useAppointmentOverlap({
     enabled: open,
     date,
     startHour,
@@ -172,15 +196,17 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
     }
   }
 
-  // Handle procedure type selection - update duration when procedure is selected
+  /**
+   * Editing the act list re-proposes the summed duration — but only once the user has actually touched the acts
+   * (`durationTouched` starts true on hydration). Adding a second act to a 30-min visit should offer the room for
+   * it; merely opening that visit should not silently relengthen it.
+   */
   useEffect(() => {
-    if (selectedProcedureTypeId && procedureTypes.length > 0) {
-      const selectedProcedure = procedureTypes.find(p => p.id === selectedProcedureTypeId)
-      if (selectedProcedure && selectedProcedure.defaultDurationMinutes) {
-        setDuration(String(selectedProcedure.defaultDurationMinutes))
-      }
-    }
-  }, [selectedProcedureTypeId, procedureTypes])
+    if (!open || durationTouched || useEndTime) return
+    const total = totalActsDuration(selectedActs, procedureTypes)
+    if (total > 0) setDuration(String(total))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, selectedActs, procedureTypes, durationTouched, useEndTime])
 
   // Populate the form once per opening — keyed on the appointment's ID, not the object. The calendar
   // refetches on every realtime `appointments` event and hands down a fresh object each time; depending
@@ -204,7 +230,32 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
       } else {
         setSelectedDoctorId("")
       }
-      setSelectedProcedureTypeId(appointment.procedureTypeId || undefined)
+      // Hydrate the whole séance. Falls back to the lead-act scalar for a response that predates `procedures`
+      // (or a server that has not been updated), so an older appointment still shows the act it was booked with
+      // instead of an empty list that the next save would then persist.
+      const storedActs: SelectedAct[] =
+        appointment.procedures && appointment.procedures.length > 0
+          ? appointment.procedures
+              .slice()
+              .sort((a, b) => a.sequenceNumber - b.sequenceNumber)
+              .map((p) => ({
+                procedureTypeId: p.procedureTypeId ?? null,
+                treatmentPlanItemId: p.treatmentPlanItemId ?? null,
+                planLabel: p.treatmentPlanItemId ? "devis" : undefined,
+                fallbackName: p.name ?? undefined,
+              }))
+          : appointment.procedureTypeId
+            ? [
+                {
+                  procedureTypeId: appointment.procedureTypeId,
+                  treatmentPlanItemId: appointment.treatmentPlanItemId ?? null,
+                  planLabel: appointment.treatmentPlanItemId ? "devis" : undefined,
+                  fallbackName: appointment.procedureTypeName ?? undefined,
+                },
+              ]
+            : []
+      setSelectedActs(storedActs)
+      setDurationTouched(true)
 
       // Parse appointment date/time
       const appointmentDate = parseISO(appointment.appointmentDateTime)
@@ -280,9 +331,10 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
     return true
   }
 
-  // Performs the actual update. Called directly, or from the past-time confirmation dialog once the
-  // user confirms (AC-2).
-  const performUpdate = async () => {
+  // Performs the actual update. Called directly, or from either confirmation dialog once the user
+  // confirms (past time, AC-2; out-of-hours, AC-P1.31).
+  const performUpdate = async (allowOutsideWorkingHours = false, allowOverlap = false) => {
+    grantedOverridesRef.current = { hours: allowOutsideWorkingHours, overlap: allowOverlap }
     if (!appointment) return
     setError(null)
     setLoading(true)
@@ -311,7 +363,15 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
         doctorId: selectedDoctorId || null,
         notes: appointmentNotes || null,
         status: status,
-        procedureTypeId: selectedProcedureTypeId || null,
+        // Replaces the whole list. `[]` is a real instruction here (« ce rendez-vous n'a plus d'acte ») and the
+        // server distinguishes it from an omitted key, which is why this dialog always sends it and the cancel
+        // path — which posts { status } alone — never does.
+        procedures: selectedActs.map((a) => ({
+          procedureTypeId: a.procedureTypeId,
+          treatmentPlanItemId: a.treatmentPlanItemId ?? null,
+        })),
+        allowOutsideWorkingHours: allowOutsideWorkingHours || undefined,
+        allowOverlap: allowOverlap || undefined,
         // The version this form was hydrated from.
         version: appointment.version,
       })
@@ -320,7 +380,15 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
       onOpenChange(false)
     } catch (err) {
       if (err instanceof ApiError) {
-        setError(err.message)
+        // Moving an appointment out of hours warns rather than refuses — same reasoning as on create. Guarded on
+        // `!allowOutsideWorkingHours` so a re-submit that still refuses shows a real error instead of looping.
+        if (err.code === ApiErrorCode.SlotTaken && !allowOverlap) {
+          setSlotTakenPrompt(err.message)
+        } else if (err.code === ApiErrorCode.OutsideWorkingHours && !allowOutsideWorkingHours) {
+          setOutsideHoursPrompt(err.message)
+        } else {
+          setError(err.message)
+        }
       } else {
         setError("Échec de la mise à jour du rendez-vous")
       }
@@ -391,9 +459,12 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <div className="flex items-start justify-between">
+        {/* Scrolling body, pinned header and footer — see the create dialog for why. This one matters even
+            more: its footer holds three actions, one of them « Annuler le rendez-vous », and a destructive
+            action that has to be hunted for by scrolling is a destructive action someone will mis-click. */}
+        <DialogContent className="flex max-h-[90vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
+          <DialogHeader className="flex-shrink-0 px-6 pb-4 pt-6">
+            <div className="flex items-start justify-between gap-4 pr-6">
               <div>
                 <DialogTitle className="text-2xl">Modifier le rendez-vous</DialogTitle>
                 <DialogDescription>Mettez à jour les détails du rendez-vous ou changez son statut</DialogDescription>
@@ -404,7 +475,8 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
             </div>
           </DialogHeader>
 
-          <form onSubmit={handleUpdate} className="space-y-6 mt-4">
+          <form onSubmit={handleUpdate} className="flex min-h-0 flex-1 flex-col">
+            <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-6 pb-4">
             <FormErrorBanner message={error} />
 
             {/* Patient Section */}
@@ -433,7 +505,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
             <div className="space-y-4 p-4 rounded-lg border bg-muted/30">
               <div className="flex items-center gap-2">
                 <CalendarIcon className="h-5 w-5 text-muted-foreground" />
-                <h3 className="font-semibold">Date & Time</h3>
+                <h3 className="font-semibold">Date et heure</h3>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -461,42 +533,20 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                   </Popover>
                 </div>
 
-                {/* Start Time */}
+                {/* Start Time — one typeable field, as in the create dialog. */}
                 <div className="space-y-2">
                   <Label htmlFor="edit-appt-start-time" className="text-sm">Heure de début *</Label>
-                  <div className="flex gap-2">
-                    <Select value={startHour} onValueChange={setStartHour} disabled={loading}>
-                      <SelectTrigger id="edit-appt-start-time" className="h-10">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent className="max-h-[200px]">
-                        {Array.from({ length: 24 }, (_, i) => {
-                          const hour = String(i).padStart(2, "0")
-                          return (
-                            <SelectItem key={i} value={hour}>
-                              {hour}
-                            </SelectItem>
-                          )
-                        })}
-                      </SelectContent>
-                    </Select>
-                    <span className="flex items-center text-lg font-semibold">:</span>
-                    <Select value={startMinute} onValueChange={setStartMinute} disabled={loading}>
-                      <SelectTrigger className="h-10">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent className="max-h-[200px]">
-                        {Array.from({ length: 60 }, (_, i) => {
-                          const min = String(i).padStart(2, "0")
-                          return (
-                            <SelectItem key={i} value={min}>
-                              {min}
-                            </SelectItem>
-                          )
-                        })}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  <TimeField
+                    id="edit-appt-start-time"
+                    hour={startHour}
+                    minute={startMinute}
+                    onChange={({ hour, minute }) => {
+                      setStartHour(hour)
+                      setStartMinute(minute)
+                    }}
+                    disabled={loading}
+                    required
+                  />
                 </div>
               </div>
 
@@ -536,39 +586,17 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                 {useEndTime ? (
                   <div className="space-y-2">
                     <Label htmlFor="edit-appt-end-time" className="text-sm">Heure de fin *</Label>
-                    <div className="flex gap-2">
-                      <Select value={endHour} onValueChange={setEndHour} disabled={loading}>
-                        <SelectTrigger id="edit-appt-end-time" className="h-10">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent className="max-h-[200px]">
-                          {Array.from({ length: 24 }, (_, i) => {
-                            const hour = String(i).padStart(2, "0")
-                            return (
-                              <SelectItem key={i} value={hour}>
-                                {hour}
-                              </SelectItem>
-                            )
-                          })}
-                        </SelectContent>
-                      </Select>
-                      <span className="flex items-center text-lg font-semibold">:</span>
-                      <Select value={endMinute} onValueChange={setEndMinute} disabled={loading}>
-                        <SelectTrigger className="h-10">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent className="max-h-[200px]">
-                          {Array.from({ length: 60 }, (_, i) => {
-                            const min = String(i).padStart(2, "0")
-                            return (
-                              <SelectItem key={i} value={min}>
-                                {min}
-                              </SelectItem>
-                            )
-                          })}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                    <TimeField
+                      id="edit-appt-end-time"
+                      hour={endHour}
+                      minute={endMinute}
+                      onChange={({ hour, minute }) => {
+                        setEndHour(hour)
+                        setEndMinute(minute)
+                      }}
+                      disabled={loading}
+                      required
+                    />
                   </div>
                 ) : (
                   <div className="flex gap-2">
@@ -589,18 +617,26 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                 )}
               </div>
 
-              {/* Overlap warning: red + blocking for a same-practitioner clash, amber advisory otherwise. */}
-              {overlapWarning && (
-                <p
-                  className={
-                    overlapBlocking
-                      ? "text-sm text-red-600 dark:text-red-400"
-                      : "text-sm text-amber-600 dark:text-amber-400"
-                  }
-                >
-                  ⚠ {overlapWarning}
-                </p>
-              )}
+              {/* Overlap warning — reserved height so the message appearing/disappearing while the user
+                  nudges the time does not shove the form under their cursor, and a blocking clash explains
+                  the disabled submit right here rather than leaving it silently dead. See the create dialog. */}
+              <div className="min-h-[2.5rem] pt-1" aria-live="polite">
+                {overlapWarning && (
+                  <div
+                    className={cn(
+                      "space-y-0.5 text-sm transition-opacity duration-200 ease-snap",
+                      overlapSamePractitioner ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400",
+                    )}
+                  >
+                    <p>⚠ {overlapWarning}</p>
+                    {overlapSamePractitioner && (
+                      <p className="text-xs">
+                        Vous pouvez continuer : une confirmation vous sera demandée.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Additional Details Section */}
@@ -642,69 +678,21 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                   </Select>
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="procedureType" className="text-sm">
-                    Type d'acte
-                  </Label>
-                  <Select 
-                    value={selectedProcedureTypeId} 
-                    onValueChange={setSelectedProcedureTypeId}
-                    disabled={loadingProcedureTypes || loading}
-                  >
-                    <SelectTrigger id="procedureType" className="h-10 w-full">
-                      <SelectValue placeholder={loadingProcedureTypes ? "Chargement…" : "Sélectionner un type d'acte"} />
-                    </SelectTrigger>
-                    <SelectContent className="max-h-[200px]">
-                      {procedureTypes.length === 0 && !loadingProcedureTypes ? (
-                        <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                          {procedureTypesError
-                            ? "Liste indisponible"
-                            : "Aucun type d'acte disponible"}
-                        </div>
-                      ) : (
-                        procedureTypes.map((procedureType) => (
-                          <SelectItem key={procedureType.id} value={procedureType.id}>
-                            <div className="flex items-center gap-2">
-                              <div 
-                                className="w-3 h-3 rounded-full" 
-                                style={{ backgroundColor: procedureType.colorHex }}
-                              />
-                              {procedureType.name} ({procedureType.defaultDurationMinutes} min)
-                            </div>
-                          </SelectItem>
-                        ))
-                      )}
-                    </SelectContent>
-                  </Select>
-                  {procedureTypesError && (
-                    <p role="status" className="mt-1 flex flex-wrap items-center gap-2 text-xs text-destructive">
-                      <span>{procedureTypesError}</span>
-                      <button
-                        type="button"
-                        onClick={() => void loadProcedureTypes()}
-                        className="underline underline-offset-2 hover:no-underline"
-                      >
-                        Réessayer
-                      </button>
-                    </p>
-                  )}
-                  {selectedProcedureTypeId && (
-                    <div className="flex items-center gap-2 mt-1">
-                      <p className="text-xs text-muted-foreground">
-                        Durée fixée à {procedureTypes.find(p => p.id === selectedProcedureTypeId)?.defaultDurationMinutes} minutes (vous pouvez la modifier)
-                      </p>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-5 px-2 text-xs"
-                        onClick={() => setSelectedProcedureTypeId(undefined)}
-                        disabled={loading}
-                      >
-                        Effacer
-                      </Button>
-                    </div>
-                  )}
+                {/* The séance's acts, spanning the row: it is a list that grows, and a half-width column
+                    truncates every act name. Editing it re-proposes the summed duration. */}
+                <div className="md:col-span-2">
+                  <AppointmentActsPicker
+                    procedureTypes={procedureTypes}
+                    loading={loadingProcedureTypes}
+                    error={procedureTypesError}
+                    onRetry={() => void loadProcedureTypes()}
+                    value={selectedActs}
+                    onChange={(acts) => { setDurationTouched(false); setSelectedActs(acts) }}
+                    disabled={loading}
+                    onProcedureCreated={(created) => setProcedureTypes((prev) => [...prev, created])}
+                    fallbackDurationMinutes={calculatedDuration}
+                    idPrefix="edit-appt"
+                  />
                 </div>
 
                 <div className="space-y-2 md:col-span-2">
@@ -795,7 +783,9 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
               />
             </div>
 
-            <DialogFooter className="gap-2 pt-2 flex-col sm:flex-row">
+            </div>
+
+            <DialogFooter className="flex-shrink-0 flex-col gap-2 border-t bg-background px-6 py-4 sm:flex-row">
               <Button
                 type="button"
                 variant="destructive"
@@ -809,7 +799,9 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
                 Fermer
               </Button>
-              <Button type="submit" disabled={loading || overlapBlocking}>
+              {/* No longer disabled on an overlap: the collision is advisory and the server offers the override.
+                  Blocking here made the warning a dead end and hid the fact that proceeding is allowed. */}
+              <Button type="submit" disabled={loading}>
                 <Save className="h-4 w-4 mr-2" />
                 {loading ? "Enregistrement…" : "Enregistrer les modifications"}
               </Button>
@@ -874,6 +866,79 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
               onClick={() => {
                 setShowPastTimeConfirm(false)
                 performUpdate()
+              }}
+              disabled={loading}
+            >
+              Continuer
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/*
+        Double-booking confirmation — same shape as the out-of-hours confirm below, and for the same reason: an
+        overlap with the same practitioner is a legitimate thing a clinic does (a second chair, an assistant
+        preparing one patient while the dentist starts another, an emergency squeezed in), so it warns and lets the
+        user proceed instead of refusing.
+
+        Driven by the server's `slot_taken` code rather than the local overlap hook, because the server is the
+        authority — and because confirming here sets `allowOverlap`, which records the acknowledgement and exempts
+        the row from the database's exclusion constraint. Without that flag the write is impossible, so a purely
+        client-side "ignore the warning" would just fail at the database.
+      */}
+      <AlertDialog
+        open={slotTakenPrompt !== null}
+        onOpenChange={(o) => { if (!o) setSlotTakenPrompt(null) }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Créneau déjà occupé</AlertDialogTitle>
+            <AlertDialogDescription>
+              {slotTakenPrompt} Voulez-vous quand même enregistrer ce rendez-vous ? Le double rendez-vous sera
+              enregistré comme volontaire.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={loading}>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setSlotTakenPrompt(null)
+                // `true` makes the server record it via Appointment.MarkBookedWithOverlap() rather than letting it
+                // through unmarked — the flag is both the audit trail and the constraint exemption.
+                void performUpdate(grantedOverridesRef.current.hours, true)
+              }}
+              disabled={loading}
+            >
+              Continuer
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/*
+        Out-of-hours confirmation — same shape as the past-time confirm above, and deliberately so: moving a visit
+        outside the posted hours is something clinics legitimately do, so it warns and lets the user proceed.
+        Driven by the server's `outside_working_hours` code rather than a client-side hours check, so the rule
+        (doctor override → clinic → unrestricted, in clinic-local time) stays in one place.
+      */}
+      <AlertDialog
+        open={outsideHoursPrompt !== null}
+        onOpenChange={(o) => { if (!o) setOutsideHoursPrompt(null) }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>En dehors des horaires d&apos;ouverture</AlertDialogTitle>
+            <AlertDialogDescription>
+              {outsideHoursPrompt} Voulez-vous quand même enregistrer ce rendez-vous ?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={loading}>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setOutsideHoursPrompt(null)
+                // `true` records the move as a deliberate exception (MarkBookedOutsideWorkingHours).
+                void performUpdate(true, grantedOverridesRef.current.overlap)
               }}
               disabled={loading}
             >

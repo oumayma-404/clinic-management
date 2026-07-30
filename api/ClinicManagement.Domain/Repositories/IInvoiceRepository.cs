@@ -1,6 +1,7 @@
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
 
+using ClinicManagement.Domain.Common;
 namespace ClinicManagement.Domain.Repositories;
 
 /// <summary>
@@ -30,12 +31,21 @@ public interface IInvoiceRepository
     Task<Invoice?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
 
     /// <summary>List a clinic's invoices, filtered by issue-date range / patient / status.</summary>
-    Task<IEnumerable<Invoice>> GetFilteredAsync(
+    /// <param name="searchTerm">
+    /// Matched in SQL over the invoice number and the patient's name (the latter as an EXISTS against
+    /// <c>Patients</c>, since <c>Invoice</c> carries no <c>Patient</c> navigation). It must be here rather than
+    /// in the handler: names are resolved after the page is cut, so a filter applied there would only ever see
+    /// the rows already on it.
+    /// </param>
+    /// <param name="paging">The page to return, or null for every match (« Solde patient » and the revenue read).</param>
+    Task<PagedResult<Invoice>> GetFilteredAsync(
         Guid clinicId,
         DateTime? from = null,
         DateTime? to = null,
         Guid? patientId = null,
         InvoiceStatus? status = null,
+        string? searchTerm = null,
+        PageRequest? paging = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

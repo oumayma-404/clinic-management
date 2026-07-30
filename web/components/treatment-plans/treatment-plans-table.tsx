@@ -1,6 +1,10 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { DataTablePagination } from "@/components/ui/data-table-pagination"
+import { usePagedList } from "@/lib/hooks/use-paged-list"
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table"
@@ -68,9 +72,9 @@ export function TreatmentPlansTable({
   reloadKey = 0,
   onChanged,
 }: TreatmentPlansTableProps) {
-  const [plans, setPlans] = useState<TreatmentPlanDto[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [search, setSearch] = useState("")
+  // Bumped by a mutation or a realtime event to refetch the CURRENT page.
+  const [localRefresh, setLocalRefresh] = useState(0)
   const [busyId, setBusyId] = useState<string | null>(null)
 
   const [formOpen, setFormOpen] = useState(false)
@@ -79,22 +83,39 @@ export function TreatmentPlansTable({
 
   const router = useRouter()
 
-  const load = useCallback(async () => {
-    try {
-      setLoading(true)
-      setError(null)
-      const data = await treatmentPlansApi.list({ patientId, status, from, to, acceptedFrom, acceptedTo })
-      setPlans(data)
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Échec du chargement des plans de traitement.")
-    } finally {
-      setLoading(false)
-    }
-  }, [patientId, status, from, to, acceptedFrom, acceptedTo])
+  // `search` matches the devis number, title, notes and the patient's name — server-side, whole clinic.
+  const fetchPage = useCallback(
+    ({ page, pageSize, search }: { page: number; pageSize: number; search?: string }) =>
+      treatmentPlansApi.listPaged({
+        page,
+        pageSize,
+        search,
+        patientId,
+        status,
+        from,
+        to,
+        acceptedFrom,
+        acceptedTo,
+      }),
+    [patientId, status, from, to, acceptedFrom, acceptedTo],
+  )
 
-  useEffect(() => {
-    load()
-  }, [load, reloadKey])
+  const {
+    items: plans,
+    page: pageInfo,
+    loading,
+    refreshing,
+    error,
+    setPage,
+    setPageSize,
+    isSearching,
+  } = usePagedList<TreatmentPlanDto>({
+    fetchPage,
+    search,
+    refreshKey: `${reloadKey}:${localRefresh}`,
+  })
+
+  const load = useCallback(() => setLocalRefresh((n) => n + 1), [])
 
   // Three keys, not one: an act's état is derived from Appointment rows and the « Facturé » badge from Invoice
   // rows, and RealtimeBroadcastBehavior keys off the *command's* namespace — so cancelling an appointment
@@ -152,7 +173,25 @@ export function TreatmentPlansTable({
 
   return (
     <div className="space-y-3">
-      <div className="flex justify-end">
+      {/*
+        One toolbar row: the search grows, the action sits at the end. The two used to be separate stacked rows
+        with the error banner between them, which cost a whole row of height and put a problem message in the
+        middle of the controls.
+
+        `flex-wrap` + `flex-1` rather than a fixed two-column grid, so below ~420px the button drops to its own
+        line instead of squeezing the input down to a few characters.
+      */}
+      <div className="flex flex-wrap items-center gap-2">
+        <Label htmlFor="plans-search" className="sr-only">
+          Rechercher un devis
+        </Label>
+        <Input
+          id="plans-search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Rechercher un devis (numéro, titre, patient)…"
+          className="min-w-[200px] flex-1 sm:max-w-sm"
+        />
         <Button onClick={openCreate} className="gap-2">
           <Plus className="h-4 w-4" /> Nouveau plan
         </Button>
@@ -164,7 +203,7 @@ export function TreatmentPlansTable({
         </div>
       )}
 
-      <div className="rounded-md border overflow-x-auto">
+      <div className={`rounded-md border overflow-x-auto${refreshing ? " opacity-60 transition-opacity" : ""}`}>
         <Table>
           <TableHeader>
             <TableRow>
@@ -188,7 +227,7 @@ export function TreatmentPlansTable({
             ) : plans.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={colSpan} className="text-center text-muted-foreground py-8">
-                  Aucun plan de traitement.
+                  {isSearching ? "Aucun devis ne correspond à votre recherche." : "Aucun plan de traitement."}
                 </TableCell>
               </TableRow>
             ) : (
@@ -272,6 +311,13 @@ export function TreatmentPlansTable({
             )}
           </TableBody>
         </Table>
+        <DataTablePagination
+          page={pageInfo}
+          onPageChange={setPage}
+          onPageSizeChange={setPageSize}
+          loading={refreshing}
+          label={["devis", "devis"]}
+        />
       </div>
 
       <TreatmentPlanFormModal

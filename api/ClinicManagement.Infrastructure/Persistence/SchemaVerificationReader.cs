@@ -398,9 +398,23 @@ public class SchemaVerificationReader : ISchemaVerificationReader
             requiredColumn: "NormalizedFullName",
             sql: """SELECT COUNT(*) FROM "Patients" WHERE "NormalizedFullName" IS NULL""");
 
+        // Multi-act séances: the parent's ProcedureTypeId is a derived snapshot of the first AppointmentProcedures
+        // row, so one without the other is drift the backfill exists to prevent. Guarded on the child table's
+        // column rather than the parent's, since the parent scalar predates this migration by years.
+        var actScalarWithoutRow = await ScalarOrNullAsync(connection, cancellationToken,
+            requiredTable: "AppointmentProcedures",
+            requiredColumn: "AppointmentId",
+            sql: """
+                SELECT COUNT(*)
+                FROM "Appointments" a
+                WHERE a."ProcedureTypeId" IS NOT NULL
+                  AND NOT EXISTS (
+                      SELECT 1 FROM "AppointmentProcedures" p WHERE p."AppointmentId" = a."Id")
+                """);
+
         return new DataMigrationCounts(
             typePrefix, overlaps, legacyExpiry, legacyExpiryWithoutBatch, stockWithoutBatch,
-            missingNormalized, patientsTotal);
+            missingNormalized, patientsTotal, actScalarWithoutRow);
     }
 
     /// <summary>

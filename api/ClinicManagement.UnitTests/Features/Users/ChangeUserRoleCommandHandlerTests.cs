@@ -1,3 +1,5 @@
+using ClinicManagement.UnitTests.Common;
+using ClinicManagement.Domain.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Features.Users.Commands;
 using ClinicManagement.Domain.Entities;
@@ -34,8 +36,9 @@ public class ChangeUserRoleCommandHandlerTests
         _context.Setup(c => c.GetUserId()).Returns(admin.Id);
         _users.Setup(r => r.GetByAuth0SubAsync(admin.Id, It.IsAny<CancellationToken>())).ReturnsAsync(admin);
         _uow.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
-        _users.Setup(r => r.GetByClinicIdAsync(admin.ClinicId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(clinicUsers.Length > 0 ? clinicUsers : new[] { admin });
+        _users.Setup(r => r.GetByClinicIdAsync(admin.ClinicId, It.IsAny<string?>(), It.IsAny<PageRequest?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((clinicUsers.Length > 0 ? clinicUsers : new[] { admin }).AsPage());
     }
 
     private Task<Application.Common.Models.Result<Application.DTOs.ClinicUserDto>> ChangeAsync(

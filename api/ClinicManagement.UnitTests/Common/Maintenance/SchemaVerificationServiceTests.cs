@@ -31,7 +31,7 @@ public class SchemaVerificationServiceTests
         _reader
             .Setup(r => r.ReadAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SchemaFacts(
-                extensions ?? new[] { "plpgsql", "btree_gist" },
+                extensions ?? new[] { "plpgsql", "btree_gist", "unaccent" },
                 constraints ?? new[] { PartialExclusionConstraint },
                 model ?? EmptySide,
                 database ?? EmptySide,
@@ -48,7 +48,7 @@ public class SchemaVerificationServiceTests
         'x',
         "EXCLUDE USING gist (\"DoctorId\" WITH =, slot WITH &&) WHERE (\"Status\" <> ALL (ARRAY[5, 6]))");
 
-    private static DataMigrationCounts CleanCounts => new(0, 0, 0, 0, 0, 0, 12);
+    private static DataMigrationCounts CleanCounts => new(0, 0, 0, 0, 0, 0, 12, 0);
 
     private static SchemaVerificationFinding Finding(SchemaVerificationReport report, string check) =>
         report.Findings.Single(f => f.Check == check);
@@ -79,6 +79,19 @@ public class SchemaVerificationServiceTests
         var report = await CreateService().RunAsync();
 
         Assert.True(IsDrift(Finding(report, "btree_gist")));
+        Assert.True(report.HasDrift);
+    }
+
+    // unaccent backs the free-text search on every paginated list. Its absence does not degrade search, it makes
+    // it throw 42883 the first time anyone types in a box — so it has to be caught here rather than in production.
+    [Fact]
+    public async Task A_Missing_unaccent_Is_Drift()
+    {
+        Arrange(extensions: new[] { "plpgsql", "btree_gist" });
+
+        var report = await CreateService().RunAsync();
+
+        Assert.True(IsDrift(Finding(report, "unaccent")));
         Assert.True(report.HasDrift);
     }
 
@@ -336,10 +349,36 @@ public class SchemaVerificationServiceTests
 
     // ------------------------------------------------------------------ data migrations
 
+    // Multi-act séances: the parent's ProcedureTypeId is a DERIVED snapshot of the first AppointmentProcedures
+    // row, so a scalar with no row is a visit whose act the edit dialog cannot see — and the first save of that
+    // visit would persist the emptiness. Nothing in the test project touches a database, so this diff is the only
+    // gate on the migration's backfill actually having covered those rows.
+    [Fact]
+    public async Task Appointments_Naming_An_Act_With_No_Procedure_Row_Are_Drift()
+    {
+        Arrange(counts: new DataMigrationCounts(0, 0, 0, 0, 0, 0, 12, 4));
+
+        var report = await CreateService().RunAsync();
+
+        Assert.True(IsDrift(Finding(report, "appointment-act-rows")));
+    }
+
+    // Before the migration applies there is no child table to count, so the line must read « not applicable »
+    // rather than 0 — a 0 would claim a backfill succeeded that has not run.
+    [Fact]
+    public async Task Appointment_Act_Rows_Reads_Not_Applicable_Before_The_Table_Exists()
+    {
+        Arrange(counts: new DataMigrationCounts(0, 0, 0, 0, 0, 0, 12, null));
+
+        var report = await CreateService().RunAsync();
+
+        Assert.False(IsDrift(Finding(report, "appointment-act-rows")));
+    }
+
     [Fact]
     public async Task Appointment_Notes_Still_Carrying_A_Type_Prefix_Are_Drift()
     {
-        Arrange(counts: new DataMigrationCounts(3, 0, 0, 0, 0, 0, 12));
+        Arrange(counts: new DataMigrationCounts(3, 0, 0, 0, 0, 0, 12, 0));
 
         var report = await CreateService().RunAsync();
 
@@ -349,7 +388,7 @@ public class SchemaVerificationServiceTests
     [Fact]
     public async Task Pre_Existing_Overlapping_Pairs_Are_Drift()
     {
-        Arrange(counts: new DataMigrationCounts(0, 2, 0, 0, 0, 0, 12));
+        Arrange(counts: new DataMigrationCounts(0, 2, 0, 0, 0, 0, 12, 0));
 
         var report = await CreateService().RunAsync();
 
@@ -365,7 +404,7 @@ public class SchemaVerificationServiceTests
     [Fact]
     public async Task A_Legacy_Expiry_With_No_Opening_Batch_Is_Drift()
     {
-        Arrange(counts: new DataMigrationCounts(0, 0, 5, 5, 0, 0, 12));
+        Arrange(counts: new DataMigrationCounts(0, 0, 5, 5, 0, 0, 12, 0));
 
         var report = await CreateService().RunAsync();
 
@@ -377,7 +416,7 @@ public class SchemaVerificationServiceTests
     [Fact]
     public async Task Patients_Missing_A_Normalized_Name_Are_Drift()
     {
-        Arrange(counts: new DataMigrationCounts(0, 0, 0, 0, 0, 4, 12));
+        Arrange(counts: new DataMigrationCounts(0, 0, 0, 0, 0, 4, 12, 0));
 
         var report = await CreateService().RunAsync();
 
@@ -393,7 +432,7 @@ public class SchemaVerificationServiceTests
     [Fact]
     public async Task A_Count_Whose_Subject_Does_Not_Exist_Yet_Is_Not_Applicable_Rather_Than_Drift()
     {
-        Arrange(counts: new DataMigrationCounts(0, 0, null, null, null, null, null));
+        Arrange(counts: new DataMigrationCounts(0, 0, null, null, null, null, null, null));
 
         var report = await CreateService().RunAsync();
 
@@ -412,7 +451,7 @@ public class SchemaVerificationServiceTests
     [Fact]
     public async Task After_The_Migration_The_Backfill_Check_Says_It_Was_Superseded()
     {
-        Arrange(counts: new DataMigrationCounts(0, 0, null, null, 0, 0, 12));
+        Arrange(counts: new DataMigrationCounts(0, 0, null, null, 0, 0, 12, 0));
 
         var report = await CreateService().RunAsync();
 
@@ -428,7 +467,7 @@ public class SchemaVerificationServiceTests
     [Fact]
     public async Task An_Item_Holding_Stock_With_No_Lot_Is_Drift()
     {
-        Arrange(counts: new DataMigrationCounts(0, 0, null, null, 3, 0, 12));
+        Arrange(counts: new DataMigrationCounts(0, 0, null, null, 3, 0, 12, 0));
 
         var report = await CreateService().RunAsync();
 
@@ -443,7 +482,7 @@ public class SchemaVerificationServiceTests
     [Fact]
     public async Task HasDrift_Agrees_With_DriftCount()
     {
-        Arrange(counts: new DataMigrationCounts(1, 1, 0, 0, 0, 0, 12));
+        Arrange(counts: new DataMigrationCounts(1, 1, 0, 0, 0, 0, 12, 0));
 
         var report = await CreateService().RunAsync();
 

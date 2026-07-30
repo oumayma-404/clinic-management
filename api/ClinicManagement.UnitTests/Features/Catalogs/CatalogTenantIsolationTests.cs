@@ -1,3 +1,5 @@
+using ClinicManagement.UnitTests.Common;
+using ClinicManagement.Domain.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Features.CnamNomenclature.Commands;
@@ -184,7 +186,9 @@ public class CatalogTenantIsolationTests
         var theirValue = new CnamLetterValue(Guid.NewGuid(), OtherClinic, "D", 1.2m);
 
         var repo = new Mock<ICnamCatalogRepository>();
-        repo.Setup(r => r.GetAllAsync(true, It.IsAny<CancellationToken>())).ReturnsAsync(new[] { mine, theirs });
+        repo.Setup(r => r.GetAllAsync(true, It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<PageRequest?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { mine, theirs }.AsPage());
         repo.Setup(r => r.GetAllLetterValuesAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new[] { myValue, theirValue });
 
@@ -252,7 +256,9 @@ public class CatalogTenantIsolationTests
         var theirs = new Medication(Guid.NewGuid(), OtherClinic, "À eux", "Comprimé", "1 g", new[] { "Y" });
 
         var repo = new Mock<IMedicationCatalogRepository>();
-        repo.Setup(r => r.GetAllAsync(true, It.IsAny<CancellationToken>())).ReturnsAsync(new[] { mine, theirs });
+        repo.Setup(r => r.GetAllAsync(true, It.IsAny<string?>(), It.IsAny<PageRequest?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { mine, theirs }.AsPage());
 
         var handler = new ConfirmMedicationDataCommandHandler(
             repo.Object, _clinicResolver.Object, _uow.Object, NullLogger<ConfirmMedicationDataCommandHandler>.Instance);

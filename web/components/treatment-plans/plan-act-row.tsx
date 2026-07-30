@@ -4,7 +4,10 @@ import { useRouter } from "next/navigation"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { TableCell, TableRow } from "@/components/ui/table"
-import { CalendarPlus, CalendarCheck, FilePlus2, FileText, ChevronUp, ChevronDown, Unlink } from "lucide-react"
+import { Checkbox } from "@/components/ui/checkbox"
+import {
+  CalendarPlus, CalendarCheck, FilePlus2, FileText, ChevronUp, ChevronDown, Unlink, Layers,
+} from "lucide-react"
 import type { TreatmentPlanDto, TreatmentPlanItemDto } from "@/lib/api/types"
 import { formatDT, formatDateFr } from "@/lib/format"
 import { itemWorkflowLabel, itemWorkflowBadgeClass } from "./treatment-plan-labels"
@@ -19,11 +22,28 @@ interface PlanActReorder {
   onMoveDown: () => void
 }
 
+/**
+ * Tick state for grouping several acts into one séance. Present only when the plan has more than one bookable act
+ * — with a single one there is nothing to group and a lone checkbox is just noise.
+ */
+interface PlanActSelection {
+  /** False for an act that is already booked or réalisé: the box renders disabled, keeping the column aligned. */
+  selectable: boolean
+  checked: boolean
+  onToggle: () => void
+}
+
 interface PlanActRowProps {
   plan: TreatmentPlanDto
   item: TreatmentPlanItemDto
   /** Opens the "Planifier" dialog for this act (only reachable in the `to-schedule` état). */
   onSchedule: (item: TreatmentPlanItemDto) => void
+  selection?: PlanActSelection
+  /**
+   * How many acts share this act's booked appointment. `> 1` means it is part of a grouped séance, which is worth
+   * saying: « Planifié » on four rows with the same date otherwise reads as four separate visits.
+   */
+  sessionActCount?: number
   /**
    * Opens the « Détacher la fiche » confirmation for a `done` act (AC-P2.11). Omitted when the plan is Draft
    * or Cancelled — there is nothing realised to correct — which is also what hides the action.
@@ -40,13 +60,31 @@ interface PlanActRowProps {
  * A `done` act is the one exception: alongside « Voir la fiche » it carries the correction path
  * (« Détacher la fiche »), because reading the fiche is what tells the dentist it is the wrong one.
  */
-export function PlanActRow({ plan, item, onSchedule, onUndo, reorder }: PlanActRowProps) {
+export function PlanActRow({
+  plan,
+  item,
+  onSchedule,
+  onUndo,
+  reorder,
+  selection,
+  sessionActCount = 1,
+}: PlanActRowProps) {
   const router = useRouter()
   const state = planItemState(item)
   const planIsActive = plan.status === "Accepted" || plan.status === "InProgress"
 
   return (
-    <TableRow>
+    <TableRow data-state={selection?.checked ? "selected" : undefined}>
+      {selection && (
+        <TableCell>
+          <Checkbox
+            aria-label={`Sélectionner « ${item.designationFr} » pour planification`}
+            checked={selection.checked}
+            disabled={!selection.selectable}
+            onCheckedChange={selection.onToggle}
+          />
+        </TableCell>
+      )}
       {reorder && (
         <TableCell>
           <div className="flex flex-col">
@@ -105,6 +143,14 @@ export function PlanActRow({ plan, item, onSchedule, onUndo, reorder }: PlanActR
           <span className="ml-2 whitespace-nowrap text-xs text-muted-foreground">
             {formatDateFr(item.scheduledAt)}
           </span>
+        )}
+        {/* Says « this act shares its visit », which is the only way the grouping is visible after booking —
+            without it, four acts on the same date look like four appointments. */}
+        {sessionActCount > 1 && item.scheduledAppointmentId && (
+          <Badge variant="outline" className="ml-2 gap-1 whitespace-nowrap text-xs">
+            <Layers className="h-3 w-3" />
+            séance de {sessionActCount} actes
+          </Badge>
         )}
       </TableCell>
       <TableCell className="text-right">

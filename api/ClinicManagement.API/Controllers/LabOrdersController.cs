@@ -5,6 +5,8 @@ using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.LabOrders.Commands;
 using ClinicManagement.Application.Features.LabOrders.Queries;
 
+using ClinicManagement.Domain.Common;
+
 namespace ClinicManagement.API.Controllers;
 
 /// <summary>
@@ -27,11 +29,26 @@ public class LabOrdersController : ApiControllerBase
     /// <param name="status">Optional stage filter (Sent / InProgress / Received / Fitted). An unknown value is
     /// ignored rather than refused, so a stale deep link lands on the full list instead of an error.</param>
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<LabWorkOrderDto>>> GetLabWorkOrders(
+    /// <param name="page">1-based page number. Omit both paging parameters to get every match.</param>
+    /// <param name="pageSize">Rows per page, clamped to <c>PageRequest.MaxPageSize</c>.</param>
+    /// <param name="search">
+    /// Free-text filter, applied in SQL <b>before</b> the page is cut so it spans the whole clinic.
+    /// </param>
+    public async Task<ActionResult<PagedResult<LabWorkOrderDto>>> GetLabWorkOrders(
         [FromQuery] Guid? patientId = null,
-        [FromQuery] string? status = null)
+        [FromQuery] string? status = null,
+        [FromQuery] int? page = null,
+        [FromQuery] int? pageSize = null,
+        [FromQuery] string? search = null)
     {
-        var result = await _mediator.Send(new GetLabWorkOrdersQuery { PatientId = patientId, Status = status });
+        var result = await _mediator.Send(new GetLabWorkOrdersQuery
+        {
+            PatientId = patientId,
+            Status = status,
+            Page = page,
+            PageSize = pageSize,
+            SearchTerm = search
+        });
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
     }
 

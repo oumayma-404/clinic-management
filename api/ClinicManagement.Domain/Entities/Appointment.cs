@@ -20,11 +20,51 @@ public class Appointment : AggregateRoot<Guid>
     public string? CancellationReason { get; private set; }
     public DateTime? CancelledAt { get; private set; }
     public string? GoogleCalendarEventId { get; private set; }
+    /// <summary>
+    /// The visit's <b>lead</b> act. Since multi-act séances exist this is a **derived snapshot of the first
+    /// <see cref="Procedures"/> row**, not an independent field — see <see cref="SetProcedures"/>.
+    /// </summary>
     public Guid? ProcedureTypeId { get; private set; }
     public int? ProcedureDurationMinutes { get; private set; }
     public string? ProcedureColorHex { get; private set; }
-    /// <summary>Optional link to the treatment-plan step this appointment schedules (null for ad-hoc visits).</summary>
+    /// <summary>
+    /// Optional link to the treatment-plan step this appointment schedules (null for ad-hoc visits).
+    /// <para>
+    /// With several acts in one séance this is the **first** linked step; the complete set lives on
+    /// <see cref="Procedures"/>, and <see cref="LinkedTreatmentPlanItemIds"/> is what a read should ask.
+    /// </para>
+    /// </summary>
     public Guid? TreatmentPlanItemId { get; private set; }
+
+    private readonly List<AppointmentProcedure> _procedures = new();
+
+    /// <summary>
+    /// Every act booked into this séance, in the order the dentist listed them. Empty on a « créneau occupé » or
+    /// an appointment booked with no act at all — both legitimate, so an empty list is a real state and not a
+    /// missing one.
+    /// </summary>
+    public IReadOnlyCollection<AppointmentProcedure> Procedures =>
+        _procedures.OrderBy(p => p.SequenceNumber).ToList().AsReadOnly();
+
+    /// <summary>
+    /// Every treatment-plan act this visit carries out — the child links, plus the parent scalar for rows written
+    /// before the collection existed (and never migrated because their appointment carried no procedure).
+    /// <para>
+    /// This is what the devis read-back must group on. Reading <see cref="TreatmentPlanItemId"/> alone was correct
+    /// only while one visit meant one act: group three acts into a séance and two of them would report
+    /// « À planifier » forever, offering to book a visit that already exists.
+    /// </para>
+    /// </summary>
+    public IReadOnlyCollection<Guid> LinkedTreatmentPlanItemIds =>
+        _procedures.Where(p => p.TreatmentPlanItemId.HasValue)
+            .Select(p => p.TreatmentPlanItemId!.Value)
+            .Concat(TreatmentPlanItemId.HasValue ? new[] { TreatmentPlanItemId.Value } : Array.Empty<Guid>())
+            .Distinct()
+            .ToList();
+
+    /// <summary>Sum of the booked acts' own durations — the default a multi-act séance should last.</summary>
+    public int TotalProcedureDurationMinutes =>
+        _procedures.Sum(p => p.DurationMinutes ?? 0);
 
     /// <summary>
     /// True when this appointment was booked <b>outside</b> the practitioner's resolved working hours and the
@@ -41,6 +81,40 @@ public class Appointment : AggregateRoot<Guid>
     public void MarkBookedOutsideWorkingHours()
     {
         BookedOutsideWorkingHours = true;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// This booking deliberately overlaps another for the same practitioner, confirmed by the user.
+    ///
+    /// <para>The sibling of <see cref="BookedOutsideWorkingHours"/>, and it exists for the same reason: a
+    /// double-booking is sometimes real work, not a mistake. A second chair, an assistant taking the impression
+    /// while the dentist starts next door, an emergency squeezed into an occupied slot — a clinic does all three,
+    /// and a hard refusal makes the software describe a day the practice is not having.</para>
+    ///
+    /// <para>It is also <b>load-bearing at the database level</b>: the <c>EX_Appointments_NoDoubleBooking</c>
+    /// exclusion constraint excludes acknowledged rows from its predicate, so this flag is what makes the write
+    /// possible at all. That is deliberate — the constraint still blocks every <i>accidental</i> double-booking,
+    /// and a deliberate one is recorded as deliberate rather than the protection being dropped wholesale.</para>
+    /// </summary>
+    public bool BookedWithOverlap { get; private set; }
+
+    /// <summary>Record that this booking was an explicitly-confirmed double-booking.</summary>
+    public void MarkBookedWithOverlap()
+    {
+        BookedWithOverlap = true;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Clear the acknowledged-overlap flag. Called when a booking is moved to a slot that no longer collides, so a
+    /// once-deliberate overlap does not keep its database exemption forever — otherwise an appointment rescheduled
+    /// into a free slot would remain permanently exempt from the double-booking constraint.
+    /// </summary>
+    public void ClearOverlapAcknowledgement()
+    {
+        if (!BookedWithOverlap) return;
+        BookedWithOverlap = false;
         UpdatedAt = DateTime.UtcNow;
     }
 
@@ -371,12 +445,128 @@ public class Appointment : AggregateRoot<Guid>
         UpdatedAt = DateTime.UtcNow;
     }
 
-    public void SetProcedureType(Guid? procedureTypeId, int? procedureDurationMinutes, string? procedureColorHex)
+    /// <summary>
+    /// Book a <b>single</b> act (or clear it with a null id) — the one-act path, unchanged for its callers.
+    /// <para>
+    /// Implemented on top of <see cref="SetProcedures"/> so the two can never disagree: leaving this writing only
+    /// the scalars would let a one-act edit keep a stale three-act collection, and the collection is what the
+    /// agenda and the devis read. The plan link is deliberately <b>preserved</b> — clearing the act does not mean
+    /// the patient is no longer coming in for that step, and <see cref="SetTreatmentPlanItem"/> owns that decision.
+    /// </para>
+    /// </summary>
+    public void SetProcedureType(
+        Guid? procedureTypeId,
+        int? procedureDurationMinutes,
+        string? procedureColorHex,
+        string? procedureName = null)
     {
-        ProcedureTypeId = procedureTypeId;
-        ProcedureDurationMinutes = procedureDurationMinutes;
-        ProcedureColorHex = procedureColorHex;
+        var keptLink = TreatmentPlanItemId;
+
+        SetProcedures(procedureTypeId.HasValue
+            ? new[]
+            {
+                new AppointmentProcedureInput(
+                    procedureTypeId, procedureName, procedureDurationMinutes, procedureColorHex, keptLink),
+            }
+            : Array.Empty<AppointmentProcedureInput>());
+
+        // SetProcedures derives the scalar from the rows; with no rows it clears it. Neither is what "the act was
+        // cleared / replaced" should do to the devis link, so restore what the caller had.
+        TreatmentPlanItemId = keptLink;
+        // Clearing every act must not also erase the snapshot duration the caller passed for a one-act booking's
+        // sake — but with no act there is nothing to snapshot, so the null-id branch legitimately clears all three.
+        if (!procedureTypeId.HasValue)
+        {
+            ProcedureDurationMinutes = procedureDurationMinutes;
+            ProcedureColorHex = procedureColorHex;
+        }
+    }
+
+    /// <summary>
+    /// Replace the whole list of acts booked into this séance, and **re-derive** the lead-act snapshot
+    /// (<see cref="ProcedureTypeId"/> / <see cref="ProcedureDurationMinutes"/> / <see cref="ProcedureColorHex"/>)
+    /// plus <see cref="TreatmentPlanItemId"/> from it.
+    /// <para>
+    /// Replace rather than add/remove: the picker in the booking dialog hands over the list the user is looking at,
+    /// and a diffing API would need the caller to know each row's id — which for a brand-new booking it does not.
+    /// The ids are regenerated on every save, which is why <see cref="AppointmentProcedure"/> holds no state worth
+    /// preserving across one (no état, no money — the fiche de soins is where a performed act is recorded).
+    /// </para>
+    /// </summary>
+    public void SetProcedures(IEnumerable<AppointmentProcedureInput> procedures)
+    {
+        ArgumentNullException.ThrowIfNull(procedures);
+
+        // Materialise and validate before mutating: a half-applied list would leave the séance with some of the
+        // new acts and a lead-act snapshot describing one of the old ones.
+        var rows = new List<AppointmentProcedure>();
+        var seenProcedureIds = new HashSet<Guid>();
+        var seenPlanItemIds = new HashSet<Guid>();
+        var index = 0;
+        foreach (var input in procedures)
+        {
+            // Same act twice in one séance is a mis-click, not a quantity: the fiche de soins is what records
+            // « deux obturations », per tooth, with its own prices.
+            if (input.ProcedureTypeId.HasValue && !seenProcedureIds.Add(input.ProcedureTypeId.Value))
+            {
+                throw new InvalidOperationException(
+                    $"L'acte « {input.ProcedureName ?? input.ProcedureTypeId.ToString()} » est déjà présent dans ce rendez-vous.");
+            }
+            if (input.TreatmentPlanItemId.HasValue && !seenPlanItemIds.Add(input.TreatmentPlanItemId.Value))
+            {
+                throw new InvalidOperationException(
+                    "Le même acte du devis ne peut pas être planifié deux fois dans le même rendez-vous.");
+            }
+
+            rows.Add(new AppointmentProcedure(
+                Guid.NewGuid(),
+                Id,
+                input.ProcedureTypeId,
+                input.ProcedureName,
+                input.DurationMinutes,
+                input.ColorHex,
+                input.TreatmentPlanItemId,
+                index++));
+        }
+
+        _procedures.Clear();
+        _procedures.AddRange(rows);
+
+        var lead = rows.FirstOrDefault();
+        ProcedureTypeId = lead?.ProcedureTypeId;
+        ProcedureDurationMinutes = lead?.DurationMinutes;
+        ProcedureColorHex = lead?.ColorHex;
+        TreatmentPlanItemId = rows.FirstOrDefault(r => r.TreatmentPlanItemId.HasValue)?.TreatmentPlanItemId;
+
         UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Re-snapshot the name/colour of one catalog act everywhere it appears on this visit — the lead-act scalars
+    /// **and** the matching child rows. <c>UpdateProcedureTypeCommand</c> used to call
+    /// <see cref="SetProcedureType"/> for this, which now means "replace the whole séance with one act": renaming
+    /// a procedure would have deleted the other acts of every appointment using it.
+    /// </summary>
+    public void RefreshProcedureSnapshot(Guid procedureTypeId, string? procedureName, string? colorHex)
+    {
+        var touched = false;
+
+        foreach (var row in _procedures.Where(p => p.ProcedureTypeId == procedureTypeId))
+        {
+            row.RefreshSnapshot(procedureName, colorHex);
+            touched = true;
+        }
+
+        if (ProcedureTypeId == procedureTypeId && !string.IsNullOrWhiteSpace(colorHex))
+        {
+            ProcedureColorHex = colorHex.Trim();
+            touched = true;
+        }
+
+        if (touched)
+        {
+            UpdatedAt = DateTime.UtcNow;
+        }
     }
 
     /// <summary>Link (or unlink) the treatment-plan step this appointment schedules.</summary>

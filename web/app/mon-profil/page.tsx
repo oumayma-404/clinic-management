@@ -3,6 +3,7 @@
 import { DashboardHeader } from "@/components/dashboard-header"
 import { DashboardSidebar } from "@/components/dashboard-sidebar"
 import { ClinicGuard } from "@/components/clinic-guard"
+import { PageHeader } from "@/components/ui/page-header"
 import { MonProfilContent } from "@/components/mon-profil-content"
 
 export default function MonProfilPage() {
@@ -14,12 +15,11 @@ export default function MonProfilPage() {
           <DashboardHeader />
           <main className="flex-1 overflow-y-auto p-4 md:p-6">
             <div className="mx-auto max-w-3xl space-y-6">
-              <div>
-                <h1 className="text-3xl font-semibold">Mon profil</h1>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Vos informations professionnelles et votre cachet apparaissent sur les documents que vous générez.
-                </p>
-              </div>
+              <PageHeader
+                zone="Paramètres"
+                title="Mon profil"
+                subtitle="Vos informations professionnelles et votre cachet apparaissent sur les documents que vous générez."
+              />
               <MonProfilContent />
             </div>
           </main>

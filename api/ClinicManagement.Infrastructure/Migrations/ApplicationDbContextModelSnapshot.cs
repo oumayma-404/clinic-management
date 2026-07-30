@@ -33,6 +33,9 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<bool>("BookedOutsideWorkingHours")
                         .HasColumnType("boolean");
 
+                    b.Property<bool>("BookedWithOverlap")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("CancellationReason")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
@@ -107,6 +110,51 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.HasIndex("TreatmentPlanItemId");
 
                     b.ToTable("Appointments", (string)null);
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.AppointmentProcedure", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AppointmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ColorHex")
+                        .HasMaxLength(7)
+                        .HasColumnType("character varying(7)");
+
+                    b.Property<int?>("DurationMinutes")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ProcedureName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid?>("ProcedureTypeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("SequenceNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid?>("TreatmentPlanItemId")
+                        .HasColumnType("uuid");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AppointmentId");
+
+                    b.HasIndex("ProcedureTypeId");
+
+                    b.HasIndex("TreatmentPlanItemId");
+
+                    b.ToTable("AppointmentProcedures", (string)null);
                 });
 
             modelBuilder.Entity("ClinicManagement.Domain.Entities.Clinic", b =>
@@ -525,6 +573,9 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasPrecision(18, 3)
                         .HasColumnType("numeric(18,3)");
 
+                    b.Property<Guid?>("AppointmentId")
+                        .HasColumnType("uuid");
+
                     b.Property<decimal>("Cost")
                         .HasPrecision(18, 3)
                         .HasColumnType("numeric(18,3)");
@@ -564,6 +615,8 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasColumnName("xmin");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("AppointmentId");
 
                     b.HasIndex("PatientId");
 
@@ -1395,6 +1448,9 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<DateTime>("DateOfBirth")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<int>("Dentition")
+                        .HasColumnType("integer");
+
                     b.Property<string>("EmergencyContactName")
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
@@ -1408,6 +1464,9 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .IsRequired()
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
+
+                    b.Property<string>("ImportantNotes")
+                        .HasColumnType("text");
 
                     b.Property<bool>("IsArchived")
                         .ValueGeneratedOnAdd()
@@ -1425,12 +1484,19 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<string>("MedicalHistory")
                         .HasColumnType("text");
 
+                    b.Property<string>("Notes")
+                        .HasColumnType("text");
+
                     b.Property<string>("RecallReason")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
                     b.Property<DateTime?>("RecallSnoozedUntil")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ReferredBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -2331,6 +2397,33 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.ToTable("Users", (string)null);
                 });
 
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.UserDashboardPreference", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("UserId");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("HiddenKpisCsv")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<uint>("Version")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("UserDashboardPreferences", (string)null);
+                });
+
             modelBuilder.Entity("ClinicManagement.Domain.Entities.WaitingListEntry", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2411,6 +2504,22 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Navigation("Doctor");
 
                     b.Navigation("Patient");
+
+                    b.Navigation("ProcedureType");
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.AppointmentProcedure", b =>
+                {
+                    b.HasOne("ClinicManagement.Domain.Entities.Appointment", null)
+                        .WithMany("Procedures")
+                        .HasForeignKey("AppointmentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("ClinicManagement.Domain.Entities.ProcedureType", "ProcedureType")
+                        .WithMany()
+                        .HasForeignKey("ProcedureTypeId")
+                        .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("ProcedureType");
                 });
@@ -3017,6 +3126,15 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Navigation("Clinic");
                 });
 
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.UserDashboardPreference", b =>
+                {
+                    b.HasOne("ClinicManagement.Domain.Entities.User", null)
+                        .WithOne()
+                        .HasForeignKey("ClinicManagement.Domain.Entities.UserDashboardPreference", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("ClinicManagement.Domain.Entities.WaitingListEntry", b =>
                 {
                     b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
@@ -3032,6 +3150,11 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("Patient");
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.Appointment", b =>
+                {
+                    b.Navigation("Procedures");
                 });
 
             modelBuilder.Entity("ClinicManagement.Domain.Entities.Clinic", b =>

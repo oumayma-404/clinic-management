@@ -1,10 +1,14 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useCallback, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { DataTablePagination } from "@/components/ui/data-table-pagination"
+import { usePagedList } from "@/lib/hooks/use-paged-list"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -38,30 +42,33 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
   const isAdmin = user?.role === "admin"
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [procedureToDelete, setProcedureToDelete] = useState<ProcedureTypeDto | null>(null)
-  const [procedures, setProcedures] = useState<ProcedureTypeDto[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [search, setSearch] = useState("")
+  // Bumped to refetch the current page after a create / edit / delete / seed.
+  const [reloadToken, setReloadToken] = useState(0)
   const [deleting, setDeleting] = useState(false)
   const [seeding, setSeeding] = useState(false)
   // AC-P4.14 — the act whose material list is being edited (« Consommables »), or null.
   const [materialsTarget, setMaterialsTarget] = useState<ProcedureTypeDto | null>(null)
 
-  const loadProcedures = async () => {
-    try {
-      setLoading(true)
-      setError(null)
-      const data = await procedureTypesApi.list(false) // Only active procedures
-      setProcedures(data)
-    } catch (err) {
-      setError(getErrorMessage(err, "Échec du chargement des types d'actes. Veuillez réessayer."))
-    } finally {
-      setLoading(false)
-    }
-  }
+  // Only active procedures. Search, ordering and paging are all server-side.
+  const fetchPage = useCallback(
+    ({ page, pageSize, search }: { page: number; pageSize: number; search?: string }) =>
+      procedureTypesApi.listPaged({ page, pageSize, search, includeInactive: false }),
+    [],
+  )
 
-  useEffect(() => {
-    loadProcedures()
-  }, [])
+  const {
+    items: procedures,
+    page: pageInfo,
+    loading,
+    refreshing,
+    error,
+    setPage,
+    setPageSize,
+    isSearching,
+  } = usePagedList<ProcedureTypeDto>({ fetchPage, search, refreshKey: reloadToken })
+
+  const loadProcedures = async () => setReloadToken((t) => t + 1)
 
   const handleDelete = (procedure: ProcedureTypeDto) => {
     setProcedureToDelete(procedure)
@@ -121,7 +128,7 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
               <Stethoscope className="h-5 w-5" />
               Types d'actes
               <Badge variant="secondary" className="ml-2">
-                {procedures.length} {procedures.length === 1 ? "type" : "types"}
+                {pageInfo.totalCount} {pageInfo.totalCount === 1 ? "type" : "types"}
               </Badge>
             </CardTitle>
             {isAdmin && (
@@ -144,7 +151,18 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
               {error}
             </div>
           )}
-          <div className="overflow-x-auto">
+          <div className="mb-4">
+            <Label htmlFor="procedure-types-search" className="sr-only">
+              Rechercher un type d&apos;acte
+            </Label>
+            <Input
+              id="procedure-types-search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Rechercher un type d&apos;acte (nom, description)…"
+            />
+          </div>
+          <div className={`overflow-x-auto${refreshing ? " opacity-60 transition-opacity" : ""}`}>
             <Table>
               <TableHeader>
                 <TableRow>
@@ -264,6 +282,13 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
                 )}
               </TableBody>
             </Table>
+            <DataTablePagination
+              page={pageInfo}
+              onPageChange={setPage}
+              onPageSizeChange={setPageSize}
+              loading={refreshing}
+              label={["type d'acte", "types d'actes"]}
+            />
           </div>
         </CardContent>
       </Card>

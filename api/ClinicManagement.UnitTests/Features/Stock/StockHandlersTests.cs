@@ -1,3 +1,5 @@
+using ClinicManagement.UnitTests.Common;
+using ClinicManagement.Domain.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Features.Stock.Commands;
@@ -43,13 +45,14 @@ public class GetStockItemsQueryHandlerTests
     public async Task Handle_Should_Return_Clinic_Scoped_Items()
     {
         Authenticated();
-        _stock.Setup(r => r.GetByClinicIdAsync(StockTestData.ClinicId, false, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new[] { StockTestData.Item(StockTestData.ClinicId, currentStock: 3, min: 5) });
+        _stock.Setup(r => r.GetByClinicIdAsync(StockTestData.ClinicId, false, It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<DateTime?>(), It.IsAny<PageRequest?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((new[] { StockTestData.Item(StockTestData.ClinicId, currentStock: 3, min: 5) }).AsPage());
 
         var result = await Handler().Handle(new GetStockItemsQuery(), CancellationToken.None);
 
         Assert.True(result.IsSuccess);
-        var dto = Assert.Single(result.Value!);
+        var dto = Assert.Single(result.Value!.Items);
         Assert.True(dto.IsLowStock); // current 3 <= min 5
     }
 
@@ -58,13 +61,15 @@ public class GetStockItemsQueryHandlerTests
     public async Task Handle_Should_Pass_LowStockOnly_To_Repository()
     {
         Authenticated();
-        _stock.Setup(r => r.GetByClinicIdAsync(StockTestData.ClinicId, true, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Array.Empty<StockItem>());
+        _stock.Setup(r => r.GetByClinicIdAsync(StockTestData.ClinicId, true, It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<DateTime?>(), It.IsAny<PageRequest?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Array.Empty<StockItem>()).AsPage());
 
         var result = await Handler().Handle(new GetStockItemsQuery { LowStockOnly = true }, CancellationToken.None);
 
         Assert.True(result.IsSuccess);
-        _stock.Verify(r => r.GetByClinicIdAsync(StockTestData.ClinicId, true, It.IsAny<CancellationToken>()), Times.Once);
+        _stock.Verify(r => r.GetByClinicIdAsync(StockTestData.ClinicId, true, It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<DateTime?>(), It.IsAny<PageRequest?>(),
+                It.IsAny<CancellationToken>()), Times.Once);
     }
 
     // [AC-7] Fails when the clinic cannot be resolved (unauthenticated).
@@ -77,7 +82,8 @@ public class GetStockItemsQueryHandlerTests
         var result = await Handler().Handle(new GetStockItemsQuery(), CancellationToken.None);
 
         Assert.True(result.IsFailure);
-        _stock.Verify(r => r.GetByClinicIdAsync(It.IsAny<Guid>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Never);
+        _stock.Verify(r => r.GetByClinicIdAsync(It.IsAny<Guid>(), It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<DateTime?>(), It.IsAny<PageRequest?>(),
+                It.IsAny<CancellationToken>()), Times.Never);
     }
 }
 

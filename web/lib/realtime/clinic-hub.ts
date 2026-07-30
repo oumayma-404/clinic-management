@@ -36,7 +36,12 @@ export const RealtimeResource = {
   // set are EQUAL in both directions, so neither side can grow alone again.
   Doctors: "doctors",         // « Mon profil » / Paramètres → Médecins (profile, cachet, working hours)
   LabOrders: "laborders",     // /lab-orders — bons de prothèse, a two-user status lifecycle
-  Recall: "recall",           // /recalls — snooze, « contacté », send; the list changes under the viewer
+  // Recall commands (snooze / « contacté » / send) still exist server-side, so they still BROADCAST this key —
+  // which is why it must stay declared here even though /recalls was removed and nothing subscribes to it right
+  // now. `RealtimeResourceResolverTests` compares the emitted and declared sets in both directions; dropping this
+  // line while `Features/Recall/Commands` exists would fail the build. It gets a subscriber again when the recall
+  // worklist gets a new home.
+  Recall: "recall",
   WaitingList: "waitinglist", // /waiting-list — the canonical two-user screen (salle d'attente)
 } as const
 
@@ -74,6 +79,43 @@ async function fetchAccessToken(): Promise<string> {
 }
 
 /**
+ * SignalR's own console logging level.
+ *
+ * <p><b>Silent by default, deliberately.</b> A failed connect is an <i>expected, handled</i> event here: the hub is
+ * additive, `useClinicRealtime` catches the rejection and retries every 5s until it succeeds, and the page works
+ * throughout via manual refresh. But SignalR's `ConsoleLogger` still writes
+ * `Error: Failed to start the connection: ...` on every attempt — so restarting the API, or running the frontend
+ * before the API is up, produced a `console.error` every 5 seconds <i>per mounted connection</i>. That contradicts
+ * this module's documented contract that connection failures are "never surfaced", and in dev it is worse than
+ * noise: Next's dev overlay badges console errors, so the count climbs and the overlay sits over the UI being
+ * tested.</p>
+ *
+ * <p>Set <c>NEXT_PUBLIC_SIGNALR_LOG_LEVEL</c> to a SignalR level name (`Trace`, `Debug`, `Information`,
+ * `Warning`, `Error`, `Critical`, `None`) when you actually need to debug the hub — silencing it by default must
+ * not mean there is no way to see it.</p>
+ */
+function resolveLogLevel(): LogLevel {
+  const configured = process.env.NEXT_PUBLIC_SIGNALR_LOG_LEVEL?.trim()
+  if (!configured) return LogLevel.None
+
+  const byName: Record<string, LogLevel> = {
+    trace: LogLevel.Trace,
+    debug: LogLevel.Debug,
+    information: LogLevel.Information,
+    info: LogLevel.Information,
+    warning: LogLevel.Warning,
+    warn: LogLevel.Warning,
+    error: LogLevel.Error,
+    critical: LogLevel.Critical,
+    none: LogLevel.None,
+  }
+
+  // An unrecognised value falls back to silent rather than throwing: a typo in an env var must not be able to
+  // break the app, and the hub is the one subsystem whose failure is supposed to be invisible.
+  return byName[configured.toLowerCase()] ?? LogLevel.None
+}
+
+/**
  * Builds a clinic hub connection with automatic reconnection. Returns null off the browser.
  * `withAutomaticReconnect` resumes after a dropped connection (AC-4); the initial connect is retried
  * by the caller (see `useClinicRealtime`).
@@ -85,6 +127,6 @@ export function createClinicHubConnection(): HubConnection | null {
   return new HubConnectionBuilder()
     .withUrl(url, { accessTokenFactory: fetchAccessToken })
     .withAutomaticReconnect()
-    .configureLogging(LogLevel.Warning)
+    .configureLogging(resolveLogLevel())
     .build()
 }

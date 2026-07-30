@@ -1,5 +1,6 @@
 import { apiGet, apiPost, apiPut, apiDelete, getAccessToken } from './client';
 import type { TreatmentPlanDto } from './types';
+import { unwrapPaged, type PagedResponse, type PageParams } from './paging';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
 
@@ -97,7 +98,24 @@ export const treatmentPlansApi = {
     to?: string;
     acceptedFrom?: string;
     acceptedTo?: string;
-  }): Promise<TreatmentPlanDto[]> => apiGet<TreatmentPlanDto[]>('/treatment-plans', params),
+  }): Promise<TreatmentPlanDto[]> =>
+    unwrapPaged(await apiGet<PagedResponse<TreatmentPlanDto>>('/treatment-plans', params)),
+
+  /**
+   * One page of devis. `search` matches the devis number, title, notes **and the patient's name**, server-side
+   * over the whole clinic (same EXISTS-against-Patients reasoning as the invoice list).
+   */
+  listPaged: async (
+    params: PageParams & {
+      patientId?: string;
+      status?: string;
+      from?: string;
+      to?: string;
+      acceptedFrom?: string;
+      acceptedTo?: string;
+    },
+  ): Promise<PagedResponse<TreatmentPlanDto>> =>
+    apiGet<PagedResponse<TreatmentPlanDto>>('/treatment-plans', params),
 
   get: async (id: string): Promise<TreatmentPlanDto> => apiGet<TreatmentPlanDto>(`/treatment-plans/${id}`),
 

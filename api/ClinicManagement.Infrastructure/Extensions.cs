@@ -44,6 +44,7 @@ public static class Extensions
         services.AddScoped<IInvoiceRepository, InvoiceRepository>();
         services.AddScoped<ICreditNoteRepository, CreditNoteRepository>();
         services.AddScoped<IClinicReminderSettingsRepository, ClinicReminderSettingsRepository>();
+        services.AddScoped<IUserDashboardPreferenceRepository, UserDashboardPreferenceRepository>();
         services.AddScoped<ICnamCatalogRepository, CnamCatalogRepository>();
         services.AddScoped<IMedicationCatalogRepository, MedicationCatalogRepository>();
         services.AddScoped<IDentalActCodeRepository, DentalActCodeRepository>();

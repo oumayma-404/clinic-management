@@ -1,4 +1,5 @@
 import { apiGet, apiPost, apiPut } from './client';
+import { unwrapPaged, type PagedResponse, type PageParams } from './paging';
 
 /**
  * The closed set of clinic roles, mirroring the backend `User.AssignableRoles`. Storage keys stay English —
@@ -36,8 +37,12 @@ export interface ResetPasswordResultDto {
 export const usersApi = {
   // AC-5.1: list the clinic's users with account status (admin-only endpoint).
   list: async (): Promise<ClinicUserDto[]> => {
-    return apiGet<ClinicUserDto[]>('/users');
+    return unwrapPaged(await apiGet<PagedResponse<ClinicUserDto>>('/users'));
   },
+
+  /** One page of staff. `search` matches full name / email server-side over the whole clinic. */
+  listPaged: async (params: PageParams): Promise<PagedResponse<ClinicUserDto>> =>
+    apiGet<PagedResponse<ClinicUserDto>>('/users', params),
 
   // AC-5.2: reset a user's password → temporary password returned once for the admin to relay.
   resetPassword: async (id: string): Promise<ResetPasswordResultDto> => {

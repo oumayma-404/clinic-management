@@ -3,12 +3,11 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
-import { Calendar, CalendarClock, Users, Settings, LayoutDashboard, Stethoscope, Package, FileCheck, ChevronLeft, ChevronRight, UserCog, Receipt, ClipboardList, Pill, ClipboardCheck, ScrollText, HandCoins, PhoneCall, Clock, FlaskConical, Wallet } from "lucide-react"
+import { Calendar, CalendarClock, Users, Settings, LayoutDashboard, Stethoscope, Package, FileCheck, ChevronLeft, ChevronRight, UserCog, Receipt, ClipboardList, Pill, ClipboardCheck, ScrollText, HandCoins, Clock, FlaskConical, Wallet, BellRing } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 import { useSidebar } from "@/contexts/sidebar-context"
 import { useSession } from "@/lib/auth/session"
 import { useClinicAccess } from "@/lib/hooks/use-clinic-access"
-import { DEFAULT_WORKING_HOURS, summarizeWorkingHours } from "@/lib/working-hours"
 import { PRODUCT_NAME } from "@/lib/brand"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
@@ -51,7 +50,10 @@ const baseSections: NavSection[] = [
     title: "Gestion",
     items: [
       { name: "Stock", href: "/stock", icon: Package },
-      { name: "Relances", href: "/recalls", icon: PhoneCall },
+      // « Relances » (/recalls) is gone — the page was removed. The recall BACKEND is deliberately intact
+      // (RecallController, Features/Recall, the due-list query), so the worklist can be given a new home later
+      // without rebuilding it. Nothing here links to a route that no longer exists.
+      { name: "Rappels", href: "/rappels", icon: BellRing },
     ],
   },
 ]
@@ -60,13 +62,15 @@ export function DashboardSidebar() {
   const pathname = usePathname()
   const { isCollapsed, toggleSidebar, isMobileOpen, setMobileOpen } = useSidebar()
   const { user } = useSession()
-  // Working hours shown in the footer come from the clinic's saved settings (AC-7); no redirect (ClinicGuard
-  // owns that). Falls back to the shared default when nothing is saved.
+  /*
+   * The clinic's saved name for the brand line; no redirect (ClinicGuard owns that).
+   *
+   * The « Horaires d'ouverture » block that used to sit in the footer is gone. It cost ~110px of a 100vh column
+   * permanently, and with nineteen destinations the nav was already overflowing — so reference information nobody
+   * navigates by was pushing navigation off the screen. The hours are still shown, and editable, in
+   * Paramètres → Horaires d'ouverture, which is also where they are changed.
+   */
   const { status } = useClinicAccess(false)
-  const workingHours = status?.clinic?.workingHours && status.clinic.workingHours.length > 0
-    ? status.clinic.workingHours
-    : DEFAULT_WORKING_HOURS
-  const hoursSummary = summarizeWorkingHours(workingHours)
   // Chrome brand: show the clinic's own saved name; fall back to the product name so the header is
   // never blank/"undefined" on first-run/setup before a clinic name exists (spec Edge Cases).
   const brandName = status?.clinic?.name?.trim() || PRODUCT_NAME
@@ -105,7 +109,9 @@ export function DashboardSidebar() {
       <Link
         href={item.href}
         className={cn(
-          "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+          // py-1.5 → a 32px row (the same height as a `size="sm"` control), not py-2.5's 40px. With nineteen
+          // destinations that four pixels each is 76px of nav, and the nav is what was overflowing.
+          "flex items-center gap-3 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card",
           isActive
             ? "bg-accent text-accent-foreground"
@@ -147,13 +153,26 @@ export function DashboardSidebar() {
   )
 
   // Navigation — grouped sections. Section titles hide when collapsed (icon-only rail).
+  //
+  // `min-h-0` is load-bearing, not tidying. A flex item defaults to `min-height: auto`, which refuses to shrink
+  // below its content — so `flex-1 overflow-y-auto` alone never scrolls: the nav just grows to fit all ~21 items
+  // and pushes its container past the viewport instead. Both the desktop rail and the mobile drawer rely on it.
   const navigation = (collapsed: boolean) => (
-    <nav className="flex-1 overflow-y-auto p-4" aria-label="Navigation principale">
+    /*
+     * `scrollbar-thin` matters on a short viewport. The nav is bounded, so on a 13" laptop nineteen destinations
+     * still overflow and it still scrolls — but a full-width scrollbar sitting beside `<main>`'s reads as a second
+     * *page* scrollbar, which is what made the app look broken. A thin overlay track reads as "this panel has
+     * more", which is what it means.
+     */
+    <nav
+      className="scrollbar-thin min-h-0 flex-1 overflow-y-auto px-3 py-3"
+      aria-label="Navigation principale"
+    >
       <TooltipProvider>
         {sections.map((section) => (
-          <div key={section.title} className="space-y-1 pb-2">
+          <div key={section.title} className="space-y-0.5 pb-1">
             {!collapsed && (
-              <p className="px-3 pt-2 pb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">
+              <p className="px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">
                 {section.title}
               </p>
             )}
@@ -164,32 +183,27 @@ export function DashboardSidebar() {
     </nav>
   )
 
-  // Footer — clinic hours from the saved settings (single source, AC-7).
-  const hoursFooter = (
-    <div className="border-t border-border p-4">
-      <div className="text-xs text-muted-foreground">
-        <p className="font-medium">Horaires d&apos;ouverture</p>
-        {hoursSummary.map((line, i) => (
-          <p key={i} className={i === 0 ? "mt-1" : ""}>
-            {line}
-          </p>
-        ))}
-      </div>
-    </div>
-  )
-
   return (
     <>
       {/* Desktop rail — unchanged at `md:` and above, hidden below it (AC-P3.12). */}
+      {/*
+        `h-screen overflow-hidden` is what keeps the whole app from growing a second scrollbar.
+
+        The rail is a flex item of the page shell (`flex h-screen`), and stretch alone does NOT bound it: a flex
+        item's automatic minimum size means it still refuses to shrink below its content. With ~21 nav entries plus
+        the hours footer and the collapse toggle that content exceeds 100 vh on a laptop, so the rail overflowed the
+        shell — which carries no `overflow-hidden` — and stretched the document instead. The result was an outer
+        scrollbar on every page and a tall dead band below the content, on top of `<main>`'s own inner scrollbar.
+        Bounding the rail here is what finally lets the nav's `overflow-y-auto` do its job.
+      */}
       <aside
         className={cn(
-          "hidden md:flex flex-col border-r border-border bg-card transition-all duration-300 relative",
+          "hidden md:flex h-screen flex-col overflow-hidden border-r border-border bg-card transition-all duration-300 relative",
           isCollapsed ? "w-16" : "w-64"
         )}
       >
         {brandHeader(isCollapsed)}
         {navigation(isCollapsed)}
-        {!isCollapsed && hoursFooter}
 
         {/* Toggle Button */}
         <div className="border-t border-border p-2">
@@ -224,10 +238,11 @@ export function DashboardSidebar() {
           <SheetDescription className="sr-only">
             Accédez aux différentes sections de l&apos;application.
           </SheetDescription>
-          <div className="flex h-full flex-col">
+          {/* Same bargain as the rail: bound the column so the nav's `overflow-y-auto` (with its `min-h-0`) is what
+              absorbs a long list, rather than the brand header being pushed out of the drawer. */}
+          <div className="flex h-full flex-col overflow-hidden">
             {brandHeader(false)}
             {navigation(false)}
-            {hoursFooter}
           </div>
         </SheetContent>
       </Sheet>

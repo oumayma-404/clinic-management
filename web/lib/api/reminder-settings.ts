@@ -1,4 +1,5 @@
 import { apiGet, apiPut, apiPost, apiDelete } from './client';
+import type { PagedResponse } from './paging';
 
 /** WhatsApp Embedded-Signup connection state (mirrors the backend enum name). */
 export type WhatsAppConnectionStatus = 'NotConnected' | 'Connected' | 'Error';
@@ -56,6 +57,35 @@ export interface ReminderStatusDto {
   appointmentAt: string | null;
   /** True when the row is a recall rather than a booking reminder. */
   isRecall: boolean;
+}
+
+/**
+ * Filters for the delivery log. All optional; an unknown `status`/`channel` is **ignored** server-side rather than
+ * refused, so a stale bookmark shows the full log instead of a French error about a query parameter.
+ */
+export interface ReminderLogParams {
+  status?: ReminderDeliveryStatus;
+  /** `SMS` | `WhatsApp`. */
+  channel?: string;
+  /** Inclusive clinic-local calendar days, `yyyy-MM-dd`. */
+  from?: string;
+  to?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+/**
+ * The « Rappels » page in one read.
+ *
+ * ⚠️ The three counters are **clinic-wide and ignore the filters** — never derive them from `page.items`, which
+ * would turn them into « les échecs parmi ces 25 ». `failedRecent` spans several days rather than today, so a
+ * send that failed at 23:00 is still counted the next morning.
+ */
+export interface ReminderLogDto {
+  page: PagedResponse<ReminderStatusDto>;
+  sentToday: number;
+  pending: number;
+  failedRecent: number;
 }
 
 /** Payload posted after a successful Meta Embedded-Signup run (Cloud onboarding). */
@@ -131,6 +161,23 @@ export const reminderSettingsApi = {
     const result = await apiGet<Result<ReminderStatusDto[]>>(`/clinics/reminder-status?take=${take}`);
     if (!result.isSuccess || !result.value) {
       throw new Error(result.error || 'Failed to load reminder status');
+    }
+    return result.value;
+  },
+
+  /**
+   * One page of the delivery log for the « Rappels » page, plus the clinic's three counters.
+   *
+   * Every filter is sent to the server. Filtering the returned page in the browser would answer a different
+   * question — « les échecs parmi ces 25 » — which is the defect the paging work removed from every other list.
+   *
+   * Not admin-gated, unlike `status` above: reading the log is what a secretary fielding « je n'ai rien reçu »
+   * needs, and a row carries a name and a masked phone, no secrets.
+   */
+  log: async (params: ReminderLogParams = {}): Promise<ReminderLogDto> => {
+    const result = await apiGet<Result<ReminderLogDto>>('/clinics/reminder-log', params);
+    if (!result.isSuccess || !result.value) {
+      throw new Error(result.error || 'Failed to load reminder log');
     }
     return result.value;
   },

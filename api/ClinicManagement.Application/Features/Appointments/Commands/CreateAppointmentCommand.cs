@@ -23,12 +23,36 @@ public class CreateAppointmentCommand : IRequest<Result<AppointmentDto>>
     /// <c>MarkBookedOutsideWorkingHours()</c>, never silently allowed.
     /// </summary>
     public bool AllowOutsideWorkingHours { get; set; }
+
+    /// <summary>
+    /// Confirmed override for a booking that overlaps another for the same practitioner. The sibling of
+    /// <see cref="AllowOutsideWorkingHours"/>, and deliberately the same shape: a double-booking is sometimes real
+    /// work (a second chair, an emergency squeezed in), so the collision is advisory and the acceptance is
+    /// <b>recorded</b> on the appointment via <c>MarkBookedWithOverlap()</c> rather than silently allowed.
+    /// </summary>
+    public bool AllowOverlap { get; set; }
     public string? DoctorName { get; set; }
     public string? Notes { get; set; }
+    /// <summary>Single-act shorthand. Ignored when <see cref="Procedures"/> is non-empty.</summary>
     public Guid? ProcedureTypeId { get; set; }
+
+    /// <summary>
+    /// The acts of this séance. A visit is routinely several (« détartrage + deux obturations »), and each entry
+    /// may carry its own devis step — which is how « ces deux actes ensemble, ces deux-là séparément » is
+    /// expressed: one grouped booking with two entries, then two bookings with one each.
+    /// <para>
+    /// Additive: omit it and <see cref="ProcedureTypeId"/> still books a one-act visit exactly as before, which is
+    /// what the AI dispatcher and the recurring-series expansion continue to send.
+    /// </para>
+    /// </summary>
+    public List<AppointmentProcedureRequest>? Procedures { get; set; }
+
     /// <summary>Optional treatment plan the linked step belongs to (required when <see cref="TreatmentPlanItemId"/> is set).</summary>
     public Guid? TreatmentPlanId { get; set; }
-    /// <summary>Optional treatment-plan step this appointment schedules.</summary>
+    /// <summary>
+    /// Optional treatment-plan step this appointment schedules. Single-act shorthand — with a grouped séance each
+    /// act carries its own link on <see cref="Procedures"/>.
+    /// </summary>
     public Guid? TreatmentPlanItemId { get; set; }
 }
 
@@ -120,42 +144,39 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
                 }
             }
 
-            // Get procedure type if specified
-            Guid? procedureTypeId = request.ProcedureTypeId;
-            int? procedureDurationMinutes = null;
-            string? procedureColorHex = null;
-            string? procedureTypeName = null;
+            // Resolve the séance's acts — one shared path for the multi-act list and the single-act shorthand, so
+            // every act (not just the first) is tenant-checked and required to be active.
+            var requestedProcedures = AppointmentProcedureSelection.Reconcile(
+                request.Procedures, request.ProcedureTypeId, request.TreatmentPlanItemId);
 
-            if (procedureTypeId.HasValue)
+            // Validate every devis step this séance carries out — one plan load for the whole set, and the acts
+            // must come from the same plan (the appointment records a single TreatmentPlanId). Done *before* the
+            // acts are resolved because it is also what supplies a link-only act its désignation.
+            var linkResult = await AppointmentPlanLink.ValidateManyAsync(
+                _treatmentPlanRepository, request.TreatmentPlanId,
+                AppointmentProcedureSelection.PlanItemIds(requestedProcedures),
+                clinicId, request.PatientId, cancellationToken);
+            if (linkResult.IsFailure)
             {
-                var procedureType = await _procedureTypeRepository.GetByIdAsync(procedureTypeId.Value, cancellationToken);
-                if (procedureType == null || procedureType.ClinicId != clinicId)
-                {
-                    return Result<AppointmentDto>.Failure("Type de procédure introuvable.");
-                }
-                if (!procedureType.IsActive)
-                {
-                    return Result<AppointmentDto>.Failure("Le type de procédure sélectionné n'est pas actif.");
-                }
-                procedureDurationMinutes = procedureType.DefaultDurationMinutes;
-                procedureColorHex = procedureType.Color.Value;
-                procedureTypeName = procedureType.Name;
-                // Use procedure duration if not specified
-                if (request.DurationMinutes == 0)
-                {
-                    request.DurationMinutes = procedureType.DefaultDurationMinutes;
-                }
+                return Result<AppointmentDto>.Failure(linkResult.Error!);
             }
 
-            // Validate the treatment-plan step link, if one was chosen (must belong to this clinic + patient).
-            if (request.TreatmentPlanItemId.HasValue)
+            var proceduresResult = await AppointmentProcedureSelection.ResolveAsync(
+                _procedureTypeRepository, clinicId, requestedProcedures, linkResult.Value!, cancellationToken);
+            if (proceduresResult.IsFailure)
             {
-                var linkResult = await AppointmentPlanLink.ValidateAsync(
-                    _treatmentPlanRepository, request.TreatmentPlanId, request.TreatmentPlanItemId.Value,
-                    clinicId, request.PatientId, cancellationToken);
-                if (linkResult.IsFailure)
+                return Result<AppointmentDto>.Failure(proceduresResult.Error!);
+            }
+            var procedureInputs = proceduresResult.Value!;
+
+            // Duration defaults to the SUM of the booked acts, not the first one's: a séance of three acts that
+            // lasts as long as one of them would be double-booked against reality on every calendar it appears on.
+            if (request.DurationMinutes == 0 && procedureInputs.Count > 0)
+            {
+                var summed = procedureInputs.Sum(p => p.DurationMinutes ?? 0);
+                if (summed > 0)
                 {
-                    return Result<AppointmentDto>.Failure(linkResult.Error!);
+                    request.DurationMinutes = summed;
                 }
             }
 
@@ -168,9 +189,12 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
             var collision = await AppointmentScheduling.FindCollisionAsync(
                 _appointmentRepository, clinicId, request.DoctorId,
                 request.AppointmentDateTime, duration, excludeAppointmentId: null, cancellationToken);
-            if (collision != null)
+            // Advisory, not a prohibition (see AppointmentScheduling.SlotTakenCode): the refusal carries a code so
+            // the dialog can offer « Continuer quand même », and the retry records the acceptance below.
+            if (collision != null && !request.AllowOverlap)
             {
-                return Result<AppointmentDto>.Failure(AppointmentScheduling.SlotTakenMessage(collision));
+                return Result<AppointmentDto>.Failure(
+                    AppointmentScheduling.SlotTakenMessage(collision), AppointmentScheduling.SlotTakenCode);
             }
 
             // Working hours (AC-P1.28). Unrestricted when nothing is configured, so a clinic that never opened
@@ -184,7 +208,10 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
                     request.AppointmentDateTime, duration, cancellationToken);
                 if (hoursCheck.IsFailure)
                 {
-                    return Result<AppointmentDto>.Failure(hoursCheck.Error!);
+                    // FailureFrom, not Failure(Error): the working-hours refusal carries OutsideWorkingHoursCode,
+                // and that code is the whole point — it is what lets the dialog offer « Continuer quand
+                // même » instead of presenting a dead end.
+                return Result<AppointmentDto>.FailureFrom(hoursCheck);
                 }
             }
 
@@ -198,14 +225,27 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
                 request.DoctorName,
                 request.Notes,
                 null, // recurringAppointmentId
-                procedureTypeId,
-                procedureDurationMinutes,
-                procedureColorHex,
-                request.TreatmentPlanItemId);
+                null, // procedureTypeId — derived from the acts below, never set twice
+                null,
+                null,
+                null);
+
+            // The acts are the authority; SetProcedures re-derives the lead-act snapshot (id / duration / colour)
+            // and the first devis link from them. Assigning those in the constructor as well is how the two would
+            // drift, so the constructor is handed nulls on purpose.
+            appointment.SetProcedures(procedureInputs);
 
             if (request.AllowOutsideWorkingHours)
             {
                 appointment.MarkBookedOutsideWorkingHours();
+            }
+
+            // Only when a collision was actually found: the flag exempts the row from the database's exclusion
+            // constraint, so setting it on every booking that merely PASSED the flag would quietly disable the
+            // double-booking protection for the whole clinic.
+            if (collision != null && request.AllowOverlap)
+            {
+                appointment.MarkBookedWithOverlap();
             }
 
             await _appointmentRepository.AddAsync(appointment, cancellationToken);
@@ -250,8 +290,9 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
                 Status = appointment.Status.ToString(),
                 AllowedNextStatuses = Appointment.NextStatusesFrom(appointment.Status).Select(s => s.ToString()).ToList(),
                 ProcedureTypeId = appointment.ProcedureTypeId,
-                ProcedureTypeName = procedureTypeName,
+                ProcedureTypeName = appointment.LeadProcedureName(),
                 ProcedureColorHex = appointment.ProcedureColorHex,
+                Procedures = appointment.ToProcedureDtos(),
                 TreatmentPlanItemId = appointment.TreatmentPlanItemId,
                 CreatedAt = appointment.CreatedAt,
                 Version = appointment.Version,

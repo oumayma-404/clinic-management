@@ -2,9 +2,21 @@
 
 import Link from "next/link"
 import { ArrowDown, ArrowUp, Minus, type LucideIcon } from "lucide-react"
-import { Card, CardContent } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
+import { HeroKpi } from "@/components/dashboard/hero-kpi"
 import type { PeriodComparison } from "@/lib/api/types"
+
+/**
+ * How much visual weight this figure gets.
+ *
+ * <p>`hero` is for the one number a user opens the page for — « Net » for a practitioner-owner. `default` is a
+ * normal figure. `compact` drops the icon and shrinks the value, for the operational counts where the *label* is
+ * what you scan and the number is usually a single digit.</p>
+ *
+ * <p>This exists because equal weight was the actual problem: sixteen figures in identical boxes at identical type
+ * sizes forces the reader to do the ranking the design should have done for them.</p>
+ */
+export type KpiEmphasis = "hero" | "default" | "compact"
 
 /**
  * Whether a rise in this figure is good news. Drives the delta's colour, which is otherwise a lie: « Dépenses +18 % »
@@ -27,6 +39,18 @@ interface KpiCardProps {
   previousPeriodLabel?: string
   loading?: boolean
   variant?: "default" | "urgent"
+  emphasis?: KpiEmphasis
+  /** Spans two columns of the enclosing `KpiGrid`. Ignored by `hero`, which stands outside the grid. */
+  wide?: boolean
+  /**
+   * Values for the hero's inline sparkline, oldest first — the collected trend.
+   *
+   * <p>It lives on the hero because the trend's *shape* answers the same question the hero's number does
+   * (« comment va le cabinet ? »), and the reader should not have to travel 400 px down the page for it. The full
+   * six-month chart stays below for reading actual values; this is the direction only, which is why it carries no
+   * axis and no labels.</p>
+   */
+  sparkline?: number[]
 }
 
 /**
@@ -34,6 +58,15 @@ interface KpiCardProps {
  *
  * <p>Always a `Link`. That is the feature — the retired `StatsCard` made `href` optional and four of seven cards
  * pointed at an unfiltered list, so the number and its destination disagreed.</p>
+ *
+ * <p><b>No longer its own `Card`.</b> It paints a plain `bg-card` cell and expects to sit inside a
+ * {@link KpiGrid}, which supplies the single border and the hairlines. Sixteen individually-bordered cards was
+ * the "too boxy" complaint, and it was also a hierarchy failure — see {@link KpiEmphasis}.</p>
+ *
+ * <p><b>`hero` is the exception and renders its own filled accent surface</b> — see {@link HeroKpi}. It is the
+ * single saturated surface on the page, and that is the whole colour strategy: the screen read as washed out
+ * because the accent filled *nothing*, and the answer is one bold surface with everything around it quiet, not
+ * six accents competing.</p>
  */
 export function KpiCard({
   label,
@@ -46,48 +79,85 @@ export function KpiCard({
   previousPeriodLabel,
   loading = false,
   variant = "default",
+  emphasis = "default",
+  wide = false,
+  sparkline,
 }: KpiCardProps) {
+  const isCompact = emphasis === "compact"
+
+  if (emphasis === "hero") {
+    // Delegated wholesale: the hero shares no markup with a grid cell beyond being a `Link`, and folding a second
+    // full layout in here is what produced an `isHero` ternary on nearly every line of this component.
+    return (
+      <HeroKpi
+        label={label}
+        description={description}
+        value={value}
+        icon={Icon}
+        href={href}
+        comparison={comparison}
+        sense={sense}
+        previousPeriodLabel={previousPeriodLabel}
+        loading={loading}
+        sparkline={sparkline}
+      />
+    )
+  }
+
   return (
     <Link
       href={href}
-      className="block rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className={cn(
+        // `bg-card` is load-bearing: the enclosing grid is `bg-border` showing through `gap-px`, so a cell that
+        // does not paint its own background would render as a solid border block.
+        "group relative block bg-card transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring hover:bg-accent/40",
+        isCompact ? "p-4" : "p-5",
+        wide && "sm:col-span-2",
+        // An urgent figure gets a left accent rather than a tinted box: at this density a filled background on one
+        // cell of a shared surface reads as a rendering fault, while a 2px edge reads as emphasis.
+        variant === "urgent" && "before:absolute before:inset-y-0 before:left-0 before:w-[2px] before:bg-destructive",
+      )}
       aria-label={`${label} : ${value}. Voir le détail.`}
     >
-      <Card
-        className={cn(
-          "h-full transition-colors hover:border-accent hover:bg-accent/40",
-          variant === "urgent" && "border-destructive/50 bg-destructive/5",
-        )}
-      >
-        <CardContent className="p-5">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0 space-y-1">
-              <p className="text-sm font-medium text-muted-foreground">{label}</p>
-              {loading ? (
-                <span className="block h-8 w-20 animate-pulse rounded bg-muted" aria-label="Chargement" />
-              ) : (
-                <p className="text-2xl font-semibold text-foreground">{value}</p>
-              )}
-              <p className="text-xs text-muted-foreground">{description}</p>
-            </div>
-            <div
-              className={cn(
-                "flex h-10 w-10 shrink-0 items-center justify-center rounded-lg",
-                variant === "urgent" ? "bg-destructive/10" : "bg-accent",
-              )}
-            >
-              <Icon
-                className={cn("h-5 w-5", variant === "urgent" ? "text-destructive" : "text-accent-foreground")}
-                aria-hidden="true"
-              />
-            </div>
-          </div>
-
-          {comparison && !loading && (
-            <DeltaBadge comparison={comparison} sense={sense} previousPeriodLabel={previousPeriodLabel} />
+      <div className="min-w-0 space-y-1">
+        {/* A 6px accent dot restores a little identity to the label row without the 40px filled tiles that were
+            most of what made the old grid feel heavy. Decoration, hence aria-hidden — the label is the name. */}
+        <p
+          className={cn(
+            "flex items-center gap-2 font-medium text-muted-foreground",
+            isCompact ? "text-xs" : "text-sm",
           )}
-        </CardContent>
-      </Card>
+        >
+          <span
+            aria-hidden="true"
+            className={cn(
+              "size-1.5 shrink-0 rounded-full",
+              variant === "urgent" ? "bg-destructive" : "bg-primary/70",
+            )}
+          />
+          <span className="min-w-0 truncate">{label}</span>
+        </p>
+        {loading ? (
+          <span className="block h-8 w-20 animate-pulse rounded bg-muted" aria-label="Chargement" />
+        ) : (
+          <p
+            className={cn(
+              "font-semibold tabular-nums tracking-tight text-foreground",
+              isCompact ? "text-xl" : "text-2xl",
+              variant === "urgent" && "text-destructive",
+            )}
+          >
+            {value}
+          </p>
+        )}
+        {/* The description is dropped at compact density. On « Stock bas » the label already says it and the
+            second line of grey text was pure noise repeated six times down the à-traiter block. */}
+        {!isCompact && <p className="text-xs text-muted-foreground">{description}</p>}
+      </div>
+
+      {comparison && !loading && (
+        <DeltaBadge comparison={comparison} sense={sense} previousPeriodLabel={previousPeriodLabel} />
+      )}
     </Link>
   )
 }
@@ -117,9 +187,10 @@ function DeltaBadge({
 
   if (deltaPercent === null || deltaPercent === undefined) {
     return (
-      <p className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
-        <Minus className="h-3.5 w-3.5" aria-hidden="true" />
-        <span>Pas de comparaison — {baseline}</span>
+      <p className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+        <Minus className="size-3.5" aria-hidden="true" />
+        <span>Pas de comparaison</span>
+        <span className="sr-only">— {baseline}</span>
       </p>
     )
   }
@@ -128,12 +199,18 @@ function DeltaBadge({
   const flat = deltaPercent === 0
   const good = sense === "neutral" ? null : rising === (sense === "up-is-good")
 
+  /*
+   * A **tinted pill**, not bare coloured text — the cheapest and most legible "this is a comparison" signal there
+   * is, and the previous treatment (a coloured word floating under the number) was the single most dated thing on
+   * the page. The wash pairs come from the theme (`--success-wash` / `--destructive-wash`) rather than hardcoded
+   * `green-700`, so both modes and any future accent follow automatically.
+   */
   const tone =
     flat || good === null
-      ? "text-muted-foreground"
+      ? "bg-muted text-muted-foreground"
       : good
-        ? "text-green-700 dark:text-green-400"
-        : "text-destructive"
+        ? "bg-success-wash text-success"
+        : "bg-destructive-wash text-destructive"
 
   const Arrow = flat ? Minus : rising ? ArrowUp : ArrowDown
   // Intl gives the French decimal comma and an explicit sign, so « +18,3 % » reads natively.
@@ -144,11 +221,13 @@ function DeltaBadge({
   })} %`
 
   return (
-    <p className={cn("mt-3 flex items-center gap-1.5 text-xs font-medium", tone)}>
-      <Arrow className="h-3.5 w-3.5" aria-hidden="true" />
-      <span>
-        {formatted} <span className="font-normal text-muted-foreground">{baseline}</span>
-      </span>
+    <p className={cn("mt-3 inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums", tone)}>
+      <Arrow className="size-3.5" aria-hidden="true" />
+      <span>{formatted}</span>
+      {/* The baseline moves out of the pill: repeated sixteen times down the page it was more ink than the figures
+          it qualified, and it is identical for every card in a section — which is why the section header states it
+          once. Kept for assistive tech, where there is no "elsewhere on the page" to read it from. */}
+      <span className="sr-only">{baseline}</span>
     </p>
   )
 }

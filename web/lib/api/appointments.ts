@@ -1,5 +1,6 @@
 import { apiGet, apiPost, apiPut } from './client';
 import type { AppointmentDto, RecurringAppointmentDto, RecurringSeriesResultDto } from './types';
+import { unwrapPaged, type PagedResponse, type PageParams } from './paging';
 
 export interface CreateRecurringSeriesPayload {
   patientId: string;
@@ -15,6 +16,22 @@ export interface CreateRecurringSeriesPayload {
   notes?: string | null;
   /** Create out-of-hours occurrences instead of skipping them (AC-P1.31). */
   allowOutsideWorkingHours?: boolean;
+  /** Confirmed override for a double-booking with the same practitioner. */
+  allowOverlap?: boolean;
+}
+
+/**
+ * One act as the client asks for it. Name, duration and colour are read from the catalog server-side — the client
+ * sends only what the user picked.
+ */
+export interface AppointmentProcedurePayload {
+  /**
+   * The catalog act. `null` is allowed **only** alongside a `treatmentPlanItemId`: a hand-typed devis line has no
+   * procedure behind it and the server names such a row from the plan step's désignation.
+   */
+  procedureTypeId: string | null;
+  /** The devis act this line carries out. Validated against the request's `treatmentPlanId`. */
+  treatmentPlanItemId?: string | null;
 }
 
 export const appointmentsApi = {
@@ -30,7 +47,15 @@ export const appointmentsApi = {
 
   // ---- Recurring series (clinical-workflow-depth) --------------------------------------------------
   listRecurring: async (activeOnly: boolean = true): Promise<RecurringAppointmentDto[]> =>
-    apiGet<RecurringAppointmentDto[]>('/appointments/recurring', { activeOnly }),
+    unwrapPaged(
+      await apiGet<PagedResponse<RecurringAppointmentDto>>('/appointments/recurring', { activeOnly }),
+    ),
+
+  /** One page of series. `search` matches patient / praticien / notes server-side over the whole clinic. */
+  listRecurringPaged: async (
+    params: PageParams & { activeOnly?: boolean },
+  ): Promise<PagedResponse<RecurringAppointmentDto>> =>
+    apiGet<PagedResponse<RecurringAppointmentDto>>('/appointments/recurring', params),
 
   createRecurring: async (data: CreateRecurringSeriesPayload): Promise<RecurringSeriesResultDto> =>
     apiPost<RecurringSeriesResultDto>('/appointments/recurring', data),
@@ -60,7 +85,18 @@ export const appointmentsApi = {
     notes?: string;
     /** Confirmed out-of-hours override (AC-P1.31). Recorded on the appointment, never silently allowed. */
     allowOutsideWorkingHours?: boolean;
+  /** Confirmed override for a double-booking with the same practitioner. */
+  allowOverlap?: boolean;
     procedureTypeId?: string;
+    /**
+     * The acts of this séance. Several acts in one visit is the normal case, and each entry may carry its own
+     * devis step — which is how « ces deux actes ensemble, ces deux-là séparément » is expressed: one grouped
+     * booking with two entries, then two bookings with one each.
+     *
+     * When supplied it takes precedence over `procedureTypeId`, and `durationMinutes: 0` makes the server default
+     * the visit's length to the **sum** of the acts' own durations.
+     */
+    procedures?: AppointmentProcedurePayload[];
     treatmentPlanId?: string | null;
     treatmentPlanItemId?: string | null;
   }): Promise<AppointmentDto> => {
@@ -72,7 +108,14 @@ export const appointmentsApi = {
       doctorName: data.doctorName,
       notes: data.notes,
       procedureTypeId: data.procedureTypeId,
+      // Same hand-built-payload trap as `allowOverlap` below: a key missing from this literal never reaches the
+      // server, and the request still succeeds — the séance just silently books one act.
+      procedures: data.procedures,
       allowOutsideWorkingHours: data.allowOutsideWorkingHours,
+      // Must be copied explicitly: this payload is hand-built field by field rather than spread, so a new key on
+      // the parameter type reaches the server only if it is listed here. Omitting it is silent — the request
+      // succeeds, the server just never sees the override and refuses the booking again.
+      allowOverlap: data.allowOverlap,
       treatmentPlanId: data.treatmentPlanId || null,
       treatmentPlanItemId: data.treatmentPlanItemId || null,
     });
@@ -105,8 +148,16 @@ export const appointmentsApi = {
     cancellationReason?: string;
     /** Confirmed out-of-hours override for a move (AC-P1.31). */
     allowOutsideWorkingHours?: boolean;
+  /** Confirmed override for a double-booking with the same practitioner. */
+  allowOverlap?: boolean;
     /** `null` clears the booked act along with its snapshot duration and colour. */
     procedureTypeId?: string | null;
+    /**
+     * The séance's acts, replaced wholesale. Tri-state like everything else here and the distinction matters:
+     * **omit** the key to leave the acts alone, send `[]` to clear them all. Takes precedence over
+     * `procedureTypeId` when present.
+     */
+    procedures?: AppointmentProcedurePayload[];
     /** Required alongside `treatmentPlanItemId` when linking — the server validates the pair. */
     treatmentPlanId?: string;
     /** `null` clears the plan-act link. */

@@ -19,6 +19,7 @@ import type { AppointmentDto } from "@/lib/api/types"
 import { cn, parseDurationToMinutes } from "@/lib/utils"
 import { clinicsApi } from "@/lib/api/clinics"
 import { WEEKDAYS, type WorkingDay } from "@/lib/working-hours"
+import { appointmentActsCount, appointmentActsSummary } from "@/components/appointment-labels"
 
 // Generate all 24 hours with hourly intervals
 const generateHourlyTimeSlots = (): string[] => {
@@ -45,10 +46,20 @@ function openWindowFor(day: Date, hours: WorkingDay[] | null): { fromHour: numbe
   return { fromHour: from, toHour: to }
 }
 
-// Fixed pixel height of one hour row; appointment blocks are positioned/sized against it.
-const HOUR_HEIGHT = 35
+/**
+ * Fixed pixel height of one hour row; appointment blocks are positioned/sized against it.
+ *
+ * 48, not 35. At 35 px/hour the *default* 30-minute appointment is 17.5 px tall — below `MIN_APPT_HEIGHT`,
+ * so it was clamped taller than its own slot AND fell under the `isVerySmall` threshold below, which strips
+ * the duration badge, the procedure name and the sync badge. The standard appointment rendered in the
+ * degraded mode meant for a 5-minute one. Worse, two back-to-back 15-minute appointments sit 8.75 px apart
+ * at 35 px/hour while both are clamped to 20 px, so they *visually overlapped* — and `computeOverlapLanes`
+ * cannot lane them apart, because they do not overlap in time. At 48 a 30-minute block is 24 px (legible,
+ * unclamped) and a 15-minute block is 12 px, so the clamp only ever bites on genuinely tiny durations.
+ */
+const HOUR_HEIGHT = 48
 // Minimum rendered height so a very short appointment still shows the patient name legibly (AC-4).
-const MIN_APPT_HEIGHT = 20
+const MIN_APPT_HEIGHT = 18
 // Month view: max appointment chips shown per day cell before collapsing the rest into "+N more" (AC-2).
 const MONTH_CELL_MAX_CHIPS = 3
 
@@ -68,9 +79,14 @@ interface AppointmentCalendarProps {
   onChanged?: () => void
   /** Optional per-practitioner filter (AC-3.2) — only appointments assigned to this doctor. */
   doctorId?: string
+  /**
+   * Bump to refetch the current window **in place**. Replaces the old `key={refreshKey}` remount, which threw
+   * away scroll position and flashed the grid empty every time anyone in the clinic touched an appointment.
+   */
+  reloadToken?: unknown
 }
 
-export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSlotClick, onAppointmentClick, onSelectDay, showCancelled = false, showCompleted = false, onShowCancelledChange, onShowCompletedChange, onChanged, doctorId }: AppointmentCalendarProps) {
+export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSlotClick, onAppointmentClick, onSelectDay, showCancelled = false, showCompleted = false, onShowCancelledChange, onShowCompletedChange, onChanged, doctorId, reloadToken }: AppointmentCalendarProps) {
   const { internetReachable } = useConnectivity()
 
   /**
@@ -187,7 +203,21 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
     return endOfDay(addDays(startOfWeek(selectedDate, { weekStartsOn: 1 }), 6)) // 7 days (0-6)
   }, [view, selectedDate])
 
-  const { appointments: allAppointments, loading } = useAppointments(startDate, endDate, undefined, undefined, doctorId)
+  /*
+   * `error` used to be dropped on the floor here. A failed fetch therefore rendered a perfectly normal, empty
+   * calendar — indistinguishable from a genuinely free day. In a clinic that is the one wrong answer that
+   * matters: « rien cet après-midi » when in fact the server never answered. It is surfaced as a banner over
+   * the grid (which keeps whatever rows were already loaded) with a Réessayer, following the same pattern
+   * `dashboard-section.tsx` uses and the same lesson the procedure-type list in the create dialog documents.
+   */
+  const { appointments: allAppointments, loading, refetching, error, refetch } = useAppointments(
+    startDate,
+    endDate,
+    undefined,
+    undefined,
+    doctorId,
+    reloadToken,
+  )
 
   // Filter appointments based on status filters
   const appointments = useMemo(() => {
@@ -237,10 +267,10 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
       const timeSlotElement = scrollContainerRef.current.querySelector(`[data-time-slot="${currentHourSlot}"]`) as HTMLElement
       
       if (timeSlotElement) {
-        const container = scrollContainerRef.current
         const slotTop = timeSlotElement.offsetTop
-        const slotHeight = 35 // height per hour slot in pixels
-        const minuteOffset = (minutes / 60) * slotHeight
+        // Must be HOUR_HEIGHT, not a second copy of the number: this used to be a hardcoded `35`, so any
+        // change to the row height silently drifted the current-time line away from the appointment blocks.
+        const minuteOffset = (minutes / 60) * HOUR_HEIGHT
         const totalPosition = slotTop + minuteOffset
         setCurrentTimePosition(totalPosition)
       }
@@ -388,13 +418,18 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
     const height = Math.max((durationMinutes / 60) * HOUR_HEIGHT, MIN_APPT_HEIGHT)
     const isVerySmall = height < 30
     const isSmall = height < 48
+    const actsSummary = appointmentActsSummary(appointment)
+    const actsCount = appointmentActsCount(appointment)
     const colorStyle = getStatusColor(appointment)
 
     return (
       <div
         key={appointment.id}
         className={cn(
-          "absolute z-20 rounded transition-shadow hover:shadow-md overflow-hidden flex flex-col cursor-pointer pointer-events-auto",
+          // Press feedback on the block itself: it is the primary click target of the whole screen and had
+          // none. Kept at 0.99 because the block is absolutely positioned against its neighbours — anything
+          // stronger reads as the appointment jumping out of its slot rather than being pressed.
+          "pointer-events-auto absolute z-20 flex cursor-pointer flex-col overflow-hidden rounded transition-[box-shadow,transform] duration-[160ms] ease-snap hover:shadow-md active:scale-[0.99]",
           colorStyle.className,
           isVerySmall ? "px-1 py-0" : isSmall ? "p-1" : "p-1.5",
         )}
@@ -422,12 +457,24 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
               >
                 {durationMinutes}m
               </Badge>
-              {view === "day" && appointment.procedureTypeName && (
+              {/* Day view names the acts (« Détartrage + Obturation »); the narrower views only say how many,
+                  because a two-act name does not fit a week column and truncating it to « Détarta… » says less
+                  than « 2 actes ». Either way a multi-act séance is never silently shown as a one-act visit. */}
+              {view === "day" && actsSummary && (
                 <Badge
                   variant="secondary"
                   className="border-0 bg-white/50 dark:bg-background/50 text-[10px] h-4 leading-none px-1.5"
                 >
-                  {appointment.procedureTypeName}
+                  {actsSummary}
+                </Badge>
+              )}
+              {view !== "day" && actsCount > 1 && (
+                <Badge
+                  variant="secondary"
+                  className="border-0 bg-white/50 dark:bg-background/50 text-[10px] h-4 leading-none px-1.5"
+                  title={actsSummary ?? undefined}
+                >
+                  {actsCount} actes
                 </Badge>
               )}
             </div>
@@ -491,7 +538,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
     const statusLower = appointment.status.toLowerCase()
     if (statusLower === 'scheduled' || statusLower === 'confirmed') {
       return {
-        className: "bg-blue-100 text-blue-700 border-l-4 border-blue-500 dark:bg-blue-500/20 dark:text-blue-400",
+        className: "bg-accent text-primary border-l-4 border-primary/20",
         style: {}
       }
     }
@@ -508,7 +555,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
       }
     }
     return {
-      className: "bg-blue-100 text-blue-700 border-l-4 border-blue-500 dark:bg-blue-500/20 dark:text-blue-400",
+      className: "bg-accent text-primary border-l-4 border-primary/20",
       style: {}
     }
   }
@@ -553,7 +600,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
           onAppointmentClick?.(appointment)
         }}
         className={cn(
-          "flex w-full items-center gap-1 overflow-hidden rounded px-1 py-0.5 text-left text-[10px] leading-tight transition-shadow hover:shadow-sm",
+          "flex w-full items-center gap-1 overflow-hidden rounded px-1 py-0.5 text-left text-[10px] leading-tight transition-[box-shadow,transform] duration-[160ms] ease-snap hover:shadow-sm active:scale-[0.97]",
           colorStyle.className,
         )}
         style={colorStyle.style}
@@ -583,11 +630,25 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
       </div>
 
       {loading ? (
-        <div className="flex flex-1 items-center justify-center">
-          <p className="text-muted-foreground">Chargement des rendez-vous…</p>
+        // A skeleton shaped like the grid it stands in for, so the month does not jump when the chips arrive
+        // (the same reasoning as `patients-table.tsx`). Only on the FIRST load — a month change now dims.
+        <div className="grid flex-1 grid-cols-7 grid-rows-6 min-h-0" role="status" aria-label="Chargement des rendez-vous">
+          {Array.from({ length: 42 }).map((_, i) => (
+            <div key={i} className="min-w-0 border-b border-r p-1 last:border-r-0">
+              <div className="flex justify-end">
+                <div className="h-6 w-6 animate-pulse rounded-full bg-muted" />
+              </div>
+              {i % 3 === 0 && <div className="mt-1 h-3 animate-pulse rounded bg-muted" />}
+            </div>
+          ))}
         </div>
       ) : (
-        <div className="grid flex-1 grid-cols-7 grid-rows-6 min-h-0">
+        <div
+          className={cn(
+            "grid flex-1 grid-cols-7 grid-rows-6 min-h-0 transition-opacity duration-200 ease-snap",
+            refetching && "opacity-60",
+          )}
+        >
           {monthGridDays.map((day) => {
             const dayAppointments = getAppointmentsForDay(day).sort(
               (a, b) => new Date(a.appointmentDateTime).getTime() - new Date(b.appointmentDateTime).getTime(),
@@ -601,7 +662,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                 key={day.toISOString()}
                 onClick={() => onSelectDay?.(day)}
                 className={cn(
-                  "flex min-w-0 cursor-pointer flex-col gap-0.5 overflow-hidden border-b border-r p-1 transition-colors last:border-r-0 hover:bg-blue-50/30 dark:hover:bg-muted/50",
+                  "flex min-w-0 cursor-pointer flex-col gap-0.5 overflow-hidden border-b border-r p-1 transition-colors last:border-r-0 hover:bg-accent/30 dark:hover:bg-muted/50",
                   !inMonth && "bg-gray-50/40 dark:bg-muted/20",
                 )}
               >
@@ -610,7 +671,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                     className={cn(
                       "inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold",
                       isToday(day)
-                        ? "bg-blue-600 text-white shadow-md"
+                        ? "bg-primary text-white shadow-md"
                         : inMonth
                           ? "text-foreground"
                           : "text-muted-foreground/60",
@@ -666,7 +727,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
           {/* Status Legend */}
           <div className="flex items-center gap-4 text-sm">
             <div className="flex items-center gap-2">
-              <div className="h-3 w-3 rounded bg-blue-500" />
+              <div className="h-3 w-3 rounded bg-primary" />
               <span className="text-muted-foreground">Planifié</span>
             </div>
             <div className="flex items-center gap-2">
@@ -723,6 +784,28 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
         </div>
       </div>
 
+      {/*
+        The fetch failed. This is deliberately a banner ABOVE the grid rather than a replacement for it: the
+        rows already loaded are still the best information available, and an agenda that goes blank on a
+        transient error is worse than a stale one that says so. Before this existed, `error` was destructured
+        away and a failed request rendered as an empty day — « rien cet après-midi » when the server simply
+        never answered.
+      */}
+      {error && (
+        <div
+          role="status"
+          className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200"
+        >
+          <span>
+            Les rendez-vous n&apos;ont pas pu être chargés
+            {appointments.length > 0 ? " — l'agenda ci-dessous peut être incomplet." : "."} {error}
+          </span>
+          <Button variant="outline" size="sm" onClick={() => void refetch()} disabled={refetching}>
+            {refetching ? "Chargement…" : "Réessayer"}
+          </Button>
+        </div>
+      )}
+
       <Card className="flex-1 overflow-hidden shadow-sm min-h-0">
         {view === "month" ? (
           renderMonthView()
@@ -744,7 +827,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                   <div
                     className={cn(
                       "mx-auto inline-flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold transition-colors",
-                      isToday(day) ? "bg-blue-600 text-white shadow-md" : "text-foreground hover:bg-gray-100 dark:hover:bg-muted",
+                      isToday(day) ? "bg-primary text-white shadow-md" : "text-foreground hover:bg-gray-100 dark:hover:bg-muted",
                     )}
                   >
                     {format(day, "d")}
@@ -759,7 +842,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                 <div
                   className={cn(
                     "mx-auto inline-flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold",
-                    isToday(selectedDate) ? "bg-blue-600 text-white shadow-md" : "text-foreground",
+                    isToday(selectedDate) ? "bg-primary text-white shadow-md" : "text-foreground",
                   )}
                 >
                   {format(selectedDate, "d")}
@@ -769,11 +852,36 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
           </div>
 
           {loading ? (
-            <div className="flex h-96 items-center justify-center flex-shrink-0">
-              <p className="text-muted-foreground">Chargement des rendez-vous…</p>
+            // Skeleton rows at the real HOUR_HEIGHT, so the grid does not resize when the appointments land.
+            <div className="flex-1 overflow-hidden" role="status" aria-label="Chargement des rendez-vous">
+              {Array.from({ length: 12 }).map((_, i) => (
+                <div
+                  key={i}
+                  className={cn(
+                    "grid border-b",
+                    view === "week" ? "grid-cols-[60px_repeat(7,minmax(0,1fr))]" : "grid-cols-[60px_1fr]",
+                  )}
+                  style={{ height: HOUR_HEIGHT }}
+                >
+                  <div className="flex items-center justify-end border-r bg-gray-50 px-2 dark:bg-muted">
+                    <div className="h-3 w-8 animate-pulse rounded bg-muted-foreground/20" />
+                  </div>
+                  {Array.from({ length: view === "week" ? 7 : 1 }).map((__, c) => (
+                    <div key={c} className="border-r p-1 last:border-r-0">
+                      {(i + c) % 4 === 0 && <div className="h-full animate-pulse rounded bg-muted" />}
+                    </div>
+                  ))}
+                </div>
+              ))}
             </div>
           ) : (
-            <div ref={scrollContainerRef} className="flex-1 overflow-y-auto overflow-x-hidden min-h-0 relative">
+            <div
+              ref={scrollContainerRef}
+              className={cn(
+                "relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden transition-opacity duration-200 ease-snap",
+                refetching && "opacity-60",
+              )}
+            >
               {/* Current time indicator line - overlay */}
               {isCurrentTimeVisible && currentTimePosition !== null && (
                 <>
@@ -813,11 +921,12 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
 
                   return (
                     <div key={time} className="contents">
-                      {/* Time label. `leading-none` is load-bearing: without it this div inherits
-                          the global line-height (1.5), inflating each grid row to ~41px. The
-                          appointment overlay positions blocks with the fixed HOUR_HEIGHT (35px), so
-                          any row taller than 35px makes appointments drift upward (e.g. a 17:00 block
-                          lands near 14:00). Keep rows exactly HOUR_HEIGHT tall. */}
+                      {/* Time label. `leading-none` is load-bearing: without it this div inherits the global
+                          line-height (1.5) and can outgrow the row. The appointment overlay positions blocks
+                          against the fixed `HOUR_HEIGHT`, so any row taller than it makes appointments drift
+                          upward (e.g. a 17:00 block landing near 14:00). Keep rows exactly HOUR_HEIGHT tall —
+                          which is why the day cells below set `minHeight` from the constant itself rather than
+                          repeating the number in a Tailwind class, as they used to. */}
                       <div
                         className={cn(
                           "border-b border-r bg-gray-50 dark:bg-muted px-2 py-2 text-right leading-none",
@@ -840,9 +949,10 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                               <div
                                 key={`${day.toISOString()}-${time}`}
                                 className={cn(
-                                  "min-h-[35px] cursor-pointer border-b border-r transition-colors hover:bg-blue-50/30 dark:hover:bg-muted/50 last:border-r-0 min-w-0",
+                                  "min-w-0 cursor-pointer border-b border-r transition-colors last:border-r-0 hover:bg-accent/30 dark:hover:bg-muted/50",
                                   !dayOpen && "bg-gray-50/50 dark:bg-muted/30 opacity-70",
                                 )}
+                                style={{ minHeight: HOUR_HEIGHT }}
                                 onClick={() => onTimeSlotClick?.(day, time)}
                                 data-time-slot={time}
                               />
@@ -851,9 +961,10 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                         : (
                             <div
                               className={cn(
-                                "min-h-[35px] cursor-pointer border-b border-r transition-colors hover:bg-blue-50/30 dark:hover:bg-muted/50",
+                                "cursor-pointer border-b border-r transition-colors hover:bg-accent/30 dark:hover:bg-muted/50",
                                 !isWorkingHours && "bg-gray-50/50 dark:bg-muted/30 opacity-70",
                               )}
+                              style={{ minHeight: HOUR_HEIGHT }}
                               onClick={() => onTimeSlotClick?.(selectedDate, time)}
                               data-time-slot={time}
                             />

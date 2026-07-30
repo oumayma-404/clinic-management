@@ -1,3 +1,5 @@
+using ClinicManagement.UnitTests.Common;
+using ClinicManagement.Domain.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -72,8 +74,9 @@ public class CaisseLedgerTests
                 ClinicId, It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(refunds ?? Array.Empty<CreditNote>());
         _expenses.Setup(r => r.GetByClinicIdAsync(
-                ClinicId, It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(expenses ?? Array.Empty<Expense>());
+                ClinicId, It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<string?>(), It.IsAny<PageRequest?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((expenses ?? Array.Empty<Expense>()).AsPage());
 
         // The statement resolves every patient name in one batch — no name means no N+1 to fall back on.
         _patients.Setup(r => r.GetByIdsAsync(

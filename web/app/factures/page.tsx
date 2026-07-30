@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { ClinicGuard } from "@/components/clinic-guard"
+import { PageHeader } from "@/components/ui/page-header"
 import { DashboardSidebar } from "@/components/dashboard-sidebar"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -102,10 +103,11 @@ export default function FacturesPage() {
           <DashboardHeader />
           <main className="flex-1 overflow-auto p-4 md:p-6">
             <div className="mx-auto max-w-7xl space-y-6">
-              <div>
-                <h1 className="text-2xl font-bold">Factures &amp; Recettes</h1>
-                <p className="text-muted-foreground">Notes d'honoraires, encaissements et suivi des recettes.</p>
-              </div>
+              <PageHeader
+                zone="Argent"
+                title="Factures &amp; recettes"
+                subtitle="Notes d'honoraires, encaissements et suivi des recettes."
+              />
 
               {/* Revenue summary. AC-P3.28 — three states, never conflated: loading, failed-to-load (with a
                   retry), and a real figure. */}

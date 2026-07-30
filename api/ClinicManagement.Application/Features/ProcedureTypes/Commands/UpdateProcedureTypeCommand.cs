@@ -173,9 +173,12 @@ public class UpdateProcedureTypeCommandHandler : IRequestHandler<UpdateProcedure
                 {
                     foreach (var appointment in appointmentList)
                     {
-                        appointment.SetProcedureType(
+                        // Re-snapshot, never re-set: SetProcedureType now means "this visit has exactly this one
+                        // act", so calling it here would delete the other acts of every multi-act séance that
+                        // happens to use the renamed procedure.
+                        appointment.RefreshProcedureSnapshot(
                             procedureType.Id,
-                            appointment.ProcedureDurationMinutes,
+                            procedureType.Name,
                             procedureType.Color.Value);
                         await _appointmentRepository.UpdateAsync(appointment, cancellationToken);
                     }

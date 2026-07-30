@@ -8,15 +8,25 @@ using ClinicManagement.Application.DTOs;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Domain.Services;
 
+using ClinicManagement.Domain.Common;
 namespace ClinicManagement.Application.Features.Billing.Queries;
 
 /// <summary>The clinic-wide « Créances » (accounts-receivable) list — patients with a positive balance,
 /// sorted by amount owed (descending). Clinic-scoped.</summary>
-public class GetReceivablesQuery : IRequest<Result<List<ReceivableDto>>>
+public class GetReceivablesQuery : IRequest<Result<ReceivablesPageDto>>
 {
+    /// <summary>1-based page and page size. Both null = every patient with a balance.</summary>
+    public int? Page { get; set; }
+    public int? PageSize { get; set; }
+
+    /// <summary>
+    /// Free-text filter on the patient's name. Matched <b>in memory</b> here, unlike every other list — see the
+    /// handler for why this read has no queryable source to push it into.
+    /// </summary>
+    public string? SearchTerm { get; set; }
 }
 
-public class GetReceivablesQueryHandler : IRequestHandler<GetReceivablesQuery, Result<List<ReceivableDto>>>
+public class GetReceivablesQueryHandler : IRequestHandler<GetReceivablesQuery, Result<ReceivablesPageDto>>
 {
     private readonly IInvoiceRepository _invoiceRepository;
     private readonly ITreatmentPlanRepository _planRepository;
@@ -38,14 +48,14 @@ public class GetReceivablesQueryHandler : IRequestHandler<GetReceivablesQuery, R
         _logger = logger;
     }
 
-    public async Task<Result<List<ReceivableDto>>> Handle(GetReceivablesQuery request, CancellationToken cancellationToken)
+    public async Task<Result<ReceivablesPageDto>> Handle(GetReceivablesQuery request, CancellationToken cancellationToken)
     {
         try
         {
             var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
             if (clinicResult.IsFailure)
             {
-                return Result<List<ReceivableDto>>.Failure(clinicResult.Error ?? "Cabinet introuvable.");
+                return Result<ReceivablesPageDto>.Failure(clinicResult.Error ?? "Cabinet introuvable.");
             }
             var clinicId = clinicResult.Value;
 
@@ -119,12 +129,37 @@ public class GetReceivablesQueryHandler : IRequestHandler<GetReceivablesQuery, R
                 .ThenBy(r => r.PatientName)
                 .ToList();
 
-            return Result<List<ReceivableDto>>.Success(sorted);
+            // Filtered and paged in memory, and this is the one place that is the right answer. « Créances » is
+            // the union of two independent debt ledgers — invoice outstanding and plan échéancier outstanding —
+            // netted per patient and then ranked by the total. A patient's rank is not known until both sides are
+            // summed, so there is no query to put a LIMIT on: paging either input would page the wrong thing.
+            // (The two ledger reads themselves are already bounded by « owes something », not by the clinic's
+            // whole history.)
+            var filtered = string.IsNullOrWhiteSpace(request.SearchTerm)
+                ? sorted
+                : sorted.Where(r => SearchTerm.Matches(request.SearchTerm, r.PatientName)).ToList();
+
+            // The total is computed over `filtered` — every matching debtor — BEFORE the page is cut, because
+            // « Total dû » is a statement about the clinic's receivables and not about the 25 rows on screen.
+            // It does honour the search: filtering to one patient and being shown the clinic's whole debt under
+            // their name would be its own kind of lie.
+            var page = PagedResult<ReceivableDto>.FromSource(
+                filtered, PageRequest.From(request.Page, request.PageSize));
+
+            return Result<ReceivablesPageDto>.Success(new ReceivablesPageDto
+            {
+                Items = page.Items.ToList(),
+                TotalOutstanding = filtered.Sum(r => r.TotalOutstanding),
+                Page = page.Page,
+                PageSize = page.PageSize,
+                TotalCount = page.TotalCount,
+                TotalPages = page.TotalPages,
+            });
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error building the receivables list");
-            return Result<List<ReceivableDto>>.Failure("Erreur lors du calcul des créances.");
+            return Result<ReceivablesPageDto>.Failure("Erreur lors du calcul des créances.");
         }
     }
 }

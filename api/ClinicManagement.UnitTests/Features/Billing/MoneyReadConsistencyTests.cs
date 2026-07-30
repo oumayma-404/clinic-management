@@ -1,3 +1,5 @@
+using ClinicManagement.UnitTests.Common;
+using ClinicManagement.Domain.Common;
 using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
@@ -128,12 +130,14 @@ public class MoneyReadConsistencyTests
         // « Solde patient » reads the aggregates directly.
         _invoices.Setup(r => r.GetFilteredAsync(
                 ClinicId, It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<Guid?>(),
-                It.IsAny<InvoiceStatus?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(invoices);
+                It.IsAny<InvoiceStatus?>(), It.IsAny<string?>(), It.IsAny<PageRequest?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((invoices).AsPage());
         _plans.Setup(r => r.GetFilteredAsync(
                 ClinicId, It.IsAny<Guid?>(), It.IsAny<TreatmentPlanStatus?>(),
-                It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(plans);
+                It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<string?>(), It.IsAny<PageRequest?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((plans).AsPage());
 
         // Mirrors InvoiceRepository.GetOutstandingByPatientAsync: issued, non-cancelled, balance > 0.
         var invoiceOutstanding = invoices
@@ -213,7 +217,7 @@ public class MoneyReadConsistencyTests
             NullLogger<GetReceivablesQueryHandler>.Instance);
         var result = await handler.Handle(new GetReceivablesQuery(), CancellationToken.None);
         Assert.True(result.IsSuccess);
-        return result.Value!.Sum(r => r.TotalOutstanding);
+        return result.Value!.Items.Sum(r => r.TotalOutstanding);
     }
 
     /// <summary>

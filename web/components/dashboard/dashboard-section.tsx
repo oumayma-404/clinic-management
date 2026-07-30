@@ -32,9 +32,22 @@ export function DashboardSection({
 }: DashboardSectionProps) {
   return (
     <section aria-label={title} className="space-y-3">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="text-lg font-semibold text-foreground">{title}</h2>
-        {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+      {/* A hairline under the heading, not a box around the group. Part of the de-boxing: the section is now the
+          object on the page, so it needs one edge to sit against — the figures inside it share a single surface. */}
+      {/*
+        The heading is a **monospace uppercase eyebrow**, not a 16px semibold title.
+
+        Sections differentiate by type here rather than by colour: giving each block its own hue would spend the
+        accent on making nothing important, and the accent is now reserved for the one filled surface. An eyebrow
+        also stops the four section titles competing with the figures underneath them — they are labels for regions,
+        not content. The hint joins them in the same register, since it says the same thing for every card below
+        (« comparé à … »), which is precisely why it belongs here once instead of inside sixteen delta pills.
+      */}
+      <div className="flex flex-wrap items-baseline justify-between gap-2 border-b pb-2">
+        <h2 className="font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+          {title}
+        </h2>
+        {hint && <p className="font-mono text-[11px] text-muted-foreground">{hint}</p>}
       </div>
 
       {error ? (

@@ -60,7 +60,11 @@ function SheetContent({
       <SheetPrimitive.Content
         data-slot="sheet-content"
         className={cn(
-          "fixed z-50 flex flex-col gap-4 bg-background shadow-lg transition ease-in-out data-[state=closed]:animate-out data-[state=closed]:duration-300 data-[state=open]:animate-in data-[state=open]:duration-500",
+          // 300 ms in / 200 ms out on the iOS-like drawer curve. Stock shadcn ships `ease-in-out` at 500 ms
+          // opening: `ease-in-out` delays the first frame — the moment the user is watching after their tap —
+          // and 500 ms reads as lag on the one control that stands between a phone user and the whole app.
+          // Exit is faster than enter, because opening is the user deciding and closing is the system obeying.
+          "fixed z-50 flex flex-col gap-4 bg-background shadow-lg ease-panel data-[state=closed]:animate-out data-[state=closed]:duration-200 data-[state=open]:animate-in data-[state=open]:duration-300",
           side === "right" &&
             "inset-y-0 right-0 h-full w-3/4 border-l data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right sm:max-w-sm",
           side === "left" &&

@@ -1,3 +1,4 @@
+using ClinicManagement.Domain.Common;
 using ClinicManagement.Domain.Entities;
 
 namespace ClinicManagement.Domain.Repositories;
@@ -103,11 +104,24 @@ public interface IPatientRepository
     /// method already carries one optional filter, and a near-duplicate read is how two list queries drift.
     /// </param>
     /// <param name="createdTo">Inclusive upper bound on <c>CreatedAt</c>.</param>
-    Task<IEnumerable<Patient>> GetByClinicIdAsync(
+    /// <param name="searchTerm">
+    /// Free-text filter over first name, last name, « prénom nom » and phone, matched case- and
+    /// accent-insensitively <b>in SQL</b>. It moved here from the handler when the list was paginated: an
+    /// in-memory filter can only see the rows already fetched, which before paging happened to be all of them
+    /// and now is one page — so the same code would answer « aucun patient » for anyone not on it.
+    /// </param>
+    /// <param name="paging">
+    /// The page to return, or <c>null</c> for every matching row. Unbounded is a real case here — the header
+    /// search, the patient pickers and the AI dispatcher all need the full set.
+    /// </param>
+    Task<PagedResult<Patient>> GetByClinicIdAsync(
         Guid clinicId,
         bool includeArchived = false,
         DateTime? createdFrom = null,
         DateTime? createdTo = null,
+        string? searchTerm = null,
+        bool flaggedOnly = false,
+        PageRequest? paging = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

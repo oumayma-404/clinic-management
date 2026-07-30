@@ -403,7 +403,7 @@ export function InvoiceDetailModal({ open, onOpenChange, invoiceId, onChanged }:
                 {invoice.creditedTotal > 0 && (
                   <div className="flex justify-between">
                     <dt className="text-muted-foreground">Remboursé (avoirs)</dt>
-                    <dd className="font-medium text-blue-700 dark:text-blue-400">
+                    <dd className="font-medium text-primary">
                       −{formatDT(invoice.creditedTotal)}
                     </dd>
                   </div>

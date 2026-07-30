@@ -90,9 +90,13 @@ export default function AppointmentsPage() {
   }, [])
 
   // Real-time: when another client of this clinic creates/edits/cancels an appointment, the server
-  // broadcasts entityChanged("appointments") and we refetch by bumping refreshKey (the calendar
-  // remounts and reloads) — same refresh path as a local create/edit. Additive: if the hub is down,
-  // manual refresh still works (AC-5).
+  // broadcasts entityChanged("appointments") and we bump `refreshKey`, which reaches the calendar as its
+  // `reloadToken` prop and refetches the current window IN PLACE.
+  //
+  // It used to arrive as `key={refreshKey}`, i.e. a remount: the calendar lost its scroll position, re-read
+  // the clinic's working hours and flashed empty. Because this same handler is wired to the realtime hub, a
+  // colleague booking a patient at reception blanked and re-scrolled the dentist's open agenda. Additive: if
+  // the hub is down, manual refresh still works (AC-5).
   useClinicRealtime(RealtimeResource.Appointments, handleAppointmentUpdated)
 
   // Check Google Calendar status on mount and after authorization
@@ -349,7 +353,7 @@ export default function AppointmentsPage() {
 
               <TabsContent value="day" className="flex-1 min-h-0 mt-0">
                 <AppointmentCalendar
-                  key={refreshKey}
+                  reloadToken={refreshKey}
                   view="day"
                   selectedDate={selectedDate}
                   onDateChange={setSelectedDate}
@@ -366,7 +370,7 @@ export default function AppointmentsPage() {
 
               <TabsContent value="week" className="flex-1 min-h-0 mt-0">
                 <AppointmentCalendar
-                  key={refreshKey}
+                  reloadToken={refreshKey}
                   view="week"
                   selectedDate={selectedDate}
                   onDateChange={setSelectedDate}
@@ -383,7 +387,7 @@ export default function AppointmentsPage() {
 
               <TabsContent value="month" className="flex-1 min-h-0 mt-0">
                 <AppointmentCalendar
-                  key={refreshKey}
+                  reloadToken={refreshKey}
                   view="month"
                   selectedDate={selectedDate}
                   onDateChange={setSelectedDate}

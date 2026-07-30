@@ -1,3 +1,5 @@
+using ClinicManagement.UnitTests.Common;
+using ClinicManagement.Domain.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Features.Recall.Queries;
@@ -118,7 +120,7 @@ public class RecallQueryBoundsTests
         var result = await Handler().Handle(new GetPatientsToRecallQuery(), CancellationToken.None);
 
         Assert.True(result.IsSuccess);
-        Assert.Empty(result.Value!);
+        Assert.Empty(result.Value!.Items);
     }
 
     // ---- The bound handed to SQL ------------------------------------------------------------------------
@@ -167,6 +169,7 @@ public class RecallQueryBoundsTests
         _patients.Verify(
             r => r.GetByClinicIdAsync(
                 It.IsAny<Guid>(), It.IsAny<bool>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(),
+                It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<PageRequest?>(),
                 It.IsAny<CancellationToken>()),
             Times.Never);
         _patients.Verify(r => r.GetAllAsync(It.IsAny<CancellationToken>()), Times.Never);
@@ -190,7 +193,7 @@ public class RecallQueryBoundsTests
         var result = await Handler().Handle(new GetPatientsToRecallQuery(), CancellationToken.None);
 
         Assert.True(result.IsSuccess);
-        var rows = result.Value!.ToList();
+        var rows = result.Value!.Items.ToList();
         Assert.Equal(2, rows.Count);
 
         var seen = rows.Single(r => r.PatientName.EndsWith("Vu", StringComparison.Ordinal) && r.LastVisitDate != null);
@@ -215,7 +218,7 @@ public class RecallQueryBoundsTests
 
         var result = await Handler().Handle(new GetPatientsToRecallQuery(), CancellationToken.None);
 
-        var rows = result.Value!.ToList();
+        var rows = result.Value!.Items.ToList();
         Assert.Equal("Jean TresEnRetard", rows[0].PatientName);
         Assert.Equal("Jean Recent", rows[1].PatientName);
     }

@@ -97,7 +97,9 @@ public class ChangeUserRoleCommandHandler : IRequestHandler<ChangeUserRoleComman
                 && role != User.RoleAdmin;
             if (demotingSelf)
             {
-                var clinicUsers = await _userRepository.GetByClinicIdAsync(admin.ClinicId, cancellationToken);
+                // Unpaged: the guard below asks whether ANY other active admin exists, which a page cannot answer.
+                var clinicUsers = (await _userRepository.GetByClinicIdAsync(
+                    admin.ClinicId, cancellationToken: cancellationToken)).Items;
                 var otherActiveAdmins = clinicUsers.Count(u =>
                     u.IsAdmin()
                     && u.IsActive

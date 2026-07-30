@@ -64,7 +64,7 @@ public class GetClinicReminderStatusQueryHandler
             var take = Math.Clamp(request.Take, 1, GetClinicReminderStatusQuery.MaxTake);
             var rows = await _notificationRepository.GetRecentByClinicIdAsync(user.ClinicId, take, cancellationToken);
 
-            var dtos = rows.Select(ToDto).ToList();
+            var dtos = rows.Select(ReminderStatusMapper.ToDto).ToList();
             return Result<IReadOnlyList<ReminderStatusDto>>.Success(dtos);
         }
         catch (Exception ex) when (ex is not ConflictException)
@@ -75,36 +75,4 @@ public class GetClinicReminderStatusQueryHandler
         }
     }
 
-    private static ReminderStatusDto ToDto(Notification n) => new()
-    {
-        Id = n.Id,
-        Channel = n.Type.ToString(),
-        RecipientMasked = MaskRecipient(n.Patient?.PhoneNumber?.Value),
-        // AC-P3.9 — the name, so a failed row names someone; the phone above stays masked (AC-P3.10).
-        PatientName = n.Patient == null ? null : n.Patient.GetFullName(),
-        AppointmentAt = n.Appointment?.AppointmentDateTime,
-        IsRecall = n.AppointmentId == null,
-        Status = n.Status switch
-        {
-            NotificationStatus.Sent => ReminderDeliveryStatus.Sent,
-            NotificationStatus.Failed => ReminderDeliveryStatus.Failed,
-            _ => ReminderDeliveryStatus.Pending,
-        },
-        FailureReason = string.IsNullOrWhiteSpace(n.ErrorMessage) ? null : n.ErrorMessage,
-        ScheduledAt = n.ScheduledFor,
-        SentAt = n.SentAt,
-    };
-
-    // Display-only PII mask (distinct from ReminderPhone.Mask, which lives in Infrastructure): show only the
-    // last 2 digits, e.g. "•••• 56". Returns a French placeholder when the patient has no number.
-    private static string MaskRecipient(string? phone)
-    {
-        if (string.IsNullOrWhiteSpace(phone))
-        {
-            return "(aucun numéro)";
-        }
-
-        var trimmed = phone.Trim();
-        return trimmed.Length <= 2 ? "••" : "••••" + trimmed[^2..];
-    }
 }

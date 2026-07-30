@@ -5,6 +5,8 @@ using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Expenses.Commands;
 using ClinicManagement.Application.Features.Expenses.Queries;
 
+using ClinicManagement.Domain.Common;
+
 namespace ClinicManagement.API.Controllers;
 
 /// <summary>
@@ -24,10 +26,28 @@ public class ExpensesController : ApiControllerBase
     }
 
     /// <summary>List the clinic's expenses, optionally within a [from, to) date range (newest first).</summary>
+    /// <param name="page">1-based page number. Omit both paging parameters to get every match.</param>
+    /// <param name="pageSize">Rows per page, clamped to <c>PageRequest.MaxPageSize</c>.</param>
+    /// <param name="search">
+    /// Free-text filter. Applied in SQL <b>before</b> the page is cut, so it searches the whole clinic — a
+    /// search that only saw the current page would answer a different question from the one that was typed.
+    /// </param>
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<ExpenseDto>>> GetExpenses([FromQuery] DateTime? from = null, [FromQuery] DateTime? to = null)
+    public async Task<ActionResult<PagedResult<ExpenseDto>>> GetExpenses(
+        [FromQuery] DateTime? from = null,
+        [FromQuery] DateTime? to = null,
+        [FromQuery] int? page = null,
+        [FromQuery] int? pageSize = null,
+        [FromQuery] string? search = null)
     {
-        var result = await _mediator.Send(new GetExpensesQuery { From = from, To = to });
+        var result = await _mediator.Send(new GetExpensesQuery
+        {
+            From = from,
+            To = to,
+            Page = page,
+            PageSize = pageSize,
+            SearchTerm = search
+        });
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
     }
 

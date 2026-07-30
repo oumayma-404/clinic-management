@@ -6,6 +6,8 @@ using ClinicManagement.Application.Common.Authorization;
 using ClinicManagement.Application.Features.Invoices.Commands;
 using ClinicManagement.Application.Features.Invoices.Queries;
 
+using ClinicManagement.Domain.Common;
+
 namespace ClinicManagement.API.Controllers;
 
 /// <summary>
@@ -25,15 +27,32 @@ public class InvoicesController : ApiControllerBase
     }
 
     /// <summary>List invoices (Recettes), filtered by period / patient / status.</summary>
+    /// <param name="page">1-based page number. Omit both paging parameters to get every match.</param>
+    /// <param name="pageSize">Rows per page, clamped to <c>PageRequest.MaxPageSize</c>.</param>
+    /// <param name="search">
+    /// Free-text filter, applied in SQL <b>before</b> the page is cut so it spans the whole clinic.
+    /// </param>
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<InvoiceDto>>> GetInvoices(
+    public async Task<ActionResult<PagedResult<InvoiceDto>>> GetInvoices(
         [FromQuery] DateTime? from,
         [FromQuery] DateTime? to,
         [FromQuery] Guid? patientId,
         [FromQuery] string? status,
+        [FromQuery] int? page = null,
+        [FromQuery] int? pageSize = null,
+        [FromQuery] string? search = null,
         CancellationToken cancellationToken = default)
     {
-        var query = new GetInvoicesQuery { From = from, To = to, PatientId = patientId, Status = status };
+        var query = new GetInvoicesQuery
+        {
+            From = from,
+            To = to,
+            PatientId = patientId,
+            Status = status,
+            Page = page,
+            PageSize = pageSize,
+            SearchTerm = search
+        };
         var result = await _mediator.Send(query, cancellationToken);
 
         if (result.IsFailure)

@@ -85,6 +85,21 @@ public static class AppointmentScheduling
             && Overlaps(existing.AppointmentDateTime, existing.Duration, start, duration));
     }
 
+    /// <summary>
+    /// Machine-readable tag on the collision refusal, so a client can offer « Continuer quand même » and retry with
+    /// <c>AllowOverlap</c> instead of treating it as a dead end — exactly as
+    /// <see cref="OutsideWorkingHoursCode"/> already does for the working-hours rule.
+    ///
+    /// <para>A double-booking is <b>advisory, not a prohibition</b>: a second chair, an assistant preparing one
+    /// patient while the dentist starts another, an emergency squeezed into a taken slot. The old behaviour refused
+    /// outright, which made the software describe a day the practice was not having.</para>
+    ///
+    /// <para>A code rather than the French message, for the same reason as the working-hours one: the message names
+    /// the colliding window and is reworded freely, so matching on its text would turn the confirm dialog back into
+    /// a hard block the first time somebody edits a sentence.</para>
+    /// </summary>
+    public const string SlotTakenCode = "slot_taken";
+
     /// <summary>The French refusal for a collision (AC-P1.14).</summary>
     public static string SlotTakenMessage(Appointment collision) =>
         $"Ce créneau est déjà réservé pour ce praticien "
@@ -92,11 +107,28 @@ public static class AppointmentScheduling
         + $"–{ClinicClock.ToClinicLocal(collision.AppointmentDateTime + collision.Duration):HH\\:mm}).";
 
     /// <summary>
+    /// Machine-readable tag on the working-hours refusal, so a client can offer « Continuer quand même » and
+    /// retry with <c>AllowOutsideWorkingHours</c> instead of treating it as a dead end.
+    ///
+    /// <para>Out-of-hours is <b>advisory, not a prohibition</b>: clinics genuinely see patients outside their
+    /// posted hours (an emergency, a favour, a Saturday morning that is not in the settings yet). The override has
+    /// existed on all three commands since the rule shipped, and <c>Appointment.MarkBookedOutsideWorkingHours</c>
+    /// records that it was a deliberate exception — but no client ever sent the flag, so in practice the check
+    /// read as a hard block. This code is what lets the UI complete that half-built path.</para>
+    ///
+    /// <para>A code rather than the French message, because the message names the practitioner and the closed
+    /// period and is reworded freely; matching on it would make the confirm dialog silently revert to a hard block
+    /// the first time somebody edits a sentence in <c>WorkingHoursResolver</c>.</para>
+    /// </summary>
+    public const string OutsideWorkingHoursCode = "outside_working_hours";
+
+    /// <summary>
     /// Check the candidate window against the practitioner's resolved working hours (AC-P1.28).
     /// <para>
     /// Returns success when nothing is configured anywhere — a clinic that has never opened the settings screen
     /// is unaffected, which is <b>R-12</b>'s safety valve. When it does refuse, the caller may still proceed by
-    /// recording an explicit override (AC-P1.31), which is why this returns a reason rather than throwing.
+    /// recording an explicit override (AC-P1.31), which is why this returns a reason rather than throwing — and
+    /// why the failure carries <see cref="OutsideWorkingHoursCode"/>, so the client can offer that override.
     /// </para>
     /// </summary>
     public static async Task<Result<bool>> CheckWorkingHoursAsync(
@@ -128,7 +160,8 @@ public static class AppointmentScheduling
             return Result<bool>.Success(true);
         }
 
-        // The message names the practitioner and the closed period, per AC-P1.28.
-        return Result<bool>.Failure($"{practitioner} : {reason}");
+        // The message names the practitioner and the closed period, per AC-P1.28. The code is what makes the
+        // refusal actionable rather than terminal — see OutsideWorkingHoursCode.
+        return Result<bool>.Failure($"{practitioner} : {reason}", OutsideWorkingHoursCode);
     }
 }

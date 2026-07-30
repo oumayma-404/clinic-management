@@ -1,3 +1,5 @@
+using ClinicManagement.UnitTests.Common;
+using ClinicManagement.Domain.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Features.ProcedureTypes.Commands;
@@ -122,7 +124,8 @@ public class ProcedureTypeTenantIsolationTests
         Authenticated();
         var own = ProcedureType(ClinicId);
         var foreign = ProcedureType(OtherClinicId);
-        _procedures.Setup(r => r.GetActiveAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new[] { own, foreign });
+        _procedures.Setup(r => r.GetFilteredAsync(It.IsAny<Guid>(), It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<PageRequest?>(),
+            It.IsAny<CancellationToken>())).ReturnsAsync(new[] { own, foreign }.AsPage());
 
         var handler = new GetProcedureTypesQueryHandler(
             _procedures.Object, _clinicResolver.Object, NullLogger<GetProcedureTypesQueryHandler>.Instance);
@@ -130,7 +133,7 @@ public class ProcedureTypeTenantIsolationTests
         var result = await handler.Handle(new GetProcedureTypesQuery(), CancellationToken.None);
 
         Assert.True(result.IsSuccess);
-        var dto = Assert.Single(result.Value!);
+        var dto = Assert.Single(result.Value!.Items);
         Assert.Equal(own.Id, dto.Id);
     }
 }

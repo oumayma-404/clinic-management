@@ -8,6 +8,7 @@ import { DashboardHeader } from "@/components/dashboard-header"
 import { DashboardSidebar } from "@/components/dashboard-sidebar"
 import { ClinicGuard } from "@/components/clinic-guard"
 import { HonorairesLauncher } from "@/components/documents/honoraires-launcher"
+import { PageHeader } from "@/components/ui/page-header"
 
 const documentTemplates = [
   {
@@ -15,40 +16,40 @@ const documentTemplates = [
     title: "Ordonnance",
     description: "Prescription médicale pour traitement dentaire et médicaments",
     icon: FileText,
-    color: "text-blue-600 dark:text-blue-400",
-    bgColor: "bg-gradient-to-br from-blue-500 to-blue-600",
+    color: "text-chart-1",
+    tile: "bg-chart-1/12 text-chart-1",
   },
   {
     type: "liaison",
     title: "Lettre de liaison",
     description: "Courrier médical de liaison vers un confrère ou spécialiste",
     icon: Mail,
-    color: "text-green-600 dark:text-green-400",
-    bgColor: "bg-gradient-to-br from-green-500 to-green-600",
+    color: "text-chart-5",
+    tile: "bg-chart-5/12 text-chart-5",
   },
   {
     type: "honoraires",
     title: "Note d'honoraires",
     description: "Facture détaillée des soins et traitements dentaires",
     icon: FileBarChart,
-    color: "text-amber-600 dark:text-amber-400",
-    bgColor: "bg-gradient-to-br from-amber-500 to-amber-600",
+    color: "text-chart-4",
+    tile: "bg-chart-4/12 text-chart-4",
   },
   {
     type: "certificat",
     title: "Certificat médical",
     description: "Certificat d'arrêt de travail ou justificatif médical",
     icon: Shield,
-    color: "text-purple-600 dark:text-purple-400",
-    bgColor: "bg-gradient-to-br from-purple-500 to-purple-600",
+    color: "text-chart-3",
+    tile: "bg-chart-3/12 text-chart-3",
   },
   {
     type: "bulletin-cnam",
     title: "Bulletin de soins CNAM",
     description: "Bulletin de remboursement des frais de soins (BS1) à déposer à la CNAM",
     icon: FileText,
-    color: "text-rose-600 dark:text-rose-400",
-    bgColor: "bg-gradient-to-br from-rose-500 to-rose-600",
+    color: "text-chart-2",
+    tile: "bg-chart-2/12 text-chart-2",
   },
 ]
 
@@ -77,20 +78,11 @@ export default function DocumentsPage() {
           <DashboardHeader />
           <main className="flex-1 overflow-y-auto p-4 md:p-6">
           <div className="mx-auto max-w-7xl space-y-6">
-        {/* Header */}
-        <div className="text-center space-y-4 mb-12">
-          <div className="inline-block">
-            <div className="w-16 h-16 mx-auto bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center shadow-lg mb-4">
-              <FileText className="w-8 h-8 text-white" />
-            </div>
-          </div>
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-blue-800 bg-clip-text text-transparent">
-            Documents médicaux
-          </h1>
-          <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-            Créez et gérez vos documents professionnels à partir de modèles prédéfinis
-          </p>
-        </div>
+        <PageHeader
+          zone="Clinique"
+          title="Documents médicaux"
+          subtitle="Cinq modèles — ordonnance, liaison, honoraires, certificat, bulletin CNAM."
+        />
 
         {/* Template Grid. AC-P3.38 — every clickable Card is keyboard-operable: it is the click target, so
             it has to be a tab stop with Enter/Space and a visible focus ring, not a mouse-only div. */}
@@ -105,7 +97,16 @@ export default function DocumentsPage() {
                 role="button"
                 tabIndex={0}
                 aria-label={`Créer : ${template.title}`}
-                className="group cursor-pointer transition-all duration-300 hover:shadow-xl hover:scale-105 hover:ring-2 hover:ring-blue-200 dark:hover:ring-blue-800 overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                /*
+                 * Hover effects are gated behind `hover-hover:` (pointer: fine). A touch tap fires `:hover`
+                 * and *leaves it applied* until the next tap elsewhere, so on a tablet — which is what a
+                 * dentist actually holds at the chair — these cards stayed scaled-up and ringed after being
+                 * tapped, which reads as a stuck selection. Named properties instead of `transition-all`, and
+                 * 200 ms `ease-snap` instead of 300 ms linear-ish: a hover is the fastest feedback loop in
+                 * the UI and 300 ms is above the ceiling for one. `active:scale-[0.99]` gives the press the
+                 * same acknowledgement the Button now has, since this Card *is* a button.
+                 */
+                className="group cursor-pointer overflow-hidden transition-[transform,box-shadow] duration-200 ease-snap hover-hover:hover:scale-[1.03] hover-hover:hover:shadow-xl hover-hover:hover:ring-2 hover-hover:hover:ring-primary/25 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 onClick={open}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === " ") {
@@ -116,22 +117,24 @@ export default function DocumentsPage() {
               >
                 <div className="p-6 space-y-4 flex flex-col h-full">
                   {/* Icon */}
+                  {/* A tinted tile in the type's own categorical hue, replacing a gradient with a white glyph:
+                      the tile identifies the document, it is not a piece of branding. */}
                   <div
-                    className={`${template.bgColor} w-12 h-12 rounded-lg flex items-center justify-center shadow-md transition-transform group-hover:scale-110`}
+                    className={`${template.tile} flex size-12 items-center justify-center rounded-lg transition-transform duration-200 ease-snap hover-hover:group-hover:scale-110`}
                   >
-                    <Icon className="w-6 h-6 text-white" />
+                    <Icon className="size-6" />
                   </div>
 
                   {/* Content */}
                   <div className="space-y-2 flex-grow">
-                    <h3 className="text-lg font-bold text-foreground group-hover:text-blue-600 transition-colors">
+                    <h3 className="text-base font-semibold text-foreground transition-colors group-hover:text-primary">
                       {template.title}
                     </h3>
                     <p className="text-sm text-muted-foreground leading-snug">{template.description}</p>
                   </div>
 
                   {/* Arrow indicator */}
-                  <div className="flex items-center text-xs font-medium text-blue-600 dark:text-blue-400 group-hover:translate-x-1 transition-transform pt-2">
+                  <div className="flex items-center pt-2 text-xs font-medium text-primary transition-transform duration-200 ease-snap hover-hover:group-hover:translate-x-1">
                     <span>Créer</span>
                     <svg className="w-4 h-4 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />

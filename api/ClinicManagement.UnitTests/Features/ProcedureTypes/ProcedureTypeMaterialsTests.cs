@@ -1,3 +1,5 @@
+using ClinicManagement.UnitTests.Common;
+using ClinicManagement.Domain.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Features.ProcedureTypes.Commands;
@@ -40,8 +42,9 @@ public class ProcedureTypeMaterialsTests
             .ReturnsAsync(Result<Guid>.Success(ClinicId));
 
     private void StockIs(params StockItem[] items) =>
-        _stock.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<bool>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(items);
+        _stock.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<DateTime?>(), It.IsAny<PageRequest?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((items).AsPage());
 
     // [AC-P4.14] The happy path: the list is stored against the act and echoed back on the DTO, which is what
     // lets the editor reopen showing what was saved.

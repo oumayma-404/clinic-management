@@ -84,9 +84,10 @@ public class GetAppointmentQueryHandler : IRequestHandler<GetAppointmentQuery, R
                     : DateTime.SpecifyKind(appointment.CreatedAt, DateTimeKind.Utc),
                 Version = appointment.Version,
                 ProcedureTypeId = appointment.ProcedureTypeId,
-                ProcedureTypeName = appointment.ProcedureType?.Name,
+                ProcedureTypeName = appointment.LeadProcedureName(),
                 // Use current procedure type color if available, otherwise use stored color
                 ProcedureColorHex = appointment.ProcedureType?.Color.Value ?? appointment.ProcedureColorHex,
+                Procedures = appointment.ToProcedureDtos(),
                 TreatmentPlanItemId = appointment.TreatmentPlanItemId,
                 InvoiceId = invoiceLinks.GetValueOrDefault(appointment.Id)?.InvoiceId,
                 InvoiceNumber = invoiceLinks.GetValueOrDefault(appointment.Id)?.Number,

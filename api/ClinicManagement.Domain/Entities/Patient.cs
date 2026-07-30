@@ -1,4 +1,5 @@
 using ClinicManagement.Domain.Common;
+using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.ValueObjects;
 
 namespace ClinicManagement.Domain.Entities;
@@ -10,6 +11,12 @@ public class Patient : AggregateRoot<Guid>
     public string LastName { get; private set; }
     public DateTime DateOfBirth { get; private set; }
     public string Gender { get; private set; }
+
+    /// <summary>
+    /// Which set of teeth this patient is charted on. Asked once here instead of three times in the UI — see
+    /// <see cref="DentitionType"/> for why it has only two values and what that costs.
+    /// </summary>
+    public DentitionType Dentition { get; private set; } = DentitionType.Adult;
     /// <summary>
     /// Optional. A walk-in with no e-mail is an ordinary patient, not a data-quality problem — the app used to
     /// require both and manufactured <c>noemail@example.com</c> / <c>0000000000</c> to satisfy itself, which
@@ -25,6 +32,30 @@ public class Patient : AggregateRoot<Guid>
     public string? Allergies { get; private set; }
     public string? EmergencyContactName { get; private set; }
     public PhoneNumber? EmergencyContactPhone { get; private set; }
+
+    /// <summary>
+    /// Who referred this patient — « adressé par ». Optional, and free text on purpose: the referrer is normally a
+    /// practitioner *outside* this clinic, so there is nothing in the model to link to and an FK to
+    /// <see cref="Doctor"/> could not record the ordinary case at all.
+    /// </summary>
+    public string? ReferredBy { get; private set; }
+
+    /// <summary>
+    /// Free-standing notes about the patient themselves — what the dentist wants to be reminded of on every visit,
+    /// as opposed to a <see cref="DentalRecord"/>'s notes, which describe one séance.
+    ///
+    /// <para>
+    /// Deliberately free text like <see cref="MedicalHistory"/> and <see cref="Allergies"/> rather than a child
+    /// collection: these are read as a paragraph, never filtered, sorted or counted, and a table would buy nothing
+    /// but a second write path. <see cref="ImportantNotes"/> is the same field with a different weight — it is
+    /// rendered highlighted at the top of the patient's file, so it must be separately storable rather than a
+    /// convention inside one blob.
+    /// </para>
+    /// </summary>
+    public string? Notes { get; private set; }
+
+    /// <inheritdoc cref="Notes"/>
+    public string? ImportantNotes { get; private set; }
 
     // Patient recall / relance (clinical-workflow-depth). The next-due date is derived on read from the last
     // completed visit + the clinic recall interval, so these fields hold only the optional per-patient overrides:
@@ -150,6 +181,41 @@ public class Patient : AggregateRoot<Guid>
     {
         EmergencyContactName = name;
         EmergencyContactPhone = phone;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Set which teeth this patient is charted on.
+    ///
+    /// <para>
+    /// Editable rather than write-once on purpose: it is the *only* escape hatch for the mixed-dentition gap
+    /// documented on <see cref="DentitionType"/>. A child charted on baby teeth must be switchable to
+    /// <see cref="DentitionType.Adult"/> the day a permanent tooth needs recording, and nothing about already-stored
+    /// records changes when they are — each stored tooth is still classified by its own FDI range.
+    /// </para>
+    /// </summary>
+    public void SetDentition(DentitionType dentition)
+    {
+        Dentition = dentition;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>Set (or clear, when blank) who referred the patient. Its own method, like the two above, so a
+    /// caller can change it without re-sending name, birth date, gender and address.</summary>
+    public void SetReferredBy(string? referredBy)
+    {
+        ReferredBy = string.IsNullOrWhiteSpace(referredBy) ? null : referredBy.Trim();
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Set (or clear, when blank) the patient-level notes. Both are resolved by the caller, so each can be cleared
+    /// independently — the pair travels together because they are edited together in one form section.
+    /// </summary>
+    public void UpdateNotes(string? notes, string? importantNotes)
+    {
+        Notes = string.IsNullOrWhiteSpace(notes) ? null : notes.Trim();
+        ImportantNotes = string.IsNullOrWhiteSpace(importantNotes) ? null : importantNotes.Trim();
         UpdatedAt = DateTime.UtcNow;
     }
 

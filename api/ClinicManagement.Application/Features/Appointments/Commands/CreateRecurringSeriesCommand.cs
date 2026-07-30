@@ -115,8 +115,14 @@ public class CreateRecurringSeriesCommandHandler : IRequestHandler<CreateRecurri
                     return Result<RecurringSeriesResultDto>.Failure("Praticien introuvable.");
             }
 
-            int? procedureDurationMinutes = null;
-            string? procedureColorHex = null;
+            // The series' act, resolved once and applied to every occurrence through `SetProcedures` below.
+            //
+            // A series carries **one** act, deliberately: it repeats the same appointment, and « ces trois actes
+            // ensemble » is a decision about one visit, not a pattern. What matters here is that each occurrence
+            // gets a real `AppointmentProcedures` row rather than only the derived scalars — the agenda badge, the
+            // fiche de soins proposal and the edit dialog all read the list now, and an occurrence with scalars
+            // but no row would read as a visit with no act.
+            var seriesProcedures = new List<AppointmentProcedureInput>();
             var durationMinutes = request.DurationMinutes;
             if (request.ProcedureTypeId.HasValue)
             {
@@ -125,8 +131,12 @@ public class CreateRecurringSeriesCommandHandler : IRequestHandler<CreateRecurri
                     return Result<RecurringSeriesResultDto>.Failure("Type d'acte introuvable.");
                 if (!procedureType.IsActive)
                     return Result<RecurringSeriesResultDto>.Failure("Le type d'acte sélectionné est inactif.");
-                procedureDurationMinutes = procedureType.DefaultDurationMinutes;
-                procedureColorHex = procedureType.Color.Value;
+                seriesProcedures.Add(new AppointmentProcedureInput(
+                    procedureType.Id,
+                    procedureType.Name,
+                    procedureType.DefaultDurationMinutes,
+                    procedureType.Color.Value,
+                    null));
                 if (durationMinutes <= 0)
                     durationMinutes = procedureType.DefaultDurationMinutes;
             }
@@ -230,7 +240,10 @@ public class CreateRecurringSeriesCommandHandler : IRequestHandler<CreateRecurri
                 var appointment = new Appointment(
                     Guid.NewGuid(), clinicId, patient.Id, request.DoctorId, occ, duration,
                     request.DoctorName, request.Notes, series.Id,
-                    request.ProcedureTypeId, procedureDurationMinutes, procedureColorHex, null);
+                    // The act is applied below; the constructor's snapshot arguments are left null so the list
+                    // stays the single authority and the two cannot drift.
+                    null, null, null, null);
+                appointment.SetProcedures(seriesProcedures);
                 if (request.AllowOutsideWorkingHours)
                 {
                     appointment.MarkBookedOutsideWorkingHours();

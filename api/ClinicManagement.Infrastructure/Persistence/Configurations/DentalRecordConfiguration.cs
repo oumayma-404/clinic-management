@@ -60,6 +60,18 @@ public class DentalRecordConfiguration : IEntityTypeConfiguration<DentalRecord>
         builder.Property(dr => dr.IsAdultTeeth)
             .IsRequired();
 
+        // The appointment this fiche documents. Column + index have existed since AddDentalRecordAppointmentId
+        // (2026-07-17); only the model never declared them, so nothing populated the column and the next
+        // `migrations add` would have emitted DropColumn for it.
+        //
+        // Mapped as a bare property with a bare index and deliberately NO `HasOne`/`HasForeignKey`: PostgreSQL has no
+        // FK constraint here (verified against pg_constraint), and declaring a relationship would make the model
+        // claim one the catalog does not have — drift in the opposite direction, which `verify-schema` would flag.
+        // A soft link is also the right semantics: deleting an appointment must not cascade into clinical records.
+        builder.Property(dr => dr.AppointmentId);
+
+        builder.HasIndex(dr => dr.AppointmentId);
+
         builder.Property(dr => dr.CreatedAt)
             .IsRequired();
 

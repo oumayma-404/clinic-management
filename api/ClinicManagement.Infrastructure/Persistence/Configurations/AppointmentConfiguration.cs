@@ -85,6 +85,15 @@ public class AppointmentConfiguration : IEntityTypeConfiguration<Appointment>
             .OnDelete(DeleteBehavior.SetNull);
 
         builder.HasIndex(a => a.DoctorId);
+
+        // A séance is several acts (« détartrage + deux obturations » is one visit). Cascade because the rows are
+        // aggregate children with no meaning outside their appointment — nothing else points at them.
+        builder.HasMany(a => a.Procedures)
+            .WithOne()
+            .HasForeignKey(p => p.AppointmentId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        builder.Navigation(a => a.Procedures).UsePropertyAccessMode(PropertyAccessMode.Field);
     }
 }
 

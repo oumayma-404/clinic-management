@@ -73,7 +73,7 @@ public class StockExpiryJob
             return;
         }
 
-        var items = await _stockItemRepository.GetByClinicIdAsync(clinic.Id);
+        var items = (await _stockItemRepository.GetByClinicIdAsync(clinic.Id)).Items;
 
         foreach (var item in items)
         {

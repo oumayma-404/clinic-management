@@ -1,5 +1,6 @@
 import { apiGet, apiPost, apiPut, apiDelete } from './client';
 import type { LabWorkOrderDto } from './types';
+import { unwrapPaged, type PagedResponse, type PageParams } from './paging';
 
 export interface LabWorkOrderPayload {
   patientId: string;
@@ -16,7 +17,13 @@ export const labOrdersApi = {
   // Clinic-wide, or per patient when patientId is provided.
   /** `status` narrows to one stage (Sent / InProgress / Received / Fitted); an unknown value is ignored server-side. */
   list: async (patientId?: string, status?: string): Promise<LabWorkOrderDto[]> =>
-    apiGet<LabWorkOrderDto[]>('/lab-orders', { patientId, status }),
+    unwrapPaged(await apiGet<PagedResponse<LabWorkOrderDto>>('/lab-orders', { patientId, status })),
+
+  /** One page of bons. `search` matches prothésiste / description / notes / patient server-side. */
+  listPaged: async (
+    params: PageParams & { patientId?: string; status?: string },
+  ): Promise<PagedResponse<LabWorkOrderDto>> =>
+    apiGet<PagedResponse<LabWorkOrderDto>>('/lab-orders', params),
 
   create: async (data: LabWorkOrderPayload): Promise<LabWorkOrderDto> =>
     apiPost<LabWorkOrderDto>('/lab-orders', data),

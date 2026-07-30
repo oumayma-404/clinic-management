@@ -5,6 +5,8 @@ using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Billing.Queries;
 using ClinicManagement.Application.Features.Invoices.Queries;
 
+using ClinicManagement.Domain.Common;
+
 namespace ClinicManagement.API.Controllers;
 
 /// <summary>
@@ -34,9 +36,18 @@ public class BillingController : ApiControllerBase
 
     /// <summary>The clinic-wide receivables list — patients with a positive balance, sorted by amount owed.</summary>
     [HttpGet("billing/receivables")]
-    public async Task<ActionResult<IEnumerable<ReceivableDto>>> GetReceivables(CancellationToken cancellationToken = default)
+    /// <param name="page">1-based page number. Omit both paging parameters to get every row.</param>
+    /// <param name="pageSize">Rows per page, clamped to <c>PageRequest.MaxPageSize</c>.</param>
+    /// <param name="search">Free-text filter on the patient's name, applied before the page is cut.</param>
+    public async Task<ActionResult<ReceivablesPageDto>> GetReceivables(
+        [FromQuery] int? page = null,
+        [FromQuery] int? pageSize = null,
+        [FromQuery] string? search = null,
+        CancellationToken cancellationToken = default)
     {
-        var result = await _mediator.Send(new GetReceivablesQuery(), cancellationToken);
+        var result = await _mediator.Send(
+            new GetReceivablesQuery { Page = page, PageSize = pageSize, SearchTerm = search },
+            cancellationToken);
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
     }
 
@@ -57,9 +68,32 @@ public class BillingController : ApiControllerBase
     /// the totals always describe the same period.
     /// </summary>
     [HttpGet("billing/caisse/ledger")]
-    public async Task<ActionResult<CaisseLedgerDto>> GetCaisseLedger([FromQuery] DateTime? from = null, [FromQuery] DateTime? to = null, CancellationToken cancellationToken = default)
+    /// <param name="page">1-based page over the movements. Omit both paging parameters for the whole window.</param>
+    /// <param name="pageSize">Movements per page, clamped to <c>PageRequest.MaxPageSize</c>.</param>
+    /// <param name="search">
+    /// Free-text filter over the movement label, patient, reference and method. ⚠️ Each row keeps the running
+    /// balance it had in the <b>unfiltered</b> window — « Solde de la période » is a fact about a movement's place
+    /// in the period, not about the filtered subset, and recomputing it over a filter would print a column that
+    /// sums to nothing.
+    /// </param>
+    public async Task<ActionResult<CaisseLedgerDto>> GetCaisseLedger(
+        [FromQuery] DateTime? from = null,
+        [FromQuery] DateTime? to = null,
+        [FromQuery] int? page = null,
+        [FromQuery] int? pageSize = null,
+        [FromQuery] string? search = null,
+        CancellationToken cancellationToken = default)
     {
-        var result = await _mediator.Send(new GetCaisseLedgerQuery { From = from, To = to }, cancellationToken);
+        var result = await _mediator.Send(
+            new GetCaisseLedgerQuery
+            {
+                From = from,
+                To = to,
+                Page = page,
+                PageSize = pageSize,
+                SearchTerm = search
+            },
+            cancellationToken);
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
     }
 

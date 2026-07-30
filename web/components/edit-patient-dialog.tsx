@@ -22,7 +22,7 @@ import { Badge } from "@/components/ui/badge"
 import { toast } from "sonner"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { useConflict } from "@/lib/hooks/use-conflict"
-import { User, Phone, Heart, CreditCard, Flag, Save, X, Plus, Trash2 } from "lucide-react"
+import { User, Phone, Heart, CreditCard, Flag, Save, X, Plus, Trash2, StickyNote, AlertTriangle } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { patientsApi } from "@/lib/api/patients"
 import { patientMedicalHistoryApi } from "@/lib/api/patient-medical-history"
@@ -31,6 +31,12 @@ import type { PatientDto, PatientMedicalHistoryDto, PatientFamilyHistoryDto } fr
 import { ApiError } from "@/lib/api/client"
 import { isDeliverablePhone, PHONE_ERROR_FR } from "@/lib/phone"
 import { SELECTABLE_GENDERS, genderLabel } from "@/components/appointment-labels"
+import {
+  DENTITIONS,
+  DENTITION_LABELS_FR,
+  dentitionFromBirthdate,
+  type Dentition,
+} from "@/lib/dentition"
 
 interface EditPatientDialogProps {
   open: boolean
@@ -46,6 +52,14 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
   const [lastName, setLastName] = useState("")
   const [gender, setGender] = useState("")
   const [birthdate, setBirthdate] = useState("")
+  /**
+   * Which teeth this patient is charted on. Defaulted from the birthdate, but only until the user decides for
+   * themselves — `dentitionTouched` is the same guard `create-appointment-dialog` uses for its duration: a derived
+   * default that keeps re-deriving would overwrite the dentist's deliberate choice the moment they corrected a typo
+   * in the date of birth.
+   */
+  const [dentition, setDentition] = useState<Dentition | null>(null)
+  const [dentitionTouched, setDentitionTouched] = useState(false)
   const [phone, setPhone] = useState("")
   const [email, setEmail] = useState("")
   const [addressStreet, setAddressStreet] = useState("")
@@ -54,6 +68,13 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
   const [addressPostalCode, setAddressPostalCode] = useState("")
   const [emergencyName, setEmergencyName] = useState("")
   const [emergencyPhone, setEmergencyPhone] = useState("")
+  // « Adressé par » — the referring practitioner. Optional, free text (usually a doctor outside this clinic).
+  const [referredBy, setReferredBy] = useState("")
+
+  // Patient-level notes. Distinct from a fiche de soins' notes, which describe one séance: these are what the
+  // dentist wants back in front of them on every visit, which is why the section leads the form.
+  const [patientNotes, setPatientNotes] = useState("")
+  const [patientImportantNotes, setPatientImportantNotes] = useState("")
 
   // Medical Info State
   const [chronicDiseases, setChronicDiseases] = useState("")
@@ -112,6 +133,9 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
       setLastName(patient.lastName || "")
       setGender(patient.gender || "")
       setBirthdate(patient.dateOfBirth ? patient.dateOfBirth.split('T')[0] : "")
+      // A stored patient already has an answer; treat it as the user's own so the age rule never overrides it.
+      setDentition((patient.dentition as Dentition) || null)
+      setDentitionTouched(true)
       setPhone(patient.phoneNumber || "")
       setEmail(patient.email || "")
       
@@ -131,6 +155,13 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
       // Emergency contact (finding #11)
       setEmergencyName(patient.emergencyContactName || "")
       setEmergencyPhone(patient.emergencyContactPhone || "")
+
+      // « Adressé par »
+      setReferredBy(patient.referredBy || "")
+
+      // Patient-level notes
+      setPatientNotes(patient.notes || "")
+      setPatientImportantNotes(patient.importantNotes || "")
 
       // Insurance info
       setInsuranceProvider(patient.insuranceInfo?.provider || "")
@@ -174,6 +205,8 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
         setLastName("")
         setGender("")
         setBirthdate("")
+        setDentition(null)
+        setDentitionTouched(false)
         setPhone("")
         setEmail("")
         setAddressStreet("")
@@ -182,6 +215,9 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
         setAddressPostalCode("")
         setEmergencyName("")
         setEmergencyPhone("")
+        setReferredBy("")
+        setPatientNotes("")
+        setPatientImportantNotes("")
         setChronicDiseases("")
         setAllergies("")
         setInsuranceProvider("")
@@ -197,6 +233,13 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
     conflict.reset()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [patient?.id, open])
+
+  // Pre-select the dentition from the birthdate until the user answers for themselves. Derived in an effect rather
+  // than inside the date's onChange so it also fires for a date typed, pasted or picked from the native calendar.
+  useEffect(() => {
+    if (dentitionTouched) return
+    setDentition(dentitionFromBirthdate(birthdate))
+  }, [birthdate, dentitionTouched])
 
   // Reset form when dialog closes
   useEffect(() => {
@@ -336,6 +379,11 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
       newErrors.birthdate = "La date de naissance est requise"
     }
 
+    // Required: it decides which chart every future séance is recorded on, and there is no neutral value.
+    if (!dentition) {
+      newErrors.dentition = "La denture est requise"
+    }
+
     // The phone is optional — a walk-in who does not give one is an ordinary patient. A NON-BLANK number is
     // still held to the reminder engine's rule, so anything accepted here can actually be delivered to.
     if (phone.trim() && !isDeliverablePhone(phone.trim())) {
@@ -384,6 +432,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
           firstName: firstName.trim(),
           lastName: lastName.trim(),
           gender,
+          dentition: dentition ?? undefined,
           dateOfBirth: birthdate,
           // Explicit null, not undefined: the command is tri-state, so undefined would be read as
           // "leave it alone" and clearing the box would silently do nothing.
@@ -395,6 +444,13 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
           address: addressObj,
           emergencyContactName: emergencyName.trim(),
           emergencyContactPhone: emergencyPhone.trim(),
+          // Always present (possibly ""), so emptying the box clears the stored value instead of
+          // reading as "leave it alone" — same reason as the two contact fields above.
+          referredBy: referredBy.trim(),
+          // Always present (possibly ""), so emptying either box clears it. Each is resolved independently
+          // server-side, so sending both is safe.
+          notes: patientNotes.trim(),
+          importantNotes: patientImportantNotes.trim(),
           medicalHistory: chronicDiseases.trim() || undefined,
           allergies: allergies.trim() || undefined,
           insuranceInfo: (insuranceProvider.trim() || insuranceNumber.trim()) ? {
@@ -489,6 +545,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
           lastName: lastName.trim(),
           dateOfBirth: birthdate || new Date().toISOString(),
           gender: gender || "Unknown",
+          dentition: dentition ?? undefined,
           email: email.trim() || null,
           phoneNumber: phone.trim() || null,
           medicalHistory: chronicDiseases.trim() || undefined,
@@ -496,6 +553,9 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
           address: addressObj,
           emergencyContactName: emergencyName.trim() || undefined,
           emergencyContactPhone: emergencyPhone.trim() || undefined,
+          referredBy: referredBy.trim() || undefined,
+          notes: patientNotes.trim() || undefined,
+          importantNotes: patientImportantNotes.trim() || undefined,
           insuranceInfo: (insuranceProvider.trim() || insuranceNumber.trim()) ? {
             provider: insuranceProvider.trim() || "Unknown",
             policyNumber: insuranceNumber.trim() || "Unknown",
@@ -575,6 +635,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
         <div className="overflow-y-auto max-h-[calc(90vh-200px)]">
           <form onSubmit={handleSave} className="p-6 space-y-6">
             <FormErrorBanner message={conflict.error} />
+
             {/* Personal Information Section */}
             <div className="space-y-4">
               <div className="flex items-center gap-2 pb-2">
@@ -655,6 +716,125 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                     className={cn(errors.birthdate && "border-destructive")}
                   />
                   {errors.birthdate && <p className="text-sm text-destructive">{errors.birthdate}</p>}
+                </div>
+
+                {/*
+                  Denture — asked once, here, because it is a property of the patient and not of a visit.
+
+                  It replaces two toggles that asked the same question about the same patient every time anyone opened
+                  the odontogram or the fiche editor, plus a per-fiche badge in the dossier dentaire. Pre-selected
+                  from the age so the common case is already right; changeable because the age rule is a heuristic
+                  and a growing child has to be switchable.
+                */}
+                <div className="space-y-2 md:col-span-2">
+                  <Label htmlFor="dentition-Child">
+                    Denture <span className="text-destructive">*</span>
+                  </Label>
+                  <div
+                    role="radiogroup"
+                    aria-label="Denture"
+                    className={cn(
+                      "flex flex-col gap-2 sm:flex-row",
+                      errors.dentition && "rounded-md ring-1 ring-destructive",
+                    )}
+                  >
+                    {DENTITIONS.map((value) => {
+                      const selected = dentition === value
+                      return (
+                        <button
+                          key={value}
+                          id={`dentition-${value}`}
+                          type="button"
+                          role="radio"
+                          aria-checked={selected}
+                          onClick={() => {
+                            setDentition(value)
+                            setDentitionTouched(true)
+                          }}
+                          className={cn(
+                            "flex-1 rounded-md border px-3 py-2 text-left text-sm transition-colors duration-150 ease-out motion-reduce:transition-none",
+                            selected
+                              ? "border-primary bg-primary/10 font-medium text-foreground"
+                              : "bg-background text-muted-foreground hover:bg-muted/60",
+                          )}
+                        >
+                          {DENTITION_LABELS_FR[value]}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  {errors.dentition ? (
+                    <p className="text-sm text-destructive">{errors.dentition}</p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      Détermine les dents affichées dans l&apos;odontogramme et les fiches de soins.
+                      {!dentitionTouched && dentition && " Proposé d'après l'âge."}
+                    </p>
+                  )}
+                </div>
+
+                {/* « Adressé par » — after the identity fields, not before them: it is a fact *about* the patient,
+                    and nothing should stand between opening this form and typing who the patient is. */}
+                <div className="space-y-2 md:col-span-2">
+                  <Label htmlFor="referredBy">
+                    Adressé par <span className="text-muted-foreground text-xs">(optionnel)</span>
+                  </Label>
+                  <Input
+                    id="referredBy"
+                    value={referredBy}
+                    onChange={(e) => setReferredBy(e.target.value)}
+                    placeholder="Dr Ben Salah, Sfax — laisser vide si le patient vient de lui-même"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/*
+              Notes: second section — apparent without displacing the patient's identity.
+
+              It sits directly after « Informations personnelles » because these are the two fields read on every
+              visit, and it used to sit last, below CNAM and insurance. « Notes importantes » carries the same amber
+              weight here as the widget that displays it on the patient's file, so the box you type into looks like
+              the box you will read.
+            */}
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 pb-2">
+                <StickyNote className="h-5 w-5 text-primary" />
+                <h3 className="text-lg font-semibold">Notes du patient</h3>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 p-4 rounded-lg border bg-muted/30">
+                <div className="space-y-2">
+                  <Label
+                    htmlFor="patientImportantNotes"
+                    className="flex items-center gap-1.5 text-amber-800 dark:text-amber-300"
+                  >
+                    <AlertTriangle className="h-4 w-4" />
+                    Notes importantes <span className="text-muted-foreground text-xs">(optionnel)</span>
+                  </Label>
+                  <Textarea
+                    id="patientImportantNotes"
+                    value={patientImportantNotes}
+                    onChange={(e) => setPatientImportantNotes(e.target.value)}
+                    placeholder="Ce qu'il faut voir avant chaque soin — ex. : sous anticoagulants, prémédication requise"
+                    className="min-h-[70px] resize-none border-amber-300 bg-amber-50/60 text-amber-950 placeholder:text-amber-700/60 focus-visible:ring-amber-500 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-50 dark:placeholder:text-amber-300/50"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Toujours visibles en haut du dossier du patient.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="patientNotes">
+                    Notes <span className="text-muted-foreground text-xs">(optionnel)</span>
+                  </Label>
+                  <Textarea
+                    id="patientNotes"
+                    value={patientNotes}
+                    onChange={(e) => setPatientNotes(e.target.value)}
+                    placeholder="Contexte utile au fil des visites — ex. : patient anxieux, préfère les rendez-vous du matin"
+                    className="min-h-[70px] resize-none"
+                  />
                 </div>
               </div>
             </div>

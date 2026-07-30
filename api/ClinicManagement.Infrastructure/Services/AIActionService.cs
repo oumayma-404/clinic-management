@@ -350,7 +350,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
             {
                 var requestedPatientName = patientNameObj.ToString() ?? "";
                 // Archived patients are excluded — the assistant must not find what the UI's own search hides.
-                var patients = await _patientRepository.GetByClinicIdAsync(clinicId, cancellationToken: cancellationToken);
+                var patients = (await _patientRepository.GetByClinicIdAsync(clinicId, cancellationToken: cancellationToken)).Items;
                 var patient = patients.FirstOrDefault(p =>
                     $"{p.FirstName} {p.LastName}".Equals(requestedPatientName, StringComparison.OrdinalIgnoreCase) ||
                     p.FirstName.Equals(requestedPatientName, StringComparison.OrdinalIgnoreCase) ||
@@ -418,7 +418,8 @@ If the user is just asking a question or chatting, set should_execute_action to 
             if (parameters.TryGetValue("procedure", out var procedureObj))
             {
                 var procedureName = procedureObj.ToString() ?? "";
-                var procedureTypes = await _procedureTypeRepository.GetActiveAsync(cancellationToken);
+                var procedureTypes = (await _procedureTypeRepository.GetFilteredAsync(
+                    clinicId, cancellationToken: cancellationToken)).Items;
                 var procedureType = procedureTypes.FirstOrDefault(pt =>
                     pt.Name.Equals(procedureName, StringComparison.OrdinalIgnoreCase) ||
                     pt.Name.Contains(procedureName, StringComparison.OrdinalIgnoreCase));
@@ -641,7 +642,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
 
             var clinicId = user.ClinicId;
             // Archived patients are excluded — the assistant must not find what the UI's own search hides.
-                var patients = await _patientRepository.GetByClinicIdAsync(clinicId, cancellationToken: cancellationToken);
+                var patients = (await _patientRepository.GetByClinicIdAsync(clinicId, cancellationToken: cancellationToken)).Items;
             var matchingPatients = patients.Where(p =>
                 $"{p.FirstName} {p.LastName}".Contains(patientName, StringComparison.OrdinalIgnoreCase) ||
                 p.FirstName.Contains(patientName, StringComparison.OrdinalIgnoreCase) ||
@@ -727,7 +728,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
 
             var clinicId = user.ClinicId;
             // Archived patients are excluded — the assistant must not find what the UI's own search hides.
-                var patients = await _patientRepository.GetByClinicIdAsync(clinicId, cancellationToken: cancellationToken);
+                var patients = (await _patientRepository.GetByClinicIdAsync(clinicId, cancellationToken: cancellationToken)).Items;
             var patient = patients.FirstOrDefault(p =>
                 $"{p.FirstName} {p.LastName}".Equals(patientName, StringComparison.OrdinalIgnoreCase) ||
                 p.FirstName.Equals(patientName, StringComparison.OrdinalIgnoreCase) ||
@@ -824,7 +825,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
             {
                 var patientName = patientNameObj.ToString() ?? "";
                 // Archived patients are excluded — the assistant must not find what the UI's own search hides.
-                var patients = await _patientRepository.GetByClinicIdAsync(clinicId, cancellationToken: cancellationToken);
+                var patients = (await _patientRepository.GetByClinicIdAsync(clinicId, cancellationToken: cancellationToken)).Items;
                 var patient = patients.FirstOrDefault(p =>
                     $"{p.FirstName} {p.LastName}".Equals(patientName, StringComparison.OrdinalIgnoreCase) ||
                     p.FirstName.Equals(patientName, StringComparison.OrdinalIgnoreCase) ||
@@ -924,7 +925,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
 
             // Find patient
             // Archived patients are excluded — the assistant must not find what the UI's own search hides.
-                var patients = await _patientRepository.GetByClinicIdAsync(clinicId, cancellationToken: cancellationToken);
+                var patients = (await _patientRepository.GetByClinicIdAsync(clinicId, cancellationToken: cancellationToken)).Items;
             var patient = patients.FirstOrDefault(p =>
                 $"{p.FirstName} {p.LastName}".Equals(patientName, StringComparison.OrdinalIgnoreCase) ||
                 p.FirstName.Equals(patientName, StringComparison.OrdinalIgnoreCase) ||

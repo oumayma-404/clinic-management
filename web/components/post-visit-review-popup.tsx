@@ -51,6 +51,12 @@ function saveSnooze(map: SnoozeMap): void {
  * everyone) to record what happened. "Ajouter le dossier médical" deep-links to record creation for that
  * visit; "Plus tard" snoozes it client-side without marking it read. Mounted once in the dashboard header,
  * so it is present on every authenticated page.
+ *
+ * ⚠️ **Every way of dismissing it — « Plus tard », the ✕, Escape, a click outside — goes through one
+ * `handleLater`, and the dialog's `open` is gated on a local `dismissed` flag rather than on the snooze map
+ * alone.** Visibility used to be derived purely from the snooze, so closing depended on a five-step chain
+ * (click → onOpenChange → snooze → setSnoozed → the `active` memo → `open`); if any step did not land, the ✕
+ * did nothing and the prompt could not be closed at all. Dismissal is a UI fact and now has UI state.
  */
 export function PostVisitReviewPopup() {
   const { user } = useSession()
@@ -61,6 +67,20 @@ export function PostVisitReviewPopup() {
   const [now, setNow] = useState(0)
   // True while the appointment's patient is being resolved, so the button can't fire twice.
   const [resolving, setResolving] = useState(false)
+  /**
+   * "The user has dismissed the prompt" — held separately from {@link snoozed} on purpose.
+   *
+   * Visibility used to be derived *only* from the snooze map, which made closing the dialog the last link of a
+   * five-step chain: click → onOpenChange → snooze → setSnoozed → the `active` memo recomputes to null → `open`
+   * flips false. Any break in that chain (a throwing `localStorage`, a stale `active` in the callback, an
+   * unexpected re-render order) left the dialog with **no way to close itself** — pressing ✕ did nothing at all,
+   * which is exactly the reported bug. Dismissal is a UI fact, so it gets UI state, and the persisted snooze
+   * becomes a best-effort extra rather than the thing the close button depends on.
+   *
+   * Cleared by {@link refetch} so a *different* visit can still prompt on the next poll — the popup is suppressed
+   * until new data arrives, never permanently.
+   */
+  const [dismissed, setDismissed] = useState(false)
 
   const mountedRef = useRef(true)
   useEffect(() => {
@@ -83,6 +103,9 @@ export function PostVisitReviewPopup() {
       if (mountedRef.current) {
         setReviews(list)
         setNow(Date.now())
+        // New data — lift the dismissal so a *different* pending visit can prompt. The one just dismissed is
+        // held back by its snooze, so this cannot resurrect it.
+        setDismissed(false)
       }
     } catch {
       // Best-effort — a failed poll must never surface an error over the app.
@@ -142,6 +165,9 @@ export function PostVisitReviewPopup() {
         // Snooze only once the destination is known to exist. Snoozing first — as this did — would hide the
         // prompt for an hour on a failed lookup, with the record still unwritten.
         if (!patientId) return
+        // Close before navigating, for the same reason as handleLater: the dialog must not depend on the snooze
+        // to disappear, or it lingers over the page transition.
+        setDismissed(true)
         snooze(reviewId)
         router.push(`/patients/${patientId}?addRecord=1&appointmentId=${encodeURIComponent(appointmentId)}`)
       } catch {
@@ -152,12 +178,25 @@ export function PostVisitReviewPopup() {
     })()
   }, [active, resolving, snooze, router])
 
+  /**
+   * The one dismissal path — « Plus tard », the ✕, Escape and a click outside all land here, so every way of
+   * saying "not now" behaves identically (the ✕ used to depend on the snooze taking effect; now it cannot fail).
+   *
+   * Order matters: close first, snooze second. The close is unconditional local state, so a snooze that throws
+   * still leaves a closed dialog.
+   */
   const handleLater = useCallback(() => {
+    setDismissed(true)
     if (active) snooze(active.id)
   }, [active, snooze])
 
   return (
-    <Dialog open={active !== null} onOpenChange={(open) => { if (!open) handleLater() }}>
+    <Dialog
+      open={active !== null && !dismissed}
+      onOpenChange={(next) => {
+        if (!next) handleLater()
+      }}
+    >
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary">

@@ -1,5 +1,6 @@
 import { apiGet, getAccessToken } from './client';
-import type { PatientBillingSummaryDto, ReceivableDto } from './types';
+import type { PatientBillingSummaryDto, ReceivableDto, ReceivablesPageDto } from './types';
+import { unwrapPaged, type PagedResponse, type PageParams } from './paging';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
 
@@ -9,7 +10,15 @@ export const billingApi = {
     apiGet<PatientBillingSummaryDto>(`/patients/${patientId}/billing-summary`),
 
   /** The clinic-wide receivables list (patients with a positive balance, sorted by amount owed). */
-  getReceivables: async (): Promise<ReceivableDto[]> => apiGet<ReceivableDto[]>('/billing/receivables'),
+  getReceivables: async (): Promise<ReceivableDto[]> =>
+    (await apiGet<ReceivablesPageDto>('/billing/receivables')).items,
+
+  /**
+   * One page of créances, plus the clinic-wide `totalOutstanding` the header shows. `search` matches the patient's
+   * name server-side over the whole list.
+   */
+  getReceivablesPaged: async (params: PageParams): Promise<ReceivablesPageDto> =>
+    apiGet<ReceivablesPageDto>('/billing/receivables', params),
 
   /** The receipt (reçu) PDF for a single invoice payment — a binary blob, so drop to raw fetch. */
   downloadPaymentReceipt: async (paymentId: string): Promise<Blob> => {

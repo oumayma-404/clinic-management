@@ -123,5 +123,17 @@ public class CaisseLedgerDto
 {
     public DateTime FromDate { get; set; }
     public DateTime ToDate { get; set; }
+    /// <summary>The movements on the requested page (or all of them when no paging was asked for).</summary>
     public List<CaisseMovementDto> Movements { get; set; } = new();
+
+    /// <summary>
+    /// Page metadata for <see cref="Movements"/>. Inlined on this DTO rather than wrapping the whole response in
+    /// a <c>PagedResult</c>, because the statement is not a list — it is a period (<see cref="FromDate"/>,
+    /// <see cref="ToDate"/>) that happens to contain one. Wrapping would have pushed the window into a nested
+    /// object on every consumer for no gain.
+    /// </summary>
+    public int Page { get; set; } = 1;
+    public int PageSize { get; set; }
+    public int TotalCount { get; set; }
+    public int TotalPages { get; set; } = 1;
 }

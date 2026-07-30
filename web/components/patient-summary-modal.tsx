@@ -224,7 +224,7 @@ export function PatientSummaryModal({ open, onOpenChange, patient, dentalRecords
                       <TableRow>
                         <TableHead className="min-w-[100px]">Date</TableHead>
                         <TableHead className="min-w-[120px]">Type d'acte</TableHead>
-                        <TableHead className="min-w-[90px]">Type de dents</TableHead>
+                        {/* Dropped with the per-record dentition badge — it is a patient-level fact now. */}
                         <TableHead className="min-w-[120px]">Dents</TableHead>
                         <TableHead className="min-w-[80px]">Coût</TableHead>
                         <TableHead className="min-w-[100px]">Montant payé</TableHead>
@@ -239,11 +239,6 @@ export function PatientSummaryModal({ open, onOpenChange, patient, dentalRecords
                             {formatDate(record.interventionDate)}
                           </TableCell>
                           <TableCell className="whitespace-nowrap">{record.procedureType}</TableCell>
-                          <TableCell>
-                            <Badge variant="outline" className="whitespace-nowrap">
-                              {record.isAdultTeeth ? "Adulte" : "Enfant"}
-                            </Badge>
-                          </TableCell>
                           <TableCell>
                             {record.toothNumbers.length > 0 ? (
                               <div className="flex flex-wrap gap-1 max-w-[120px]">

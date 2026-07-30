@@ -62,6 +62,10 @@ public class ApplicationDbContext : DbContext
     // Treatment plans / devis (clinic-scoped aggregate root; children TreatmentPlanItem/Installment reached via it).
     public DbSet<TreatmentPlan> TreatmentPlans { get; set; }
     public DbSet<ClinicReminderSettings> ClinicReminderSettings { get; set; }
+    // One user's dashboard layout choices (1:1 with User, shared PK). Deliberately carries NO clinic query
+    // filter: the row is keyed by the user id and a user belongs to exactly one clinic, so it is scoped by
+    // UserId alone — the same reasoning as NotificationRead below.
+    public DbSet<UserDashboardPreference> UserDashboardPreferences { get; set; }
     // Per-clinic CNAM reference data (feature cloud-security-and-tenant-isolation, #5): clinic-scoped via
     // HasQueryFilter below. Every clinic is seeded with the SAME default catalog + VLC values on creation,
     // then each clinic's admin edits stay private to it.
@@ -114,6 +118,11 @@ public class ApplicationDbContext : DbContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(ApplicationDbContext).Assembly);
+
+        // PostgreSQL's unaccent(), so the paginated lists' free-text search can fold accents in SQL. Before
+        // paging, search ran in C# over every row of the clinic; a page of 25 makes that impossible — the term
+        // has to be matched by the database or it only ever sees the page the user is already looking at.
+        SqlSearch.MapUnaccent(modelBuilder);
 
         // Multi-tenant backstop (defense-in-depth): scope the directly-clinic-owned entities by the
         // caller's clinic. Inactive when no clinic is in scope (see IsClinicScoped). This is a backstop —
@@ -168,6 +177,9 @@ public class ApplicationDbContext : DbContext
         // peer changed since we read it matches nothing and throws DbUpdateConcurrencyException — which
         // UnitOfWork translates into a ConflictException → HTTP 409.
         //
+        // ⚠️ `SkipsConcurrencyToken` (declared below) is the one opt-out, and it is about *semantics*, not about
+        // avoiding an inconvenience. See its own comment.
+        //
         // Three exclusions, each load-bearing:
         //  * ToList() first — modelBuilder.Entity(clrType) can ADD entity types, and mutating the collection
         //    being enumerated throws.
@@ -191,12 +203,18 @@ public class ApplicationDbContext : DbContext
             // Deliberately NOT Npgsql's UseXminAsConcurrencyToken(): it is obsolete in 8.0 and, worse, it adds
             // a SHADOW xmin property — leaving our CLR Version property to be mapped as an ordinary bigint
             // column called "Version". Mapping Version onto xmin explicitly is what actually binds the two.
-            modelBuilder.Entity(entityType.ClrType)
+            var version = modelBuilder.Entity(entityType.ClrType)
                 .Property<uint>(nameof(Domain.Common.Entity<int>.Version))
                 .HasColumnName("xmin")
                 .HasColumnType("xid")
-                .ValueGeneratedOnAddOrUpdate()
-                .IsConcurrencyToken();
+                .ValueGeneratedOnAddOrUpdate();
+
+            // The mapping above is unconditional — every entity's Version must resolve to the xmin system column,
+            // or EF would look for an ordinary "Version" column that no table has. Only the *token* is opt-out.
+            if (!SkipsConcurrencyToken.Contains(entityType.ClrType))
+            {
+                version.IsConcurrencyToken();
+            }
         }
 
         // Apply a value converter for all DateTime and DateTime? properties to ensure UTC
@@ -227,6 +245,33 @@ public class ApplicationDbContext : DbContext
 
         base.OnModelCreating(modelBuilder);
     }
+
+    /// <summary>
+    /// Entities whose <c>Version</c> is still mapped onto <c>xmin</c> (so it reads back) but is <b>not</b> used as
+    /// a concurrency token, so a losing write is not rejected.
+    ///
+    /// <para>
+    /// This is a semantic opt-out, not a way around an inconvenient error. Optimistic concurrency exists here to
+    /// stop a <i>lost update</i> to shared clinical or financial data: two people editing one patient, one invoice,
+    /// one devis, where silently discarding the earlier write loses real information and « quelqu'un d'autre a
+    /// modifié cet enregistrement » is exactly the right thing to say.
+    /// </para>
+    /// <para>
+    /// <see cref="UserDashboardPreference"/> is none of that. It is one user's own view of their own dashboard,
+    /// written only by them, and a full replace every time. Two writes racing — a double-click, two browser tabs,
+    /// the desktop and the phone — is not a data-integrity event: last-write-wins is the *correct* semantics, and
+    /// blocking the save is strictly worse than accepting the later one. Worse, the message the token produces is
+    /// simply false for this row, because there is no « quelqu'un d'autre » who can write it.
+    /// </para>
+    /// <para>
+    /// Adding a type here needs that argument to hold. If losing a write would lose information a user typed, it
+    /// does not belong in this set.
+    /// </para>
+    /// </summary>
+    private static readonly HashSet<Type> SkipsConcurrencyToken = new()
+    {
+        typeof(UserDashboardPreference),
+    };
 
     /// <summary>
     /// Walks the base chain looking for the open generic <c>Entity&lt;&gt;</c>. Checking for the property by

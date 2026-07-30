@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using ClinicManagement.Domain.Common;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Domain.Enums;
@@ -64,6 +65,79 @@ public class NotificationRepository : INotificationRepository
             .OrderByDescending(n => n.CreatedAt)
             .Take(take)
             .ToListAsync(cancellationToken);
+    }
+
+    public async Task<PagedResult<Notification>> GetClinicLogAsync(
+        Guid clinicId,
+        NotificationStatus? status,
+        NotificationType? channel,
+        DateTime? fromUtc,
+        DateTime? toUtcInclusive,
+        PageRequest? paging,
+        CancellationToken cancellationToken = default)
+    {
+        var query = _context.Notifications
+            .Include(n => n.Patient)
+            // The appointment too (AC-P3.9): the row has to say which visit a failed reminder was for.
+            .Include(n => n.Appointment)
+            .Where(n => n.ClinicId == clinicId);
+
+        // Each filter is applied only when supplied — a null means "not applied", never "match nothing".
+        if (status.HasValue)
+        {
+            query = query.Where(n => n.Status == status.Value);
+        }
+
+        if (channel.HasValue)
+        {
+            query = query.Where(n => n.Type == channel.Value);
+        }
+
+        // The window is on ScheduledFor, not CreatedAt: « les rappels de la semaine dernière » means the ones due
+        // then, and a row created weeks earlier for a lead-time tier would fall outside a CreatedAt window.
+        if (fromUtc.HasValue)
+        {
+            query = query.Where(n => n.ScheduledFor >= fromUtc.Value);
+        }
+
+        if (toUtcInclusive.HasValue)
+        {
+            query = query.Where(n => n.ScheduledFor <= toUtcInclusive.Value);
+        }
+
+        return await query
+            .OrderByDescending(n => n.ScheduledFor)
+            // `.ThenBy(Id)` is not decoration: OFFSET over a non-unique sort can show one row on two pages and
+            // skip another, which reads as "a message vanished from the log".
+            .ThenBy(n => n.Id)
+            .ToPagedResultAsync(paging, cancellationToken);
+    }
+
+    public async Task<ReminderLogCounts> GetClinicLogCountsAsync(
+        Guid clinicId,
+        DateTime todayFromUtc,
+        DateTime todayToUtcInclusive,
+        DateTime failedSinceUtc,
+        CancellationToken cancellationToken = default)
+    {
+        // One GROUP BY rather than three round trips whose bounds could drift apart from each other.
+        var scoped = _context.Notifications.Where(n => n.ClinicId == clinicId);
+
+        var sentToday = await scoped.CountAsync(
+            n => n.Status == NotificationStatus.Sent
+                 && n.SentAt >= todayFromUtc
+                 && n.SentAt <= todayToUtcInclusive,
+            cancellationToken);
+
+        // Pending is deliberately unbounded by date: a backlog is a backlog whenever it was queued, and a
+        // pending row from yesterday is the one most worth noticing.
+        var pending = await scoped.CountAsync(n => n.Status == NotificationStatus.Pending, cancellationToken);
+
+        var failedRecent = await scoped.CountAsync(
+            n => n.Status == NotificationStatus.Failed && n.ScheduledFor >= failedSinceUtc,
+            cancellationToken);
+
+        return new ReminderLogCounts(sentToday, pending, failedRecent);
     }
 
     public async Task<IEnumerable<Notification>> GetRecallBatchAsync(

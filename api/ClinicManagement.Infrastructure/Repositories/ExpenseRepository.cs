@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using ClinicManagement.Application.Common;
+using ClinicManagement.Domain.Common;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Infrastructure.Persistence;
@@ -20,7 +22,13 @@ public class ExpenseRepository : IExpenseRepository
             .FirstOrDefaultAsync(e => e.Id == id, cancellationToken);
     }
 
-    public async Task<IEnumerable<Expense>> GetByClinicIdAsync(Guid clinicId, DateTime? from = null, DateTime? to = null, CancellationToken cancellationToken = default)
+    public async Task<PagedResult<Expense>> GetByClinicIdAsync(
+        Guid clinicId,
+        DateTime? from = null,
+        DateTime? to = null,
+        string? searchTerm = null,
+        PageRequest? paging = null,
+        CancellationToken cancellationToken = default)
     {
         var query = _context.Expenses.Where(e => e.ClinicId == clinicId);
 
@@ -33,10 +41,21 @@ public class ExpenseRepository : IExpenseRepository
             query = query.Where(e => e.ExpenseDate < to.Value);
         }
 
+        var pattern = SearchTerm.ToLikePattern(searchTerm);
+        if (pattern is not null)
+        {
+            query = query.Where(e =>
+                EF.Functions.ILike(SqlSearch.Unaccent(e.Category)!, pattern, SqlSearch.EscapeString) ||
+                EF.Functions.ILike(SqlSearch.Unaccent(e.Description)!, pattern, SqlSearch.EscapeString));
+        }
+
+        // CreatedAt alone is not a unique tiebreaker — two expenses entered in the same batch can share it to
+        // the microsecond — so the ordering ends on the id.
         return await query
             .OrderByDescending(e => e.ExpenseDate)
             .ThenByDescending(e => e.CreatedAt)
-            .ToListAsync(cancellationToken);
+            .ThenBy(e => e.Id)
+            .ToPagedResultAsync(paging, cancellationToken);
     }
 
     public async Task<decimal> GetTotalBetweenAsync(Guid clinicId, DateTime from, DateTime to, CancellationToken cancellationToken = default)

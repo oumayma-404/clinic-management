@@ -372,9 +372,9 @@ export function ReminderSettings() {
     <Card className="border border-gray-200 dark:border-slate-800">
       <CardHeader className="pb-3">
         <div className="flex items-center gap-2">
-          <div className="w-1 h-6 bg-blue-600 rounded-full" />
+          <div className="w-1 h-6 bg-primary rounded-full" />
           <CardTitle className="text-base flex items-center gap-2">
-            <BellRing className="w-4 h-4 text-blue-600" />
+            <BellRing className="w-4 h-4 text-primary" />
             Rappels (SMS / WhatsApp)
           </CardTitle>
         </div>
@@ -396,7 +396,7 @@ export function ReminderSettings() {
             <div className="space-y-3 rounded-lg border border-gray-100 dark:border-slate-800 p-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-sm font-medium">
-                  <MessageSquare className="w-4 h-4 text-blue-600" />
+                  <MessageSquare className="w-4 h-4 text-primary" />
                   SMS
                 </div>
                 {readinessBadge(smsEnabled, smsEffectiveStatus)}
@@ -650,7 +650,7 @@ export function ReminderSettings() {
             {/* Programmation & message (partagé entre les canaux) */}
             <div className="space-y-3 rounded-lg border border-gray-100 dark:border-slate-800 p-3">
               <div className="flex items-center gap-2 text-sm font-medium">
-                <Clock className="w-4 h-4 text-blue-600" />
+                <Clock className="w-4 h-4 text-primary" />
                 Programmation &amp; message
               </div>
 
@@ -694,7 +694,7 @@ export function ReminderSettings() {
               <Button
                 onClick={handleSave}
                 size="sm"
-                className="h-8 text-xs bg-blue-600 hover:bg-blue-700"
+                className="h-8 text-xs bg-primary hover:bg-primary/90"
                 disabled={saving}
               >
                 <Save className="w-3.5 h-3.5 mr-1" />
@@ -702,64 +702,12 @@ export function ReminderSettings() {
               </Button>
             </div>
 
-            {/* Delivery status surface (AC-3): recent reminder outbox rows + their state. */}
-            <div className="space-y-2 rounded-lg border border-gray-100 dark:border-slate-800 p-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-sm font-medium">
-                  <BellRing className="w-4 h-4 text-blue-600" />
-                  Statut des rappels récents
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => void loadDelivery()}
-                  disabled={deliveryLoading}
-                  className="h-7 text-xs"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 mr-1 ${deliveryLoading ? "animate-spin" : ""}`} />
-                  Actualiser
-                </Button>
-              </div>
-
-              {deliveryLoading ? (
-                <p className="text-xs text-muted-foreground">Chargement…</p>
-              ) : deliveryError ? (
-                <p className="text-xs text-red-600 dark:text-red-400">{deliveryError}</p>
-              ) : deliveryRows.length === 0 ? (
-                <p className="text-xs text-muted-foreground">Aucun rappel récent.</p>
-              ) : (
-                <div className="space-y-2">
-                  {deliveryRows.map((row) => (
-                    <div
-                      key={row.id}
-                      className="flex items-start justify-between gap-2 rounded-md border border-gray-100 dark:border-slate-800 p-2"
-                    >
-                      <div className="min-w-0 space-y-0.5">
-                        {/* AC-P3.9 — the patient's name first: it is what makes the row actionable. The
-                            masked phone stays (AC-P3.10) but is now secondary. */}
-                        <div className="flex flex-wrap items-center gap-2 text-xs font-medium">
-                          <span className="truncate">{row.patientName ?? "Patient introuvable"}</span>
-                          <span className="text-muted-foreground">·</span>
-                          <span>{row.isRecall ? "Relance" : "Rappel"}</span>
-                          <span className="text-muted-foreground">·</span>
-                          <span>{row.channel}</span>
-                          <span className="font-mono text-muted-foreground">{row.recipientMasked}</span>
-                        </div>
-                        <p className="text-[10px] text-muted-foreground">
-                          {row.appointmentAt ? `RDV : ${formatDateTime(row.appointmentAt)} · ` : ""}
-                          Prévu : {formatDateTime(row.scheduledAt)}
-                          {row.sentAt ? ` · Envoyé : ${formatDateTime(row.sentAt)}` : ""}
-                        </p>
-                        {row.failureReason && (
-                          <p className="text-[10px] text-red-600 dark:text-red-400">{row.failureReason}</p>
-                        )}
-                      </div>
-                      {deliveryStatusBadge(row.status)}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            {/*
+              The delivery-status list that used to sit here has MOVED to the « Rappels » page (/rappels), which
+              is built around it: filters by statut / canal / date, server-paged, and readable by all staff rather
+              than admins only. It is deliberately NOT duplicated here — two renderings of the same outbox rows
+              would drift, and the one buried at the bottom of a settings card was the weaker of the two.
+            */}
           </>
         )}
       </CardContent>

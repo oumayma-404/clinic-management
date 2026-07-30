@@ -3,6 +3,11 @@
 import type React from "react"
 
 import { useCallback, useEffect, useState } from "react"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { DataTablePagination } from "@/components/ui/data-table-pagination"
+import { DEFAULT_PAGE_SIZE, emptyPage, type PagedResponse } from "@/lib/api/paging"
+
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { format } from "date-fns"
@@ -11,6 +16,7 @@ import { toast } from "sonner"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { DashboardSidebar } from "@/components/dashboard-sidebar"
 import { ClinicGuard } from "@/components/clinic-guard"
+import { PageHeader } from "@/components/ui/page-header"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -23,8 +29,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
@@ -85,7 +89,15 @@ function formatAddedDate(iso: string): string {
 }
 
 export default function WaitingListPage() {
-  const [entries, setEntries] = useState<WaitingListEntryDto[]>([])
+  const [entryPage, setEntryPage] = useState<PagedResponse<WaitingListEntryDto>>(
+    () => emptyPage<WaitingListEntryDto>(),
+  )
+  const entries = entryPage.items
+  const [search, setSearch] = useState("")
+  const [debouncedSearch, setDebouncedSearch] = useState("")
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
+
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -118,8 +130,13 @@ export default function WaitingListPage() {
     try {
       setLoading(true)
       setError(null)
-      const data = await waitingListApi.list(true)
-      setEntries(data)
+      const data = await waitingListApi.listPaged({
+        page,
+        pageSize,
+        search: debouncedSearch || undefined,
+        activeOnly: true,
+      })
+      setEntryPage(data)
     } catch (err) {
       const message = err instanceof ApiError ? err.message : "Échec du chargement de la liste d'attente"
       setError(message)
@@ -127,7 +144,18 @@ export default function WaitingListPage() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [page, pageSize, debouncedSearch])
+
+  // Debounced so a search does not fire a request per keystroke.
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search.trim()), 300)
+    return () => clearTimeout(timer)
+  }, [search])
+
+  // A new term (or filter) must not leave the table on a page the narrowed result set no longer has.
+  useEffect(() => {
+    setPage(1)
+  }, [debouncedSearch])
 
   const loadPatients = useCallback(async () => {
     try {
@@ -272,12 +300,11 @@ export default function WaitingListPage() {
             <div className="mx-auto max-w-7xl space-y-6">
               {/* Page Header */}
               <div className="flex items-center justify-between">
-                <div>
-                  <h1 className="text-3xl font-semibold text-foreground">Salle d&apos;attente / Liste d&apos;attente</h1>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Patients en attente d&apos;un créneau de rendez-vous
-                  </p>
-                </div>
+                <PageHeader
+                  zone="Clinique"
+                  title="Salle d&apos;attente"
+                  subtitle="Patients en attente d&apos;un créneau de rendez-vous."
+                />
 
                 <Button onClick={handleAddNew} className="gap-2">
                   <Plus className="h-4 w-4" />
@@ -292,7 +319,7 @@ export default function WaitingListPage() {
                     <ClipboardList className="h-5 w-5" />
                     Liste d&apos;attente
                     <Badge variant="secondary" className="ml-2">
-                      {entries.length}
+                      {entryPage.totalCount}
                     </Badge>
                   </CardTitle>
                 </CardHeader>
@@ -305,6 +332,17 @@ export default function WaitingListPage() {
                     <p className="py-12 text-center text-sm text-destructive">{error}</p>
                   ) : (
                     <div className="overflow-x-auto">
+                      <div className="mb-4">
+                        <Label htmlFor="waiting-list-search" className="sr-only">
+                          Rechercher un patient
+                        </Label>
+                        <Input
+                          id="waiting-list-search"
+                          value={search}
+                          onChange={(e) => setSearch(e.target.value)}
+                          placeholder="Rechercher un patient, une note, un créneau…"
+                        />
+                      </div>
                       <Table>
                         <TableHeader>
                           <TableRow>
@@ -382,6 +420,13 @@ export default function WaitingListPage() {
                           )}
                         </TableBody>
                       </Table>
+                      <DataTablePagination
+                        page={entryPage}
+                        onPageChange={setPage}
+                        onPageSizeChange={setPageSize}
+                        loading={loading}
+                        label={["patient", "patients"]}
+                      />
                     </div>
                   )}
                 </CardContent>

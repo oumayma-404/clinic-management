@@ -83,10 +83,12 @@ export function CollectedTrendChart({ points, loading = false }: CollectedTrendC
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={points} margin={{ top: 8, right: 16, bottom: 4, left: 4 }}>
                   <defs>
-                    {/* The wash: the series hue fading to nothing. A saturated block would out-weigh the line. */}
+                    {/* The wash: the series hue fading to nothing. A saturated block would out-weigh the line.
+                        Raised from 0.16 to 0.26 with the teal palette — at 0.16 against the new tinted ground the
+                        fill was very nearly invisible, which left a bare stroke floating in an empty plot. */}
                     <linearGradient id="collectedWash" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={SERIES_COLOR} stopOpacity={0.16} />
-                      <stop offset="100%" stopColor={SERIES_COLOR} stopOpacity={0.01} />
+                      <stop offset="0%" stopColor={SERIES_COLOR} stopOpacity={0.26} />
+                      <stop offset="100%" stopColor={SERIES_COLOR} stopOpacity={0.02} />
                     </linearGradient>
                   </defs>
 
@@ -96,7 +98,9 @@ export function CollectedTrendChart({ points, loading = false }: CollectedTrendC
                   <XAxis
                     dataKey="month"
                     tickFormatter={formatMonthShort}
-                    tick={{ fill: AXIS_COLOR, fontSize: 12 }}
+                    // Monospace, matching the section eyebrows: the axis is data, and a tabular face keeps six
+                    // month labels optically evenly spaced rather than drifting with their letter widths.
+                    tick={{ fill: AXIS_COLOR, fontSize: 11, fontFamily: "var(--font-mono)" }}
                     stroke={GRID_COLOR}
                     tickLine={false}
                     axisLine={{ stroke: GRID_COLOR }}
@@ -104,7 +108,7 @@ export function CollectedTrendChart({ points, loading = false }: CollectedTrendC
                   <YAxis
                     // Clean rounded ticks — they carry the values that are not direct-labelled.
                     tickFormatter={(value: number) => value.toLocaleString("fr-TN", { notation: "compact" })}
-                    tick={{ fill: AXIS_COLOR, fontSize: 12 }}
+                    tick={{ fill: AXIS_COLOR, fontSize: 11, fontFamily: "var(--font-mono)" }}
                     width={52}
                     tickLine={false}
                     axisLine={false}
@@ -120,13 +124,35 @@ export function CollectedTrendChart({ points, loading = false }: CollectedTrendC
                     type="monotone"
                     dataKey="collected"
                     stroke={SERIES_COLOR}
-                    strokeWidth={2}
+                    strokeWidth={2.4}
                     strokeLinejoin="round"
                     strokeLinecap="round"
                     fill="url(#collectedWash)"
                     // 8px marker (r=4) with a 2px surface ring, so it stays legible where it crosses the line.
                     activeDot={{ r: 4, fill: SERIES_COLOR, stroke: "var(--card)", strokeWidth: 2 }}
-                    dot={false}
+                    /*
+                     * The **endpoint** carries a permanent marker; every other point stays bare.
+                     *
+                     * A dot on all six is the chart-junk default and makes the line read as a connect-the-dots
+                     * exercise. But the last month is the one being asked about — it is the figure the hero above
+                     * reports — so it earns a fixed anchor the eye can land on without hovering. Returning `null`
+                     * for the others rather than `false` keeps recharts' own typing happy.
+                     */
+                    dot={(props: { key?: string; cx?: number; cy?: number; index?: number }) =>
+                      props.index === points.length - 1 ? (
+                        <circle
+                          key={props.key ?? "trend-endpoint"}
+                          cx={props.cx}
+                          cy={props.cy}
+                          r={5}
+                          fill={SERIES_COLOR}
+                          stroke="var(--card)"
+                          strokeWidth={2.5}
+                        />
+                      ) : (
+                        <g key={props.key ?? `trend-dot-${props.index}`} />
+                      )
+                    }
                     isAnimationActive={false}
                   />
                 </AreaChart>

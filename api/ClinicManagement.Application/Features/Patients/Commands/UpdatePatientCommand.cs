@@ -25,6 +25,13 @@ public class UpdatePatientCommand : IRequest<Result<PatientDto>>
     public string? LastName { get; set; }
     public DateTime? DateOfBirth { get; set; }
     public string? Gender { get; set; }
+
+    /// <summary>
+    /// <c>"Child"</c> or <c>"Adult"</c>. Omitted (or unrecognised) leaves the stored value alone — unlike creation
+    /// there is no age fallback here, because silently re-deriving on every unrelated edit would overwrite a
+    /// dentist's deliberate override the next time someone fixed a phone number.
+    /// </summary>
+    public string? Dentition { get; set; }
     /// <summary>
     /// Tri-state, same mechanism as <c>UpdateAppointmentCommand</c>: omit the key to leave the value alone,
     /// send an explicit <c>null</c> (or an empty string) to clear it, send a value to set it.
@@ -64,6 +71,22 @@ public class UpdatePatientCommand : IRequest<Result<PatientDto>>
     // Emergency contact (finding #11). null (omitted) = leave unchanged; a present value (even empty) sets/clears.
     public string? EmergencyContactName { get; set; }
     public string? EmergencyContactPhone { get; set; }
+
+    /// <summary>
+    /// « Adressé par » — the referring practitioner. Same convention as the emergency contact above: null
+    /// (omitted) leaves it unchanged, a present value sets it, and a present-but-blank value clears it.
+    /// </summary>
+    public string? ReferredBy { get; set; }
+
+    /// <summary>
+    /// Patient-level notes. Same convention as the emergency contact: a present value sets it, a present-but-blank
+    /// one clears it, an omitted one leaves it unchanged. Each of the two is resolved independently, so sending only
+    /// <see cref="ImportantNotes"/> cannot wipe <see cref="Notes"/>.
+    /// </summary>
+    public string? Notes { get; set; }
+
+    /// <inheritdoc cref="Notes"/>
+    public string? ImportantNotes { get; set; }
 
     // "Signaler ce patient" toggle + note. null = leave the flag state unchanged (backward-compatible with
     // callers that don't send it); true = ensure an active flag; false = clear any active flag.
@@ -219,6 +242,30 @@ public class UpdatePatientCommandHandler : IRequestHandler<UpdatePatientCommand,
                     emergencyPhone);
             }
 
+            // Dentition: only ever changed when explicitly sent. See the property's remark on why there is no
+            // age fallback on this path.
+            var requestedDentition = DentitionRules.Parse(request.Dentition);
+            if (requestedDentition.HasValue && requestedDentition.Value != patient.Dentition)
+            {
+                patient.SetDentition(requestedDentition.Value);
+            }
+
+            // « Adressé par »: a present value sets it, a present-but-blank one clears it (SetReferredBy
+            // normalizes blank to null), an omitted one leaves it alone.
+            if (request.ReferredBy != null)
+            {
+                patient.SetReferredBy(request.ReferredBy);
+            }
+
+            // Patient-level notes: a present block resolves each field independently, so clearing one leaves the
+            // other alone. Passing both straight to UpdateNotes would blank whichever key the caller omitted.
+            if (request.Notes != null || request.ImportantNotes != null)
+            {
+                patient.UpdateNotes(
+                    request.Notes ?? patient.Notes,
+                    request.ImportantNotes ?? patient.ImportantNotes);
+            }
+
             // Patient flag ("Signaler ce patient"): a single active HighPriority flag carries the toggle
             // + note; it feeds the "Urgents" KPI and the flagged filter. A null IsFlagged leaves it unchanged.
             if (request.IsFlagged.HasValue)
@@ -260,12 +307,16 @@ public class UpdatePatientCommandHandler : IRequestHandler<UpdatePatientCommand,
                 LastName = patient.LastName,
                 DateOfBirth = patient.DateOfBirth,
                 Gender = patient.Gender,
+                Dentition = patient.Dentition.ToString(),
                 Email = patient.Email?.Value,
                 PhoneNumber = patient.PhoneNumber?.Value,
                 MedicalHistory = patient.MedicalHistory,
                 Allergies = patient.Allergies,
                 EmergencyContactName = patient.EmergencyContactName,
                 EmergencyContactPhone = patient.EmergencyContactPhone?.Value,
+                ReferredBy = patient.ReferredBy,
+                Notes = patient.Notes,
+                ImportantNotes = patient.ImportantNotes,
                 CreatedAt = patient.CreatedAt,
                 Version = patient.Version,
                 Address = patient.Address != null ? new AddressDto

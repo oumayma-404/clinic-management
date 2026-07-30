@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using ClinicManagement.Application.Common;
+using ClinicManagement.Domain.Common;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Infrastructure.Persistence;
@@ -32,7 +34,14 @@ public class StockItemRepository : IStockItemRepository
     }
 
 
-    public async Task<IEnumerable<StockItem>> GetByClinicIdAsync(Guid clinicId, bool lowStockOnly = false, CancellationToken cancellationToken = default)
+    public async Task<PagedResult<StockItem>> GetByClinicIdAsync(
+        Guid clinicId,
+        bool lowStockOnly = false,
+        string? searchTerm = null,
+        string? category = null,
+        DateTime? expiringHorizonUtc = null,
+        PageRequest? paging = null,
+        CancellationToken cancellationToken = default)
     {
         var query = _context.StockItems
             .Include(s => s.Batches)
@@ -43,9 +52,39 @@ public class StockItemRepository : IStockItemRepository
             query = query.Where(s => s.CurrentStock <= s.MinimumStockLevel);
         }
 
+        // Both filters used to run in the browser over the full list. Over a page an in-memory filter shrinks the
+        // window that SQL already cut, so pages come back arbitrarily short.
+        if (!string.IsNullOrWhiteSpace(category))
+        {
+            var trimmed = category.Trim();
+            query = query.Where(s => s.Category == trimmed);
+        }
+
+        if (expiringHorizonUtc is { } horizon)
+        {
+            // Predicate-for-predicate identical to CountExpiringSoonAsync, so the « Péremption (N) » chip and the
+            // list it filters to can never disagree. RemainingQuantity > 0 is load-bearing: an emptied expired lot
+            // has nothing left to waste.
+            query = query.Where(s => s.Batches.Any(b => b.RemainingQuantity > 0
+                                                        && b.ExpiryDate != null
+                                                        && b.ExpiryDate <= horizon));
+        }
+
+        // Name, category and supplier: the three a stockroom search is actually for — « composite »,
+        // « anesthésique », or the name of the supplier whose delivery is being checked in.
+        var pattern = SearchTerm.ToLikePattern(searchTerm);
+        if (pattern is not null)
+        {
+            query = query.Where(s =>
+                EF.Functions.ILike(SqlSearch.Unaccent(s.Name)!, pattern, SqlSearch.EscapeString) ||
+                EF.Functions.ILike(SqlSearch.Unaccent(s.Category)!, pattern, SqlSearch.EscapeString) ||
+                EF.Functions.ILike(SqlSearch.Unaccent(s.Supplier)!, pattern, SqlSearch.EscapeString));
+        }
+
         return await query
             .OrderBy(s => s.Name)
-            .ToListAsync(cancellationToken);
+            .ThenBy(s => s.Id)
+            .ToPagedResultAsync(paging, cancellationToken);
     }
 
     public async Task<IEnumerable<StockItem>> GetLowStockItemsAsync(CancellationToken cancellationToken = default)
@@ -63,6 +102,18 @@ public class StockItemRepository : IStockItemRepository
             .Include(s => s.Batches)
             .Where(s => s.CurrentStock == 0)
             .OrderBy(s => s.Name)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<string>> GetDistinctCategoriesAsync(
+        Guid clinicId, CancellationToken cancellationToken = default)
+    {
+        // Sorted in SQL so the dropdown's order does not depend on which page happened to load.
+        return await _context.StockItems
+            .Where(s => s.ClinicId == clinicId && s.Category != "")
+            .Select(s => s.Category)
+            .Distinct()
+            .OrderBy(c => c)
             .ToListAsync(cancellationToken);
     }
 

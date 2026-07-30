@@ -1,10 +1,19 @@
 import { apiGet, apiPost, apiPut, apiDelete } from './client';
 import type { ProcedureTypeDto } from './types';
+import { unwrapPaged, type PagedResponse, type PageParams } from './paging';
 
 export const procedureTypesApi = {
   list: async (includeInactive: boolean = false): Promise<ProcedureTypeDto[]> => {
-    return apiGet<ProcedureTypeDto[]>('/procedure-types', { includeInactive });
+    return unwrapPaged(
+      await apiGet<PagedResponse<ProcedureTypeDto>>('/procedure-types', { includeInactive }),
+    );
   },
+
+  /** One page of acts. `search` matches nom / description server-side over the whole catalog. */
+  listPaged: async (
+    params: PageParams & { includeInactive?: boolean },
+  ): Promise<PagedResponse<ProcedureTypeDto>> =>
+    apiGet<PagedResponse<ProcedureTypeDto>>('/procedure-types', params),
 
   get: async (id: string): Promise<ProcedureTypeDto> => {
     return apiGet<ProcedureTypeDto>(`/procedure-types/${id}`);

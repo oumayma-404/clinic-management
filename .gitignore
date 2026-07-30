@@ -31,3 +31,20 @@ packaging/build-output/
 packaging/server/tools/
 # Build-time tools fetched by fetch-build-tools.ps1 (PostgreSQL binaries, NSSM) — not committed
 packaging/build-tools/
+
+# Third-party agent skills installed via `npx skills add` (emilkowalski/skills) — personal tooling, not part of
+# the product. `.agents/` holds the real files; the `.claude/skills/` entries are symlinks into it.
+#
+# Listed by name rather than as `.claude/skills/*` on purpose: a blanket rule would silently ignore any NEW
+# project-owned skill too (start-clinic is committed and lives in the same directory). Listing them means a
+# future `skills add` shows up as untracked and visible, instead of disappearing.
+.agents/
+skills-lock.json
+.claude/skills/animation-vocabulary/
+.claude/skills/apple-design/
+.claude/skills/emil-design-eng/
+.claude/skills/find-animation-opportunities/
+.claude/skills/improve-animations/
+.claude/skills/pick-ui-library/
+.claude/skills/prototype/
+.claude/skills/review-animations/

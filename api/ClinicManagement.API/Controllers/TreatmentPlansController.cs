@@ -7,6 +7,8 @@ using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.TreatmentPlans.Commands;
 using ClinicManagement.Application.Features.TreatmentPlans.Queries;
 
+using ClinicManagement.Domain.Common;
+
 namespace ClinicManagement.API.Controllers;
 
 [ApiController]
@@ -26,14 +28,22 @@ public class TreatmentPlansController : ApiControllerBase
     /// <paramref name="from"/>, which bounds creation. Backs the dashboard's « Devis acceptés » drill-through,
     /// which counts by acceptance and so cannot filter by creation.</param>
     /// <param name="acceptedTo">Inclusive upper bound on the acceptance date.</param>
+    /// <param name="page">1-based page number. Omit both paging parameters to get every match.</param>
+    /// <param name="pageSize">Rows per page, clamped to <c>PageRequest.MaxPageSize</c>.</param>
+    /// <param name="search">
+    /// Free-text filter, applied in SQL <b>before</b> the page is cut so it spans the whole clinic.
+    /// </param>
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<TreatmentPlanDto>>> GetPlans(
+    public async Task<ActionResult<PagedResult<TreatmentPlanDto>>> GetPlans(
         [FromQuery] Guid? patientId = null,
         [FromQuery] string? status = null,
         [FromQuery] DateTime? from = null,
         [FromQuery] DateTime? to = null,
         [FromQuery] DateTime? acceptedFrom = null,
-        [FromQuery] DateTime? acceptedTo = null)
+        [FromQuery] DateTime? acceptedTo = null,
+        [FromQuery] int? page = null,
+        [FromQuery] int? pageSize = null,
+        [FromQuery] string? search = null)
     {
         var result = await _mediator.Send(new GetTreatmentPlansQuery
         {
@@ -42,7 +52,10 @@ public class TreatmentPlansController : ApiControllerBase
             From = from,
             To = to,
             AcceptedFrom = acceptedFrom,
-            AcceptedTo = acceptedTo
+            AcceptedTo = acceptedTo,
+            Page = page,
+            PageSize = pageSize,
+            SearchTerm = search
         });
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
     }

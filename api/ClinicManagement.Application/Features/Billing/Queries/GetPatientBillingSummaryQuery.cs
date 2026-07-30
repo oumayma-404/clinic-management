@@ -71,7 +71,7 @@ public class GetPatientBillingSummaryQueryHandler
             var clinicToday = ClinicClock.ClinicToday();
 
             // Invoices — only issued, non-cancelled ones carry a balance.
-            var invoices = (await _invoiceRepository.GetFilteredAsync(clinicId, patientId: request.PatientId, cancellationToken: cancellationToken))
+            var invoices = (await _invoiceRepository.GetFilteredAsync(clinicId, patientId: request.PatientId, cancellationToken: cancellationToken)).Items
                 .Where(i => i.Status != InvoiceStatus.Draft && i.Status != InvoiceStatus.Cancelled)
                 .ToList();
 
@@ -82,7 +82,7 @@ public class GetPatientBillingSummaryQueryHandler
             // Treatment plans — count only committed plans (a Draft devis is an unaccepted quote, not debt),
             // and skip any already billed to an invoice above. Both rules live in PlanBillingRules, shared
             // with « Créances », la caisse and the dashboard so the four reads report the same figure.
-            var plans = (await _planRepository.GetFilteredAsync(clinicId, patientId: request.PatientId, cancellationToken: cancellationToken))
+            var plans = (await _planRepository.GetFilteredAsync(clinicId, patientId: request.PatientId, cancellationToken: cancellationToken)).Items
                 .Where(p => PlanBillingRules.CarriesDebt(p.Status) && !billedPlanIds.Contains(p.Id))
                 .ToList();
 

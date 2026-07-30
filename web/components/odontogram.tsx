@@ -5,6 +5,7 @@ import { toast } from "sonner"
 import { Plus, Trash2, Stethoscope, ClipboardList } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -21,6 +22,7 @@ import { cn } from "@/lib/utils"
 import { odontogramApi } from "@/lib/api/odontogram"
 import { dentalRecordsApi } from "@/lib/api/dental-records"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
+import { isAdultDentition } from "@/lib/dentition"
 import type { ToothStateDto, ProcedureTypeDto, DentalRecordDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import { formatDateFr } from "@/lib/format"
@@ -84,12 +86,20 @@ export interface OdontogramPlanSeed {
 
 interface OdontogramProps {
   patientId: string
+  /**
+   * The patient's stored dentition (`"Child"` | `"Adult"`), which decides the arch shown.
+   *
+   * This replaced a local Adulte/Enfant toggle. The toggle asked, on every single visit to this chart, a question
+   * that is a fixed property of the patient — and it defaulted to Adulte, so a child's chart opened on the wrong
+   * teeth until someone noticed and flipped it. It is answered once now, in patient info.
+   */
+  dentition: string
   /** Called with one seed per tooth carrying an open diagnosis, to pre-fill a new treatment plan. */
   onCreatePlan?: (seeds: OdontogramPlanSeed[]) => void
 }
 
-export function Odontogram({ patientId, onCreatePlan }: OdontogramProps) {
-  const [isAdult, setIsAdult] = useState(true)
+export function Odontogram({ patientId, dentition, onCreatePlan }: OdontogramProps) {
+  const isAdult = isAdultDentition(dentition)
   const [byTooth, setByTooth] = useState<Map<number, ToothStateDto[]>>(new Map())
   // The patient's fiches, joined to the treatment-sourced states for the act names.
   const [records, setRecords] = useState<DentalRecordDto[]>([])
@@ -190,35 +200,7 @@ export function Odontogram({ patientId, onCreatePlan }: OdontogramProps) {
   }, [byTooth, procedureByCondition])
 
   return (
-    <div className="w-full space-y-4">
-      {/* Toolbar: dentition toggle + create-plan action */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-medium text-muted-foreground">Dentition :</span>
-          <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
-            <Button variant={isAdult ? "default" : "ghost"} size="sm" className="h-7 px-3 text-xs" onClick={() => setIsAdult(true)}>
-              Adulte
-            </Button>
-            <Button variant={!isAdult ? "default" : "ghost"} size="sm" className="h-7 px-3 text-xs" onClick={() => setIsAdult(false)}>
-              Enfant
-            </Button>
-          </div>
-        </div>
-        {onCreatePlan && (
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7 gap-1.5 text-xs"
-            disabled={planSeeds.length === 0}
-            onClick={() => onCreatePlan(planSeeds)}
-            title={planSeeds.length === 0 ? "Aucun diagnostic à planifier" : undefined}
-          >
-            <ClipboardList className="h-3.5 w-3.5" />
-            Créer un plan depuis l'odontogramme
-          </Button>
-        )}
-      </div>
-
+    <div className="w-full space-y-3">
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
           {error}
@@ -230,20 +212,37 @@ export function Odontogram({ patientId, onCreatePlan }: OdontogramProps) {
       ) : (
         /* Two views over the same mouth. « Diagnostics » is the chart that has always been here and stays the
            default — it is where charting happens. « Actes réalisés » is read-only and reflects what the fiches
-           recorded, which the server writes on its own. The dentition toggle above is shared on purpose: it is
-           the same patient's mouth, and making each tab remember its own would be a second source of truth for
-           one setting. */
+           recorded, which the server writes on its own. Both read the arch from the patient's stored dentition, so
+           there is no per-tab setting that could disagree. */
         <Tabs defaultValue="diagnostics" className="w-full">
-          <TabsList>
-            <TabsTrigger value="diagnostics">Diagnostics</TabsTrigger>
-            <TabsTrigger value="acts">Actes réalisés</TabsTrigger>
-          </TabsList>
+          {/* The view switch and the create-plan action share one row.
+              They used to be two stacked rows — the button right-aligned on its own line, the tabs left-aligned on
+              the next — which spent two rows of chrome directly above the chart the page exists to show. They pair
+              naturally: both act on the whole odontogram, and putting them at opposite ends of one row reads as
+              « which view » on the left and « what to do with it » on the right. */}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <TabsList>
+              <TabsTrigger value="diagnostics">Diagnostics</TabsTrigger>
+              <TabsTrigger value="acts">Actes réalisés</TabsTrigger>
+            </TabsList>
+            {onCreatePlan && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 gap-1.5 text-xs"
+                disabled={planSeeds.length === 0}
+                onClick={() => onCreatePlan(planSeeds)}
+                title={planSeeds.length === 0 ? "Aucun diagnostic à planifier" : undefined}
+              >
+                <ClipboardList className="h-3.5 w-3.5" />
+                Créer un plan depuis l'odontogramme
+              </Button>
+            )}
+          </div>
 
+          {/* The instruction line that stood here is gone: it repeated the card's own description almost word for
+              word, so the same sentence was on screen twice and cost a third row. The card header keeps it. */}
           <TabsContent value="diagnostics" className="mt-3 space-y-2">
-            <p className="text-xs text-muted-foreground">
-              Cliquez sur une dent pour noter un diagnostic (à traiter). Les actes réalisés s&apos;ajoutent
-              automatiquement lors de l&apos;enregistrement d&apos;un acte médical.
-            </p>
         <div className="overflow-x-auto rounded-lg border border-border bg-card p-3">
           <div className="space-y-1.5">
             <div className="text-center text-[10px] font-medium text-muted-foreground">Maxillaire (haut)</div>
@@ -398,14 +397,18 @@ function ToothCell({ toothNum, entries, patientId, onChanged }: ToothCellProps) 
       {entries.length > 0 && (
         <span className="mt-0.5 flex items-center gap-0.5">
           {entries.slice(0, MAX_DOTS).map((e) => (
+            // The fill is an inline style, not `swatch`, for the same reason odontogram-acts-chart uses one:
+            // `cn` is tailwind-merge, so the old `cn("border", swatch, "bg-transparent")` resolved two
+            // conflicting `bg-*` utilities by keeping the LAST — silently deleting the condition colour and
+            // leaving a 1px grey ring with no fill. `swatch` carries only a background (`bg-red-500`), so there
+            // was no border colour to fall back on either: every diagnosis dot rendered neutral.
+            //
+            // The ring keeps diagnostic-vs-réalisé legible without costing the colour, which is what the hollow
+            // dot was reaching for. The tooth box's dashed border and the panel's badge say it too.
             <span
               key={e.id}
-              className={cn(
-                "h-1.5 w-1.5 rounded-full",
-                isDiagnosis(e)
-                  ? cn("border", conditionStyle(e.condition).swatch, "bg-transparent")
-                  : conditionStyle(e.condition).swatch,
-              )}
+              className={cn("h-1.5 w-1.5 rounded-full", isDiagnosis(e) && "ring-1 ring-foreground/40")}
+              style={{ backgroundColor: conditionStyle(e.condition).color }}
             />
           ))}
           {entries.length > MAX_DOTS && (
@@ -416,17 +419,63 @@ function ToothCell({ toothNum, entries, patientId, onChanged }: ToothCellProps) 
     </span>
   )
 
+  const trigger = (
+    <PopoverTrigger asChild>
+      <button
+        type="button"
+        aria-label={
+          entries.length === 0
+            ? `Dent ${toothNum} — aucun état enregistré`
+            : `Dent ${toothNum} — ${entries.length} état${entries.length > 1 ? "s" : ""} enregistré${entries.length > 1 ? "s" : ""}`
+        }
+        className="group rounded-md transition-all hover:scale-105 focus:outline-none focus:ring-1 focus:ring-ring"
+      >
+        {box}
+      </button>
+    </PopoverTrigger>
+  )
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          title={`Dent ${toothNum}`}
-          className="group rounded-md transition-all hover:scale-105 focus:outline-none focus:ring-1 focus:ring-ring"
-        >
-          {box}
-        </button>
-      </PopoverTrigger>
+      {/*
+        Hover reveals what is charted on the tooth — the acts chart does the same, but it can put that in its
+        Popover because a click there has nothing else to do. Here the Popover IS the editor (condition, faces,
+        note, save, retirer), so opening it on hover would pop a form open for every tooth the pointer crosses.
+        A read-only Tooltip gives the same information without taking the click.
+
+        It replaced `title={`Dent ${toothNum}`}`, a native tooltip whose entire content was the tooth number —
+        which is already printed under the box. Radix dismisses a tooltip on pointer-down, so it gets out of the
+        way by itself when the editor opens; no coordinating state needed.
+
+        An untouched tooth gets no tooltip: it has nothing to report, and a hover affordance promising otherwise
+        is worse than none (same rule as odontogram-acts-chart).
+      */}
+      {entries.length === 0 ? (
+        trigger
+      ) : (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>{trigger}</TooltipTrigger>
+            <TooltipContent side="top" align="center" className="max-w-xs">
+              <p className="mb-1 font-semibold">Dent {toothNum}</p>
+              <ul className="space-y-0.5">
+                {entries.map((e) => (
+                  <li key={e.id} className="flex items-center gap-1.5">
+                    <span
+                      className={cn("h-2 w-2 shrink-0 rounded-full", isDiagnosis(e) && "ring-1 ring-foreground/40")}
+                      style={{ backgroundColor: conditionStyle(e.condition).color }}
+                    />
+                    <span>{conditionStyle(e.condition).label}</span>
+                    <span className="text-muted-foreground">
+                      — {isDiagnosis(e) ? "Diagnostic" : "Réalisé"} · {formatDateFr(e.treatmentDate)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      )}
       <PopoverContent className="w-80 space-y-3" align="center">
         <div>
           <p className="text-sm font-semibold">Dent {toothNum}</p>

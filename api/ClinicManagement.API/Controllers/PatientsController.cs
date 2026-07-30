@@ -5,6 +5,7 @@ using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Patients.Commands;
 using ClinicManagement.Application.Features.Patients.Queries;
 using ClinicManagement.Application.Common.Authorization;
+using ClinicManagement.Domain.Common;
 using ClinicManagement.API.Models;
 
 namespace ClinicManagement.API.Controllers;
@@ -28,19 +29,32 @@ public class PatientsController : ApiControllerBase
     /// <param name="createdFrom">Inclusive lower bound on the registration date — backs the dashboard's
     /// « Nouveaux patients » drill-through, which must list exactly the patients that KPI counted.</param>
     /// <param name="createdTo">Inclusive upper bound on the registration date.</param>
+    /// <param name="page">1-based page number. Omit — along with <paramref name="pageSize"/> — to get every match.</param>
+    /// <param name="pageSize">
+    /// Rows per page, clamped to <c>PageRequest.MaxPageSize</c>. Supplying either paging parameter switches the
+    /// response to a page; supplying neither keeps the full set, which the patient pickers depend on.
+    /// <para><b>The search spans the clinic, not the page.</b> <paramref name="searchTerm"/> is applied before
+    /// the window in SQL, so a name on page 7 is found from page 1.</para>
+    /// </param>
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<PatientDto>>> GetPatients(
+    public async Task<ActionResult<PagedResult<PatientDto>>> GetPatients(
         [FromQuery] string? searchTerm = null,
         [FromQuery] int? limit = null,
         [FromQuery] DateTime? createdFrom = null,
-        [FromQuery] DateTime? createdTo = null)
+        [FromQuery] DateTime? createdTo = null,
+        [FromQuery] int? page = null,
+        [FromQuery] int? pageSize = null,
+        [FromQuery] bool flaggedOnly = false)
     {
         var query = new GetPatientsQuery
         {
             SearchTerm = searchTerm,
             Limit = limit,
             CreatedFrom = createdFrom,
-            CreatedTo = createdTo
+            CreatedTo = createdTo,
+            Page = page,
+            PageSize = pageSize,
+            FlaggedOnly = flaggedOnly
         };
         var result = await _mediator.Send(query);
 

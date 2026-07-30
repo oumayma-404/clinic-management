@@ -6,6 +6,8 @@ using ClinicManagement.Application.Features.Stock.Commands;
 using ClinicManagement.Application.Features.Stock.Queries;
 using Microsoft.AspNetCore.Http;
 
+using ClinicManagement.Domain.Common;
+
 namespace ClinicManagement.API.Controllers;
 
 [ApiController]
@@ -23,10 +25,30 @@ public class StockController : ApiControllerBase
     /// <summary>
     /// Get all stock items for the current user's clinic.
     /// </summary>
+    /// <param name="page">1-based page number. Omit both paging parameters to get every match.</param>
+    /// <param name="pageSize">Rows per page, clamped to <c>PageRequest.MaxPageSize</c>.</param>
+    /// <param name="search">
+    /// Free-text filter. Applied in SQL <b>before</b> the page is cut, so it searches the whole clinic — a
+    /// search that only saw the current page would answer a different question from the one that was typed.
+    /// </param>
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<StockItemDto>>> GetStockItems([FromQuery] bool lowStockOnly = false)
+    public async Task<ActionResult<StockPageDto>> GetStockItems(
+        [FromQuery] bool lowStockOnly = false,
+        [FromQuery] int? page = null,
+        [FromQuery] int? pageSize = null,
+        [FromQuery] string? search = null,
+        [FromQuery] string? category = null,
+        [FromQuery] bool expiringOnly = false)
     {
-        var result = await _mediator.Send(new GetStockItemsQuery { LowStockOnly = lowStockOnly });
+        var result = await _mediator.Send(new GetStockItemsQuery
+        {
+            LowStockOnly = lowStockOnly,
+            Page = page,
+            PageSize = pageSize,
+            SearchTerm = search,
+            Category = category,
+            ExpiringOnly = expiringOnly
+        });
 
         if (result.IsFailure)
         {

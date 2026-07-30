@@ -57,11 +57,22 @@ export default function RootLayout({
             <AIChat />
           </ConnectivityProvider>
         </SessionProvider>
+        {/*
+          4 s, not 3. Several of this app's toasts are full French sentences with a `description` under them
+          (« La connexion a été interrompue. Réessayez une fois la connexion rétablie. »), and 3 s is not
+          enough time to read one — the message is gone before it has been understood, which is the same as
+          not having shown it.
+
+          Error toasts get their own, longer life at the call site (`showErrorToast` in `lib/errors.ts`), which
+          is the only place sonner lets a duration vary by kind: a success toast is a confirmation the user can
+          afford to miss (the row already changed on screen), while an error toast is the *only* place the
+          reason exists. `closeButton` means the longer duration never traps anyone.
+        */}
         <Toaster
           position="top-right"
           richColors
           closeButton
-          duration={3000}
+          duration={4000}
           expand={true}
           visibleToasts={5}
         />

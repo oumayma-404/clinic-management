@@ -76,9 +76,9 @@ export function BackupSettings() {
     <Card className="border border-gray-200 dark:border-slate-800">
       <CardHeader className="pb-3">
         <div className="flex items-center gap-2">
-          <div className="w-1 h-6 bg-blue-600 rounded-full" />
+          <div className="w-1 h-6 bg-primary rounded-full" />
           <CardTitle className="text-base flex items-center gap-2">
-            <DatabaseBackup className="w-4 h-4 text-blue-600" />
+            <DatabaseBackup className="w-4 h-4 text-primary" />
             Sauvegarde
           </CardTitle>
         </div>
@@ -107,7 +107,7 @@ export function BackupSettings() {
           <Button
             onClick={handleBackup}
             size="sm"
-            className="h-8 text-xs bg-blue-600 hover:bg-blue-700"
+            className="h-8 text-xs bg-primary hover:bg-primary/90"
             disabled={working}
           >
             <FolderDown className="w-3.5 h-3.5 mr-1" />

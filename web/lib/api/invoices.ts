@@ -1,5 +1,6 @@
 import { apiGet, apiPost, apiPut, apiDelete, getAccessToken } from './client';
 import type { CreditNoteDto, InvoiceDto, InvoiceRevenueDto } from './types';
+import { unwrapPaged, type PagedResponse, type PageParams } from './paging';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
 
@@ -53,7 +54,16 @@ export const invoicesApi = {
     to?: string;
     patientId?: string;
     status?: string;
-  }): Promise<InvoiceDto[]> => apiGet<InvoiceDto[]>('/invoices', params),
+  }): Promise<InvoiceDto[]> => unwrapPaged(await apiGet<PagedResponse<InvoiceDto>>('/invoices', params)),
+
+  /**
+   * One page of notes d'honoraires. `search` matches the invoice number **and the patient's name**, server-side
+   * over the whole clinic — the patient half is an EXISTS against Patients, because the names shown on the rows
+   * are resolved after the page is cut and so cannot be filtered here.
+   */
+  listPaged: async (
+    params: PageParams & { from?: string; to?: string; patientId?: string; status?: string },
+  ): Promise<PagedResponse<InvoiceDto>> => apiGet<PagedResponse<InvoiceDto>>('/invoices', params),
 
   get: async (id: string): Promise<InvoiceDto> => apiGet<InvoiceDto>(`/invoices/${id}`),
 

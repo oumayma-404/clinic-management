@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using ClinicManagement.Application.Common;
+using ClinicManagement.Domain.Common;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
@@ -62,16 +64,25 @@ public class PatientRepository : IPatientRepository
             .ToListAsync(cancellationToken);
     }
 
-    public async Task<IEnumerable<Patient>> GetByClinicIdAsync(
+    public async Task<PagedResult<Patient>> GetByClinicIdAsync(
         Guid clinicId,
         bool includeArchived = false,
         DateTime? createdFrom = null,
         DateTime? createdTo = null,
+        string? searchTerm = null,
+        bool flaggedOnly = false,
+        PageRequest? paging = null,
         CancellationToken cancellationToken = default)
     {
-        var query = _context.Patients
-            .Include(p => p.Flags.Where(f => f.IsActive))
-            .Where(p => p.ClinicId == clinicId);
+        var query = _context.Patients.Where(p => p.ClinicId == clinicId);
+
+        // « Patients signalés » used to be a client-side .filter() over the full list. That was equivalent only
+        // while the client held every patient: over a page it hides flagged patients on other pages and shows a
+        // count of "the flagged ones among these 25", which is not a number anyone asked for.
+        if (flaggedOnly)
+        {
+            query = query.Where(p => p.Flags.Any(f => f.IsActive));
+        }
 
         if (!includeArchived)
         {
@@ -91,7 +102,33 @@ public class PatientRepository : IPatientRepository
             query = query.Where(p => p.CreatedAt <= createdTo.Value);
         }
 
-        return await query.ToListAsync(cancellationToken);
+        // The search runs in SQL over the whole filtered set, not over the page. It used to run in the handler
+        // over every patient of the clinic, which was equivalent only because the handler also held every
+        // patient; with a page of 25 the two stop being the same question and the in-memory version answers the
+        // wrong one — « aucun patient » for someone sitting on page 7.
+        //
+        // Fields match what the old in-memory filter matched: first name, last name, "first last", phone. The
+        // concatenation is there because staff type « ahmed ben salah » as one string, which no single column
+        // contains.
+        var pattern = SearchTerm.ToLikePattern(searchTerm);
+        if (pattern is not null)
+        {
+            query = query.Where(p =>
+                EF.Functions.ILike(SqlSearch.Unaccent(p.FirstName)!, pattern, SqlSearch.EscapeString) ||
+                EF.Functions.ILike(SqlSearch.Unaccent(p.LastName)!, pattern, SqlSearch.EscapeString) ||
+                EF.Functions.ILike(SqlSearch.Unaccent(p.FirstName + " " + p.LastName)!, pattern, SqlSearch.EscapeString) ||
+                EF.Functions.ILike(SqlSearch.Unaccent(p.PhoneNumber!.Value)!, pattern, SqlSearch.EscapeString));
+        }
+
+        // Id is the tiebreaker, and it is not cosmetic: OFFSET paging over a non-unique sort can show a row
+        // twice or skip it entirely when two patients share a surname and PostgreSQL picks a different order
+        // for the two queries. Every paginated read here ends its ordering on a unique column for that reason.
+        return await query
+            .Include(p => p.Flags.Where(f => f.IsActive))
+            .OrderBy(p => p.LastName)
+            .ThenBy(p => p.FirstName)
+            .ThenBy(p => p.Id)
+            .ToPagedResultAsync(paging, cancellationToken);
     }
 
     public async Task<int> CountCreatedBetweenAsync(

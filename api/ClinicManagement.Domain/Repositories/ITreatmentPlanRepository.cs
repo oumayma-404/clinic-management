@@ -1,6 +1,7 @@
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
 
+using ClinicManagement.Domain.Common;
 namespace ClinicManagement.Domain.Repositories;
 
 /// <summary>
@@ -59,7 +60,13 @@ public interface ITreatmentPlanRepository
     /// the number counted. A plan with no <c>AcceptedDate</c> (still Draft) is excluded when this is supplied.
     /// </param>
     /// <param name="acceptedTo">Inclusive upper bound on <c>AcceptedDate</c>.</param>
-    Task<IEnumerable<TreatmentPlan>> GetFilteredAsync(
+    /// <param name="searchTerm">
+    /// Matched in SQL over the devis number, title, notes and the patient's name (an EXISTS against
+    /// <c>Patients</c> — names are resolved by a batched lookup after the page is cut, so the filter cannot live
+    /// in the handler).
+    /// </param>
+    /// <param name="paging">The page to return, or null for every match (« Solde patient »).</param>
+    Task<PagedResult<TreatmentPlan>> GetFilteredAsync(
         Guid clinicId,
         Guid? patientId = null,
         TreatmentPlanStatus? status = null,
@@ -67,6 +74,8 @@ public interface ITreatmentPlanRepository
         DateTime? to = null,
         DateTime? acceptedFrom = null,
         DateTime? acceptedTo = null,
+        string? searchTerm = null,
+        PageRequest? paging = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

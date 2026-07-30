@@ -1,3 +1,5 @@
+using ClinicManagement.UnitTests.Common;
+using ClinicManagement.Domain.Common;
 using ClinicManagement.Application.Features.CnamNomenclature.Queries;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
@@ -27,16 +29,17 @@ public class GetCnamNomenclatureQueryHandlerTests
 
     private GetCnamNomenclatureQueryHandler Handler()
     {
-        _repository.Setup(r => r.GetAllAsync(It.IsAny<bool>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Sample());
+        _repository.Setup(r => r.GetAllAsync(It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<PageRequest?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Sample()).AsPage());
         return new GetCnamNomenclatureQueryHandler(_repository.Object, NullLogger<GetCnamNomenclatureQueryHandler>.Instance);
     }
 
     private static List<Application.DTOs.CnamNomenclatureEntryDto> ToList(
-        ClinicManagement.Application.Common.Models.Result<IEnumerable<Application.DTOs.CnamNomenclatureEntryDto>> result)
+        ClinicManagement.Application.Common.Models.Result<PagedResult<Application.DTOs.CnamNomenclatureEntryDto>> result)
     {
         Assert.True(result.IsSuccess);
-        return result.Value!.ToList();
+        return result.Value!.Items.ToList();
     }
 
     [Fact]
@@ -117,6 +120,7 @@ public class GetCnamNomenclatureQueryHandlerTests
     {
         var handler = Handler();
         await handler.Handle(new GetCnamNomenclatureQuery { IncludeInactive = true }, CancellationToken.None);
-        _repository.Verify(r => r.GetAllAsync(true, It.IsAny<CancellationToken>()), Times.Once);
+        _repository.Verify(r => r.GetAllAsync(true, It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<PageRequest?>(),
+                It.IsAny<CancellationToken>()), Times.Once);
     }
 }

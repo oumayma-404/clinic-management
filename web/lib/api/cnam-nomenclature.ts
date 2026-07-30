@@ -1,11 +1,22 @@
 import { apiGet, apiPost, apiPut, apiDelete } from './client';
 import type { CnamNomenclatureEntryDto, CnamLetterValueDto } from './types';
+import { unwrapPaged, type PagedResponse, type PageParams } from './paging';
 
 export const cnamNomenclatureApi = {
   // DB-backed CNAM dental nomenclature. `q`/`category` optional (empty → full list). `includeInactive`
   // is used by the admin screen to also show deactivated rows.
   list: async (q?: string, category?: string, includeInactive?: boolean): Promise<CnamNomenclatureEntryDto[]> => {
-    return apiGet<CnamNomenclatureEntryDto[]>('/cnam-nomenclature', { q, category, includeInactive });
+    return unwrapPaged(
+      await apiGet<PagedResponse<CnamNomenclatureEntryDto>>('/cnam-nomenclature', { q, category, includeInactive }),
+    );
+  },
+
+  /** One page of the nomenclature. `search` maps to `q` and matches code / désignation / lettre clé server-side. */
+  listPaged: async (
+    params: PageParams & { category?: string; includeInactive?: boolean },
+  ): Promise<PagedResponse<CnamNomenclatureEntryDto>> => {
+    const { search, ...rest } = params;
+    return apiGet<PagedResponse<CnamNomenclatureEntryDto>>('/cnam-nomenclature', { ...rest, q: search });
   },
 
   // Valeurs de la lettre clé (VLC). Readable by any authenticated user.

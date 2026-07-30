@@ -1,3 +1,5 @@
+using ClinicManagement.UnitTests.Common;
+using ClinicManagement.Domain.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Features.Invoices;
@@ -43,8 +45,9 @@ public class CreditNoteReadTests
             .ReturnsAsync(Result<Guid>.Success(ClinicId));
         _patients.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((Patient?)null);
-        _patients.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<bool>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Array.Empty<Patient>());
+        _patients.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<bool>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<PageRequest?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Array.Empty<Patient>()).AsPage());
         _creditNotes.Setup(r => r.GetTotalsForInvoicesAsync(
                 It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Dictionary<Guid, decimal>());
@@ -100,8 +103,9 @@ public class CreditNoteReadTests
         var invoice = PaidInvoice(600m);
         _invoices.Setup(r => r.GetFilteredAsync(
                 ClinicId, It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<Guid?>(),
-                It.IsAny<InvoiceStatus?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new[] { invoice });
+                It.IsAny<InvoiceStatus?>(), It.IsAny<string?>(), It.IsAny<PageRequest?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((new[] { invoice }).AsPage());
         _creditNotes.Setup(r => r.GetTotalsForInvoicesAsync(
                 It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Dictionary<Guid, decimal> { [invoice.Id] = 250m });
@@ -113,7 +117,7 @@ public class CreditNoteReadTests
         var result = await handler.Handle(new GetInvoicesQuery(), CancellationToken.None);
 
         Assert.True(result.IsSuccess);
-        var dto = Assert.Single(result.Value!);
+        var dto = Assert.Single(result.Value!.Items);
         Assert.Equal(250m, dto.CreditedTotal);
         Assert.Empty(dto.CreditNotes);   // the list does not pay for the avoirs it doesn't render
     }
@@ -147,8 +151,9 @@ public class CreditNoteReadTests
     {
         var invoice = PaidInvoice(600m);
         _invoices.Setup(r => r.GetFilteredAsync(
-                ClinicId, null, null, null, null, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new[] { invoice });
+                ClinicId, null, null, null, null, It.IsAny<string?>(), It.IsAny<PageRequest?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((new[] { invoice }).AsPage());
         _creditNotes.Setup(r => r.GetTotalsForInvoicesAsync(
                 It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Dictionary<Guid, decimal> { [invoice.Id] = 250m });
@@ -172,8 +177,9 @@ public class CreditNoteReadTests
         var invoice = PaidInvoice(600m);
 
         _invoices.Setup(r => r.GetFilteredAsync(
-                ClinicId, from, to, null, null, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new[] { invoice });
+                ClinicId, from, to, null, null, It.IsAny<string?>(), It.IsAny<PageRequest?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((new[] { invoice }).AsPage());
         _invoices.Setup(r => r.GetCollectedBetweenAsync(ClinicId, from, to, It.IsAny<CancellationToken>()))
             .ReturnsAsync(600m);
         _creditNotes.Setup(r => r.GetRefundedBetweenAsync(ClinicId, from, to, It.IsAny<CancellationToken>()))

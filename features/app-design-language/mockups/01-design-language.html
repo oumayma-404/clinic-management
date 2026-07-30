@@ -1,0 +1,665 @@
+<title>Langage visuel — quatre primitives pour tout l'écran</title>
+
+<style>
+  /* Same tokens the app now ships, so this page is itself an instance of the proposal. */
+  :root {
+    --accent: oklch(0.49 0.105 188);
+    --accent-bright: oklch(0.60 0.12 187);
+    --accent-ink: oklch(0.38 0.09 190);
+    --accent-wash: oklch(0.955 0.028 190);
+    --ground: oklch(0.975 0.008 215);
+    --card: oklch(1 0 0);
+    --ink: oklch(0.20 0.015 235);
+    --ink-soft: oklch(0.50 0.018 225);
+    --line: oklch(0.915 0.008 215);
+    --line-soft: oklch(0.948 0.006 215);
+    --success: oklch(0.52 0.12 155);
+    --success-wash: oklch(0.955 0.035 155);
+    --warning: oklch(0.62 0.13 72);
+    --warning-wash: oklch(0.965 0.045 80);
+    --bad: oklch(0.55 0.19 25);
+    --bad-wash: oklch(0.962 0.03 25);
+    --stale: oklch(0.545 0.155 250);
+
+    --r: 0.75rem;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, monospace;
+    --lift: 0 1px 2px oklch(0.2 0.02 230 / 0.05), 0 10px 28px -18px oklch(0.2 0.02 230 / 0.2);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --accent: oklch(0.52 0.105 188);
+      --accent-bright: oklch(0.70 0.115 186);
+      --accent-ink: oklch(0.80 0.10 188);
+      --accent-wash: oklch(0.26 0.035 190);
+      --ground: oklch(0.135 0.008 230);
+      --card: oklch(0.185 0.012 232);
+      --ink: oklch(0.965 0.006 225);
+      --ink-soft: oklch(0.655 0.015 228);
+      --line: oklch(0.265 0.012 228);
+      --line-soft: oklch(0.225 0.01 228);
+      --success: oklch(0.70 0.13 155); --success-wash: oklch(0.27 0.045 155);
+      --warning: oklch(0.76 0.13 78); --warning-wash: oklch(0.29 0.05 78);
+      --bad: oklch(0.68 0.17 25); --bad-wash: oklch(0.28 0.05 25);
+      --stale: oklch(0.66 0.16 252);
+      --lift: 0 1px 2px oklch(0 0 0 / 0.4), 0 12px 30px -18px oklch(0 0 0 / 0.7);
+    }
+  }
+  :root[data-theme="dark"] {
+    --accent: oklch(0.52 0.105 188); --accent-bright: oklch(0.70 0.115 186);
+    --accent-ink: oklch(0.80 0.10 188); --accent-wash: oklch(0.26 0.035 190);
+    --ground: oklch(0.135 0.008 230); --card: oklch(0.185 0.012 232);
+    --ink: oklch(0.965 0.006 225); --ink-soft: oklch(0.655 0.015 228);
+    --line: oklch(0.265 0.012 228); --line-soft: oklch(0.225 0.01 228);
+    --success: oklch(0.70 0.13 155); --success-wash: oklch(0.27 0.045 155);
+    --warning: oklch(0.76 0.13 78); --warning-wash: oklch(0.29 0.05 78);
+    --bad: oklch(0.68 0.17 25); --bad-wash: oklch(0.28 0.05 25);
+    --stale: oklch(0.66 0.16 252);
+    --lift: 0 1px 2px oklch(0 0 0 / 0.4), 0 12px 30px -18px oklch(0 0 0 / 0.7);
+  }
+  :root[data-theme="light"] {
+    --accent: oklch(0.49 0.105 188); --accent-bright: oklch(0.60 0.12 187);
+    --accent-ink: oklch(0.38 0.09 190); --accent-wash: oklch(0.955 0.028 190);
+    --ground: oklch(0.975 0.008 215); --card: oklch(1 0 0);
+    --ink: oklch(0.20 0.015 235); --ink-soft: oklch(0.50 0.018 225);
+    --line: oklch(0.915 0.008 215); --line-soft: oklch(0.948 0.006 215);
+    --success: oklch(0.52 0.12 155); --success-wash: oklch(0.955 0.035 155);
+    --warning: oklch(0.62 0.13 72); --warning-wash: oklch(0.965 0.045 80);
+    --bad: oklch(0.55 0.19 25); --bad-wash: oklch(0.962 0.03 25);
+    --stale: oklch(0.545 0.155 250);
+    --lift: 0 1px 2px oklch(0.2 0.02 230 / 0.05), 0 10px 28px -18px oklch(0.2 0.02 230 / 0.2);
+  }
+
+  body {
+    margin: 0; background: var(--ground); color: var(--ink);
+    font-family: var(--sans); font-size: 15px; line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1140px; margin: 0 auto; padding: 44px 24px 96px; }
+
+  .eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-soft); margin: 0; }
+  h1 { font-size: clamp(27px, 3.4vw, 37px); line-height: 1.1; letter-spacing: -0.025em; font-weight: 660; text-wrap: balance; margin: 10px 0 0; }
+  .lede { max-width: 64ch; color: var(--ink-soft); margin: 14px 0 0; }
+  .lede strong { color: var(--ink); font-weight: 600; }
+  hr.rule { border: 0; border-top: 1px solid var(--line); margin: 44px 0; }
+
+  /* audit stat row */
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(155px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; margin-top: 26px; box-shadow: var(--lift); }
+  .stat { background: var(--card); padding: 15px 16px; }
+  .stat .n { font-size: 27px; font-weight: 660; letter-spacing: -0.025em; font-variant-numeric: tabular-nums; }
+  .stat .l { font-size: 12px; color: var(--ink-soft); margin-top: 2px; }
+  .stat.warn .n { color: var(--bad); }
+
+  h2.sect { font-size: 22px; font-weight: 645; letter-spacing: -0.018em; margin: 0 0 5px; }
+  .sect-note { color: var(--ink-soft); font-size: 14px; margin: 0 0 20px; max-width: 64ch; }
+  .num-tag { font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent-ink); background: var(--accent-wash); border-radius: 999px; padding: 3px 9px; }
+
+  .pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 16px; }
+  .demo { background: var(--card); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; box-shadow: var(--lift); }
+  .demo > .cap { display: flex; align-items: center; gap: 7px; padding: 9px 14px; border-bottom: 1px solid var(--line-soft); background: color-mix(in oklab, var(--ground) 60%, var(--card)); }
+  .demo > .cap .tag { font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; border-radius: 999px; padding: 2px 7px; }
+  .cap .tag.now { background: var(--bad-wash); color: var(--bad); }
+  .cap .tag.next { background: var(--success-wash); color: var(--success); }
+  .cap .txt { font-size: 12px; color: var(--ink-soft); }
+  .demo > .body { padding: 16px; overflow-x: auto; }
+  .demo > .body.flush { padding: 0; }
+
+  /* ── page-header specimens ────────────────────────────────────────────── */
+  .ph-old-1 { font-size: 30px; font-weight: 600; margin: 0; }
+  .ph-old-2 { font-size: 24px; font-weight: 700; margin: 0; }
+  .ph-old-3 { font-size: 20px; font-weight: 600; margin: 0; }
+  .ph-old-4 {
+    font-size: 36px; font-weight: 700; margin: 0;
+    background: linear-gradient(90deg, #2563eb, #1e40af);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .ph-sub { font-size: 13px; color: var(--ink-soft); margin: 4px 0 0; }
+  .specimen + .specimen { margin-top: 18px; padding-top: 18px; border-top: 1px dashed var(--line); }
+  .specimen .where { font-family: var(--mono); font-size: 10.5px; color: var(--ink-soft); margin: 0 0 6px; }
+
+  /* the proposed header */
+  .ph { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 14px; }
+  .ph .crumb { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-soft); margin: 0 0 5px; }
+  .ph h3 { font-size: 26px; font-weight: 650; letter-spacing: -0.022em; margin: 0; }
+  .ph .sub { font-size: 13.5px; color: var(--ink-soft); margin: 3px 0 0; max-width: 56ch; }
+  .ph .acts { display: flex; flex-wrap: wrap; gap: 8px; }
+  .ph + .ph { margin-top: 20px; padding-top: 20px; border-top: 1px dashed var(--line); }
+
+  .btn { display: inline-flex; align-items: center; gap: 6px; border-radius: 10px; padding: 7px 13px; font-size: 13.5px; font: inherit; font-size: 13.5px; cursor: pointer; border: 1px solid var(--line); background: var(--card); color: var(--ink); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  .btn.ghost { border-color: transparent; background: none; color: var(--ink-soft); }
+  .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* ── toolbar ──────────────────────────────────────────────────────────── */
+  .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .search { position: relative; flex: 1 1 240px; min-width: 190px; }
+  .search input {
+    width: 100%; box-sizing: border-box; font: inherit; font-size: 13.5px;
+    border: 1px solid var(--line); background: var(--card); color: var(--ink);
+    border-radius: 10px; padding: 7px 11px 7px 32px;
+  }
+  .search input:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .search svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--ink-soft); }
+  .chip {
+    display: inline-flex; align-items: center; gap: 5px; cursor: pointer; font: inherit; font-size: 13px;
+    border: 1px solid var(--line); background: var(--card); color: var(--ink-soft);
+    border-radius: 999px; padding: 5px 11px;
+  }
+  .chip[aria-pressed="true"] { background: var(--accent-wash); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  .chip .cnt { font-family: var(--mono); font-size: 11px; opacity: 0.75; }
+
+  /* ── tables ───────────────────────────────────────────────────────────── */
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  .t-now th { text-align: left; font-weight: 500; color: var(--ink); padding: 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  .t-now td { padding: 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  .t-now .r { text-align: right; }
+
+  .t-next thead th {
+    text-align: left; padding: 9px 14px; white-space: nowrap;
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.07em; text-transform: uppercase;
+    font-weight: 500; color: var(--ink-soft);
+    border-bottom: 1px solid var(--line);
+    background: color-mix(in oklab, var(--ground) 55%, var(--card));
+    position: sticky; top: 0;
+  }
+  .t-next tbody td { padding: 10px 14px; border-bottom: 1px solid var(--line-soft); white-space: nowrap; }
+  .t-next tbody tr:last-child td { border-bottom: 0; }
+  .t-next tbody tr:hover { background: var(--accent-wash); }
+  .t-next .r { text-align: right; font-variant-numeric: tabular-nums; }
+  .t-next .num { font-variant-numeric: tabular-nums; }
+  .t-next .lead { font-weight: 600; }
+  .t-next .dim { color: var(--ink-soft); }
+  .t-next .zero { color: var(--ink-soft); opacity: 0.55; }
+  .t-scroll { max-height: 236px; overflow: auto; }
+  .t-foot { display: flex; justify-content: space-between; gap: 10px; padding: 9px 14px; border-top: 1px solid var(--line); font-family: var(--mono); font-size: 11px; color: var(--ink-soft); }
+
+  .badge { display: inline-flex; align-items: center; border-radius: 999px; padding: 2px 8px; font-size: 11.5px; font-weight: 600; }
+  .badge.ok { background: var(--success-wash); color: var(--success); }
+  .badge.warn { background: var(--warning-wash); color: color-mix(in oklab, var(--warning) 78%, var(--ink)); }
+  .badge.bad { background: var(--bad-wash); color: var(--bad); }
+  .badge.mut { background: var(--line-soft); color: var(--ink-soft); }
+  .badge.acc { background: var(--accent-wash); color: var(--accent-ink); }
+  /* the hardcoded ones, kept for the before/after */
+  .badge.old-ok { background: #dcfce7; color: #15803d; border: 1px solid #86efac; }
+  .badge.old-warn { background: #fffbeb; color: #92400e; border: 1px solid #fcd34d; }
+  .badge.old-bad { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
+  .badge.old-acc { background: #dbeafe; color: #1d4ed8; border: 1px solid #bfdbfe; }
+
+  /* ── figure strip (the card-idiom proposal) ───────────────────────────── */
+  .figs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+  @media (max-width: 700px) { .figs { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .fig { background: var(--card); padding: 14px 15px; }
+  .fig .l { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--ink-soft); font-weight: 550; }
+  .fig .l .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); opacity: 0.7; }
+  .fig .v { font-size: 21px; font-weight: 645; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; margin-top: 4px; }
+  .fig.net .v { color: var(--accent-ink); }
+  .fig .d { font-size: 11.5px; color: var(--ink-soft); margin-top: 1px; }
+
+  .cards-now { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+  @media (max-width: 700px) { .cards-now { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .card-now { border: 1px solid var(--line); border-radius: 12px; background: var(--card); padding: 14px; box-shadow: 0 1px 2px oklch(0 0 0 / 0.05); }
+  .card-now .l { font-size: 12.5px; color: var(--ink-soft); font-weight: 500; }
+  .card-now .v { font-size: 21px; font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; }
+
+  /* ── the stale-blue callout ───────────────────────────────────────────── */
+  .alarm { border: 1px solid var(--bad); background: var(--bad-wash); border-radius: var(--r); padding: 16px 18px; }
+  .alarm h3 { margin: 0 0 6px; font-size: 16px; font-weight: 645; color: var(--bad); }
+  .alarm p { margin: 0 0 10px; font-size: 14px; max-width: 70ch; }
+  .alarm p:last-child { margin-bottom: 0; }
+  .clash { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 11px 13px; margin: 12px 0; }
+  .clash .swatch { width: 34px; height: 20px; border-radius: 5px; }
+  .clash .lbl { font-family: var(--mono); font-size: 11px; color: var(--ink-soft); }
+
+  ul.pts { margin: 0; padding-left: 18px; font-size: 14px; }
+  ul.pts li { margin: 0 0 5px; }
+  ul.pts li::marker { color: var(--ink-soft); }
+  code { font-family: var(--mono); font-size: 12.5px; background: var(--line-soft); padding: 1px 5px; border-radius: 4px; }
+
+  .order { background: var(--card); border: 1px solid var(--line); border-radius: var(--r); padding: 22px 24px; box-shadow: var(--lift); }
+  .order h2 { margin: 0 0 12px; font-size: 19px; font-weight: 645; letter-spacing: -0.012em; }
+  .order ol { margin: 0; padding-left: 20px; }
+  .order li { margin: 0 0 10px; font-size: 14.5px; }
+  .order li:last-child { margin-bottom: 0; }
+  .order li b { font-weight: 640; }
+  .cost { font-family: var(--mono); font-size: 11px; color: var(--ink-soft); }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+
+  <header>
+    <p class="eyebrow">Langage visuel · toute l'application</p>
+    <h1>Quatre primitives suffisent à faire tenir l'application ensemble</h1>
+    <p class="lede">
+      Le tableau de bord est maintenant cohérent avec lui-même. Le reste de l'application ne l'est pas encore avec
+      lui&nbsp;: chaque écran a réinventé son en-tête, ses cartes et ses tableaux, et
+      <strong>928&nbsp;classes de couleur codées en dur</strong> contournent le thème. Rien de tout cela ne demande
+      de refonte fonctionnelle — quatre primitives partagées absorbent l'essentiel.
+    </p>
+
+    <div class="stats">
+      <div class="stat"><p class="n">928</p><p class="l">classes de couleur en dur</p></div>
+      <div class="stat warn"><p class="n">315</p><p class="l">dont bleues — l'ancien accent</p></div>
+      <div class="stat"><p class="n">56</p><p class="l">fichiers concernés</p></div>
+      <div class="stat"><p class="n">4</p><p class="l">tailles d'en-tête de page</p></div>
+      <div class="stat"><p class="n">15</p><p class="l">pages, aucune primitive commune</p></div>
+    </div>
+  </header>
+
+  <hr class="rule" />
+
+  <!-- ══════════ URGENT ══════════ -->
+  <div class="alarm">
+    <h3>À corriger d'abord — 315 classes bleues sont désormais fausses</h3>
+    <p>
+      Le passage au teal a déplacé <code>--primary</code>. Les 315&nbsp;utilitaires
+      <code>text-blue-600</code>&nbsp;/&nbsp;<code>bg-blue-600</code>&nbsp;/&nbsp;<code>bg-blue-50</code> écrits en
+      dur, eux, n'ont pas bougé&nbsp;: ils peignent encore l'<em>ancien</em> accent. Sur les mêmes écrans les deux
+      se croisent maintenant.
+    </p>
+    <div class="clash">
+      <span class="swatch" style="background: var(--accent)"></span>
+      <span class="lbl">--primary (teal, thème)</span>
+      <span class="swatch" style="background: var(--stale)"></span>
+      <span class="lbl">text-blue-600 (en dur, orphelin)</span>
+      <span class="badge acc">Statut · thème</span>
+      <span class="badge old-acc">Statut · en dur</span>
+    </div>
+    <p>
+      C'est une conséquence directe du changement de tokens, pas une dette préexistante&nbsp;: avant, les deux
+      coïncidaient à peu près, ce qui masquait le problème. Les fichiers les plus visibles sont
+      <code>documents/page.tsx</code> (titre en dégradé bleu), <code>invoices-table.tsx</code>,
+      <code>user-management.tsx</code>, <code>setup-wizard.tsx</code> et <code>join-wizard.tsx</code>.
+    </p>
+  </div>
+
+  <hr class="rule" />
+
+  <!-- ══════════ 1 · PAGE HEADER ══════════ -->
+  <p class="eyebrow"><span class="num-tag">Primitive 1</span></p>
+  <h2 class="sect" style="margin-top:12px">PageHeader</h2>
+  <p class="sect-note">
+    Quinze pages, quinze en-têtes écrits à la main, quatre tailles différentes — et un titre en dégradé bleu qui
+    n'appartient à aucun système.
+  </p>
+
+  <div class="pair">
+    <div class="demo">
+      <div class="cap"><span class="tag now">Aujourd'hui</span><span class="txt">quatre traitements</span></div>
+      <div class="body">
+        <div class="specimen">
+          <p class="where">10 pages · text-3xl font-semibold</p>
+          <p class="ph-old-1">Patients</p>
+          <p class="ph-sub">Consultez et gérez tous les dossiers patients</p>
+        </div>
+        <div class="specimen">
+          <p class="where">2 pages · text-2xl font-bold</p>
+          <p class="ph-old-2">Factures &amp; Recettes</p>
+        </div>
+        <div class="specimen">
+          <p class="where">1 page · text-xl font-semibold</p>
+          <p class="ph-old-3">Note d'honoraires</p>
+        </div>
+        <div class="specimen">
+          <p class="where">documents/page.tsx · dégradé bleu sur texte transparent</p>
+          <p class="ph-old-4">Documents</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="demo">
+      <div class="cap"><span class="tag next">Proposé</span><span class="txt">une primitive, trois pages</span></div>
+      <div class="body">
+        <div class="ph">
+          <div>
+            <p class="crumb">Dossiers</p>
+            <h3>Patients</h3>
+            <p class="sub">1 284 dossiers · 23 créés ce mois</p>
+          </div>
+          <div class="acts">
+            <button class="btn">Importer</button>
+            <button class="btn primary">+ Nouveau patient</button>
+          </div>
+        </div>
+
+        <div class="ph">
+          <div>
+            <p class="crumb">Argent</p>
+            <h3>Factures &amp; recettes</h3>
+            <p class="sub">Notes d'honoraires, encaissements et El&nbsp;Fatoora</p>
+          </div>
+          <div class="acts">
+            <button class="btn">Exporter</button>
+            <button class="btn primary">+ Nouvelle note</button>
+          </div>
+        </div>
+
+        <div class="ph">
+          <div>
+            <p class="crumb">Argent</p>
+            <h3>Caisse</h3>
+            <p class="sub">jeu. 30 juillet 2026 — extrait et dépenses du jour</p>
+          </div>
+          <div class="acts">
+            <button class="btn ghost">Changer de période</button>
+            <button class="btn primary">+ Dépense</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="demo" style="margin-top:16px">
+    <div class="cap"><span class="tag next">La règle</span></div>
+    <div class="body">
+      <ul class="pts">
+        <li><b>Un fil d'Ariane monospace</b> nomme la <em>zone</em> (Dossiers / Argent / Clinique / Paramètres) — le
+          même registre que les intitulés de section du tableau de bord, et il dit où l'on est sans un composant de
+          navigation en plus.</li>
+        <li><b>26 px / 650</b>, une seule taille. Le titre de page n'a pas à crier&nbsp;: le contenu au-dessous porte
+          les chiffres.</li>
+        <li><b>Le sous-titre porte un fait, pas une paraphrase.</b> « 1 284 dossiers · 23 ce mois » vaut mieux que
+          « Consultez et gérez tous les dossiers patients », qui décrit la page à quelqu'un qui la regarde déjà.</li>
+        <li><b>Les actions vivent dans l'en-tête</b>, l'action principale à droite — et une seule par page.</li>
+        <li>Aucun dégradé, aucune couleur sur un titre. Le titre est du texte.</li>
+      </ul>
+    </div>
+  </div>
+
+  <hr class="rule" />
+
+  <!-- ══════════ 2 · TOOLBAR ══════════ -->
+  <p class="eyebrow"><span class="num-tag">Primitive 2</span></p>
+  <h2 class="sect" style="margin-top:12px">ListToolbar</h2>
+  <p class="sect-note">
+    Chaque page de liste réécrit sa barre de recherche et ses filtres. Les filtres sont des <em>boutons</em> dont le
+    libellé change (« Afficher les signalés » ↔ « Signalés affichés »), ce qui demande de lire le texte pour savoir
+    si le filtre est actif.
+  </p>
+
+  <div class="pair">
+    <div class="demo">
+      <div class="cap"><span class="tag now">Aujourd'hui</span><span class="txt">patients/page.tsx</span></div>
+      <div class="body">
+        <div class="toolbar">
+          <div class="search" style="flex:1 1 200px">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+            <input type="text" placeholder="Rechercher par nom ou téléphone…" aria-label="Rechercher" />
+          </div>
+          <button class="btn">⚑ Afficher les signalés</button>
+          <button class="btn primary">+ Nouveau patient</button>
+        </div>
+        <p style="margin:12px 0 0;font-size:12.5px;color:var(--ink-soft)">
+          Le bouton de filtre et l'action principale ont le même poids, et l'état actif se lit dans le libellé.
+        </p>
+      </div>
+    </div>
+
+    <div class="demo">
+      <div class="cap"><span class="tag next">Proposé</span><span class="txt">filtres = puces comptées</span></div>
+      <div class="body">
+        <div class="toolbar">
+          <div class="search">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+            <input type="text" placeholder="Nom, téléphone…" aria-label="Rechercher un patient" />
+          </div>
+          <button class="chip" type="button" aria-pressed="true">Signalés <span class="cnt">17</span></button>
+          <button class="chip" type="button" aria-pressed="false">Archivés <span class="cnt">42</span></button>
+          <button class="chip" type="button" aria-pressed="false">CNAM <span class="cnt">318</span></button>
+        </div>
+        <p style="margin:12px 0 0;font-size:12.5px;color:var(--ink-soft)">
+          L'action principale est remontée dans l'en-tête&nbsp;; la barre ne contient plus que ce qui <em>réduit</em>
+          la liste. Une puce porte son compte, donc on sait ce qu'un filtre va coûter avant de cliquer.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <hr class="rule" />
+
+  <!-- ══════════ 3 · DATA TABLE ══════════ -->
+  <p class="eyebrow"><span class="num-tag">Primitive 3</span></p>
+  <h2 class="sect" style="margin-top:12px">DataTable</h2>
+  <p class="sect-note">
+    La surface la moins travaillée de l'application, et celle qu'on regarde le plus. Le primitif shadcn est brut&nbsp;:
+    <code>p-2</code> partout, en-têtes de colonnes de la <em>même</em> couleur que le contenu, et
+    <strong>aucun chiffre tabulaire</strong> — sur trois colonnes de dinars les virgules ne s'alignent pas.
+  </p>
+
+  <div class="demo">
+    <div class="cap"><span class="tag now">Aujourd'hui</span><span class="txt">factures/invoices-table.tsx</span></div>
+    <div class="body">
+      <table class="t-now">
+        <thead>
+          <tr><th>Numéro</th><th>Patient</th><th>Date</th><th>Statut</th><th>El Fatoora</th><th class="r">Total TTC</th><th class="r">Encaissé</th><th class="r">Reste</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>2026-0041</td><td>Mohamed Ben Salah</td><td>28/07/2026</td><td><span class="badge old-ok">Payée</span></td><td><span class="badge old-ok">Valide</span></td><td class="r">1 240,000 DT</td><td class="r">1 240,000 DT</td><td class="r">0,000 DT</td></tr>
+          <tr><td>2026-0040</td><td>Amira Trabelsi</td><td>27/07/2026</td><td><span class="badge old-warn">Partiellement payée</span></td><td><span class="badge old-ok">Valide</span></td><td class="r">3 500,000 DT</td><td class="r">1 500,000 DT</td><td class="r">2 000,000 DT</td></tr>
+          <tr><td>2026-0039</td><td>Sami Gharbi</td><td>26/07/2026</td><td><span class="badge old-acc">Émise</span></td><td><span class="badge old-warn">En attente</span></td><td class="r">850,000 DT</td><td class="r">0,000 DT</td><td class="r">850,000 DT</td></tr>
+          <tr><td>2026-0038</td><td>Leïla Karoui</td><td>25/07/2026</td><td><span class="badge mut">Brouillon</span></td><td>—</td><td class="r">420,000 DT</td><td class="r">0,000 DT</td><td class="r">420,000 DT</td></tr>
+          <tr><td>2026-0037</td><td>Nizar Bouazizi</td><td>24/07/2026</td><td><span class="badge old-bad">Annulée</span></td><td><span class="badge old-bad">Rejetée</span></td><td class="r">1 100,000 DT</td><td class="r">0,000 DT</td><td class="r">0,000 DT</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="demo" style="margin-top:16px">
+    <div class="cap"><span class="tag next">Proposé</span><span class="txt">en-tête collant, chiffres tabulaires, unité une seule fois</span></div>
+    <div class="body flush">
+      <div class="t-scroll">
+        <table class="t-next">
+          <thead>
+            <tr>
+              <th>Numéro</th><th>Patient</th><th>Date</th><th>Statut</th><th>El Fatoora</th>
+              <th class="r">Total TTC</th><th class="r">Encaissé</th><th class="r">Reste</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="lead num">2026-0041</td><td>Mohamed Ben Salah</td><td class="dim num">28/07/2026</td>
+              <td><span class="badge ok">Payée</span></td><td><span class="badge ok">Valide</span></td>
+              <td class="r">1 240,000</td><td class="r">1 240,000</td><td class="r zero">0,000</td>
+            </tr>
+            <tr>
+              <td class="lead num">2026-0040</td><td>Amira Trabelsi</td><td class="dim num">27/07/2026</td>
+              <td><span class="badge warn">Partiellement payée</span></td><td><span class="badge ok">Valide</span></td>
+              <td class="r">3 500,000</td><td class="r">1 500,000</td><td class="r">2 000,000</td>
+            </tr>
+            <tr>
+              <td class="lead num">2026-0039</td><td>Sami Gharbi</td><td class="dim num">26/07/2026</td>
+              <td><span class="badge acc">Émise</span></td><td><span class="badge warn">En attente</span></td>
+              <td class="r">850,000</td><td class="r zero">0,000</td><td class="r">850,000</td>
+            </tr>
+            <tr>
+              <td class="lead num">2026-0038</td><td>Leïla Karoui</td><td class="dim num">25/07/2026</td>
+              <td><span class="badge mut">Brouillon</span></td><td class="dim">—</td>
+              <td class="r">420,000</td><td class="r zero">0,000</td><td class="r">420,000</td>
+            </tr>
+            <tr>
+              <td class="lead num">2026-0037</td><td>Nizar Bouazizi</td><td class="dim num">24/07/2026</td>
+              <td><span class="badge bad">Annulée</span></td><td><span class="badge bad">Rejetée</span></td>
+              <td class="r dim">1 100,000</td><td class="r zero">0,000</td><td class="r zero">0,000</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="t-foot">
+        <span>5 sur 128 notes · montants en DT</span>
+        <span>page 1 / 26</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="demo" style="margin-top:16px">
+    <div class="cap"><span class="tag next">La règle</span></div>
+    <div class="body">
+      <ul class="pts">
+        <li><b>Les en-têtes de colonnes descendent d'un cran</b>&nbsp;: monospace, capitales, <code>muted-foreground</code>.
+          Aujourd'hui ils sont en <code>text-foreground</code>, donc aussi noirs que les données — l'œil ne sait pas
+          lequel des deux est le contenu.</li>
+        <li><b><code>tabular-nums</code> sur toute colonne de chiffres</b>, dates comprises. C'est le seul changement
+          qui rend trois colonnes de dinars lisibles verticalement.</li>
+        <li><b>« DT » se dit une fois</b>, dans le pied de tableau. Répétée quinze fois la même unité, c'est du bruit
+          qui pousse les chiffres à droite hors de l'alignement.</li>
+        <li><b>Un zéro s'estompe.</b> « Reste 0,000 » n'est pas une information à lire, c'est l'absence d'une dette.</li>
+        <li><b>Filets entre les lignes, pas de bordure par ligne</b>, et l'en-tête reste collant pendant le
+          défilement — sur 128 notes on perd les colonnes au bout de dix lignes.</li>
+        <li><b>Une ligne annulée s'estompe</b> au lieu de rester noire à côté d'une pastille rouge.</li>
+      </ul>
+    </div>
+  </div>
+
+  <hr class="rule" />
+
+  <!-- ══════════ 4 · CARD IDIOM ══════════ -->
+  <p class="eyebrow"><span class="num-tag">Primitive 4</span></p>
+  <h2 class="sect" style="margin-top:12px">Une seule règle pour les cartes</h2>
+  <p class="sect-note">
+    Quatre idiomes cohabitent&nbsp;: la grille à surface partagée du tableau de bord, les bandeaux
+    <code>border-y</code> de la fiche patient, les <code>Card</code> + <code>Table</code> de /factures et /caisse, et
+    les <code>Card</code> empilées du plan de traitement. Chacun se défend seul&nbsp;; ensemble ils font quatre
+    produits.
+  </p>
+
+  <div class="pair">
+    <div class="demo">
+      <div class="cap"><span class="tag now">Aujourd'hui</span><span class="txt">caisse — quatre Card séparées</span></div>
+      <div class="body">
+        <div class="cards-now">
+          <div class="card-now"><p class="l">Encaissements</p><p class="v">4 320,000</p></div>
+          <div class="card-now"><p class="l">Avoirs remboursés</p><p class="v">180,000</p></div>
+          <div class="card-now"><p class="l">Dépenses</p><p class="v">1 240,500</p></div>
+          <div class="card-now"><p class="l">Net</p><p class="v">2 899,500</p></div>
+        </div>
+        <p style="margin:12px 0 0;font-size:12.5px;color:var(--ink-soft)">
+          Quatre bordures, quatre ombres, quatre chiffres de poids égal — et un traitement différent de celui du
+          tableau de bord, qui affiche les mêmes figures.
+        </p>
+      </div>
+    </div>
+
+    <div class="demo">
+      <div class="cap"><span class="tag next">Proposé</span><span class="txt">la même grille que le tableau de bord</span></div>
+      <div class="body">
+        <div class="figs">
+          <div class="fig"><p class="l"><span class="dot"></span>Encaissements</p><p class="v">4 320,000</p><p class="d">brut, hors avoirs</p></div>
+          <div class="fig"><p class="l"><span class="dot"></span>Avoirs remboursés</p><p class="v">180,000</p><p class="d">rendus aux patients</p></div>
+          <div class="fig"><p class="l"><span class="dot"></span>Dépenses</p><p class="v">1 240,500</p><p class="d">sorties de caisse</p></div>
+          <div class="fig net"><p class="l"><span class="dot"></span>Net</p><p class="v">2 899,500</p><p class="d">= 4 320 − 180 − 1 240,5</p></div>
+        </div>
+        <p style="margin:12px 0 0;font-size:12.5px;color:var(--ink-soft)">
+          Une bordure au lieu de quatre, et « Net » — le résultat — prend la couleur d'accent, ce que quatre cartes
+          identiques ne pouvaient pas dire.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <div class="demo" style="margin-top:16px">
+    <div class="cap"><span class="tag next">La règle</span></div>
+    <div class="body">
+      <ul class="pts">
+        <li><b>Des chiffres → la grille à surface partagée</b> (<code>KpiGrid</code>). Une bordure pour le groupe, des
+          filets entre les cellules.</li>
+        <li><b>Du contenu → une <code>Card</code></b> (un tableau, un formulaire, un graphique).</li>
+        <li><b>Une bande d'en-tête d'entité → <code>border-y</code>, sans carte</b> — le motif de la fiche patient,
+          réservé aux résumés sous un nom.</li>
+        <li><b>Et rien d'autre.</b> Le quatrième idiome, les <code>Card</code> empilées, devient une <code>Card</code>
+          par section ou une grille de chiffres, selon ce qu'il contient.</li>
+        <li><b>Jamais de carte dans une carte.</b> Une ligne bordée dans une surface bordée est le vrai coupable du
+          « trop de boîtes ».</li>
+      </ul>
+    </div>
+  </div>
+
+  <hr class="rule" />
+
+  <!-- ══════════ 5 · SEMANTIC COLOUR ══════════ -->
+  <h2 class="sect">Et les 928 couleurs&nbsp;: les faire passer par le thème</h2>
+  <p class="sect-note">
+    Les tokens <code>--success</code> / <code>--warning</code> / <code>--destructive</code> et leurs
+    <code>-wash</code> existent depuis la refonte du tableau de bord. Les pastilles de statut peuvent maintenant les
+    utiliser au lieu de chacune choisir son vert.
+  </p>
+
+  <div class="pair">
+    <div class="demo">
+      <div class="cap"><span class="tag now">Aujourd'hui</span><span class="txt">trois palettes, trois fichiers</span></div>
+      <div class="body">
+        <p style="margin:0 0 9px;font-size:12px;color:var(--ink-soft)"><code>invoice-labels.ts</code></p>
+        <div style="display:flex;flex-wrap:wrap;gap:7px">
+          <span class="badge old-ok">Payée</span><span class="badge old-warn">Partiellement payée</span>
+          <span class="badge old-acc">Émise</span><span class="badge old-bad">Annulée</span>
+        </div>
+        <p style="margin:14px 0 9px;font-size:12px;color:var(--ink-soft)"><code>treatment-plan-labels.ts</code> · autres verts</p>
+        <div style="display:flex;flex-wrap:wrap;gap:7px">
+          <span class="badge" style="background:#d1fae5;color:#065f46;border:1px solid #6ee7b7">Terminé</span>
+          <span class="badge" style="background:#fef9c3;color:#854d0e;border:1px solid #fde047">En cours</span>
+        </div>
+        <p style="margin:14px 0 0;font-size:12.5px;color:var(--ink-soft)">
+          Deux verts, deux ambres, deux rouges pour la même idée&nbsp;— et aucun ne suit le thème sombre autrement
+          qu'à la main.
+        </p>
+      </div>
+    </div>
+
+    <div class="demo">
+      <div class="cap"><span class="tag next">Proposé</span><span class="txt">un jeu, quatre tons</span></div>
+      <div class="body">
+        <p style="margin:0 0 9px;font-size:12px;color:var(--ink-soft)">
+          <code>bg-success-wash text-success</code> · <code>warning</code> · <code>destructive</code> · <code>muted</code>
+        </p>
+        <div style="display:flex;flex-wrap:wrap;gap:7px">
+          <span class="badge ok">Payée</span><span class="badge warn">Partiellement payée</span>
+          <span class="badge acc">Émise</span><span class="badge bad">Annulée</span><span class="badge mut">Brouillon</span>
+        </div>
+        <p style="margin:14px 0 9px;font-size:12px;color:var(--ink-soft)">les mêmes tons, pour le devis</p>
+        <div style="display:flex;flex-wrap:wrap;gap:7px">
+          <span class="badge ok">Terminé</span><span class="badge acc">En cours</span>
+          <span class="badge mut">Brouillon</span><span class="badge bad">Annulé</span>
+        </div>
+        <p style="margin:14px 0 0;font-size:12.5px;color:var(--ink-soft)">
+          « en cours » prend l'accent, « fini » le vert, « annulé » le rouge, « pas encore » le gris. Le mode sombre
+          suit sans une seule classe <code>dark:</code>.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <hr class="rule" />
+
+  <section class="order">
+    <h2>Dans quel ordre, et ce que ça coûte</h2>
+    <ol>
+      <li>
+        <b>Les 315 bleus.</b> <span class="cost">~19 fichiers · mécanique</span><br />
+        Ce n'est pas de l'esthétique, c'est une régression que j'ai introduite en déplaçant l'accent. À faire avant
+        tout le reste, et le dégradé de <code>documents/page.tsx</code> disparaît au passage.
+      </li>
+      <li>
+        <b><code>DataTable</code>.</b> <span class="cost">1 primitive + 8 pages de liste</span><br />
+        Le plus gros gain visible par unité de travail&nbsp;: c'est la surface qu'on regarde le plus, et l'essentiel
+        se règle dans <code>ui/table.tsx</code> (en-têtes en retrait, filets, chiffres tabulaires) sans toucher aux
+        pages.
+      </li>
+      <li>
+        <b>Les pastilles de statut par le thème.</b> <span class="cost">4 fichiers de libellés</span><br />
+        Les tokens existent déjà&nbsp;; ce sont quatre <code>Record</code> de classes à réécrire, et le mode sombre
+        cesse d'être maintenu à la main.
+      </li>
+      <li>
+        <b><code>PageHeader</code> + <code>ListToolbar</code>.</b> <span class="cost">2 primitives + 15 pages</span><br />
+        Mécanique et sûr, mais large&nbsp;; c'est ce qui fait le plus pour l'impression « c'est le même logiciel ».
+      </li>
+      <li>
+        <b>La règle des cartes.</b> <span class="cost">/caisse, /factures, plan de traitement</span><br />
+        En dernier parce que c'est le seul point qui demande un jugement écran par écran&nbsp;: « ce bloc contient-il
+        des chiffres ou du contenu&nbsp;? ».
+      </li>
+    </ol>
+  </section>
+
+</div>

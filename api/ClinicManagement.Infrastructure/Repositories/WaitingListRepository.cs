@@ -4,6 +4,8 @@ using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Infrastructure.Persistence;
 
+using ClinicManagement.Application.Common;
+using ClinicManagement.Domain.Common;
 namespace ClinicManagement.Infrastructure.Repositories;
 
 public class WaitingListRepository : IWaitingListRepository
@@ -21,7 +23,12 @@ public class WaitingListRepository : IWaitingListRepository
             .FirstOrDefaultAsync(w => w.Id == id, cancellationToken);
     }
 
-    public async Task<IEnumerable<WaitingListEntry>> GetByClinicIdAsync(Guid clinicId, bool activeOnly = true, CancellationToken cancellationToken = default)
+    public async Task<PagedResult<WaitingListEntry>> GetByClinicIdAsync(
+        Guid clinicId,
+        bool activeOnly = true,
+        string? searchTerm = null,
+        PageRequest? paging = null,
+        CancellationToken cancellationToken = default)
     {
         var query = _context.WaitingListEntries
             .Include(w => w.Patient)
@@ -32,10 +39,20 @@ public class WaitingListRepository : IWaitingListRepository
             query = query.Where(w => w.Status == WaitingListStatus.Waiting);
         }
 
+        var pattern = SearchTerm.ToLikePattern(searchTerm);
+        if (pattern is not null)
+        {
+            query = query.Where(w =>
+                EF.Functions.ILike(SqlSearch.Unaccent(w.Patient!.FirstName + " " + w.Patient.LastName)!, pattern, SqlSearch.EscapeString) ||
+                EF.Functions.ILike(SqlSearch.Unaccent(w.Note)!, pattern, SqlSearch.EscapeString) ||
+                EF.Functions.ILike(SqlSearch.Unaccent(w.DesiredTimeframe)!, pattern, SqlSearch.EscapeString));
+        }
+
         return await query
             .OrderByDescending(w => w.Priority)
             .ThenBy(w => w.CreatedAt)
-            .ToListAsync(cancellationToken);
+            .ThenBy(w => w.Id)
+            .ToPagedResultAsync(paging, cancellationToken);
     }
 
     public async Task<int> CountWaitingAsync(Guid clinicId, CancellationToken cancellationToken = default)

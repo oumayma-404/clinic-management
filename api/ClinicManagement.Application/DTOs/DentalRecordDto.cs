@@ -4,6 +4,13 @@ public class DentalRecordDto
 {
     public Guid Id { get; set; }
     public Guid PatientId { get; set; }
+
+    /// <summary>
+    /// The appointment this fiche documents, or null when it was entered outside the agenda. Read back so a screen can
+    /// answer « cette séance a-t-elle déjà une fiche ? » — which nothing could, because the column was never populated.
+    /// </summary>
+    public Guid? AppointmentId { get; set; }
+
     public DateTime InterventionDate { get; set; }
     /// <summary>Derived summary of the acts' procedure names (read-only).</summary>
     public string ProcedureType { get; set; } = string.Empty;

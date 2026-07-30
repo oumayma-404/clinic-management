@@ -1,3 +1,5 @@
+using ClinicManagement.UnitTests.Common;
+using ClinicManagement.Domain.Common;
 using ClinicManagement.Application.Features.Medications.Queries;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
@@ -26,15 +28,16 @@ public class GetMedicationsQueryHandlerTests
 
     private GetMedicationsQueryHandler Handler()
     {
-        _repository.Setup(r => r.GetAllAsync(It.IsAny<bool>(), It.IsAny<CancellationToken>())).ReturnsAsync(Sample());
+        _repository.Setup(r => r.GetAllAsync(It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<PageRequest?>(),
+                It.IsAny<CancellationToken>())).ReturnsAsync((Sample()).AsPage());
         return new GetMedicationsQueryHandler(_repository.Object, NullLogger<GetMedicationsQueryHandler>.Instance);
     }
 
     private static List<Application.DTOs.MedicationDto> ToList(
-        ClinicManagement.Application.Common.Models.Result<IEnumerable<Application.DTOs.MedicationDto>> result)
+        ClinicManagement.Application.Common.Models.Result<PagedResult<Application.DTOs.MedicationDto>> result)
     {
         Assert.True(result.IsSuccess);
-        return result.Value!.ToList();
+        return result.Value!.Items.ToList();
     }
 
     [Fact]
@@ -118,6 +121,7 @@ public class GetMedicationsQueryHandlerTests
     {
         var handler = Handler();
         await handler.Handle(new GetMedicationsQuery { IncludeInactive = true }, CancellationToken.None);
-        _repository.Verify(r => r.GetAllAsync(true, It.IsAny<CancellationToken>()), Times.Once);
+        _repository.Verify(r => r.GetAllAsync(true, It.IsAny<string?>(), It.IsAny<PageRequest?>(),
+                It.IsAny<CancellationToken>()), Times.Once);
     }
 }

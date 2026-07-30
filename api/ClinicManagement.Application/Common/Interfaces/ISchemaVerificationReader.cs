@@ -93,4 +93,10 @@ public sealed record DataMigrationCounts(
     int? StockItemsWithLegacyExpiryLackingBatch,
     int? StockItemsWithStockLackingBatch,
     int? PatientsMissingNormalizedName,
-    int? PatientsTotal);
+    int? PatientsTotal,
+    /// <summary>
+    /// Appointments naming a lead act with **no** row in <c>AppointmentProcedures</c> — the durable invariant the
+    /// multi-act backfill establishes. The three procedure scalars are a derived snapshot of the first act now, so
+    /// a scalar with no row behind it is a visit the agenda paints with an act the edit dialog cannot see.
+    /// </summary>
+    int? AppointmentsWithActScalarLackingRow);

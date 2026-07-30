@@ -203,6 +203,58 @@ Frontend talks to the API via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
   `acceptedFrom`/`acceptedTo` (`from`/`to` bound *creation* — a different set of devis), and « Taux d'absence » sends
   `status=NoShow,Cancelled` because that pair *is* the rate's numerator. `MoneyReadConsistencyTests` was extended to pin
   dashboard-vs-caisse agreement, so the money section is now the **fourth** read held to the one figure.
+- **Every list read is a page, and search is a database question (`list-pagination`)**: the lists had **no paging
+  anywhere** — no backend primitive, no `Skip`/`Take`, no pager — so every table fetched a clinic's entire history and
+  filtered it in the browser. `Domain/Common/Paging.cs` is now the single authority: **`PagedResult<T>`** (items +
+  `TotalCount`, because « N résultats » and the page count are the same number and a page carrying only its own rows
+  cannot tell the client whether there is more) and **`PageRequest`** (clamps, never rejects — a stale bookmark asking
+  for page 4 of a 3-page list should show rows, not a French error). It lives in **Domain** for one structural reason:
+  the repository interfaces are there and that project has zero references.
+  ⚠️ **`paging: null` is a first-class case, not a large page** — the pickers, the header lookup, the AI dispatcher and
+  every money **total** legitimately read everything, and modelling that as "page 1 of size `int.MaxValue`" would put a
+  bogus `LIMIT 2147483647` in the SQL. On the client the mirror image is `list()` (unwrapped, `T[]`) vs `listPaged()`.
+  **The load-bearing half is that search moved into SQL.** Free-text filters were in-memory C#, which was *equivalent*
+  to searching the clinic only because the handler held the clinic; over a page it silently answers a different
+  question — a patient on page 7 reads as « aucun résultat ». `Application/Common/SearchTerm.cs` normalises the term
+  (and **escapes LIKE wildcards** — an unescaped `%` matches every row, so the filter appears to do nothing) and
+  `Infrastructure/Persistence/SqlSearch.cs` maps PostgreSQL **`unaccent`** so `Béchir` matches `bechir` in the
+  database. A normalised persisted column was rejected: it is a write-path obligation on eleven aggregates, and any
+  writer that forgets it produces a row invisible to search — indistinguishable from the record not existing.
+  ⚠️ Three traps. (a) **Every paged read must order on a unique column last** (`.ThenBy(x => x.Id)`); `OFFSET` over a
+  non-unique sort may show a row on two pages and skip another, which looks like "a record vanished".
+  (b) **An in-memory filter and a SQL page cannot coexist** — the catalogs' `category`/`q`, the patients' flag filter
+  and the lab orders' patient filter all moved into the repository, because filtering an already-cut window shrinks
+  pages unpredictably. (c) Paging a list bought nothing while its **companion read** stayed unbounded: the invoice and
+  devis lists loaded *every* patient of the clinic to resolve names (now `GetByIdsAsync` over the page), and the
+  recurring-series list read *every* appointment to count occurrences (now one `GROUP BY` over the page's ids).
+  **Two reads page in memory, deliberately**: « Créances » and the « extrait de caisse » are ordered *unions* of
+  several ledgers, so no single query knows a row's position — `PagedResult.FromSource` is for exactly those, and the
+  statement's `RunningBalance` is computed over the **whole window before** filtering or paging, because « Solde de la
+  période » is a fact about a movement's place in the period, not about the current page.
+- **A séance is several acts, and the scalars are derived (`multi-act-appointments`)**: an `Appointment` held **one**
+  `ProcedureTypeId`, so « détartrage + deux obturations » — one visit — could only be typed into the notes: invisible
+  to the colour, the duration, the fiche de soins proposal and the devis. It now owns an **`AppointmentProcedure`**
+  child collection, and `ProcedureTypeId`/`ProcedureDurationMinutes`/`ProcedureColorHex`/`TreatmentPlanItemId` are a
+  **derived snapshot of the first row** (`Appointment.SetProcedures` re-derives all four). Keeping the scalars is the
+  point: the agenda paints one colour, `ProcedureType.Appointments` is a real FK, and every existing read keys off
+  them — none had to learn about a list to stay correct.
+  ⚠️ Four traps. (a) **`SetProcedureType` now means "this visit has exactly this one act"** — it replaces the list.
+  `UpdateProcedureTypeCommand` therefore calls **`RefreshProcedureSnapshot`** instead; the old call would have deleted
+  the other acts of every séance using a renamed procedure. (b) The devis read-back must group on
+  **`LinkedTreatmentPlanItemIds`**, not the scalar: two plan acts booked into one visit are two child links, and
+  keying on the scalar left the second reading « À planifier » forever, offering to book a visit that already exists
+  (`TreatmentPlanWorkflowProjection`, and `IAppointmentRepository.GetByTreatmentPlanItemIdsAsync` matches child rows).
+  (c) A child row's `ProcedureTypeId` is **nullable**: a hand-typed devis line has no catalog act, and refusing it
+  would mean a grouped séance carried only the links of the acts that happen to match the catalogue. Such a row takes
+  its name from the plan step's désignation and contributes **no** duration. (d) On the wire, `procedures` is
+  **tri-state on update** — omit it to leave the acts alone, `[]` to clear them; cancelling posts `{ status }` alone,
+  so conflating the two would delete every act on every cancellation (the same defect the `ProcedureTypeId` tri-state
+  fixed). Duration defaults to the **sum** of the acts, client- and server-side. **Grouping is a UI decision, not a
+  stored one**: there is no séance entity — two acts sharing an appointment *are* one séance, which is why the plan
+  can display the grouping (`plan-act-row`'s « séance de N actes ») with no extra field. In the plan workspace the
+  user ticks acts and chooses « Planifier ensemble » (one RDV) or « Planifier séparément » (one each), and mixed
+  splits fall out of repeating the gesture; `verify-schema` gained `appointment-act-rows`, pinning that no
+  appointment names an act with no row behind it.
 - **Multi-tenancy**: every request is scoped to a clinic. The **authoritative** check is per-request in the handlers — the clinic is resolved from the DB user record (`ICurrentClinicResolver`/`IClinicContext` → DB lookup of the `sub`, not purely from the JWT claim) and each loaded aggregate's `ClinicId` is re-verified. Since `cloud-security-and-tenant-isolation` (PR #11) there is **also** a defense-in-depth backstop: EF Core **global query filters** on ~15 clinic-owned aggregate roots, fed the JWT `clinic_id` via `ICurrentClinicProvider` (fail-open — inactive when no clinic is in scope, so jobs/CLI/auth flows still work). See `Infrastructure/Persistence/ApplicationDbContext.cs`. Tenant-isolation is pinned by `*TenantIsolationTests` in the test project.
 - **Pluggable auth (`Auth:Mode` = `Cloud` | `Local`)**: Cloud is the original Auth0 path; **Local** (for offline Windows/LAN installs) issues its own HS256 JWTs against local email+password accounts. Backend seam: `ILocalAuthService`/`LocalAuthService` (+ per-install signing key via `LocalAuthConfig`), a mode-branched JWT setup in `Program.cs`, and `AuthController` (`login`/`setup`/`register`/`mode`/`change-password`). `CreateClinicCommand`/`JoinClinicCommand` branch to a Local path when a `Password` is present. Frontend seam: a single `useSession()` context (`web/lib/auth/session.tsx`) backed by either `CloudSessionProvider` (Auth0) or `LocalSessionProvider` (HttpOnly cookie), gated on `AUTH_MODE`. All Local behavior is additive; the Cloud path is unchanged. Offline admin lockout recovery is a console command (`dotnet run -- reset-admin-password`), not a web endpoint. *All 5 phases of the offline-Windows repackaging are complete — see `features/windows-desktop-app/`.*
 - **Local-disk file storage (Phase 2)**: the single `IFileStorage` seam is mode-branched — `LocalDiskFileStorage` (Local, blobs under `FileStorage:BasePath`) vs `MinioFileStorage` (Cloud). Additive; Cloud unchanged.

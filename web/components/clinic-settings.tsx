@@ -31,7 +31,7 @@ import { clinicsApi, type ClinicDto } from "@/lib/api/clinics"
 import { useAuthToken } from "@/lib/hooks/use-auth-token"
 import { useSession } from "@/lib/auth/session"
 import { BackupSettings } from "@/components/backup-settings"
-import { ReminderSettings } from "@/components/reminder-settings"
+import Link from "next/link"
 import { DoctorDocumentIdentityDialog } from "@/components/doctor-document-identity-dialog"
 import { DoctorWorkingHoursCard } from "@/components/doctor-working-hours-card"
 import { DEFAULT_WORKING_HOURS } from "@/lib/working-hours"
@@ -522,17 +522,20 @@ export default function ClinicSettings() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-slate-950">
+      <div className="min-h-full flex items-center justify-center bg-gray-50 dark:bg-slate-950">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
           <p className="text-muted-foreground">Chargement des paramètres de la clinique…</p>
         </div>
       </div>
     )
   }
 
+  // `min-h-full`, not `min-h-screen`. This renders inside `<main>`, which is already the viewport minus the header
+  // — so demanding a full 100vh here made the content taller than its own scroll container by exactly the header's
+  // height, producing a scrollbar and a band of empty page below the last card on every visit.
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-slate-950">
+    <div className="min-h-full bg-gray-50 dark:bg-slate-950">
 
       {/* A colleague saved these settings while this form was open. */}
       {peerChangePending && (
@@ -543,7 +546,7 @@ export default function ClinicSettings() {
       )}
       <div className="max-w-5xl mx-auto p-3 space-y-3">
         <div className="flex items-center gap-2 mb-3">
-          <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-blue-600">
+          <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary">
             <Building2 className="w-4 h-4 text-white" />
           </div>
           <div>
@@ -554,17 +557,17 @@ export default function ClinicSettings() {
 
         {/* Clinic Code under header */}
         {clinicCode && (
-          <div className="bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
-            <Label className="text-xs text-blue-700 dark:text-blue-300 font-medium">Code de la clinique</Label>
+          <div className="bg-accent/20 border border-primary/25 rounded-lg p-3">
+            <Label className="text-xs text-primary font-medium">Code de la clinique</Label>
             <div className="flex items-center gap-2 mt-1.5">
               <Badge
                 variant="outline"
-                className="text-base font-mono font-bold px-3 py-1 bg-white dark:bg-slate-900 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700"
+                className="text-base font-mono font-bold px-3 py-1 bg-white dark:bg-slate-900 text-primary border-primary/40"
               >
                 {clinicCode}
               </Badge>
             </div>
-            <p className="text-[10px] text-blue-600 dark:text-blue-400 mt-1.5">
+            <p className="text-[10px] text-primary mt-1.5">
               Communiquez ce code à vos collègues pour qu'ils rejoignent la clinique
             </p>
           </div>
@@ -578,11 +581,11 @@ export default function ClinicSettings() {
                 onClick={() => setIsClinicInfoCollapsed(!isClinicInfoCollapsed)}
                 className="flex items-center gap-2 flex-1 text-left hover:opacity-70 transition-opacity"
               >
-                <div className="w-1 h-6 bg-blue-600 rounded-full" />
+                <div className="w-1 h-6 bg-primary rounded-full" />
                 <CardTitle className="text-base">Informations de la clinique</CardTitle>
                 <ChevronDown
                   className={`w-4 h-4 text-muted-foreground transition-transform ${
-                    isClinicInfoCollapsed ? "-rotate-90" : ""
+ isClinicInfoCollapsed ? "-rotate-90" : ""
                   }`}
                 />
               </button>
@@ -694,7 +697,7 @@ export default function ClinicSettings() {
                 <div className="flex items-center gap-4">
                   {logoPreview ? (
                     // Show preview when user selects a new file (data URL)
-                    <div className="relative w-20 h-20 rounded-lg border-2 border-blue-200 dark:border-blue-800 overflow-hidden shadow-sm group">
+                    <div className="relative w-20 h-20 rounded-lg border-2 border-primary/25 overflow-hidden shadow-sm group">
                       <Image
                         src={logoPreview}
                         alt="Aperçu du logo"
@@ -717,18 +720,18 @@ export default function ClinicSettings() {
                     </div>
                   ) : isEditingClinicInfo ? (
                     // Always show upload button when in edit mode
-                    <label className="w-20 h-20 flex flex-col items-center justify-center border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-lg cursor-pointer hover:border-blue-500 hover:bg-gradient-to-br hover:from-blue-50 hover:to-indigo-50 dark:hover:from-blue-950/20 dark:hover:to-indigo-950/20 transition-all group">
-                      <Upload className="w-5 h-5 text-slate-400 group-hover:text-blue-600 transition-colors" />
-                      <span className="text-[10px] text-slate-500 group-hover:text-blue-600 font-medium transition-colors mt-1">
+                    <label className="w-20 h-20 flex flex-col items-center justify-center border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-lg cursor-pointer hover:border-primary hover:bg-gradient-to-br hover:from-accent hover:to-indigo-50/20 dark:hover:to-indigo-950/20 transition-all group">
+                      <Upload className="w-5 h-5 text-slate-400 group-hover:text-primary transition-colors" />
+                      <span className="text-[10px] text-slate-500 group-hover:text-primary font-medium transition-colors mt-1">
                         {logoUrl ? "Modifier" : "Téléverser"}
                       </span>
                       <input type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
                     </label>
                   ) : logoUrl ? (
                     // Show indicator that logo exists when not in edit mode
-                    <div className="w-20 h-20 flex flex-col items-center justify-center border-2 border-blue-200 dark:border-blue-800 rounded-lg bg-blue-50 dark:bg-blue-950/20">
-                      <Building2 className="w-8 h-8 text-blue-600 dark:text-blue-400" />
-                      <span className="text-[8px] text-blue-600 dark:text-blue-400 mt-1">Logo défini</span>
+                    <div className="w-20 h-20 flex flex-col items-center justify-center border-2 border-primary/25 rounded-lg bg-accent/20">
+                      <Building2 className="w-8 h-8 text-primary" />
+                      <span className="text-[8px] text-primary mt-1">Logo défini</span>
                     </div>
                   ) : (
                     <div className="text-xs text-muted-foreground italic">Aucun logo téléversé</div>
@@ -750,7 +753,7 @@ export default function ClinicSettings() {
                   <Button
                     onClick={handleSaveClinicInfo}
                     size="sm"
-                    className="h-7 text-xs bg-blue-600 hover:bg-blue-700"
+                    className="h-7 text-xs bg-primary hover:bg-primary/90"
                     disabled={isSaving}
                   >
                     <Save className="w-3 h-3 mr-1" />
@@ -770,11 +773,11 @@ export default function ClinicSettings() {
                 onClick={() => setIsDoctorsCollapsed(!isDoctorsCollapsed)}
                 className="flex items-center gap-2 flex-1 text-left hover:opacity-70 transition-opacity"
               >
-                <div className="w-1 h-6 bg-blue-600 rounded-full" />
+                <div className="w-1 h-6 bg-primary rounded-full" />
                 <CardTitle className="text-base">Médecins</CardTitle>
                 <ChevronDown
                   className={`w-4 h-4 text-muted-foreground transition-transform ${
-                    isDoctorsCollapsed ? "-rotate-90" : ""
+ isDoctorsCollapsed ? "-rotate-90" : ""
                   }`}
                 />
               </button>
@@ -795,7 +798,7 @@ export default function ClinicSettings() {
                 >
                   <CardContent className="p-3">
                     <div className="flex items-start gap-3">
-                      <div className="flex items-center justify-center w-7 h-7 rounded-full bg-blue-600 text-white text-xs font-semibold shrink-0 mt-0.5">
+                      <div className="flex items-center justify-center w-7 h-7 rounded-full bg-primary text-white text-xs font-semibold shrink-0 mt-0.5">
                         {index + 1}
                       </div>
                       <div className="flex-1 grid grid-cols-2 gap-2">
@@ -945,7 +948,7 @@ export default function ClinicSettings() {
                     <Button
                       onClick={handleSaveDoctors}
                       size="sm"
-                      className="h-7 text-xs bg-blue-600 hover:bg-blue-700"
+                      className="h-7 text-xs bg-primary hover:bg-primary/90"
                       disabled={isSaving}
                     >
                       <Save className="w-3 h-3 mr-1" />
@@ -966,11 +969,11 @@ export default function ClinicSettings() {
                 onClick={() => setIsHoursCollapsed(!isHoursCollapsed)}
                 className="flex items-center gap-2 flex-1 text-left hover:opacity-70 transition-opacity"
               >
-                <div className="w-1 h-6 bg-blue-600 rounded-full" />
+                <div className="w-1 h-6 bg-primary rounded-full" />
                 <CardTitle className="text-base">Horaires d'ouverture</CardTitle>
                 <ChevronDown
                   className={`w-4 h-4 text-muted-foreground transition-transform ${
-                    isHoursCollapsed ? "-rotate-90" : ""
+ isHoursCollapsed ? "-rotate-90" : ""
                   }`}
                 />
               </button>
@@ -988,8 +991,8 @@ export default function ClinicSettings() {
                 <div
                   key={item.day}
                   className={`flex items-center gap-3 p-2 rounded-lg border ${
-                    item.enabled
-                      ? "border-blue-200 dark:border-blue-700 bg-blue-50/30 dark:bg-blue-950/20"
+ item.enabled
+                      ? "border-primary/25 bg-accent/30/20"
                       : "border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900/50"
                   }`}
                 >
@@ -1049,7 +1052,7 @@ export default function ClinicSettings() {
                   <Button
                     onClick={handleSaveHours}
                     size="sm"
-                    className="h-7 text-xs bg-blue-600 hover:bg-blue-700"
+                    className="h-7 text-xs bg-primary hover:bg-primary/90"
                     disabled={isSaving}
                   >
                     <Save className="w-3 h-3 mr-1" />
@@ -1069,11 +1072,11 @@ export default function ClinicSettings() {
                 onClick={() => setIsBillingCollapsed(!isBillingCollapsed)}
                 className="flex items-center gap-2 flex-1 text-left hover:opacity-70 transition-opacity"
               >
-                <div className="w-1 h-6 bg-blue-600 rounded-full" />
+                <div className="w-1 h-6 bg-primary rounded-full" />
                 <CardTitle className="text-base">Facturation (note d'honoraires)</CardTitle>
                 <ChevronDown
                   className={`w-4 h-4 text-muted-foreground transition-transform ${
-                    isBillingCollapsed ? "-rotate-90" : ""
+ isBillingCollapsed ? "-rotate-90" : ""
                   }`}
                 />
               </button>
@@ -1196,7 +1199,7 @@ export default function ClinicSettings() {
                   <Button onClick={handleCancelBilling} variant="ghost" size="sm" className="h-7 text-xs" disabled={isSaving}>
                     Annuler
                   </Button>
-                  <Button onClick={handleSaveBilling} size="sm" className="h-7 text-xs bg-blue-600 hover:bg-blue-700" disabled={isSaving}>
+                  <Button onClick={handleSaveBilling} size="sm" className="h-7 text-xs bg-primary hover:bg-primary/90" disabled={isSaving}>
                     <Save className="w-3 h-3 mr-1" />
                     {isSaving ? "Enregistrement…" : "Enregistrer"}
                   </Button>
@@ -1206,18 +1209,38 @@ export default function ClinicSettings() {
           )}
         </Card>
 
-        {/* Admin-only backup card — Local mode only (US-8 / FR-G). */}
-        {user?.role === "admin" && <ReminderSettings />}
+        {/*
+          The reminder channel configuration moved to its own page — « Rappels » (/rappels), where it opens in a
+          sheet beside the delivery log. It sat here as a card whose bottom third was a 20-row status list, which
+          put the thing staff read daily underneath the thing an admin sets once. This link is left behind
+          deliberately: someone who knows the setting as "in Paramètres" has to find where it went.
+        */}
+        {user?.role === "admin" && (
+          <Card>
+            <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+              <div className="space-y-0.5">
+                <p className="text-sm font-medium">Rappels SMS / WhatsApp</p>
+                <p className="text-xs text-muted-foreground">
+                  Les canaux, les délais et le journal des envois ont leur propre page.
+                </p>
+              </div>
+              <Button variant="outline" size="sm" asChild>
+                <Link href="/rappels">Ouvrir « Rappels »</Link>
+              </Button>
+            </CardContent>
+          </Card>
+        )}
 
+        {/* Admin-only backup card — Local mode only (US-8 / FR-G). */}
         {mode === "local" && user?.role === "admin" && <BackupSettings />}
 
-        <Card className="border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20">
+        <Card className="border border-primary/25 bg-accent/50/20">
           <CardContent className="p-3">
             <div className="flex items-start gap-2">
-              <Info className="w-4 h-4 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />
+              <Info className="w-4 h-4 text-primary mt-0.5 shrink-0" />
               <div className="space-y-1">
-                <p className="text-xs font-medium text-blue-900 dark:text-blue-100">Need help?</p>
-                <p className="text-xs text-blue-700 dark:text-blue-300">
+                <p className="text-xs font-medium text-accent-foreground">Need help?</p>
+                <p className="text-xs text-primary">
                   Contact support at support@clinic.com or call +216 XX XXX XXX
                 </p>
               </div>

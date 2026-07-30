@@ -56,6 +56,16 @@ interface LineRow {
   /** The condition behind that label, so the hint can use its own colour from the odontogram palette. */
   diagnosisCondition?: string
   plannedCost: string
+  /**
+   * Has the dentist typed this fee themselves? Until they do, it **follows** whichever act the row is set to,
+   * so picking a different act reprices the line.
+   *
+   * The guard this replaces was `plannedCost === ""` — prefill only an empty field — which could not tell a fee
+   * the dentist typed from one a *previous pick* had prefilled, and so protected both. Any row arriving with a
+   * cost (every odontogram seed does) therefore kept its original fee through every subsequent change of act:
+   * « Détartrage » priced at the couronne's fee.
+   */
+  costTouched: boolean
   toothNumbers: number[]
 }
 
@@ -80,6 +90,7 @@ const emptyLine = (): LineRow => ({
   procedureTypeId: null,
   designationFr: "",
   plannedCost: "",
+  costTouched: false,
   toothNumbers: [],
 })
 
@@ -111,7 +122,11 @@ interface TreatmentPlanFormModalProps {
    * same, but the submit derives `addItems` / `removeItemIds` / `installments` and posts to
    * `POST /treatment-plans/{id}/amend`, which keeps the devis number and bumps `revisionNumber` — where the
    * draft path (`PUT /treatment-plans/{id}`) replaces the acts wholesale and is refused after acceptance.
-   * Title, notes and patient are not amendable server-side, so they render read-only here.
+   *
+   * Since plans are accepted at creation this is the **only** editor a devis ever gets, so everything the
+   * endpoint accepts is editable here: acts in place (`updateItems`, id preserved), additions, removals, the
+   * échéancier, the title and the notes. Only the patient is fixed — moving a numbered devis to someone else is
+   * not an amendment.
    */
   amendMode?: boolean
   /** When opened from a patient page, the patient is preset and locked. */
@@ -228,6 +243,10 @@ export function TreatmentPlanFormModal({
               procedureTypeId: it.procedureTypeId,
               designationFr: it.designationFr,
               plannedCost: String(it.plannedCost),
+              // A stored fee is the number that was agreed with the patient, whatever the catalogue says today.
+              // It is never re-derived from a default, so re-picking an act to fix its designation cannot
+              // reprice work already quoted.
+              costTouched: true,
               toothNumbers: it.toothNumbers,
             }))
           : [emptyLine()],
@@ -259,6 +278,10 @@ export function TreatmentPlanFormModal({
               diagnosisCondition: s.diagnosisCondition,
               // Prefill the fee from the matching procedure-type default (odontogram match); blank otherwise.
               plannedCost: s.plannedCost != null && s.plannedCost > 0 ? String(s.plannedCost) : "",
+              // Untouched on purpose: this fee came from a catalogue default the app chose, not from the
+              // dentist. It is exactly the case the old empty-field guard got wrong — the seed arrives with a
+              // cost, so every later change of act kept the *seeded* act's price.
+              costTouched: false,
               toothNumbers: s.toothNumbers,
             }))
           : [emptyLine()],
@@ -277,6 +300,22 @@ export function TreatmentPlanFormModal({
   const removeLine = (index: number) =>
     setLines((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== index) : prev))
 
+  /**
+   * The fee a row should show after being re-pointed at a new act.
+   *
+   * A fee the dentist typed is theirs and survives every later pick. Otherwise the fee follows the act — which
+   * is the whole fix: the previous act's price is simply wrong for the act now named, and leaving it there is
+   * how « Détartrage » ended up at the couronne's fee.
+   *
+   * A new act with no default clears the field rather than keeping the old number: an empty box asks for the
+   * price, whereas a stale one silently asserts a wrong one. (Harmless server-side — for a CNAM-linked line
+   * `TreatmentPlanItemPricing` fills a blank cost from the act's own default.)
+   */
+  const repricedFor = (line: LineRow, defaultFee: number | null | undefined): string => {
+    if (line.costTouched) return line.plannedCost
+    return defaultFee != null && defaultFee > 0 ? String(defaultFee) : ""
+  }
+
   const selectAct = (index: number, act: DentalActDto) => {
     setLines((prev) =>
       prev.map((l, i) =>
@@ -289,8 +328,7 @@ export function TreatmentPlanFormModal({
               // replaced, so keeping the link would leave the act claiming a procedure it no longer names.
               procedureTypeId: null,
               designationFr: act.designationFr,
-              // Prefill the fee from the catalog default only when the line has no cost yet.
-              plannedCost: l.plannedCost.trim() === "" && act.defaultFee != null ? String(act.defaultFee) : l.plannedCost,
+              plannedCost: repricedFor(l, act.defaultFee),
             }
           : l,
       ),
@@ -311,8 +349,7 @@ export function TreatmentPlanFormModal({
               codeActe: null,
               procedureTypeId: pt.id,
               designationFr: pt.name,
-              // Prefill the fee from the procedure default only when the line has no cost yet.
-              plannedCost: l.plannedCost.trim() === "" && pt.defaultCost != null ? String(pt.defaultCost) : l.plannedCost,
+              plannedCost: repricedFor(l, pt.defaultCost),
             }
           : l,
       ),
@@ -436,12 +473,42 @@ export function TreatmentPlanFormModal({
         return
       }
 
-      // Only rows with no id are additions; an existing act's designation/cost/teeth are NOT amendable
-      // through this endpoint (the server takes addItems + removeItemIds only), so an edit-in-place would
-      // silently do nothing. Remove-then-add is the honest expression of "change this act".
+      // Rows with no id are additions; rows with one are **corrections in place**, sent as `updateItems`.
+      //
+      // They used to be dropped here on the belief that the endpoint took additions and removals only. It takes
+      // `updateItems` too, and the inputs above were already editable — so a dentist could retype a fee, press
+      // « Enregistrer la révision », get a success toast and lose the edit. That silent discard is the whole
+      // reason a plan needed a draft stage to be correctable, and it has to go for creation-time acceptance to
+      // be safe. Sending an id also *preserves* it, so every appointment and fiche link survives the change —
+      // which remove-then-add cannot do, and which is refused outright for a réalisé or booked act.
       const addItems = parsedLines.filter((l) => !l.id)
+      const updateItems = parsedLines.filter((l) => {
+        if (!l.id) return false
+        const before = editingPlan.items.find((i) => i.id === l.id)
+        if (!before) return false
+        // Only genuinely changed lines: re-sending every act unchanged would bump the révision counter on a
+        // no-op save, and that counter is how a patient's earlier printout is identified.
+        return (
+          l.designationFr.trim() !== before.designationFr.trim() ||
+          Math.abs(l.plannedCost - before.plannedCost) > 0.0005 ||
+          (l.codeActe ?? null) !== (before.codeActe ?? null) ||
+          (l.dentalActCodeId ?? null) !== (before.dentalActCodeId ?? null) ||
+          (l.procedureTypeId ?? null) !== (before.procedureTypeId ?? null) ||
+          l.toothNumbers.join(",") !== before.toothNumbers.join(",")
+        )
+      })
 
-      if (addItems.length === 0 && removeItemIds.length === 0 && parsedInstallments.length === 0) {
+      const retitling = title.trim() !== "" && title.trim() !== editingPlan.title
+      const renoting = (notes.trim() || null) !== (editingPlan.notes ?? null)
+
+      if (
+        addItems.length === 0 &&
+        updateItems.length === 0 &&
+        removeItemIds.length === 0 &&
+        parsedInstallments.length === 0 &&
+        !retitling &&
+        !renoting
+      ) {
         setError("Aucune modification demandée.")
         return
       }
@@ -462,8 +529,15 @@ export function TreatmentPlanFormModal({
       try {
         await treatmentPlansApi.amend(editingPlan.id, {
           addItems,
+          updateItems,
           removeItemIds,
           installments: parsedInstallments,
+          title: title.trim(),
+          // Tri-state server-side and always sent: it compares against the stored value, so an unchanged note
+          // is not counted as an amendment and does not bump the révision.
+          notes: notes.trim() || null,
+          // The copy this form was hydrated from, so a peer's edit 409s instead of overwriting their fees.
+          version: editingPlan.version,
         })
         toast.success("Devis modifié")
         onSuccess?.()
@@ -495,8 +569,12 @@ export function TreatmentPlanFormModal({
           items: parsedLines,
           installments: parsedInstallments,
         }
-        await treatmentPlansApi.create(payload)
-        toast.success("Plan de traitement créé")
+        const created = await treatmentPlansApi.create(payload)
+        // Names the number, because that is the evidence the plan is already live — a bare « créé » left the
+        // dentist looking for the « Accepter » button that no longer exists.
+        toast.success(
+          created.number ? `Devis ${created.number} créé et validé` : "Devis créé et validé",
+        )
       }
       onSuccess?.()
       onOpenChange(false)
@@ -522,12 +600,12 @@ export function TreatmentPlanFormModal({
             {isAmending ? (
               <>
                 Le devis garde son numéro{editingPlan?.number ? ` (${editingPlan.number})` : ""} et passe en
-                révision {(editingPlan?.revisionNumber ?? 0) + 1}. Ajoutez ou retirez des actes, puis ajustez
-                l&apos;échéancier au nouveau total. Le titre, les notes et le patient ne sont pas modifiables
-                après acceptation.
+                révision {(editingPlan?.revisionNumber ?? 0) + 1}. Corrigez les actes et leurs montants, ajoutez
+                ou retirez-en, puis ajustez l&apos;échéancier au nouveau total. Seul le patient n&apos;est pas
+                modifiable.
               </>
             ) : (
-              "Devis : actes planifiés, coûts et échéancier de paiement. Un brouillon peut être modifié librement."
+              "Devis : actes planifiés, coûts et échéancier. Il est validé et numéroté dès sa création — les montants restent corrigeables ensuite."
             )}
           </DialogDescription>
         </DialogHeader>
@@ -566,7 +644,7 @@ export function TreatmentPlanFormModal({
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="Ex. Réhabilitation prothétique"
-                disabled={loading || isAmending}
+                disabled={loading}
               />
             </div>
           </div>
@@ -579,7 +657,7 @@ export function TreatmentPlanFormModal({
               onChange={(e) => setNotes(e.target.value)}
               placeholder="Notes (optionnel)"
               rows={2}
-              disabled={loading || isAmending}
+              disabled={loading}
             />
           </div>
 
@@ -723,7 +801,9 @@ export function TreatmentPlanFormModal({
                         min="0"
                         step="0.001"
                         value={line.plannedCost}
-                        onChange={(e) => updateLine(index, { plannedCost: e.target.value })}
+                        // Typing a fee claims it: from here on it is the dentist's number and no later
+                        // catalogue pick overwrites it.
+                        onChange={(e) => updateLine(index, { plannedCost: e.target.value, costTouched: true })}
                         className="w-32"
                         disabled={loading}
                       />

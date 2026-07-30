@@ -1,6 +1,8 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
+import { DataTablePagination } from "@/components/ui/data-table-pagination"
+import { usePagedList } from "@/lib/hooks/use-paged-list"
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table"
@@ -25,7 +27,7 @@ import { toast } from "sonner"
 import { invoicesApi } from "@/lib/api/invoices"
 import { ApiError } from "@/lib/api/client"
 import type { InvoiceDto } from "@/lib/api/types"
-import { formatDT, formatDateFr, todayLocalIso } from "@/lib/format"
+import { formatAmount, formatDT, formatDateFr, todayLocalIso } from "@/lib/format"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { useConnectivity } from "@/lib/connectivity/connectivity"
@@ -34,7 +36,8 @@ import { InvoiceFormModal } from "./invoice-form-modal"
 import { PaymentModal } from "./payment-modal"
 import { InvoiceDetailModal } from "./invoice-detail-modal"
 import {
-  invoiceStatusLabel, eInvoiceStatusLabel, eInvoiceStatusBadgeClass, paymentMethodLabel, PAYMENT_METHODS,
+  invoiceStatusLabel, invoiceStatusBadgeClass, eInvoiceStatusLabel, eInvoiceStatusBadgeClass,
+  paymentMethodLabel, PAYMENT_METHODS,
 } from "./invoice-labels"
 
 interface InvoicesTableProps {
@@ -50,23 +53,6 @@ interface InvoicesTableProps {
   onChanged?: () => void
 }
 
-function statusBadgeClass(status: string): string {
-  switch (status) {
-    case "Draft":
-      return "bg-muted text-muted-foreground"
-    case "Issued":
-      return "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-200"
-    case "PartiallyPaid":
-      return "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200"
-    case "Paid":
-      return "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-200"
-    case "Cancelled":
-      return "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200"
-    default:
-      return "bg-muted text-muted-foreground"
-  }
-}
-
 export function InvoicesTable({
   patientId,
   patientName,
@@ -77,9 +63,10 @@ export function InvoicesTable({
   reloadKey = 0,
   onChanged,
 }: InvoicesTableProps) {
-  const [invoices, setInvoices] = useState<InvoiceDto[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [search, setSearch] = useState("")
+  // Bumped by a mutation or a realtime event to refetch the CURRENT page (rather than reset to page 1 — a
+  // colleague recording a payment should not move the page you are reading).
+  const [localRefresh, setLocalRefresh] = useState(0)
   const [busyId, setBusyId] = useState<string | null>(null)
   const { internetReachable } = useConnectivity()
   // El Fatoora is per-clinic opt-in: only surface the submit action when the clinic has enabled TTN
@@ -103,22 +90,31 @@ export function InvoicesTable({
   const [avoirAmount, setAvoirAmount] = useState("")
   const [avoirReason, setAvoirReason] = useState("")
 
-  const load = useCallback(async () => {
-    try {
-      setLoading(true)
-      setError(null)
-      const data = await invoicesApi.list({ patientId, from, to, status })
-      setInvoices(data)
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Échec du chargement des factures.")
-    } finally {
-      setLoading(false)
-    }
-  }, [patientId, from, to, status])
+  // `search` matches the invoice number AND the patient's name, server-side across the whole clinic. The
+  // patient half has to be server-side: the names on these rows are resolved by a batched lookup after the page
+  // is cut, so a filter here would only ever see the page already on screen.
+  const fetchPage = useCallback(
+    ({ page, pageSize, search }: { page: number; pageSize: number; search?: string }) =>
+      invoicesApi.listPaged({ page, pageSize, search, patientId, from, to, status }),
+    [patientId, from, to, status],
+  )
 
-  useEffect(() => {
-    load()
-  }, [load, reloadKey])
+  const {
+    items: invoices,
+    page: pageInfo,
+    loading,
+    refreshing,
+    error,
+    setPage,
+    setPageSize,
+    isSearching,
+  } = usePagedList<InvoiceDto>({
+    fetchPage,
+    search,
+    refreshKey: `${reloadKey}:${localRefresh}`,
+  })
+
+  const load = useCallback(() => setLocalRefresh((n) => n + 1), [])
 
   useClinicRealtime(RealtimeResource.Invoices, load)
 
@@ -333,18 +329,32 @@ export function InvoicesTable({
         </div>
       )}
 
-      <div className="rounded-md border overflow-x-auto">
+      <div>
+        <Label htmlFor="invoices-search" className="sr-only">
+          Rechercher une facture
+        </Label>
+        <Input
+          id="invoices-search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Rechercher une facture (numéro, patient)…"
+        />
+      </div>
+
+      <div className={`rounded-md border overflow-x-auto${refreshing ? " opacity-60 transition-opacity" : ""}`}>
         <Table>
-          <TableHeader>
+          {/* Sticky: this list pages, so the columns are gone by row ten and « Reste » becomes an unlabelled
+              column of money. The unit is stated once in the three money headers rather than on every cell. */}
+          <TableHeader sticky>
             <TableRow>
               <TableHead>Numéro</TableHead>
               {showPatientColumn && <TableHead>Patient</TableHead>}
               <TableHead>Date</TableHead>
               <TableHead>Statut</TableHead>
               <TableHead>El Fatoora</TableHead>
-              <TableHead className="text-right">Total TTC</TableHead>
-              <TableHead className="text-right">Encaissé</TableHead>
-              <TableHead className="text-right">Reste</TableHead>
+              <TableHead className="text-right">Total TTC (DT)</TableHead>
+              <TableHead className="text-right">Encaissé (DT)</TableHead>
+              <TableHead className="text-right">Reste (DT)</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -358,7 +368,7 @@ export function InvoicesTable({
             ) : invoices.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={colSpan} className="text-center text-muted-foreground py-8">
-                  Aucune facture.
+                  {isSearching ? "Aucune facture ne correspond à votre recherche." : "Aucune facture."}
                 </TableCell>
               </TableRow>
             ) : (
@@ -373,7 +383,9 @@ export function InvoicesTable({
                 const isCancellable = invoice.canCancel
                 const canCreateAvoir = invoice.canCreateAvoir
                 return (
-                  <TableRow key={invoice.id}>
+                  // A cancelled note dims: the badge already says « Annulée », and a row rendering in
+                  // full-strength ink beside it made the least relevant line as loud as the rest.
+                  <TableRow key={invoice.id} muted={invoice.status === "Cancelled"}>
                     <TableCell className="font-medium">
                       <div className="flex items-center gap-2">
                         {/* The number is the detail affordance. It was inert text, and the row already
@@ -405,7 +417,7 @@ export function InvoicesTable({
                     {showPatientColumn && <TableCell>{invoice.patientName ?? "—"}</TableCell>}
                     <TableCell>{invoice.issueDate ? formatDateFr(invoice.issueDate) : formatDateFr(invoice.createdAt)}</TableCell>
                     <TableCell>
-                      <Badge variant="secondary" className={statusBadgeClass(invoice.status)}>
+                      <Badge variant="secondary" className={invoiceStatusBadgeClass(invoice.status)}>
                         {invoiceStatusLabel(invoice.status)}
                       </Badge>
                     </TableCell>
@@ -422,23 +434,23 @@ export function InvoicesTable({
                         </Badge>
                       )}
                     </TableCell>
-                    <TableCell className="text-right">{formatDT(invoice.totalTtc)}</TableCell>
-                    <TableCell className="text-right">
+                    <TableCell numeric>{formatAmount(invoice.totalTtc)}</TableCell>
+                    <TableCell numeric>
                       <div className="flex flex-col items-end">
-                        <span>{formatDT(invoice.amountCollected)}</span>
+                        <span>{formatAmount(invoice.amountCollected)}</span>
                         {/* An avoir was invisible everywhere once established. The row is where a user
                             notices that money went back — and why « Encaissé » no longer matches the caisse. */}
                         {invoice.creditedTotal > 0 && (
                           <span
-                            className="text-xs text-blue-700 dark:text-blue-400"
+                            className="text-xs text-primary"
                             title="Montant remboursé au patient par avoir"
                           >
-                            −{formatDT(invoice.creditedTotal)} avoir
+                            −{formatAmount(invoice.creditedTotal)} avoir
                           </span>
                         )}
                       </div>
                     </TableCell>
-                    <TableCell className="text-right">{formatDT(invoice.outstanding)}</TableCell>
+                    <TableCell numeric>{formatAmount(invoice.outstanding)}</TableCell>
                     <TableCell>
                       <div className="flex justify-end gap-1">
                         {isBusy && <Loader2 className="h-4 w-4 animate-spin self-center" />}
@@ -513,6 +525,13 @@ export function InvoicesTable({
             )}
           </TableBody>
         </Table>
+        <DataTablePagination
+          page={pageInfo}
+          onPageChange={setPage}
+          onPageSizeChange={setPageSize}
+          loading={refreshing}
+          label={["facture", "factures"]}
+        />
       </div>
 
       <InvoiceFormModal

@@ -9,6 +9,7 @@ using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Domain.Services;
 
+using ClinicManagement.Domain.Common;
 namespace ClinicManagement.Application.Features.Billing.Queries;
 
 /// <summary>
@@ -33,6 +34,19 @@ public class GetCaisseLedgerQuery : IRequest<Result<CaisseLedgerDto>>
 {
     public DateTime? From { get; set; }
     public DateTime? To { get; set; }
+
+    /// <summary>
+    /// 1-based page and page size over the movements. Both null = every movement in the window, which is what the
+    /// consistency test (« Σ movements == the totals ») reads.
+    /// </summary>
+    public int? Page { get; set; }
+    public int? PageSize { get; set; }
+
+    /// <summary>
+    /// Free-text filter over the movement label, patient, reference and method. Matched in memory — a statement is
+    /// the ordered union of four ledgers, so there is no single query to push it into.
+    /// </summary>
+    public string? SearchTerm { get; set; }
 }
 
 public class GetCaisseLedgerQueryHandler : IRequestHandler<GetCaisseLedgerQuery, Result<CaisseLedgerDto>>
@@ -88,7 +102,10 @@ public class GetCaisseLedgerQueryHandler : IRequestHandler<GetCaisseLedgerQuery,
             var installmentPayments = await _planRepository.GetInstallmentPaymentsBetweenAsync(
                 clinicId, from, to, billedPlanIds, cancellationToken);
             var refunds = await _creditNoteRepository.GetByClinicIdAsync(clinicId, from, to, cancellationToken);
-            var expenses = await _expenseRepository.GetByClinicIdAsync(clinicId, from, to, cancellationToken);
+            // Unpaged deliberately: the statement merges these rows with three other ledgers and orders the
+            // union, so it cannot be assembled from a page of any one of them.
+            var expenses = (await _expenseRepository.GetByClinicIdAsync(
+                clinicId, from, to, cancellationToken: cancellationToken)).Items;
 
             // Names in one pass. Every money-in row carries a patient id and no name — `Invoice` has no `Patient`
             // navigation to project from — so resolving them per row would be an N+1 on the clinic's busiest screen.
@@ -114,6 +131,10 @@ public class GetCaisseLedgerQueryHandler : IRequestHandler<GetCaisseLedgerQuery,
                 .ThenBy(m => m.Id)
                 .ToList();
 
+            // The running balance is computed over the WHOLE window, before any filtering or paging. That order
+            // is load-bearing: « Solde de la période » means "where the till stood after this movement", which is
+            // a fact about the movement's position in the window and not about which page it happens to land on.
+            // Computing it after a filter would print a column that adds up to nothing.
             var balance = 0m;
             foreach (var movement in ordered)
             {
@@ -127,11 +148,28 @@ public class GetCaisseLedgerQueryHandler : IRequestHandler<GetCaisseLedgerQuery,
                 movement.RunningBalance = InvoiceCalculator.RoundMoney(balance);
             }
 
+            // Filtered and paged in memory for the same reason as « Créances »: a statement is the ordered union
+            // of four ledgers, so no single query knows a row's position in it. Unlike the other lists this one is
+            // already bounded by its date window — the paging is here so a month-long extrait does not render
+            // thousands of rows at once, not because the read was unbounded.
+            var visible = string.IsNullOrWhiteSpace(request.SearchTerm)
+                ? ordered
+                : ordered
+                    .Where(m => SearchTerm.Matches(request.SearchTerm, m.Label, m.PatientName, m.Reference, m.Method))
+                    .ToList();
+
+            var page = PagedResult<CaisseMovementDto>.FromSource(
+                visible, PageRequest.From(request.Page, request.PageSize));
+
             return Result<CaisseLedgerDto>.Success(new CaisseLedgerDto
             {
                 FromDate = from,
                 ToDate = to,
-                Movements = ordered
+                Movements = page.Items.ToList(),
+                Page = page.Page,
+                PageSize = page.PageSize,
+                TotalCount = page.TotalCount,
+                TotalPages = page.TotalPages
             });
         }
         catch (Exception ex) when (ex is not ConflictException)

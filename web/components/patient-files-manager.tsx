@@ -391,7 +391,7 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
             onClick={() => setIsNewFolderOpen(true)} 
             variant="default" 
             size="sm"
-            className="bg-blue-600 hover:bg-blue-700 text-white"
+            className="bg-primary hover:bg-primary/90 text-white"
           >
             <Plus className="h-4 w-4 mr-2" />
             Nouveau dossier
@@ -405,15 +405,15 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
           variant="ghost" 
           size="sm" 
           onClick={() => setCurrentFolderId(null)} 
-          className="h-8 px-2 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/20 dark:hover:text-blue-400"
+          className="h-8 px-2 hover:bg-accent hover:text-primary/20"
         >
           <Home className="h-4 w-4 mr-1" />
           Fichiers
         </Button>
         {currentFolder && (
           <>
-            <ChevronRight className="h-4 w-4 text-blue-500" />
-            <span className="font-medium text-blue-700 dark:text-blue-400">{currentFolder.name}</span>
+            <ChevronRight className="h-4 w-4 text-primary" />
+            <span className="font-medium text-primary">{currentFolder.name}</span>
           </>
         )}
       </div>
@@ -423,8 +423,8 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
         className={cn(
           "border-2 border-dashed p-6 transition-all duration-200",
           isDragging 
-            ? "border-blue-500 bg-blue-50/50 dark:bg-blue-950/20 shadow-lg" 
-            : "border-blue-200 dark:border-blue-800 hover:border-blue-300 dark:hover:border-blue-700 bg-gradient-to-br from-blue-50/30 to-transparent dark:from-blue-950/10"
+            ? "border-primary bg-accent/50/20 shadow-lg" 
+            : "border-primary/25 hover:border-primary/40 bg-gradient-to-br from-accent/30 to-transparent/10"
         )}
         onDrop={handleDrop}
         onDragOver={handleDragOver}
@@ -432,21 +432,21 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
       >
         <div className="flex flex-col items-center justify-center gap-3">
           {uploading ? (
-            <div className="p-3 rounded-full bg-blue-100 dark:bg-blue-900/30">
-              <Loader2 className="h-10 w-10 animate-spin text-blue-600 dark:text-blue-400" />
+            <div className="p-3 rounded-full bg-accent/30">
+              <Loader2 className="h-10 w-10 animate-spin text-primary" />
             </div>
           ) : (
             <div className={cn(
               "p-3 rounded-full transition-colors",
-              isDragging ? "bg-blue-100 dark:bg-blue-900/30" : "bg-blue-50 dark:bg-blue-950/20"
+              isDragging ? "bg-accent/30" : "bg-accent/20"
             )}>
-              <Upload className={cn("h-10 w-10", isDragging ? "text-blue-600 dark:text-blue-400" : "text-blue-500 dark:text-blue-400")} />
+              <Upload className={cn("h-10 w-10", isDragging ? "text-primary" : "text-primary")} />
             </div>
           )}
           <div className="text-center">
             <p className={cn(
               "text-sm font-semibold",
-              isDragging ? "text-blue-700 dark:text-blue-300" : "text-foreground"
+              isDragging ? "text-primary" : "text-foreground"
             )}>
               {isDragging ? "Déposez les fichiers ici" : "Glissez-déposez des fichiers ici"}
             </p>
@@ -465,7 +465,7 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
               size="sm" 
               asChild 
               disabled={uploading}
-              className="bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50"
+              className="bg-primary hover:bg-primary/90 text-white disabled:opacity-50"
             >
               <span>{uploading ? "Téléversement…" : "Parcourir les fichiers"}</span>
             </Button>
@@ -478,10 +478,10 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
         <div>
           <h3 className="text-sm font-semibold mb-3 text-foreground">Dossiers</h3>
           {folders.length === 0 ? (
-            <Card className="p-8 border-dashed border-blue-200 dark:border-blue-800">
+            <Card className="p-8 border-dashed border-primary/25">
               <div className="text-center text-muted-foreground">
-                <div className="p-4 rounded-full bg-blue-50 dark:bg-blue-950/20 inline-block mb-3">
-                  <Folder className="h-12 w-12 text-blue-500 dark:text-blue-400 opacity-70" />
+                <div className="p-4 rounded-full bg-accent/20 inline-block mb-3">
+                  <Folder className="h-12 w-12 text-primary opacity-70" />
                 </div>
                 <p className="text-sm">Aucun dossier. Créez un dossier pour organiser les fichiers.</p>
               </div>
@@ -495,15 +495,15 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
                   tabIndex={0}
                   aria-label={`Ouvrir le dossier ${folder.name}`}
                   className={cn(
-                    "p-4 cursor-pointer hover:shadow-md transition-all duration-200 hover:scale-105 border-border hover:border-blue-300 dark:hover:border-blue-700 bg-gradient-to-br from-card to-blue-50/30 dark:to-blue-950/10 relative group",
+                    "p-4 cursor-pointer hover:shadow-md transition-all duration-200 hover:scale-105 border-border hover:border-primary/40 bg-gradient-to-br from-card to-accent/30/10 relative group",
                     CARD_FOCUS_CLASSES
                   )}
                   onClick={() => setCurrentFolderId(folder.id)}
                   onKeyDown={activateOnKey(() => setCurrentFolderId(folder.id))}
                 >
                   <div className="flex flex-col items-center gap-2 text-center">
-                    <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/30">
-                      <Folder className="h-10 w-10 text-blue-600 dark:text-blue-400" />
+                    <div className="p-2 rounded-lg bg-accent/30">
+                      <Folder className="h-10 w-10 text-primary" />
                     </div>
                     <p className="text-sm font-semibold truncate w-full text-foreground">{folder.name}</p>
                     <p className="text-xs text-muted-foreground">
@@ -537,10 +537,10 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
           {currentFolderId ? "Fichiers du dossier" : "Fichiers récents"}
         </h3>
         {currentFiles.length === 0 ? (
-          <Card className="p-8 border-dashed border-blue-200 dark:border-blue-800">
+          <Card className="p-8 border-dashed border-primary/25">
             <div className="text-center text-muted-foreground">
-              <div className="p-4 rounded-full bg-blue-50 dark:bg-blue-950/20 inline-block mb-3">
-                <File className="h-12 w-12 text-blue-500 dark:text-blue-400 opacity-70" />
+              <div className="p-4 rounded-full bg-accent/20 inline-block mb-3">
+                <File className="h-12 w-12 text-primary opacity-70" />
               </div>
               <p className="text-sm font-medium">Aucun fichier. Téléversez des fichiers pour commencer.</p>
             </div>
@@ -554,7 +554,7 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
                 tabIndex={0}
                 aria-label={`Ouvrir ${file.fileName}`}
                 className={cn(
-                  "p-3 hover:shadow-sm transition-all duration-200 hover:border-blue-300 dark:hover:border-blue-700 bg-card cursor-pointer",
+                  "p-3 hover:shadow-sm transition-all duration-200 hover:border-primary/40 bg-card cursor-pointer",
                   CARD_FOCUS_CLASSES
                 )}
                 onClick={() => handlePreviewFile(file)}
@@ -562,7 +562,7 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400">
+                    <div className="p-2 rounded-lg bg-accent/30 text-primary">
                       {getFileIcon(file.contentType)}
                     </div>
                     <div className="flex-1 min-w-0">
@@ -576,7 +576,7 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-8 w-8 p-0 hover:bg-blue-100 dark:hover:bg-blue-900/30 hover:text-blue-700 dark:hover:text-blue-400"
+                      className="h-8 w-8 p-0 hover:bg-accent/30 hover:text-primary"
                       onClick={(e) => {
                         e.stopPropagation()
                         isPreviewableFile(file) ? handlePreviewFile(file) : handleDownloadFile(file)
@@ -649,7 +649,7 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
             <Button
               onClick={() => void handleCreateFolder()}
               disabled={creatingFolder || !newFolderName.trim()}
-              className="bg-blue-600 hover:bg-blue-700 text-white"
+              className="bg-primary hover:bg-primary/90 text-white"
             >
               {creatingFolder ? "Création…" : "Créer le dossier"}
             </Button>
@@ -671,7 +671,7 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
               <div className={`relative flex items-start justify-center flex-1 min-h-0 ${previewFile && isPdfFile(previewFile) ? 'bg-slate-100 dark:bg-slate-900 p-6 overflow-auto' : 'bg-black/5 p-6 overflow-auto'}`}>
                 {previewLoading ? (
                   <div className="flex flex-col items-center justify-center gap-3 h-full">
-                    <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
                     <p className="text-sm text-muted-foreground">Chargement de l&apos;aperçu…</p>
                   </div>
                 ) : previewUrl ? (

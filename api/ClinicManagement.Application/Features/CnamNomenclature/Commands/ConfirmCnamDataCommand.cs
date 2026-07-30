@@ -46,7 +46,9 @@ public class ConfirmCnamDataCommandHandler : IRequestHandler<ConfirmCnamDataComm
                 return Result.Failure(clinicResult.Error ?? "Cabinet introuvable.");
             }
 
-            var entries = await _repository.GetAllAsync(includeInactive: true, cancellationToken);
+            // Unpaged: this confirms the whole catalog, so it must see every entry.
+            var entries = (await _repository.GetAllAsync(
+                includeInactive: true, cancellationToken: cancellationToken)).Items;
             foreach (var entry in entries.Where(e => e.IsProvisional && e.ClinicId == clinicResult.Value))
             {
                 entry.Confirm();

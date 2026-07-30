@@ -21,7 +21,6 @@ export type DashboardKpiKey =
   | 'receivables'
   | 'waitingList'
   | 'draftPlans'
-  | 'patientsToRecall'
   | 'overdueLabOrders'
   | 'lowStock'
   | 'expiringStock';
@@ -92,7 +91,6 @@ export const DASHBOARD_LINKS: Record<DashboardKpiKey, (period: DashboardPeriodDt
 
   waitingList: () => '/waiting-list',
   draftPlans: () => `/treatment-plans${query({ status: 'Draft' })}`,
-  patientsToRecall: () => '/recalls',
   overdueLabOrders: () => `/lab-orders${query({ status: 'Sent' })}`,
   lowStock: () => `/stock${query({ filter: 'low' })}`,
   expiringStock: () => `/stock${query({ filter: 'expiring' })}`,
