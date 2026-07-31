@@ -28,23 +28,11 @@ import { ApiError } from "@/lib/api/client"
 import { formatDateFr } from "@/lib/format"
 import { CONDITION_ORDER, conditionStyle, SURFACE_LABELS, serializeSurfaces } from "@/components/odontogram-conditions"
 import { OdontogramActsChart } from "@/components/odontogram-acts-chart"
+// One source for the FDI quadrant layout — `tooth-multiselect` is the client-side authority for a tooth's
+// dentition (mirroring the backend `FdiTooth.IsAdult`), and this file used to carry a second copy.
+import { ADULT_TEETH, CHILD_TEETH } from "@/components/tooth-multiselect"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
-
-// FDI layout (mirrors dental-chart.tsx). Adult = quadrants 1–4 (32 teeth), child = quadrants 5–8 (20 teeth).
-const ADULT_TEETH = {
-  upperRight: [18, 17, 16, 15, 14, 13, 12, 11],
-  upperLeft: [21, 22, 23, 24, 25, 26, 27, 28],
-  lowerRight: [48, 47, 46, 45, 44, 43, 42, 41],
-  lowerLeft: [31, 32, 33, 34, 35, 36, 37, 38],
-}
-
-const CHILD_TEETH = {
-  upperRight: [55, 54, 53, 52, 51],
-  upperLeft: [61, 62, 63, 64, 65],
-  lowerRight: [85, 84, 83, 82, 81],
-  lowerLeft: [71, 72, 73, 74, 75],
-}
 
 // Max dots drawn under a tooth before collapsing the overflow into a "+N".
 const MAX_DOTS = 4
@@ -243,10 +231,14 @@ export function Odontogram({ patientId, dentition, onCreatePlan }: OdontogramPro
           {/* The instruction line that stood here is gone: it repeated the card's own description almost word for
               word, so the same sentence was on screen twice and cost a third row. The card header keeps it. */}
           <TabsContent value="diagnostics" className="mt-3 space-y-2">
+        {/* AC-32 — the `mx-auto w-max` wrapper keeps teeth 18–15 and 48–45 inside the scrollable region;
+            `justify-center` pushed the inline-start overflow outside it, where nothing can reach it. The
+            reasoning is written out once, in `record-tooth-chart.tsx`. */}
         <div className="overflow-x-auto rounded-lg border border-border bg-card p-3">
+          <div className="mx-auto w-max">
           <div className="space-y-1.5">
             <div className="text-center text-2xs font-medium text-muted-foreground">Maxillaire (haut)</div>
-            <div className="flex justify-center gap-2">
+            <div className="flex gap-2">
               <div className="flex gap-0.5">
                 {teeth.upperRight.map((t) => (
                   <ToothCell key={t} toothNum={t} entries={byTooth.get(t) ?? []} patientId={patientId} onChanged={load} />
@@ -264,7 +256,7 @@ export function Odontogram({ patientId, dentition, onCreatePlan }: OdontogramPro
           <div className="my-2 border-t border-border" />
 
           <div className="space-y-1.5">
-            <div className="flex justify-center gap-2">
+            <div className="flex gap-2">
               <div className="flex gap-0.5">
                 {teeth.lowerRight.map((t) => (
                   <ToothCell key={t} toothNum={t} entries={byTooth.get(t) ?? []} patientId={patientId} onChanged={load} />
@@ -278,6 +270,7 @@ export function Odontogram({ patientId, dentition, onCreatePlan }: OdontogramPro
               </div>
             </div>
             <div className="text-center text-2xs font-medium text-muted-foreground">Mandibule (bas)</div>
+          </div>
           </div>
         </div>
 

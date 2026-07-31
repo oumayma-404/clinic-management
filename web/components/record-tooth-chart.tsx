@@ -1,20 +1,10 @@
 "use client"
 
 import { cn } from "@/lib/utils"
-
-// FDI quadrant layout (mirrors dental-chart.tsx / odontogram.tsx).
-const ADULT_TEETH = {
-  upperRight: [18, 17, 16, 15, 14, 13, 12, 11],
-  upperLeft: [21, 22, 23, 24, 25, 26, 27, 28],
-  lowerRight: [48, 47, 46, 45, 44, 43, 42, 41],
-  lowerLeft: [31, 32, 33, 34, 35, 36, 37, 38],
-}
-const CHILD_TEETH = {
-  upperRight: [55, 54, 53, 52, 51],
-  upperLeft: [61, 62, 63, 64, 65],
-  lowerRight: [85, 84, 83, 82, 81],
-  lowerLeft: [71, 72, 73, 74, 75],
-}
+// The FDI quadrant layout is imported, not re-declared: `tooth-multiselect` is the single client-side
+// authority for a tooth's dentition (it mirrors the backend `FdiTooth.IsAdult`), and this file used to carry
+// its own copy of the same four arrays.
+import { ADULT_TEETH, CHILD_TEETH } from "@/components/tooth-multiselect"
 
 // How a tooth should paint on the chart (computed by the parent from the acts + the patient's odontogram).
 export interface ToothPaint {
@@ -176,26 +166,41 @@ export function RecordToothChart({ isAdult, paint, onToggleTooth, disabled, toot
 
   return (
     <div className="overflow-x-auto rounded-lg border border-border bg-card p-3">
-      {/* Upper jaw */}
-      <div className="space-y-1.5">
-        <div className="text-center text-2xs font-medium text-muted-foreground">Maxillaire (haut)</div>
-        <div className="flex justify-center gap-2">
-          <div className="flex gap-0.5">{teeth.upperRight.map(renderTooth)}</div>
-          <div className="w-px bg-border" />
-          <div className="flex gap-0.5">{teeth.upperLeft.map(renderTooth)}</div>
-        </div>
-      </div>
+      {/*
+        AC-32 — `w-max mx-auto`, never `justify-center`, inside a scroll container.
 
-      <div className="my-2 border-t border-border" />
+        ⚠️ This is not a phone-only nicety. `justify-content: center` distributes overflow to **both** sides,
+        and the inline-start overflow is **not in the scrollable region** — so at 390px teeth 18–15 and 48–45
+        were unreachable by any means: not by scrolling, not by dragging, not at all. `w-max` sizes this block
+        to its content and `mx-auto` still centres it while there is room; once the content is wider than the
+        container the auto margins collapse to zero (they cannot go negative), so the arch starts at the
+        scroll origin and every tooth is reachable.
 
-      {/* Lower jaw */}
-      <div className="space-y-1.5">
-        <div className="flex justify-center gap-2">
-          <div className="flex gap-0.5">{teeth.lowerRight.map(renderTooth)}</div>
-          <div className="w-px bg-border" />
-          <div className="flex gap-0.5">{teeth.lowerLeft.map(renderTooth)}</div>
+        One wrapper rather than one per row, so the « Maxillaire »/« Mandibule » labels and the midline rule
+        share the arch's width instead of centring against the viewport and drifting off it when scrolled.
+      */}
+      <div className="mx-auto w-max">
+        {/* Upper jaw */}
+        <div className="space-y-1.5">
+          <div className="text-center text-2xs font-medium text-muted-foreground">Maxillaire (haut)</div>
+          <div className="flex gap-2">
+            <div className="flex gap-0.5">{teeth.upperRight.map(renderTooth)}</div>
+            <div className="w-px bg-border" />
+            <div className="flex gap-0.5">{teeth.upperLeft.map(renderTooth)}</div>
+          </div>
         </div>
-        <div className="text-center text-2xs font-medium text-muted-foreground">Mandibule (bas)</div>
+
+        <div className="my-2 border-t border-border" />
+
+        {/* Lower jaw */}
+        <div className="space-y-1.5">
+          <div className="flex gap-2">
+            <div className="flex gap-0.5">{teeth.lowerRight.map(renderTooth)}</div>
+            <div className="w-px bg-border" />
+            <div className="flex gap-0.5">{teeth.lowerLeft.map(renderTooth)}</div>
+          </div>
+          <div className="text-center text-2xs font-medium text-muted-foreground">Mandibule (bas)</div>
+        </div>
       </div>
     </div>
   )

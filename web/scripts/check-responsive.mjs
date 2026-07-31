@@ -30,7 +30,7 @@ const WEB_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SCAN_DIRS = ["app", "components", "lib", "contexts", "hooks"];
 
 /** Parts not yet landed. Remove an id when that part is committed. */
-const PENDING_PARTS = new Set(["P6", "P7", "P8"]);
+const PENDING_PARTS = new Set(["P7", "P8"]);
 
 // ── file walking ────────────────────────────────────────────────────────────────────────────────────────────
 

@@ -4,12 +4,41 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 
-// FDI tooth numbers. Adult = quadrants 1–4, child = quadrants 5–8.
-export const ADULT_FDI = [
-  18, 17, 16, 15, 14, 13, 12, 11, 21, 22, 23, 24, 25, 26, 27, 28,
-  48, 47, 46, 45, 44, 43, 42, 41, 31, 32, 33, 34, 35, 36, 37, 38,
-]
-export const CHILD_FDI = [55, 54, 53, 52, 51, 61, 62, 63, 64, 65, 85, 84, 83, 82, 81, 71, 72, 73, 74, 75]
+/**
+ * FDI tooth numbers **by quadrant** — the arch layout every chart draws. Adult = quadrants 1–4, child = 5–8.
+ *
+ * This is the one source, and the flat `ADULT_FDI`/`CHILD_FDI` below are **derived from it** rather than
+ * written out a second time. Before this, the quadrant shape was copied in `odontogram.tsx` and
+ * `record-tooth-chart.tsx` while the flat shape lived here — three literals that happened to agree, with
+ * nothing making them agree. (`odontogram-acts-chart.tsx` was never a copy: it takes `teeth` as a prop.)
+ */
+export interface ToothQuadrants {
+  upperRight: number[]
+  upperLeft: number[]
+  lowerRight: number[]
+  lowerLeft: number[]
+}
+
+export const ADULT_TEETH: ToothQuadrants = {
+  upperRight: [18, 17, 16, 15, 14, 13, 12, 11],
+  upperLeft: [21, 22, 23, 24, 25, 26, 27, 28],
+  lowerRight: [48, 47, 46, 45, 44, 43, 42, 41],
+  lowerLeft: [31, 32, 33, 34, 35, 36, 37, 38],
+}
+
+export const CHILD_TEETH: ToothQuadrants = {
+  upperRight: [55, 54, 53, 52, 51],
+  upperLeft: [61, 62, 63, 64, 65],
+  lowerRight: [85, 84, 83, 82, 81],
+  lowerLeft: [71, 72, 73, 74, 75],
+}
+
+/** Quadrant order is upper-right → upper-left → lower-right → lower-left, which is the order the flat lists
+ *  already had; deriving them keeps that and makes a divergence impossible. */
+const flatten = (q: ToothQuadrants): number[] => [...q.upperRight, ...q.upperLeft, ...q.lowerRight, ...q.lowerLeft]
+
+export const ADULT_FDI = flatten(ADULT_TEETH)
+export const CHILD_FDI = flatten(CHILD_TEETH)
 
 /**
  * True for a permanent (adult) FDI tooth, false for a deciduous one — mirrors the backend `FdiTooth.IsAdult`.

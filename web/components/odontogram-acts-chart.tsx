@@ -208,11 +208,14 @@ export function OdontogramActsChart({ teeth, records, procedureTypes }: Odontogr
 
   return (
     <div className="space-y-3">
-        {/* Same container and arch labels as the diagnosis chart. */}
+        {/* Same container and arch labels as the diagnosis chart — including the AC-32 `mx-auto w-max`
+            wrapper, which is what keeps teeth 18–15 and 48–45 inside the scrollable region. See
+            `record-tooth-chart.tsx` for why `justify-center` cannot be used here. */}
         <div className="overflow-x-auto rounded-lg border border-border bg-card p-3">
+          <div className="mx-auto w-max">
           <div className="space-y-1.5">
             <div className="text-center text-2xs font-medium text-muted-foreground">Maxillaire (haut)</div>
-            <div className="flex justify-center gap-2">
+            <div className="flex gap-2">
               <div className="flex gap-0.5">{teeth.upperRight.map(renderTooth)}</div>
               <div className="w-px bg-border" />
               <div className="flex gap-0.5">{teeth.upperLeft.map(renderTooth)}</div>
@@ -222,12 +225,13 @@ export function OdontogramActsChart({ teeth, records, procedureTypes }: Odontogr
           <div className="my-2 border-t border-border" />
 
           <div className="space-y-1.5">
-            <div className="flex justify-center gap-2">
+            <div className="flex gap-2">
               <div className="flex gap-0.5">{teeth.lowerRight.map(renderTooth)}</div>
               <div className="w-px bg-border" />
               <div className="flex gap-0.5">{teeth.lowerLeft.map(renderTooth)}</div>
             </div>
             <div className="text-center text-2xs font-medium text-muted-foreground">Mandibule (bas)</div>
+          </div>
           </div>
         </div>
 
