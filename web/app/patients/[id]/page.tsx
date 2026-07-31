@@ -10,6 +10,13 @@ import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Separator } from "@/components/ui/separator"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { formatDT, formatDateFr, formatDate, formatDateTime, formatFileSize } from "@/lib/format"
 import {
   ArrowLeft,
@@ -30,6 +37,7 @@ import {
   ChevronRight,
   ChevronDown,
   ChevronUp,
+  MoreHorizontal,
   Pencil,
   X,
   Loader2,
@@ -150,6 +158,134 @@ function EmptyOrLoading({ loading, children }: { loading: boolean; children: Rea
 }
 
 /**
+ * What a visit row derives about itself: how long it ran, whether it is cancelled, and whether it can still be
+ * written up. One implementation because the table and the card list must agree — the rule below is subtle
+ * enough that a second copy would drift.
+ *
+ * « Enregistrer la fiche » is offered when the visit is OVER and not yet recorded. "Over" is measured from the
+ * appointment's END, not its start, matching what makes the post-visit review due server-side — a 30-minute
+ * visit is not finished ten minutes in.
+ *
+ * `Cancelled` / `NoShow` are excluded even though neither is « Terminé ». Saving a fiche calls
+ * `Appointment.MarkVisitCompleted`, which returns `Contradicted` for exactly those two and is swallowed by its
+ * best-effort caller — so the fiche would persist while the appointment silently stayed cancelled. A visit
+ * recorded as not having happened should not offer to record what happened during it.
+ */
+function appointmentVisitState(appointment: AppointmentDto) {
+  const durationMinutes = appointment.duration
+    ? parseInt(appointment.duration.split(":")[0]) * 60 + parseInt(appointment.duration.split(":")[1] || "0")
+    : 0
+  const status = normalizeStatus(appointment.status)
+  const endedAt = new Date(appointment.appointmentDateTime).getTime() + durationMinutes * 60_000
+
+  return {
+    durationMinutes,
+    isCanceled: appointment.status === "Cancelled",
+    canRecordVisit:
+      endedAt < Date.now() && status !== "Completed" && status !== "Cancelled" && status !== "NoShow",
+  }
+}
+
+/**
+ * A dental record's notes, expanded or folded to a count — the most complex cell on this page, and now the one
+ * implementation behind both the table row and its card.
+ *
+ * It has to survive the card conversion rather than flatten to a count: the notes are what a dentist opens the
+ * dossier to read, and a fiche whose notes are only reachable on a desktop is a fiche that is not readable at
+ * the chair.
+ *
+ * ⚠️ Returns `null` when there is nothing to show, but the **caller** must still test for that: the table prints
+ * « - » and the card omits the field (AC-17), and `CardList` cannot tell an element that renders nothing from
+ * one that renders something.
+ */
+function DentalRecordNotes({
+  record,
+  isExpanded,
+  onToggle,
+}: {
+  record: DentalRecordDto
+  isExpanded: boolean
+  onToggle: (expanded: boolean) => void
+}) {
+  const importantNotes = record.importantNotes ?? []
+  const notes = record.notes ?? []
+  if (importantNotes.length === 0 && notes.length === 0) return null
+
+  if (!isExpanded) {
+    return (
+      <div className="space-y-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm text-muted-foreground">
+            {importantNotes.length + notes.length}{" "}
+            {importantNotes.length + notes.length === 1 ? "note" : "notes"}
+          </span>
+          {importantNotes.length > 0 && (
+            <Badge variant="outline" className="text-xs bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800">
+              {importantNotes.length} importantes
+            </Badge>
+          )}
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-6 text-xs text-muted-foreground hover:text-foreground"
+          onClick={(e) => {
+            e.stopPropagation()
+            onToggle(true)
+          }}
+        >
+          <ChevronDown className="h-3 w-3 mr-1" />
+          Voir les notes
+        </Button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-2 text-start">
+      {importantNotes.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 mb-1">Notes importantes :</p>
+          <ul className="list-disc list-inside space-y-1 ml-2">
+            {importantNotes.map((note, idx) => (
+              <li key={idx} className="text-xs font-medium text-amber-900 dark:text-amber-100 bg-amber-50 dark:bg-amber-950/40 px-2 py-1 rounded border border-amber-200 dark:border-amber-800">
+                ⚠ {note}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {notes.length > 0 && (
+        <div className="space-y-1">
+          {importantNotes.length > 0 && (
+            <p className="text-xs font-semibold text-muted-foreground mb-1">Notes :</p>
+          )}
+          <ul className="list-disc list-inside space-y-1 ml-2">
+            {notes.map((note, idx) => (
+              <li key={idx} className="text-sm text-foreground bg-muted/50 px-2 py-1 rounded">
+                {note}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-6 text-xs text-muted-foreground hover:text-foreground"
+        onClick={(e) => {
+          e.stopPropagation()
+          onToggle(false)
+        }}
+      >
+        <ChevronUp className="h-3 w-3 mr-1" />
+        Réduire
+      </Button>
+    </div>
+  )
+}
+
+/**
  * The tab values this page renders, so a `?tab=` param can be validated against them. `odontogram` is
  * deliberately absent — it is a card above the tabs now, not a tab.
  */
@@ -202,6 +338,37 @@ export default function PatientDetailsPage() {
   // saving the dental record closes that appointment's post-visit prompt (findings #4 + #10).
   const [reviewAppointmentId, setReviewAppointmentId] = useState<string | null>(null)
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set())
+  /**
+   * Open a saved medical document. The « honoraires » type is retired (the PDF endpoint now rejects it), so
+   * legacy rows route to the Factures module instead of the dead editor (#13) — one implementation, because the
+   * table and the card list both offer « Ouvrir » and a second copy is a second place to forget the redirect.
+   */
+  const openMedicalDocument = (doc: MedicalDocumentDto) =>
+    router.push(doc.documentType === "honoraires" ? "/factures" : `/documents/${doc.documentType}?id=${doc.id}`)
+
+  /**
+   * Open the record modal already bound to a finished visit — exactly the state the
+   * `?addRecord=1&appointmentId=…` deep-link sets, so the modal prefills identically: `reviewAppointmentId`
+   * feeds `recordAppointment`, which proposes the visit's booked act and pre-selects its devis step. Setting it
+   * here rather than navigating avoids a round trip through the URL for something already on screen.
+   *
+   * `setEditingRecord(null)` is required, not tidying: a non-null `editingRecord` forces `recordAppointment` to
+   * null (an edit must never be re-proposed), so a stale value would open the modal with no prefill.
+   */
+  const openVisitRecord = (appointmentId: string) => {
+    setEditingRecord(null)
+    setReviewAppointmentId(appointmentId)
+    setRecordModalOpen(true)
+  }
+
+  /** One expansion set behind both the dossiers table and its card list — expanding on a phone must stick. */
+  const toggleRecordNotes = (recordId: string, expanded: boolean) =>
+    setExpandedNotes((prev) => {
+      const next = new Set(prev)
+      if (expanded) next.add(recordId)
+      else next.delete(recordId)
+      return next
+    })
   // Dental records already tied to a non-cancelled invoice (guards against double-invoicing).
   const [invoicedDentalRecordIds, setInvoicedDentalRecordIds] = useState<Set<string>>(new Set())
   // The note d'honoraires that bills each of those records, so the delete confirmation can NAME it
@@ -558,7 +725,21 @@ export default function PatientDetailsPage() {
   const currentFiles = currentFolderId
     ? files // All files loaded are for this folder
     : files.filter(f => !f.folderId) // Root files (not in any folder)
-  
+
+  /*
+   * Newest first, sorted ONCE.
+   *
+   * Both lists used to call `.sort()` inline in the JSX — which sorts the state array **in place**, and now that
+   * two trees render the same data there would be two of those mutations per paint. A copy also means the card
+   * list and the table can never disagree about the order.
+   */
+  const filesNewestFirst = [...currentFiles].sort(
+    (a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime(),
+  )
+  const appointmentsNewestFirst = [...appointments].sort(
+    (a, b) => new Date(b.appointmentDateTime).getTime() - new Date(a.appointmentDateTime).getTime(),
+  )
+
 
   const isImageFile = (file: PatientFileDto) => {
     return file.contentType.startsWith("image/")
@@ -943,8 +1124,113 @@ export default function PatientDetailsPage() {
                 {dentalRecords.length === 0 ? (
                   <EmptyOrLoading loading={detailsLoading}>Aucun dossier dentaire</EmptyOrLoading>
                 ) : (
-                  <div className="overflow-x-auto">
-                    <Table>
+                  <>
+                    {/* « Facturé » is the row's status, so it moves to the badge slot — and that is also what
+                        replaces the money cell's hover-only `title=`, which no touch device can reach. */}
+                    <CardList
+                      className={CARDS_ONLY}
+                      ariaLabel="Dossiers dentaires"
+                      items={dentalRecords}
+                      getKey={(record) => record.id}
+                      title={(record) => record.procedureType}
+                      subtitle={(record) => formatDate(record.interventionDate)}
+                      status={(record) =>
+                        invoicedDentalRecordIds.has(record.id) ? (
+                          <Badge variant="outline" className="gap-1 text-xs">
+                            <Receipt className="h-3 w-3" />
+                            Facturé
+                          </Badge>
+                        ) : null
+                      }
+                      fields={(record) => {
+                        const invoiced = invoicedDentalRecordIds.has(record.id)
+                        const reste = Math.max(0, record.balance ?? record.cost - record.amountPaid)
+                        // ⚠️ Tested here, not by letting the component return null: `CardList` drops a field on an
+                        // empty *value*, and a React element is never empty — the row would keep an « NOTES »
+                        // label over nothing.
+                        const hasNotes =
+                          (record.notes?.length ?? 0) + (record.importantNotes?.length ?? 0) > 0
+                        return [
+                          {
+                            label: "Dents",
+                            value:
+                              record.toothNumbers.length > 0 ? (
+                                <span className="inline-flex flex-wrap justify-end gap-1">
+                                  {record.toothNumbers.map((toothNum) => (
+                                    <Badge key={toothNum} variant="secondary" className="text-xs">
+                                      {toothNum}
+                                    </Badge>
+                                  ))}
+                                </span>
+                              ) : null,
+                          },
+                          {
+                            label: "Montant payé",
+                            value: invoiced ? (
+                              <span className="text-muted-foreground line-through">
+                                {formatDT(record.amountPaid)}
+                              </span>
+                            ) : (
+                              formatDT(record.amountPaid)
+                            ),
+                          },
+                          // An invoiced fiche has no « reste » of its own — the facture owns the money, which
+                          // the struck-through amount and the « Facturé » badge already say.
+                          !invoiced && {
+                            label: "Reste",
+                            value:
+                              reste > 0 ? (
+                                <span className="font-semibold text-amber-600">{formatDT(reste)}</span>
+                              ) : (
+                                <span className="text-muted-foreground">{formatDT(0)}</span>
+                              ),
+                          },
+                          hasNotes && {
+                            label: "Notes",
+                            value: (
+                              <DentalRecordNotes
+                                record={record}
+                                isExpanded={expandedNotes.has(record.id)}
+                                onToggle={(expanded) => toggleRecordNotes(record.id, expanded)}
+                              />
+                            ),
+                          },
+                        ]
+                      }}
+                      actions={(record) => (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" aria-label="Actions du dossier dentaire">
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            {!invoicedDentalRecordIds.has(record.id) && (
+                              <DropdownMenuItem onSelect={() => setBillingRecord(record)}>
+                                Facturer cette intervention
+                              </DropdownMenuItem>
+                            )}
+                            <DropdownMenuItem
+                              onSelect={() => {
+                                setEditingRecord(record)
+                                setRecordModalOpen(true)
+                              }}
+                            >
+                              Modifier le dossier
+                            </DropdownMenuItem>
+                            {canDeleteClinicalRecords && (
+                              <DropdownMenuItem
+                                className="text-destructive focus:text-destructive"
+                                onSelect={() => setRecordToDelete(record)}
+                              >
+                                Supprimer la fiche de soins
+                              </DropdownMenuItem>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
+                    />
+                    <Table containerClassName={TABLE_ONLY}>
                       <TableHeader>
                         <TableRow>
                           <TableHead>Date</TableHead>
@@ -998,95 +1284,17 @@ export default function PatientDetailsPage() {
                               })()}
                             </TableCell>
                             <TableCell className="max-w-xs">
-                              {(() => {
-                                const hasNotes = (record.notes && record.notes.length > 0) || (record.importantNotes && record.importantNotes.length > 0)
-                                const isExpanded = expandedNotes.has(record.id)
-                                const totalNotesCount = (record.importantNotes?.length || 0) + (record.notes?.length || 0)
-
-                                if (!hasNotes) {
-                                  return <span className="text-muted-foreground text-sm">-</span>
-                                }
-
-                                return (
-                                  <div className="space-y-1">
-                                    {isExpanded ? (
-                                      <div className="space-y-2">
-                                        {record.importantNotes && record.importantNotes.length > 0 && (
-                                          <div className="space-y-1">
-                                            <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 mb-1">
-                                              Notes importantes :
-                                            </p>
-                                            <ul className="list-disc list-inside space-y-1 ml-2">
-                                              {record.importantNotes.map((note, idx) => (
-                                                <li key={idx} className="text-xs font-medium text-amber-900 dark:text-amber-100 bg-amber-50 dark:bg-amber-950/40 px-2 py-1 rounded border border-amber-200 dark:border-amber-800">
-                                                  ⚠ {note}
-                                                </li>
-                                              ))}
-                                            </ul>
-                                          </div>
-                                        )}
-                                        {record.notes && record.notes.length > 0 && (
-                                          <div className="space-y-1">
-                                            {record.importantNotes && record.importantNotes.length > 0 && (
-                                              <p className="text-xs font-semibold text-muted-foreground mb-1">
-                                                Notes :
-                                              </p>
-                                            )}
-                                            <ul className="list-disc list-inside space-y-1 ml-2">
-                                              {record.notes.map((note, idx) => (
-                                                <li key={idx} className="text-sm text-foreground bg-muted/50 px-2 py-1 rounded">
-                                                  {note}
-                                                </li>
-                                              ))}
-                                            </ul>
-                                          </div>
-                                        )}
-                                        <Button
-                                          variant="ghost"
-                                          size="sm"
-                                          className="h-6 text-xs text-muted-foreground hover:text-foreground"
-                                          onClick={(e) => {
-                                            e.stopPropagation()
-                                            setExpandedNotes(prev => {
-                                              const next = new Set(prev)
-                                              next.delete(record.id)
-                                              return next
-                                            })
-                                          }}
-                                        >
-                                          <ChevronUp className="h-3 w-3 mr-1" />
-                                          Réduire
-                                        </Button>
-                                      </div>
-                                    ) : (
-                                      <div className="space-y-1">
-                                        <div className="flex items-center gap-2">
-                                          <span className="text-sm text-muted-foreground">
-                                            {totalNotesCount} {totalNotesCount === 1 ? 'note' : 'notes'}
-                                          </span>
-                                          {record.importantNotes && record.importantNotes.length > 0 && (
-                                            <Badge variant="outline" className="text-xs bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800">
-                                              {record.importantNotes.length} importantes
-                                            </Badge>
-                                          )}
-                                        </div>
-                                        <Button
-                                          variant="ghost"
-                                          size="sm"
-                                          className="h-6 text-xs text-muted-foreground hover:text-foreground"
-                                          onClick={(e) => {
-                                            e.stopPropagation()
-                                            setExpandedNotes(prev => new Set(prev).add(record.id))
-                                          }}
-                                        >
-                                          <ChevronDown className="h-3 w-3 mr-1" />
-                                          Voir les notes
-                                        </Button>
-                                      </div>
-                                    )}
-                                  </div>
-                                )
-                              })()}
+                              {/* The table keeps its « - »; the card drops the field instead (AC-17), which is
+                                  why the fallback lives here rather than inside the shared component. */}
+                              {(record.notes?.length ?? 0) + (record.importantNotes?.length ?? 0) > 0 ? (
+                                <DentalRecordNotes
+                                  record={record}
+                                  isExpanded={expandedNotes.has(record.id)}
+                                  onToggle={(expanded) => toggleRecordNotes(record.id, expanded)}
+                                />
+                              ) : (
+                                <span className="text-muted-foreground text-sm">-</span>
+                              )}
                             </TableCell>
                             <TableCell className="text-right">
                               <div className="flex items-center justify-end gap-1">
@@ -1135,7 +1343,7 @@ export default function PatientDetailsPage() {
                         ))}
                       </TableBody>
                     </Table>
-                  </div>
+                  </>
                 )}
               </CardContent>
             </Card>
@@ -1253,8 +1461,41 @@ export default function PatientDetailsPage() {
                 {medicalDocuments.length === 0 ? (
                   <EmptyOrLoading loading={detailsLoading}>Aucun document enregistré</EmptyOrLoading>
                 ) : (
-                  <div className="overflow-x-auto">
-                    <Table>
+                  <>
+                    {/* Tapping the card opens the document — « Ouvrir » is what the row already did, so the menu
+                        exists only for the destructive second action and is omitted when the user cannot delete. */}
+                    <CardList
+                      className={CARDS_ONLY}
+                      ariaLabel="Documents médicaux"
+                      items={medicalDocuments}
+                      getKey={(doc) => doc.id}
+                      title={(doc) => documentTypeLabel(doc.documentType)}
+                      onSelect={(doc) => openMedicalDocument(doc)}
+                      fields={(doc) => [{ label: "Date", value: formatDate(doc.documentDate) }]}
+                      actions={(doc) =>
+                        canDeleteClinicalRecords ? (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon" aria-label="Actions du document">
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onSelect={() => openMedicalDocument(doc)}>
+                                Ouvrir le document
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                className="text-destructive focus:text-destructive"
+                                onSelect={() => setDocumentToDelete(doc)}
+                              >
+                                Supprimer le document
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        ) : null
+                      }
+                    />
+                    <Table containerClassName={TABLE_ONLY}>
                       <TableHeader>
                         <TableRow>
                           <TableHead>Type</TableHead>
@@ -1272,15 +1513,7 @@ export default function PatientDetailsPage() {
                                 variant="ghost"
                                 size="sm"
                                 className="gap-1"
-                                onClick={() =>
-                                  router.push(
-                                    // The "honoraires" document type is retired (PDF now rejects it) —
-                                    // route legacy rows to the Factures module instead of the dead editor (#13).
-                                    doc.documentType === "honoraires"
-                                      ? "/factures"
-                                      : `/documents/${doc.documentType}?id=${doc.id}`,
-                                  )
-                                }
+                                onClick={() => openMedicalDocument(doc)}
                                 title="Ouvrir le document"
                               >
                                 <Eye className="h-4 w-4" />
@@ -1303,7 +1536,7 @@ export default function PatientDetailsPage() {
                         ))}
                       </TableBody>
                     </Table>
-                  </div>
+                  </>
                 )}
               </CardContent>
             </Card>
@@ -1320,8 +1553,57 @@ export default function PatientDetailsPage() {
                 {appointments.length === 0 ? (
                   <EmptyOrLoading loading={detailsLoading}>Aucun rendez-vous</EmptyOrLoading>
                 ) : (
-                  <div className="overflow-x-auto">
-                    <Table>
+                  <>
+                    {/* The row's per-procedure left border becomes the card's accent — it is the same 4 px stripe
+                        in the same place, and it is decoration, not a field whose value is a colour. */}
+                    <CardList
+                      className={CARDS_ONLY}
+                      ariaLabel="Historique des rendez-vous"
+                      items={appointmentsNewestFirst}
+                      getKey={(appointment) => appointment.id}
+                      title={(appointment) => formatDateTime(appointment.appointmentDateTime)}
+                      subtitle={(appointment) =>
+                        appointmentActsSummary(appointment) || "Rendez-vous général"
+                      }
+                      accent={(appointment) =>
+                        appointmentVisitState(appointment).isCanceled
+                          ? undefined
+                          : appointment.procedureColorHex || undefined
+                      }
+                      muted={(appointment) => appointmentVisitState(appointment).isCanceled}
+                      status={(appointment) => (
+                        <Badge
+                          variant="secondary"
+                          className={appointmentStatusBadgeClass(appointment.status)}
+                        >
+                          {appointmentStatusLabel(appointment.status)}
+                        </Badge>
+                      )}
+                      fields={(appointment) => {
+                        const { durationMinutes } = appointmentVisitState(appointment)
+                        return [
+                          { label: "Médecin", value: appointment.doctorName },
+                          { label: "Durée", value: durationMinutes > 0 ? `${durationMinutes} min` : null },
+                          // Untruncated: the table clipped it behind a hover-only `title=`, which no touch
+                          // device can reach, and a visit note is read at the chair.
+                          { label: "Notes", value: appointment.notes },
+                        ]
+                      }}
+                      actions={(appointment) =>
+                        appointmentVisitState(appointment).canRecordVisit ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="gap-1.5 whitespace-nowrap"
+                            onClick={() => openVisitRecord(appointment.id)}
+                          >
+                            <FileText className="h-3.5 w-3.5" />
+                            Enregistrer la fiche
+                          </Button>
+                        ) : null
+                      }
+                    />
+                    <Table containerClassName={TABLE_ONLY}>
                       <TableHeader>
                         <TableRow>
                           <TableHead>Date et heure</TableHead>
@@ -1334,44 +1616,19 @@ export default function PatientDetailsPage() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {appointments
-                          .sort((a, b) => {
-                            const dateA = new Date(a.appointmentDateTime).getTime()
-                            const dateB = new Date(b.appointmentDateTime).getTime()
-                            return dateB - dateA // Sort descending (newest first)
-                          })
+                        {appointmentsNewestFirst
                           .map((appointment) => {
-                            const durationMinutes = appointment.duration 
-                              ? parseInt(appointment.duration.split(':')[0]) * 60 + parseInt(appointment.duration.split(':')[1] || '0')
-                              : 0
-                                
                             /*
                              * « Enregistrer la fiche » — the same action the post-visit notification offers,
                              * reachable from the history instead of only from the bell (which is dismissible,
-                             * and gone once read).
-                             *
-                             * Offered when the visit is OVER and not yet recorded. "Over" is measured from the
-                             * appointment's END, not its start, matching what makes the post-visit review due
-                             * server-side — a 30-minute visit is not finished ten minutes in.
-                             *
-                             * `Cancelled` / `NoShow` are excluded even though neither is « Terminé ». Saving a
-                             * fiche calls `Appointment.MarkVisitCompleted`, which returns `Contradicted` for
-                             * exactly those two and is swallowed by its best-effort caller — so the fiche would
-                             * persist while the appointment silently stayed cancelled. A visit recorded as not
-                             * having happened should not offer to record what happened during it.
+                             * and gone once read). The rule for when it applies lives in
+                             * `appointmentVisitState`, shared with the card list above.
                              */
-                            const status = normalizeStatus(appointment.status)
-                            const endedAt =
-                              new Date(appointment.appointmentDateTime).getTime() + durationMinutes * 60_000
-                            const canRecordVisit =
-                              endedAt < Date.now() &&
-                              status !== "Completed" &&
-                              status !== "Cancelled" &&
-                              status !== "NoShow"
+                            const { durationMinutes, canRecordVisit, isCanceled } =
+                              appointmentVisitState(appointment)
 
                             // Determine row color based on status and procedure type
-                            const isCanceled = appointment.status === "Cancelled"
-                            const rowColor = isCanceled 
+                            const rowColor = isCanceled
                               ? "bg-muted/50" 
                               : appointment.procedureColorHex 
                                 ? undefined 
@@ -1444,22 +1701,7 @@ export default function PatientDetailsPage() {
                                       variant="outline"
                                       size="sm"
                                       className="gap-1.5 whitespace-nowrap"
-                                      onClick={() => {
-                                        /*
-                                         * Exactly the state the `?addRecord=1&appointmentId=…` deep-link sets,
-                                         * so the modal prefills identically: `reviewAppointmentId` feeds
-                                         * `recordAppointment`, which proposes the visit's booked act and
-                                         * pre-selects its devis step. Setting it here rather than navigating
-                                         * avoids a round trip through the URL for something already on screen.
-                                         *
-                                         * `setEditingRecord(null)` is required, not tidying: a non-null
-                                         * `editingRecord` forces `recordAppointment` to null (an edit must never
-                                         * be re-proposed), so a stale value would open the modal with no prefill.
-                                         */
-                                        setEditingRecord(null)
-                                        setReviewAppointmentId(appointment.id)
-                                        setRecordModalOpen(true)
-                                      }}
+                                      onClick={() => openVisitRecord(appointment.id)}
                                       title="Enregistrer la fiche de soins de cette séance"
                                     >
                                       <FileText className="h-3.5 w-3.5" />
@@ -1474,7 +1716,7 @@ export default function PatientDetailsPage() {
                           })}
                       </TableBody>
                     </Table>
-                  </div>
+                  </>
                 )}
               </CardContent>
             </Card>
@@ -1577,8 +1819,53 @@ export default function PatientDetailsPage() {
                         <h3 className="text-sm font-semibold mb-3 text-foreground">
                           {currentFolderId ? "Fichiers du dossier" : "Fichiers"}
                         </h3>
-                        <div className="overflow-x-auto">
-                          <Table>
+                        {/* AC-17's truncate case. The name is the title, so it truncates to one line and the
+                            whole value is reachable by tapping the card — which opens the preview. The table's
+                            `title=` tooltip did the same job on a desktop and nothing at all on a phone. */}
+                        <CardList
+                            className={CARDS_ONLY}
+                            ariaLabel={currentFolderId ? "Fichiers du dossier" : "Fichiers du patient"}
+                            items={filesNewestFirst}
+                            getKey={(file) => file.id}
+                            title={(file) => file.fileName}
+                            onSelect={(file) => handlePreviewFile(file)}
+                            fields={(file) => [
+                              {
+                                label: "Type",
+                                value: (
+                                  <Badge variant="outline" className="text-xs">
+                                    {file.fileType || file.contentType.split("/")[1] || "Inconnu"}
+                                  </Badge>
+                                ),
+                              },
+                              { label: "Taille", value: formatFileSize(file.fileSize) },
+                              { label: "Téléversé le", value: formatDate(file.uploadedAt) },
+                            ]}
+                            actions={(file) => (
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    aria-label={`Actions du fichier ${file.fileName}`}
+                                  >
+                                    <MoreHorizontal className="h-4 w-4" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  {isPreviewableFile(file) && (
+                                    <DropdownMenuItem onSelect={() => handlePreviewFile(file)}>
+                                      Aperçu du fichier
+                                    </DropdownMenuItem>
+                                  )}
+                                  <DropdownMenuItem onSelect={() => handleDownloadFile(file)}>
+                                    Télécharger le fichier
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            )}
+                          />
+                          <Table containerClassName={TABLE_ONLY}>
                             <TableHeader>
                               <TableRow>
                                 <TableHead>Nom du fichier</TableHead>
@@ -1589,12 +1876,7 @@ export default function PatientDetailsPage() {
                               </TableRow>
                             </TableHeader>
                             <TableBody>
-                              {currentFiles
-                                .sort((a, b) => {
-                                  const dateA = new Date(a.uploadedAt).getTime()
-                                  const dateB = new Date(b.uploadedAt).getTime()
-                                  return dateB - dateA // Sort descending (newest first)
-                                })
+                              {filesNewestFirst
                                 .map((file) => {
                                   const isImage = isImageFile(file)
                                   const isPdf = isPdfFile(file)
@@ -1662,7 +1944,6 @@ export default function PatientDetailsPage() {
                                 })}
                             </TableBody>
                           </Table>
-                        </div>
                       </div>
                     )}
                   </div>

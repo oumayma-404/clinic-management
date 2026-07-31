@@ -6,6 +6,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableHead, TableHeader, TableRow, TableCell } from "@/components/ui/table"
+import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Textarea } from "@/components/ui/textarea"
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
@@ -13,7 +17,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox"
 import {
   ArrowLeft, Ban, CreditCard, FileDown, Loader2, ReceiptText, CheckCheck, ClipboardCheck, FilePen,
-  CalendarClock, CalendarPlus, Layers, X,
+  CalendarClock, CalendarPlus, Layers, MoreHorizontal, X,
 } from "lucide-react"
 import { toast } from "sonner"
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
@@ -26,7 +30,10 @@ import { downloadBlob } from "@/lib/download"
 import { planStatusLabel, planStatusBadgeClass } from "./treatment-plan-labels"
 import { isPlanBilled } from "./plan-next-action"
 import { PlanProgressBar } from "./plan-progress-bar"
-import { PlanActRow } from "./plan-act-row"
+import {
+  PlanActPrimaryAction, PlanActReorderControls, PlanActRow, PlanActSelectionBox, PlanActStateBadge,
+  planActCardFields,
+} from "./plan-act-row"
 import { PlanTimeline } from "./plan-timeline"
 import { InstallmentPaymentModal } from "./installment-payment-modal"
 import { ReviseInstallmentsModal } from "./revise-installments-modal"
@@ -160,6 +167,51 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
     }
     return counts
   }, [plan.items])
+
+  /**
+   * The same acts, grouped for the card list below `md:` — **Exception 2**.
+   *
+   * A card is read on its own, so the row badge « séance de N actes » has nowhere to point: repeated on four
+   * cards it reads as four séances, which is the very confusion the badge exists to remove. Grouped acts become
+   * a **section header** over the cards that share the appointment, and the badge is dropped from the card.
+   *
+   * ⚠️ A séance's acts are pulled together at their **first** position in the plan rather than left where they
+   * fall. Plan order is otherwise preserved (`plan-act-pips` explains why it is meaningful), but a séance split
+   * across the order would otherwise print its header twice, each time claiming a count larger than the cards
+   * under it — a header that lies about what it heads.
+   */
+  const actGroups = useMemo(() => {
+    type GroupedAct = { item: TreatmentPlanItemDto; index: number }
+    const groups: { key: string; appointmentId: string | null; acts: GroupedAct[] }[] = []
+    const groupOfAppointment = new Map<string, number>()
+
+    plan.items.forEach((item, index) => {
+      const apptId = item.scheduledAppointmentId
+      const shared = apptId ? (actsPerAppointment.get(apptId) ?? 1) > 1 : false
+
+      if (apptId && shared) {
+        const existing = groupOfAppointment.get(apptId)
+        if (existing !== undefined) {
+          groups[existing].acts.push({ item, index })
+          return
+        }
+        groupOfAppointment.set(apptId, groups.length)
+        groups.push({ key: `seance-${apptId}`, appointmentId: apptId, acts: [{ item, index }] })
+        return
+      }
+
+      // Consecutive standalone acts share one headerless list, so the rhythm of the page is not broken by a
+      // heading over every single card.
+      const last = groups[groups.length - 1]
+      if (last && last.appointmentId === null) {
+        last.acts.push({ item, index })
+        return
+      }
+      groups.push({ key: `acte-${item.id}`, appointmentId: null, acts: [{ item, index }] })
+    })
+
+    return groups
+  }, [plan.items, actsPerAppointment])
 
   // Acts that leave the « À planifier » state (a peer books one, a fiche is saved) must not stay ticked, or
   // « Planifier ensemble » would silently re-book something already scheduled.
@@ -502,8 +554,116 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
           {plan.items.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground">Aucun acte planifié.</p>
           ) : (
-            <div className="rounded-md border overflow-x-auto">
-              <Table>
+            <>
+              {/*
+                Exception 2 — the card half of the actes surface. Three things it does that the generic
+                conversion does not:
+
+                • **« séance de N actes » is a section header**, not a per-card badge. See `actGroups`.
+                • **The tick box is `leading`, never a menu item.** It is the state of the row *and* the control
+                  that changes it; a menu would hide the state behind a tap, and the grouping gesture is « tick,
+                  tick, planifier ensemble » — three taps that cannot each open a menu first.
+                • **The reorder arrows are a field's value** (« Ordre »), the pattern `lab-orders` already sets
+                  with its status `<select>`. Beside the title they would eat the désignation's only line on a
+                  320 px card; as a labelled line they say what they move.
+              */}
+              <div className={`${CARDS_ONLY} space-y-3`}>
+                {/* The card list has no header row, so the table's « Sélectionner tous » checkbox has nowhere to
+                    live — without this, ticking eight acts on a phone is eight taps and the grouping gesture the
+                    whole selection exists for stops being worth making. */}
+                {canGroup && (
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs text-muted-foreground">
+                      {selectedActIds.length} / {schedulableItems.length} actes à planifier
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8"
+                      onClick={() =>
+                        setSelectedActIds(
+                          selectedActIds.length === schedulableItems.length
+                            ? []
+                            : schedulableItems.map((i) => i.id),
+                        )
+                      }
+                    >
+                      {selectedActIds.length === schedulableItems.length
+                        ? "Tout désélectionner"
+                        : "Tout sélectionner"}
+                    </Button>
+                  </div>
+                )}
+
+                {actGroups.map((group) => (
+                  <section key={group.key} className="rounded-md border bg-card">
+                    {group.appointmentId && (
+                      <h3 className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 border-b px-3 py-2 text-sm font-medium">
+                        <Layers className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        Séance de {group.acts.length} actes
+                        {group.acts[0].item.scheduledAt && (
+                          <span className="font-normal text-muted-foreground">
+                            · {formatDateFr(group.acts[0].item.scheduledAt)}
+                          </span>
+                        )}
+                      </h3>
+                    )}
+                    <CardList
+                      ariaLabel={
+                        group.appointmentId
+                          ? `Actes de la séance de ${group.acts.length} actes`
+                          : "Actes planifiés"
+                      }
+                      items={group.acts}
+                      getKey={(a) => a.item.id}
+                      title={(a) => a.item.designationFr}
+                      subtitle={(a) => a.item.codeActe}
+                      status={(a) => <PlanActStateBadge item={a.item} />}
+                      leading={(a) =>
+                        canGroup ? (
+                          <PlanActSelectionBox
+                            item={a.item}
+                            selection={{
+                              selectable: schedulableItems.some((i) => i.id === a.item.id),
+                              checked: selectedActIds.includes(a.item.id),
+                              onToggle: () => toggleActSelection(a.item.id),
+                            }}
+                          />
+                        ) : null
+                      }
+                      fields={(a) => [
+                        ...planActCardFields(a.item),
+                        canReorder && {
+                          label: "Ordre",
+                          value: (
+                            <PlanActReorderControls
+                              item={a.item}
+                              orientation="horizontal"
+                              reorder={{
+                                disabled: busy,
+                                canMoveUp: a.index > 0,
+                                canMoveDown: a.index < plan.items.length - 1,
+                                onMoveUp: () => handleMove(a.index, -1),
+                                onMoveDown: () => handleMove(a.index, 1),
+                              }}
+                            />
+                          ),
+                        },
+                      ]}
+                      actions={(a) => (
+                        <PlanActPrimaryAction
+                          plan={plan}
+                          item={a.item}
+                          onSchedule={(target) => startBooking([[target]])}
+                          onUndo={canCorrectActs ? setUndoTarget : undefined}
+                        />
+                      )}
+                    />
+                  </section>
+                ))}
+              </div>
+
+              <Table containerClassName={`${TABLE_ONLY} rounded-md border`}>
                 <TableHeader>
                   <TableRow>
                     {canGroup && (
@@ -567,7 +727,7 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                   ))}
                 </TableBody>
               </Table>
-            </div>
+            </>
           )}
           <p className="mt-2 text-xs text-muted-foreground">
             Un acte passe à « Réalisé » à l&apos;enregistrement de la fiche de soins liée — il n&apos;y a pas de
@@ -602,8 +762,71 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
           {plan.installments.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground">Aucune échéance définie.</p>
           ) : (
-            <div className="rounded-md border overflow-x-auto">
-              <Table>
+            <>
+              {/*
+                ⚠️ The **date is the title** here, against the card rule's « date last ». An échéance has no other
+                identity — « 15/03 » is what the patient agreed to, and every other column is a number about it.
+
+                Its actions are the one variable-length set in the feature: « Encaisser » plus **one « Reçu » per
+                payment**, and an échéance can hold several. That is why this card takes the menu the other
+                surfaces use while the actes card does not — three or four buttons cannot share a 320 px title row,
+                and dropping the extra receipts would remove the only way to reprint a specific payment.
+              */}
+              <CardList
+                className={CARDS_ONLY}
+                ariaLabel="Échéancier du devis"
+                items={plan.installments}
+                getKey={(inst) => inst.id}
+                title={(inst) => formatDateFr(inst.dueDate)}
+                status={(inst) =>
+                  inst.isPaid ? (
+                    <Badge variant="secondary">Payée</Badge>
+                  ) : isBeforeToday(inst.dueDate) ? (
+                    <Badge variant="destructive">En retard</Badge>
+                  ) : (
+                    <Badge variant="outline">En attente</Badge>
+                  )
+                }
+                fields={(inst) => [
+                  { label: "Montant", value: formatDT(inst.amount) },
+                  { label: "Encaissé", value: formatDT(inst.amountPaid) },
+                  { label: "Reste", value: formatDT(inst.outstanding) },
+                ]}
+                actions={(inst) => {
+                  const canCollect = !inst.isPaid && !isDraft && plan.status !== "Cancelled"
+                  const receipts = inst.payments.filter((p) => !p.isVoided)
+                  if (!canCollect && receipts.length === 0) return null
+                  return (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          disabled={busy}
+                          aria-label={`Actions de l'échéance du ${formatDateFr(inst.dueDate)}`}
+                        >
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        {canCollect && (
+                          <DropdownMenuItem onSelect={() => setPaymentTarget(inst)}>Encaisser</DropdownMenuItem>
+                        )}
+                        {receipts.map((payment) => (
+                          <DropdownMenuItem
+                            key={payment.id}
+                            onSelect={() => handleDownloadReceipt(inst.id, payment.id)}
+                          >
+                            Reçu — {formatDT(payment.amount)} du {formatDateFr(payment.paidOn)}
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )
+                }}
+              />
+
+              <Table containerClassName={`${TABLE_ONLY} rounded-md border`}>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Échéance</TableHead>
@@ -674,7 +897,7 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                   })}
                 </TableBody>
               </Table>
-            </div>
+            </>
           )}
         </CardContent>
       </Card>

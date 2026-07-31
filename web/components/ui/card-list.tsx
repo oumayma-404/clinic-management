@@ -53,6 +53,16 @@ interface CardListProps<T> {
   /** One menu per card (AC-15). `treatment-plans-table` is the template the other surfaces follow. */
   actions?: (item: T) => React.ReactNode
 
+  /**
+   * A control that belongs to the **row itself** rather than to its action menu — a selection checkbox, the
+   * reorder arrows. Rendered before the title and, like `actions`, above the stretched-title overlay.
+   *
+   * ⚠️ Deliberately distinct from `actions`: the plan's acts are ticked to be grouped into one séance and moved
+   * up and down in the clinical order, and folding either into a menu would hide the current state (is this act
+   * ticked?) behind a tap — the same reason `lab-orders` keeps its `<select>` as a field rather than a menu item.
+   */
+  leading?: (item: T) => React.ReactNode
+
   /** A left accent bar — for the per-procedure colour, the reminder status stripe, the category swatch. */
   accent?: (item: T) => string | undefined
   /** Dims the card without hiding it — a cancelled invoice, a voided movement, an inactive catalog entry. */
@@ -94,6 +104,7 @@ export function CardList<T>({
   status,
   fields,
   actions,
+  leading,
   accent,
   muted,
   onSelect,
@@ -135,6 +146,7 @@ export function CardList<T>({
       {items.map((item) => {
         const accentColour = accent?.(item)
         const rowActions = actions?.(item)
+        const rowLeading = leading?.(item)
         const rowStatus = status?.(item)
         const rowSubtitle = subtitle?.(item)
         const rowHref = href?.(item)
@@ -169,6 +181,8 @@ export function CardList<T>({
             )}
 
             <div className={cn("flex items-start justify-between gap-2", accentColour && "ps-2")}>
+              {rowLeading && <div className="relative z-10 shrink-0">{rowLeading}</div>}
+
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                   {/*
