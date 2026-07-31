@@ -27,6 +27,10 @@ const WORKED_TOOTH_COLOR = "#60a5fa"
 
 export function PatientSummaryModal({ open, onOpenChange, patient, dentalRecords }: PatientSummaryModalProps) {
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set())
+  // Collapsed by default on every device: the chips answer the question, and the schema is the detail behind
+  // it. Not gated on viewport width — a desktop reader also opens this modal to glance, and a control whose
+  // presence depends on the breakpoint is one more thing to reason about.
+  const [schemaOpen, setSchemaOpen] = useState(false)
 
   // Read-only paint maps for the record tooth chart: each worked tooth is highlighted with a fixed "worked"
   // fill + the number of records it appears in (the per-procedure detail lives in the table below).
@@ -52,6 +56,24 @@ export function PatientSummaryModal({ open, onOpenChange, patient, dentalRecords
     }
     return { adultToothPaint: adult, childToothPaint: child }
   }, [dentalRecords])
+
+  /**
+   * The flat, tooth-ordered list the summary actually leads with.
+   *
+   * Derived from the same `counts` source as the two paint maps rather than by merging them back together —
+   * one traversal of the records, one ordering rule. Sorted numerically so a reader scans quadrant by
+   * quadrant the way FDI numbering already groups them.
+   */
+  const treatedTeeth = useMemo(() => {
+    const merged = [...adultToothPaint.entries(), ...childToothPaint.entries()]
+    return merged
+      .map(([tooth, paint]) => ({
+        tooth,
+        count: paint.count ?? 1,
+        isDeciduous: !isAdultTooth(tooth),
+      }))
+      .sort((a, b) => a.tooth - b.tooth)
+  }, [adultToothPaint, childToothPaint])
 
   if (!patient) return null
 
@@ -179,33 +201,93 @@ export function PatientSummaryModal({ open, onOpenChange, patient, dentalRecords
             </CardContent>
           </Card>
 
-          {/* Dental Chart */}
+          {/*
+            Dents traitées — the ANSWER first, the schema on demand.
+
+            ⚠️ This card used to render up to **two** full `RecordToothChart`s, adult then child. Since P6 each
+            chart shows a single arch below `md:` with a Haut/Bas switch, so on a phone reading « which teeth
+            have been worked on? » cost up to four taps — on a screen whose entire purpose is to be glanced at.
+            The chips answer it in one look, and the schema is one tap behind them for anyone who wants the
+            spatial view.
+
+            Two charts were never needed to separate the dentitions in the first place: an FDI number states
+            which it is (5x–8x are deciduous), which is exactly what `isAdultTooth` reads. So the chips are one
+            list, ordered by tooth number, and the deciduous ones are marked rather than segregated.
+          */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <FileText className="h-5 w-5" />
-                Schéma dentaire — dents traitées
+                Dents traitées
+                {treatedTeeth.length > 0 && (
+                  <Badge variant="secondary" className="ms-auto">{treatedTeeth.length}</Badge>
+                )}
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-6">
-              {/* Adult Teeth Chart */}
-              {adultToothPaint.size > 0 && (
-                <div>
-                  <h3 className="text-sm font-medium mb-3">Dents adultes</h3>
-                  <RecordToothChart isAdult={true} paint={adultToothPaint} onToggleTooth={() => {}} disabled />
-                </div>
-              )}
+            <CardContent className="space-y-4">
+              {treatedTeeth.length === 0 ? (
+                <p className="py-6 text-center text-muted-foreground">Aucune dent traitée pour le moment</p>
+              ) : (
+                <>
+                  <ul className="flex flex-wrap gap-2" aria-label="Dents traitées">
+                    {treatedTeeth.map(({ tooth, count, isDeciduous }) => (
+                      <li key={tooth}>
+                        {/*
+                          A 44px target even though nothing here is tappable: these sit in a dialog next to
+                          controls that ARE, and a row of 24px pills reads as "broken buttons" rather than as
+                          data. `tabular-nums` keeps the two-digit numbers on one optical grid.
+                        */}
+                        <span
+                          className="flex size-11 flex-col items-center justify-center rounded-lg border-2 text-sm font-semibold tabular-nums"
+                          style={{ borderColor: WORKED_TOOTH_COLOR, color: WORKED_TOOTH_COLOR }}
+                        >
+                          {tooth}
+                          {count > 1 && (
+                            <span className="text-2xs font-normal leading-none opacity-80">×{count}</span>
+                          )}
+                        </span>
+                        <span className="sr-only">
+                          {isDeciduous ? "dent de lait" : "dent définitive"}
+                          {count > 1 ? `, ${count} interventions` : ", 1 intervention"}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
 
-              {/* Child Teeth Chart */}
-              {childToothPaint.size > 0 && (
-                <div>
-                  <h3 className="text-sm font-medium mb-3">Dents de lait</h3>
-                  <RecordToothChart isAdult={false} paint={childToothPaint} onToggleTooth={() => {}} disabled />
-                </div>
-              )}
+                  {childToothPaint.size > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      Dont {childToothPaint.size} dent{childToothPaint.size > 1 ? "s" : ""} de lait
+                      {" "}(numéros 51 à 85).
+                    </p>
+                  )}
 
-              {adultToothPaint.size === 0 && childToothPaint.size === 0 && (
-                <p className="text-center text-muted-foreground py-8">Aucune dent traitée pour le moment</p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => setSchemaOpen((open) => !open)}
+                    aria-expanded={schemaOpen}
+                  >
+                    {schemaOpen ? "Masquer le schéma dentaire" : "Voir le schéma dentaire"}
+                  </Button>
+
+                  {schemaOpen && (
+                    <div className="space-y-6 border-t pt-4">
+                      {adultToothPaint.size > 0 && (
+                        <div>
+                          <h3 className="mb-3 text-sm font-medium">Dents définitives</h3>
+                          <RecordToothChart isAdult paint={adultToothPaint} onToggleTooth={() => {}} disabled />
+                        </div>
+                      )}
+                      {childToothPaint.size > 0 && (
+                        <div>
+                          <h3 className="mb-3 text-sm font-medium">Dents de lait</h3>
+                          <RecordToothChart isAdult={false} paint={childToothPaint} onToggleTooth={() => {}} disabled />
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
               )}
             </CardContent>
           </Card>

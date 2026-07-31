@@ -1068,32 +1068,41 @@ export default function PatientDetailsPage() {
             4 on a tablet, 7 only when there is genuinely room — which needs `h-auto` to override the
             primitive's fixed `h-9`, and `items-stretch` so a wrapped row's triggers keep equal heights.
           */}
-          <TabsList className="grid h-auto w-full grid-cols-2 items-stretch gap-1 p-1 sm:grid-cols-4 lg:grid-cols-7">
-            <TabsTrigger value="medical-records" className="h-auto min-h-9 gap-2 whitespace-normal py-1.5 text-center leading-tight">
+          {/*
+            ⚠️ Below `sm:` this is a SCROLLING ROW, not a grid. Seven tabs in `grid-cols-2` is four rows of
+            chrome — roughly a third of a phone screen — pushed above the content on every single open, so the
+            patient's actual record started below the fold. A horizontal strip costs one row and keeps the
+            same seven destinations.
+            `scrollbar-none` is deliberate: the strip is thumb-swiped, and a scrollbar under 44px targets adds
+            visual noise for a control nobody drags on a phone. The active tab is styled, so the row never
+            looks like it has no state.
+          */}
+          <TabsList className="flex h-auto w-full items-stretch gap-1 overflow-x-auto p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:grid sm:grid-cols-4 sm:overflow-visible lg:grid-cols-7">
+            <TabsTrigger value="medical-records" className="h-auto min-h-9 shrink-0 gap-2 whitespace-nowrap py-1.5 text-center leading-tight sm:shrink sm:whitespace-normal">
               <FileCheck className="h-4 w-4" />
               Dossiers médicaux
             </TabsTrigger>
-            <TabsTrigger value="appointments" className="h-auto min-h-9 gap-2 whitespace-normal py-1.5 text-center leading-tight">
+            <TabsTrigger value="appointments" className="h-auto min-h-9 shrink-0 gap-2 whitespace-nowrap py-1.5 text-center leading-tight sm:shrink sm:whitespace-normal">
               <Calendar className="h-4 w-4" />
               Rendez-vous
             </TabsTrigger>
-            <TabsTrigger value="notes" className="h-auto min-h-9 gap-2 whitespace-normal py-1.5 text-center leading-tight">
+            <TabsTrigger value="notes" className="h-auto min-h-9 shrink-0 gap-2 whitespace-nowrap py-1.5 text-center leading-tight sm:shrink sm:whitespace-normal">
               <FileText className="h-4 w-4" />
               Notes
             </TabsTrigger>
-            <TabsTrigger value="documents" className="h-auto min-h-9 gap-2 whitespace-normal py-1.5 text-center leading-tight">
+            <TabsTrigger value="documents" className="h-auto min-h-9 shrink-0 gap-2 whitespace-nowrap py-1.5 text-center leading-tight sm:shrink sm:whitespace-normal">
               <FileText className="h-4 w-4" />
               Documents
             </TabsTrigger>
-            <TabsTrigger value="files" className="h-auto min-h-9 gap-2 whitespace-normal py-1.5 text-center leading-tight">
+            <TabsTrigger value="files" className="h-auto min-h-9 shrink-0 gap-2 whitespace-nowrap py-1.5 text-center leading-tight sm:shrink sm:whitespace-normal">
               <FileText className="h-4 w-4" />
               Fichiers
             </TabsTrigger>
-            <TabsTrigger value="factures" className="h-auto min-h-9 gap-2 whitespace-normal py-1.5 text-center leading-tight">
+            <TabsTrigger value="factures" className="h-auto min-h-9 shrink-0 gap-2 whitespace-nowrap py-1.5 text-center leading-tight sm:shrink sm:whitespace-normal">
               <Receipt className="h-4 w-4" />
               Factures
             </TabsTrigger>
-            <TabsTrigger value="treatment-plans" className="h-auto min-h-9 gap-2 whitespace-normal py-1.5 text-center leading-tight">
+            <TabsTrigger value="treatment-plans" className="h-auto min-h-9 shrink-0 gap-2 whitespace-nowrap py-1.5 text-center leading-tight sm:shrink sm:whitespace-normal">
               <ClipboardCheck className="h-4 w-4" />
               Plan de traitement
             </TabsTrigger>
