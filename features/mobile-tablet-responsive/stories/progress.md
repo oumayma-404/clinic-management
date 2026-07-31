@@ -26,7 +26,7 @@ explicit path and never `git add -A`: the tree is not guaranteed to be quiet for
 | **P3** | Tables → `CardList` | ✅ **complete — 19 / 19 files** | `25c97ae` `ad533b0` `953a55a` `976b6e6` `e8b257c` `574fb3c` `80fbb41` | `card-fallback` is out of `PENDING_PARTS` and **enforced**. Next part (P4) inherits `dialog-max-w` + `sheet-vh`, still pending |
 | **P4** | Dialogs | ✅ **complete** | `2dc3be7` | All 8 steps. `dialog-max-w` + `sheet-vh` both enforced; only `arch-clipping` (P6) still pending |
 | **P5** | Agenda | ✅ **complete** | `028747b` `b775137` `5d6bb5b` `0690246` | AC-28…AC-31. `agenda-scroll` added in `b775137`, actually **enforced** only in `5d6bb5b` — see the note under the gate log |
-| **P6** | Odontogram | 🟡 **partial — AC-32 + step 5** | `97fb588` | Clipping fixed at all 6 sites; FDI folded to one source. `arch-clipping` enforced → **PENDING_PARTS is empty of active checks, 0 pending**. AC-33/34/35 remain |
+| **P6** | Odontogram | ✅ **complete** | `97fb588` `7895681` | AC-32…AC-35. `arch-clipping` enforced → **all 9 checks enforced, 0 pending**. AC-35 needed no code (DEV-9) |
 | **P7** | Platform | not-started | — | |
 | **P8** | LAN device trust | not-started | — | Needs physical iOS + Android devices |
 
@@ -47,6 +47,7 @@ explicit path and never `git add -A`: the tree is not guaranteed to be quiet for
 | **P5** (`agenda-scroll` enforced) | ✅ clean | ✅ exit 0 | ✅ all enforced pass, **1** pending (P6 only) | 2026-07-31 |
 | **P5** (complete) | ✅ clean | ✅ exit 0 | ✅ all enforced pass, 1 pending (P6 only) | 2026-07-31 |
 | **P6** (AC-32 + step 5) | ✅ clean | ✅ exit 0 | ✅ **all 9 checks enforced and passing, 0 pending** | 2026-07-31 |
+| **P6** (complete) | ✅ clean | ✅ exit 0 | ✅ all 9 enforced and passing, 0 pending | 2026-07-31 |
 
 ⚠️ **A freshly-added, freshly-passing check looks identical whether or not it is enforced — and that hid a
 false claim for one commit.** `b775137` added `agenda-scroll` and its own message called it enforced; `"P5"` was
@@ -515,25 +516,32 @@ really two.
 for the first time.** Proved by breaking the source and running `npm run check:responsive` with **no flags**,
 per the rule added after `5d6bb5b`.
 
-#### ⚠️ Still open in P6
+#### P6 finished — `7895681`
 
-Three of the five plan steps. None is blocked; all are in the same three files.
+**`ToothArchLayout` (AC-34).** The scroll box, the two arch rows, the midline, the labels and the arch switch
+are now one component; `record-tooth-chart`'s whole render collapses to a single line.
 
-- **AC-34 — extract `ToothArchLayout`.** The container, two arch rows, midline and labels are byte-identical
-  across the three charts. ⚠️ **Geometry only**: it must not take `paint`, `onToggleTooth`, `disabled`,
-  `toothTitle`, `entries` or any open/hover state. Pulling interaction up breaks one of two contracts — the
-  acts chart's **parent-held** `tappedTooth`/`hoveredTooth` (the `476a2e3` fix: *"32 cells a few pixels apart
-  would otherwise stack panels as the pointer crosses them"*), or `record-tooth-chart`'s deliberate lack of
-  selection chrome, which is what lets the read-only summary reuse it with `disabled` — and is also why it
-  uses a native `title` rather than a Radix tooltip, since a disabled button fires no pointer events.
-  The `mx-auto w-max` wrapper this part added is exactly the geometry that should move into it.
-- **AC-33 — one arch at a time below `md:`** with a Haut/Bas control and 44 px teeth; both arches at tablet
-  portrait and up. An adult arch needs ~597 px at today's 28 px cells, so the scroll fix makes it *reachable*
-  but a phone still shows half an arch at a time.
-- **AC-35 — the Diagnostics tab's two-channel popover.** `odontogram.tsx` still wraps its per-tooth condition
-  list in a hover/focus-only `Tooltip`; the `476a2e3` fix was never applied there, so the one place a tooth's
-  charted diagnoses appear is unreachable by touch. Copy the pattern from `odontogram-acts-chart`, do not
-  invent a second one.
+⚠️ **Geometry only, and that is the whole design.** It takes `teeth` + `renderTooth` (+ an optional arch
+control) and **nothing else** — no `paint`, `onToggleTooth`, `disabled`, `toothTitle`, `entries`, or open/hover
+state. Both contracts survive because each chart still owns its own `renderTooth`:
+- `odontogram-acts-chart` keeps `tappedTooth`/`hoveredTooth` in the **parent** (`476a2e3`), so 32 cells a few
+  pixels apart cannot stack a panel per tooth the pointer crosses;
+- `record-tooth-chart` keeps its lack of selection chrome, which is what lets the read-only summary reuse it
+  with `disabled` — and why it uses a native `title` rather than a Radix tooltip.
+
+**The AC-32 fix moved intact.** `mx-auto w-max` is now written once, with the reasoning, inside the layout.
+`arch-clipping` stayed green through the extraction and the three glyph-centring sites are still unmatched.
+
+**One arch below `md:` (AC-33).** A Haut/Bas group switches arches; both draw at `md:` and up, where the switch
+does not render at all — a control offering to fix nothing is noise. ⚠️ Keyed on **width**, not
+`(pointer: coarse)`: this is about *room*, and P2 settled that space keys on width while fingers key on the
+pointer. The midline only draws when both arches are showing.
+
+**44 px teeth (AC-33)** via `touch-target` on all three tooth buttons — P2's primitive, which raises the
+tappable area on a coarse pointer without changing a painted pixel, so there is no density regression on the
+tablet this feature is for.
+
+**AC-35 needed no code — see DEV-9.** The plan's step 4 rested on a premise that does not hold.
 
 ## Deviations
 
@@ -599,6 +607,30 @@ accessible name. `leading` is additive, optional, and changes nothing for the ei
 **Impact:** one new optional prop on a shared primitive P3 itself authored. Classified as significant (it touches
 a file every converted surface imports) but implemented without asking, on the same reasoning as **DEV-2**: the
 plan's intent is unambiguous and the alternatives are all worse rather than merely different. Flagged for review.
+
+### DEV-9: AC-35 was already satisfied — the plan's step 4 rested on a wrong premise
+**Date:** 2026-07-31 · **Story:** 1 (P6) · **Category:** Scope · **Approved:** **Yes — asked and confirmed**
+
+**Original plan:** P6 step 4 — *"The Diagnostics tab adopts the two-channel popover (AC-35).
+`odontogram.tsx:453-478` still wraps its per-tooth condition list in a hover/focus-only `Tooltip`; the
+`476a2e3` fix was never applied there, so **the one place a tooth's charted diagnoses appear is unreachable by
+touch**."*
+
+**Actual implementation:** no change. AC-35 — *« a tooth's charted diagnoses are reachable by touch on the
+Diagnostics tab »* — is already met.
+
+**Justification:** the claim is checkable and false. `ToothCell`'s trigger is a real `<button>` inside a
+`PopoverTrigger`, so a **tap opens the editor Popover** — and that Popover already lists every entry in more
+detail than the tooltip does: condition, the Diagnostic/Réalisé badge, the date, the faces, the note, and the
+« Retirer ce diagnostic » control. The `Tooltip` is a **redundant hover shortcut for mouse users**, not the
+only surface. Applying the two-channel pattern literally would have made the **editor form** open on every
+tooth the pointer crossed — which the file's own comment (added by an earlier part) says was the reason the
+acts chart's pattern was *deliberately not* reused there: *"Here the Popover IS the editor … opening it on
+hover would pop a form open for every tooth the pointer crosses."*
+
+**Impact:** none on the AC, which passes as written. Recorded because a plan step was declined on evidence
+rather than skipped, and because the plan's own text is now known to be wrong on this point — anyone
+re-reading § Part P6 step 4 should read this entry with it.
 
 ### DEV-8: the Semaine density « strip » is seven rows, not seven columns
 **Date:** 2026-07-31 · **Story:** 1 (P5) · **Category:** Technical · **Approved:** auto (see justification)
@@ -785,6 +817,15 @@ For `features/LEARNINGS.md` on completion:
   teeth existed as a flat list in one file and quadrant objects in two others, so they could not be compared
   by eye and nothing tied them together. Making the quadrants the source and *flattening* to get the list
   turns "they happen to agree" into "they cannot disagree".
+- ⚠️ **Check a plan step's factual premise before implementing it — especially when the file already argues the
+  opposite.** P6 step 4 asserted the Diagnostics diagnoses were « unreachable by touch »; they were not, and
+  `odontogram.tsx` carried a comment from an earlier part explaining exactly why the pattern the plan wanted
+  had been avoided there. Implementing it literally would have opened an editor form on every tooth the
+  pointer crossed. A plan is a hypothesis about the code, and the code is the authority.
+- **An extraction is safe when it takes LESS than you expect.** `ToothArchLayout` works precisely because it
+  refuses `paint`, `disabled`, `entries` and every scrap of open/hover state — the three charts differ only in
+  how they draw and react to one tooth, so the shared part is the geometry and nothing else. The temptation to
+  hoist "just the disabled flag too" is what would have broken both contracts at once.
 - **Keying touch rules to a breakpoint would have missed the target device.** `md:` is 768px; the tablet a
   dentist holds in landscape is 1180px. Anything about *fingers* keys on `(pointer: coarse)`, anything about
   *space* keys on width — and this feature needs both, separately.
