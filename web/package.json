@@ -6,7 +6,8 @@
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "check:responsive": "node scripts/check-responsive.mjs"
   },
   "dependencies": {
     "@auth0/nextjs-auth0": "^4.14.0",
