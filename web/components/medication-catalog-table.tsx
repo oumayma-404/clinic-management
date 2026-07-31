@@ -19,7 +19,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { Pill, Pencil, Trash2, Plus, AlertTriangle, CheckCircle2 } from "lucide-react"
+import { Pill, Pencil, Trash2, Plus, AlertTriangle, CheckCircle2, MoreHorizontal } from "lucide-react"
+import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { medicationsApi } from "@/lib/api/medications"
 import type { MedicationDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
@@ -152,7 +159,51 @@ export function MedicationCatalogTable({ onEdit, onAdd, onChanged, reloadToken }
             />
           </div>
           <div className={`overflow-x-auto${refreshing ? " opacity-60 transition-opacity" : ""}`}>
-            <Table>
+            <CardList
+              className={CARDS_ONLY}
+              ariaLabel="Catalogue de médicaments"
+              items={medications}
+              getKey={(m) => m.id}
+              title={(m) => m.brandName}
+              subtitle={(m) => m.dcis.join(", ")}
+              muted={(m) => !m.isActive}
+              status={(m) => (
+                <>
+                  {!m.isActive && <Badge variant="secondary">Inactif</Badge>}
+                  {m.isProvisional && (
+                    <Badge variant="outline" className="border-amber-400 text-amber-700 dark:text-amber-300">
+                      À vérifier
+                    </Badge>
+                  )}
+                </>
+              )}
+              fields={(m) => [
+                { label: "Forme", value: m.form },
+                { label: "Dosage", value: m.strength },
+              ]}
+              actions={(m) => (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" aria-label={`Actions pour ${m.brandName}`}>
+                      <MoreHorizontal className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onSelect={() => onEdit(m)}>Modifier</DropdownMenuItem>
+                    {m.isActive && (
+                      <DropdownMenuItem
+                        className="text-destructive focus:text-destructive"
+                        onSelect={() => setToDelete(m)}
+                      >
+                        Désactiver
+                      </DropdownMenuItem>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+              empty="Aucun médicament dans le catalogue"
+            />
+            <Table containerClassName={TABLE_ONLY}>
               <TableHeader>
                 <TableRow>
                   <TableHead>Nom commercial</TableHead>

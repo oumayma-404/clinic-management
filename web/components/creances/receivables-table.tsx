@@ -12,6 +12,7 @@ import type { ReceivableDto } from "@/lib/api/types"
 import { formatDT, formatDateFr } from "@/lib/format"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -125,7 +126,30 @@ export function ReceivablesTable() {
               </div>
             ) : (
               <>
-          <Table>
+          {/*
+            Below `md:` the table is replaced, not reflowed (AC-13/AC-14). This surface has **no action cell** —
+            the row itself is the navigation — so the card is a link rather than a card with a menu.
+          */}
+          <CardList
+            className={CARDS_ONLY}
+            ariaLabel="Créances par patient"
+            items={rows}
+            getKey={(r) => r.patientId}
+            title={(r) => r.patientName}
+            href={(r) => `/patients/${r.patientId}`}
+            status={(r) =>
+              r.daysOverdue != null && r.daysOverdue > 0 ? (
+                <Badge variant="destructive">En retard · {r.daysOverdue} j</Badge>
+              ) : null
+            }
+            fields={(r) => [
+              { label: "Solde dû", value: <span className="font-semibold">{formatDT(r.totalOutstanding)}</span> },
+              // Omitted rather than « — » when the patient owes nothing overdue (AC-17).
+              r.oldestOverdueDate ? { label: "Échéance la plus ancienne", value: formatDateFr(r.oldestOverdueDate) } : null,
+            ]}
+          />
+
+          <Table containerClassName={TABLE_ONLY}>
             <TableHeader>
               <TableRow>
                 <TableHead>Patient</TableHead>

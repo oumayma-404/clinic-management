@@ -10,7 +10,14 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { Users, Flag, FileText, Folder, Trash2, Pencil } from "lucide-react"
+import { Users, Flag, FileText, Folder, Trash2, Pencil, MoreHorizontal } from "lucide-react"
+import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { toast } from "sonner"
 import { patientsApi } from "@/lib/api/patients"
 import { dentalRecordsApi } from "@/lib/api/dental-records"
@@ -250,7 +257,74 @@ export function PatientsTable({ searchQuery, showFlaggedOnly, createdFrom, creat
           // `refreshing` dims the rows already on screen instead of blanking them, so a debounced search does not
           // strobe the table between keystrokes.
           <div className={refreshing ? "opacity-60 transition-opacity" : undefined}>
-          <Table>
+          {/*
+            Four unlabelled icon buttons become one menu below `md:` (AC-15). ⚠️ « Non renseigné » is NOT
+            carried over: AC-17 omits an absent field rather than printing a placeholder for it — on a phone a
+            line that says "there is nothing here" costs the same space as one that says something.
+          */}
+          <CardList
+            className={CARDS_ONLY}
+            ariaLabel="Patients"
+            items={patients}
+            getKey={(p) => p.id}
+            title={(p) => getPatientName(p)}
+            subtitle={(p) => {
+              const age = calculateAge(p.dateOfBirth)
+              return age !== null ? `${age} ans` : null
+            }}
+            status={(p) =>
+              hasActiveFlags(p) ? (
+                <span className="flex flex-wrap gap-1">
+                  {p.flags
+                    ?.filter((flag) => flag.isActive)
+                    .map((flag) => (
+                      <Badge key={flag.id} variant="destructive" className="gap-1">
+                        <Flag className="h-3 w-3" />
+                        {flag.flagType}
+                      </Badge>
+                    ))}
+                </span>
+              ) : null
+            }
+            onSelect={(p) => handleOpenSummary(p)}
+            fields={(p) => [
+              { label: "Téléphone", value: p.phoneNumber },
+              { label: "Email", value: p.email },
+              { label: "Naissance", value: formatDate(p.dateOfBirth) },
+            ]}
+            actions={(p) => (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" aria-label={`Actions pour ${getPatientName(p)}`}>
+                    <MoreHorizontal className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onSelect={() => handleOpenSummary(p)}>Voir le résumé</DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => handleEdit(p)}>Modifier</DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => router.push(`/patients/${p.id}/files`)}>
+                    Fichiers
+                  </DropdownMenuItem>
+                  {isAdmin && (
+                    <DropdownMenuItem
+                      className="text-destructive focus:text-destructive"
+                      onSelect={() => setPatientToDelete(p)}
+                    >
+                      Supprimer
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+            empty={
+              isSearching
+                ? "Aucun patient ne correspond à votre recherche"
+                : showFlaggedOnly
+                  ? "Aucun patient signalé"
+                  : "Aucun patient"
+            }
+          />
+          <Table containerClassName={TABLE_ONLY}>
             <TableHeader>
               <TableRow>
                 <TableHead>Nom</TableHead>
