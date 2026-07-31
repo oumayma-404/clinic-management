@@ -130,21 +130,31 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
     <>
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-2">
-              <Stethoscope className="h-5 w-5" />
+          {/* `flex-wrap`, and the buttons stack below `sm:`. The row held « Charger les actes courants » and
+              « Ajouter un type d'acte » — ~380px of button next to the title — with no wrap, so on a phone
+              they ran straight out of the card. Splitting a 288px row between them would leave ~140px each,
+              which is narrower than either label, so they take a full row apiece instead. */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <CardTitle className="flex min-w-0 items-center gap-2">
+              <Stethoscope className="h-5 w-5 shrink-0" />
               Types d'actes
               <Badge variant="secondary" className="ml-2">
                 {pageInfo.totalCount} {pageInfo.totalCount === 1 ? "type" : "types"}
               </Badge>
             </CardTitle>
             {isAdmin && (
-              <div className="flex items-center gap-2">
-                <Button onClick={handleLoadDefaults} variant="outline" size="sm" className="gap-2" disabled={seeding}>
+              <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+                <Button
+                  onClick={handleLoadDefaults}
+                  variant="outline"
+                  size="sm"
+                  className="w-full gap-2 sm:w-auto"
+                  disabled={seeding}
+                >
                   {seeding ? <Loader2 className="h-4 w-4 animate-spin" /> : <ListPlus className="h-4 w-4" />}
                   {seeding ? "Chargement…" : "Charger les actes courants"}
                 </Button>
-                <Button onClick={onAdd} size="sm" className="gap-2">
+                <Button onClick={onAdd} size="sm" className="w-full gap-2 sm:w-auto">
                   <Plus className="h-4 w-4" />
                   Ajouter un type d'acte
                 </Button>

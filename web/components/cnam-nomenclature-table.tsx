@@ -127,15 +127,17 @@ export function CnamNomenclatureTable({ onEdit, onAdd, onChanged, reloadToken }:
 
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-2">
+          {/* flex-wrap + a full-width button below sm:. Title and « Ajouter » together exceed a 288px
+              card, and without wrapping the button ran outside the view. */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <CardTitle className="flex min-w-0 items-center gap-2">
               <ClipboardList className="h-5 w-5" />
               Nomenclature CNAM
               <Badge variant="secondary" className="ml-2">
                 {pageInfo.totalCount} {pageInfo.totalCount === 1 ? "acte" : "actes"}
               </Badge>
             </CardTitle>
-            <Button onClick={onAdd} size="sm" className="gap-2">
+            <Button onClick={onAdd} size="sm" className="w-full gap-2 sm:w-auto">
               <Plus className="h-4 w-4" />
               Ajouter un acte
             </Button>
