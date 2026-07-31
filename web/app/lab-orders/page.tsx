@@ -209,7 +209,7 @@ function LabOrderFormModal({ open, onOpenChange, editingOrder, patients, onSaved
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="md:max-w-md">
         <DialogHeader>
           <DialogTitle>{editingOrder ? "Modifier le bon" : "Nouveau bon de prothèse"}</DialogTitle>
           <DialogDescription>
@@ -270,7 +270,7 @@ function LabOrderFormModal({ open, onOpenChange, editingOrder, patients, onSaved
             {errors.workDescription && <p className="text-xs text-destructive">{errors.workDescription}</p>}
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="toothNumber">Dent (FDI)</Label>
               <Input
@@ -297,7 +297,7 @@ function LabOrderFormModal({ open, onOpenChange, editingOrder, patients, onSaved
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="sentDate">Date d&apos;envoi</Label>
               <Input id="sentDate" type="date" value={sentDate} onChange={(e) => setSentDate(e.target.value)} />

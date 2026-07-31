@@ -106,7 +106,7 @@ export function DoctorDocumentIdentityDialog({
 
   return (
     <Dialog open={!!doctor} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="md:max-w-md">
         <DialogHeader>
           <DialogTitle>Identité documentaire</DialogTitle>
           <DialogDescription>

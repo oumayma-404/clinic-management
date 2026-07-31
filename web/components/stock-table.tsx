@@ -495,7 +495,7 @@ export function StockTable({ refreshKey, onEdit, highlightItemId, initialFilter 
       </Card>
 
       <Dialog open={!!adjustTarget} onOpenChange={(open) => { if (!open) setAdjustTarget(null) }}>
-        <DialogContent className="sm:max-w-sm">
+        <DialogContent className="md:max-w-sm">
           <DialogHeader>
             <DialogTitle>
               {adjustMode === "consume" ? "Sortie de stock" : "Entrée de stock"}
@@ -556,7 +556,7 @@ export function StockTable({ refreshKey, onEdit, highlightItemId, initialFilter 
       </Dialog>
 
       <Dialog open={!!historyTarget} onOpenChange={(open) => { if (!open) setHistoryTarget(null) }}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="md:max-w-lg">
           <DialogHeader>
             <DialogTitle>Historique des mouvements{historyTarget ? ` — ${historyTarget.name}` : ""}</DialogTitle>
           </DialogHeader>

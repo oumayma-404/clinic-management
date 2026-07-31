@@ -4,6 +4,7 @@ import type React from "react"
 import { useState, useEffect } from "react"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogHeader,
   DialogTitle,
@@ -18,6 +19,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { TUNISIAN_GOVERNORATES } from "@/lib/tunisia"
 import { Switch } from "@/components/ui/switch"
 import { Separator } from "@/components/ui/separator"
+import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
+import { DiscardChangesDialog } from "@/components/ui/discard-changes-dialog"
 import { Badge } from "@/components/ui/badge"
 import { toast } from "sonner"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
@@ -603,12 +606,18 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
     }
   }
 
+  const guard = useDirtyGuard(open, onOpenChange)
+
   const fullName = `${firstName} ${lastName}`.trim()
   const hasActiveFlags = patient?.flags && patient.flags.some(flag => flag.isActive)
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[90vh] p-0 gap-0">
+    <>
+    {/* ⚠️ Only the ROOT and « Annuler » route through the guard. The save path calls the raw `onOpenChange`
+        prop, so a successful save closes without being asked to confirm — no `markClean` bookkeeping, and no
+        way for the two to fall out of step (AC-23). */}
+    <Dialog open={open} onOpenChange={guard.onOpenChange}>
+      <DialogContent mobile="sheet" className="gap-0 p-0 md:max-h-[90dvh] md:max-w-4xl">
         <DialogHeader className="p-6 pb-4">
           <div className="flex items-start justify-between">
             <div>
@@ -632,7 +641,10 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
 
         <Separator />
 
-        <div className="overflow-y-auto max-h-[calc(90vh-200px)]">
+        {/* Was `max-h-[calc(90vh-200px)]` — a magic number that guessed the chrome's height, and guessed in
+            `vh`, so the keyboard opening pushed the footer off screen (AC-25). `DialogBody` takes whatever is
+            left instead of subtracting an assumed 200 px. */}
+        <DialogBody>
           <form onSubmit={handleSave} className="p-6 space-y-6">
             <FormErrorBanner message={conflict.error} />
 
@@ -1028,7 +1040,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                                 onChange={(e) => updateMedicalHistoryEntry(index, 'description', e.target.value)}
                                 className="w-full"
                               />
-                              <div className="grid grid-cols-2 gap-2">
+                              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                                 <Input
                                   type="date"
                                   placeholder="Date (optionnel)"
@@ -1082,7 +1094,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                         <div key={index} className="p-3 border rounded-lg space-y-2 bg-background">
                           <div className="flex items-start justify-between gap-2">
                             <div className="flex-1 space-y-2">
-                              <div className="grid grid-cols-2 gap-2">
+                              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                                 <Input
                                   placeholder="Lien de parenté (ex. : père, mère)"
                                   value={entry.relationship}
@@ -1253,12 +1265,12 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
               </div>
             </div>
           </form>
-        </div>
+        </DialogBody>
 
         <Separator />
 
         <DialogFooter className="p-6 pt-4">
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
+          <Button type="button" variant="outline" onClick={() => guard.onOpenChange(false)} disabled={loading}>
             <X className="h-4 w-4 mr-2" />
             Annuler
           </Button>
@@ -1271,6 +1283,8 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
         </DialogFooter>
       </DialogContent>
     </Dialog>
+    <DiscardChangesDialog guard={guard} />
+    </>
   )
 }
 

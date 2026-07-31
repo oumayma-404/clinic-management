@@ -12,6 +12,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
+import { toast } from "sonner"
+import { useMediaQuery } from "@/lib/hooks/use-media-query"
 import { useSession } from "@/lib/auth/session"
 import { notificationsApi } from "@/lib/api/notifications"
 import { appointmentsApi } from "@/lib/api/appointments"
@@ -81,6 +83,12 @@ export function PostVisitReviewPopup() {
    * until new data arrives, never permanently.
    */
   const [dismissed, setDismissed] = useState(false)
+  /*
+   * A finger, not a width (AC-27). The same rule P2 settled: anything about *space* keys on a breakpoint,
+   * anything about *fingers* keys on `(pointer: coarse)` — and a dentist's tablet in landscape is 1180 px, so
+   * a width test would have left the modal exactly where it hurts most.
+   */
+  const isCoarse = useMediaQuery("(pointer: coarse)")
 
   const mountedRef = useRef(true)
   useEffect(() => {
@@ -190,6 +198,42 @@ export function PostVisitReviewPopup() {
     if (active) snooze(active.id)
   }, [active, snooze])
 
+  /*
+   * AC-27 — on a coarse pointer this is a **toast with an action, not a sheet**.
+   *
+   * It is mounted in the header, so it fires on all 24 routes and re-polls every 60 s. As a modal on a phone
+   * that means the app can seize the whole screen while the user is mid-task, on a *reminder* — the one
+   * notification class that is never urgent. A toast says the same thing without taking the screen.
+   *
+   * ⚠️ Three constraints this has to respect, all of them already load-bearing above:
+   *
+   * • **Every dismissal must still funnel through `handleLater`.** Sonner's own swipe-away and timeout call
+   *   `onDismiss`/`onAutoClose`, which are wired to it — without that the snooze is never written and the
+   *   prompt returns on the very next poll, which is the defect the local `dismissed` flag was added to fix.
+   * • **It must not appear over an open dialog or sheet.** `data-sheet-open` is the body flag P2 already
+   *   maintains for the bottom bar, and Radix sets `data-scroll-locked` for a modal dialog — reading both
+   *   costs nothing and needs no new state.
+   * • **One toast per review.** Sonner de-dupes on `id`, so re-firing with the same id updates rather than
+   *   stacks, which the 60-second poll would otherwise do.
+   */
+  useEffect(() => {
+    if (!isCoarse || active === null || dismissed) return
+    if (document.body.hasAttribute("data-sheet-open") || document.body.hasAttribute("data-scroll-locked")) return
+
+    toast(active.title ?? "Compte rendu de visite", {
+      id: `pvr-${active.id}`,
+      description: active.message ?? "La visite est terminée. Ajoutez le dossier médical du patient.",
+      duration: 30_000,
+      icon: <ClipboardPlus className="h-5 w-5 text-primary" />,
+      action: { label: "Ajouter", onClick: handleAddRecord },
+      onDismiss: handleLater,
+      onAutoClose: handleLater,
+    })
+  }, [isCoarse, active, dismissed, handleAddRecord, handleLater])
+
+  // On a coarse pointer the toast above *is* the prompt; rendering the dialog too would show both.
+  if (isCoarse) return null
+
   return (
     <Dialog
       open={active !== null && !dismissed}
@@ -197,7 +241,7 @@ export function PostVisitReviewPopup() {
         if (!next) handleLater()
       }}
     >
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="md:max-w-md">
         <DialogHeader>
           <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary">
             <ClipboardPlus className="h-5 w-5" />

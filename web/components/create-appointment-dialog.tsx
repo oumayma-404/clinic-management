@@ -552,7 +552,7 @@ export function CreateAppointmentDialog({
         `sm:max-w-2xl` rather than a bare `max-w-2xl`, so the width cap no longer overrides the primitive's
         own `max-w-[calc(100%-2rem)]` mobile guard.
       */}
-      <DialogContent className="flex max-h-[90vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
+      <DialogContent mobile="sheet" className="gap-0 overflow-hidden p-0 md:max-h-[90dvh] md:max-w-2xl">
         <DialogHeader className="flex-shrink-0 px-6 pb-4 pt-6">
           <DialogTitle className="text-2xl">Créer un rendez-vous</DialogTitle>
           <DialogDescription>Planifier un nouveau rendez-vous pour un patient</DialogDescription>
@@ -631,7 +631,7 @@ export function CreateAppointmentDialog({
 
                 {isNewPatient ? (
                   <div className="space-y-3">
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <div className="space-y-2">
                         <Label htmlFor="firstName" className="text-sm">
                           Prénom *

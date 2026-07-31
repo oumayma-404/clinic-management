@@ -4,6 +4,7 @@ import * as React from "react"
 import * as AlertDialogPrimitive from "@radix-ui/react-alert-dialog"
 
 import { cn } from "@/lib/utils"
+import { DIALOG_BASE, DIALOG_DESKTOP, DIALOG_MOBILE_BOTTOM } from "@/components/ui/dialog"
 import { buttonVariants } from "@/components/ui/button"
 
 function AlertDialog({
@@ -51,12 +52,18 @@ function AlertDialogContent({
   return (
     <AlertDialogPortal>
       <AlertDialogOverlay />
+      {/*
+        A confirmation is a bottom sheet below `md:` and a centred dialog above it (AC-21) — the same
+        `DIALOG_MOBILE_VARIANTS.bottom` + `DIALOG_DESKTOP` pair `DialogContent` uses, imported rather than
+        retyped so the two cannot drift apart. **All 26 instances across 20 files are fixed by this one edit**,
+        which is the whole reason the presentation lives in the primitive instead of at the call sites.
+
+        Note there is nothing to fix here for AC-20: no caller overrides `max-w` on an `AlertDialogContent`
+        (`dialog-max-w` reports zero of them), so unlike `DialogContent` this base was never being beaten.
+      */}
       <AlertDialogPrimitive.Content
         data-slot="alert-dialog-content"
-        className={cn(
-          "bg-background data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border p-6 shadow-lg duration-200 sm:max-w-lg",
-          className
-        )}
+        className={cn(DIALOG_BASE, DIALOG_MOBILE_BOTTOM, DIALOG_DESKTOP, className)}
         {...props}
       />
     </AlertDialogPortal>
@@ -70,7 +77,7 @@ function AlertDialogHeader({
   return (
     <div
       data-slot="alert-dialog-header"
-      className={cn("flex flex-col gap-2 text-center sm:text-left", className)}
+      className={cn("flex shrink-0 flex-col gap-2 text-center sm:text-left", className)}
       {...props}
     />
   )
@@ -84,7 +91,7 @@ function AlertDialogFooter({
     <div
       data-slot="alert-dialog-footer"
       className={cn(
-        "flex flex-col-reverse gap-2 sm:flex-row sm:justify-end",
+        "flex shrink-0 flex-col-reverse gap-2 sm:flex-row sm:justify-end",
         className
       )}
       {...props}

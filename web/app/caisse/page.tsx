@@ -626,7 +626,7 @@ function ExpenseFormModal({ open, onOpenChange, editingExpense, defaultDay, onSa
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="md:max-w-md">
         <DialogHeader>
           <DialogTitle>{editingExpense ? "Modifier la dépense" : "Nouvelle dépense"}</DialogTitle>
           <DialogDescription>
@@ -669,7 +669,7 @@ function ExpenseFormModal({ open, onOpenChange, editingExpense, defaultDay, onSa
             {errors.category && <p className="text-xs text-destructive">{errors.category}</p>}
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="amount">
                 Montant (DT) <span className="text-destructive">*</span>

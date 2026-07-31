@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from "react"
 import { RecordToothChart, type ToothPaint } from "./record-tooth-chart"
 import { isAdultTooth } from "@/components/tooth-multiselect"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 // The dental-records table is gone entirely (Exception 3) — this modal renders a card list at every width.
 import { CardList } from "@/components/ui/card-list"
 import { Badge } from "@/components/ui/badge"
@@ -75,12 +75,15 @@ export function PatientSummaryModal({ open, onOpenChange, patient, dentalRecords
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[95vw] w-full max-h-[90vh] overflow-y-auto overflow-x-hidden p-0 gap-0">
+      <DialogContent
+        mobile="sheet"
+        className="gap-0 overflow-x-hidden p-0 md:max-h-[90dvh] md:w-full md:max-w-[95vw]"
+      >
         <DialogHeader className="p-6 pb-4 border-b">
           <DialogTitle className="text-2xl">Résumé du patient</DialogTitle>
         </DialogHeader>
 
-        <div className="p-6 space-y-6 overflow-x-hidden">
+        <DialogBody className="p-6 space-y-6 overflow-x-hidden">
           {/* Patient Basic Info */}
           <Card>
             <CardHeader>
@@ -329,7 +332,7 @@ export function PatientSummaryModal({ open, onOpenChange, patient, dentalRecords
               )}
             </CardContent>
           </Card>
-        </div>
+        </DialogBody>
       </DialogContent>
     </Dialog>
   )

@@ -135,7 +135,7 @@ export function HonorairesLauncher({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="md:max-w-lg">
           <DialogHeader>
             <DialogTitle>Facturer un patient</DialogTitle>
             <DialogDescription>

@@ -133,7 +133,7 @@ export function ProcedureTypeMaterialsDialog({
 
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!next) onOpenChange(false) }}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
+      <DialogContent className="max-h-[85dvh] overflow-y-auto md:max-w-lg">
         <DialogHeader>
           <DialogTitle>
             Consommables{procedureType ? ` — ${procedureType.name}` : ""}

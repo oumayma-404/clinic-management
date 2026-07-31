@@ -63,7 +63,7 @@ export function DashboardCustomizer({
         </Button>
       </PopoverTrigger>
 
-      <PopoverContent align="end" className="max-h-[70vh] w-80 overflow-y-auto p-0">
+      <PopoverContent align="end" className="max-h-[70dvh] w-80 overflow-y-auto p-0">
         <div className="space-y-1 p-4 pb-3">
           <p className="text-sm font-semibold">Afficher sur le tableau de bord</p>
           <p className="text-xs text-muted-foreground">

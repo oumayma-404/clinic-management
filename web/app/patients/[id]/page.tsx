@@ -2332,7 +2332,13 @@ export default function PatientDetailsPage() {
 
       {/* File Preview Dialog */}
       <Dialog open={!!previewFile} onOpenChange={handleClosePreview}>
-        <DialogContent className={`${previewFile && isPdfFile(previewFile) ? 'max-w-[98vw] w-[98vw]' : 'max-w-6xl'} max-h-[98vh] p-0 flex flex-col`}>
+        {/* A preview is the one dialog that wants the whole screen on a phone — it is showing a document.
+            ⚠️ The width is a TEMPLATE LITERAL, which the AC-50 check tokenises through the braces, so the
+            `md:` prefixes here are as load-bearing as the quoted ones. */}
+        <DialogContent
+          mobile="sheet"
+          className={`${previewFile && isPdfFile(previewFile) ? 'md:max-w-[98vw] md:w-[98vw]' : 'md:max-w-6xl'} p-0 md:max-h-[98dvh]`}
+        >
           {previewFile && (
             <>
               <DialogHeader className="px-6 pt-6 pb-4 flex-shrink-0 border-b bg-gradient-to-r from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">

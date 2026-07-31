@@ -30,7 +30,7 @@ const WEB_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SCAN_DIRS = ["app", "components", "lib", "contexts", "hooks"];
 
 /** Parts not yet landed. Remove an id when that part is committed. */
-const PENDING_PARTS = new Set(["P4", "P5", "P6", "P7", "P8"]);
+const PENDING_PARTS = new Set(["P5", "P6", "P7", "P8"]);
 
 // ── file walking ────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -116,10 +116,13 @@ const check = (id, part, title, why, run) => checks.push({ id, part, title, why,
 check(
   "dialog-max-w",
   "P4",
-  "No unprefixed `max-w-*` on a DialogContent / AlertDialogContent",
-  "An unprefixed max-w is the same tailwind-merge group as the base `max-w-[calc(100%-2rem)]`, so the caller " +
-    "wins and the mobile gutter dies — but it cannot beat `sm:max-w-lg`, which then clamps the dialog to 512 px " +
-    "on every desktop. Prefix it (`sm:max-w-4xl`) so both survive.",
+  "A DialogContent / AlertDialogContent width override is `md:`-prefixed",
+  "Two failures, one check. An UNPREFIXED max-w is the same tailwind-merge group as the base " +
+    "`max-w-[calc(100%-2rem)]`, so the caller wins and the mobile gutter dies — but it cannot beat the base's " +
+    "own prefixed clamp, which then holds the dialog at 512 px on every desktop. And an `sm:`-prefixed one is " +
+    "the ambiguity P4 removed: the dialog presentation switches at `md:`, so between 640 and 767 px an " +
+    "`sm:max-w-*` and the mobile sheet's width would both be live in different variants — twMerge keeps both " +
+    "and the stylesheet order decides. Write `md:max-w-*`.",
   () => {
     const hits = [];
     for (const file of tsx()) {
@@ -138,9 +141,17 @@ check(
           i++;
         }
         const tag = src.slice(m.index, i);
-        // Tokenise every string-ish run in the tag; a prefixed class is one token (`sm:max-w-lg`).
+        /*
+         * Tokenise every string-ish run in the tag; a prefixed class is one token (`md:max-w-lg`). Splitting on
+         * braces and backticks too is what reaches INSIDE a template literal — two call sites build the width
+         * from a ternary (`patients/[id]` and `patient-files-manager`, both file previews), and a check that
+         * only read `className="…"` would have declared them clean while they carried the bug.
+         *
+         * `md:` and nothing else: see the `why` above. An unprefixed token loses the gutter, an `sm:` one
+         * straddles the 640–767 px band where the mobile sheet is still in force.
+         */
         for (const token of tag.split(/[\s"'`{}()]+/)) {
-          if (token.startsWith("max-w-")) {
+          if (/(^|:)max-w-/.test(token) && !token.startsWith("md:max-w-")) {
             hits.push({
               file: rel(file),
               line: src.slice(0, m.index).split(/\r?\n/).length,

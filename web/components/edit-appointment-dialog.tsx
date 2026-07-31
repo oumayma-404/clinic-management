@@ -462,7 +462,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
         {/* Scrolling body, pinned header and footer — see the create dialog for why. This one matters even
             more: its footer holds three actions, one of them « Annuler le rendez-vous », and a destructive
             action that has to be hunted for by scrolling is a destructive action someone will mis-click. */}
-        <DialogContent className="flex max-h-[90vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
+        <DialogContent mobile="sheet" className="gap-0 overflow-hidden p-0 md:max-h-[90dvh] md:max-w-2xl">
           <DialogHeader className="flex-shrink-0 px-6 pb-4 pt-6">
             <div className="flex items-start justify-between gap-4 pr-6">
               <div>

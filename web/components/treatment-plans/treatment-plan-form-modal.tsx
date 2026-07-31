@@ -2,7 +2,9 @@
 
 import type React from "react"
 import { useState, useEffect, useRef } from "react"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
+import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
+import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
+import { DiscardChangesDialog } from "@/components/ui/discard-changes-dialog"
 import { Button } from "@/components/ui/button"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { Input } from "@/components/ui/input"
@@ -176,6 +178,7 @@ export function TreatmentPlanFormModal({
   const [pickerOpenIndex, setPickerOpenIndex] = useState<number | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const guard = useDirtyGuard(open, onOpenChange)
   const conflictStreak = useRef(0)
 
   const isEditing = !!editingPlan
@@ -586,8 +589,10 @@ export function TreatmentPlanFormModal({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+    <>
+    {/* Only the ROOT and « Annuler » route through the guard — the save path calls the raw prop (AC-23). */}
+    <Dialog open={open} onOpenChange={guard.onOpenChange}>
+      <DialogContent mobile="sheet" className="md:max-h-[90dvh] md:max-w-3xl">
         <DialogHeader>
           <DialogTitle>
             {isAmending
@@ -610,7 +615,9 @@ export function TreatmentPlanFormModal({
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        {/* The form owns the remaining height so `DialogBody` scrolls and the footer stays on screen (AC-21). */}
+        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col gap-4">
+          <DialogBody className="space-y-4">
           <FormErrorBanner message={error} />
 
           <div className="grid gap-4 sm:grid-cols-2">
@@ -895,9 +902,10 @@ export function TreatmentPlanFormModal({
               </div>
             )}
           </div>
+          </DialogBody>
 
           <DialogFooter className="gap-2">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
+            <Button type="button" variant="outline" onClick={() => guard.onOpenChange(false)} disabled={loading}>
               Annuler
             </Button>
             <Button type="submit" disabled={loading}>
@@ -913,5 +921,7 @@ export function TreatmentPlanFormModal({
         </form>
       </DialogContent>
     </Dialog>
+    <DiscardChangesDialog guard={guard} />
+    </>
   )
 }

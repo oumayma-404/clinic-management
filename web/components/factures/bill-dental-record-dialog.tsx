@@ -104,7 +104,7 @@ export function BillDentalRecordDialog({
 
   return (
     <Dialog open={!!record} onOpenChange={(open) => { if (!open && !submitting) onOpenChange(false) }}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="md:max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Receipt className="h-5 w-5" />

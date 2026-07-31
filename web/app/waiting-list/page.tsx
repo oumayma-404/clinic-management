@@ -485,7 +485,7 @@ export default function WaitingListPage() {
 
         {/* Add / edit dialog */}
         <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="md:max-w-md">
           <DialogHeader>
             <DialogTitle>{editingEntry ? "Modifier l'entrée" : "Ajouter à la liste d'attente"}</DialogTitle>
             <DialogDescription>

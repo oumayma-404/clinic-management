@@ -186,7 +186,7 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-h-[90dvh] overflow-y-auto md:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{editingProcedure ? "Modifier le type d'acte" : "Ajouter un type d'acte"}</DialogTitle>
           <DialogDescription>
@@ -203,7 +203,7 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="name" className="text-sm">
                 Nom de l'acte <span className="text-destructive">*</span>
@@ -348,7 +348,7 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
 
           <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-3">
             <Label className="text-xs font-medium">Aperçu</Label>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <p className="text-2xs font-medium text-muted-foreground">Agenda</p>
                 <div

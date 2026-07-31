@@ -953,7 +953,7 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
         open={cancelOpen}
         onOpenChange={(open) => { if (!open) { setCancelOpen(false); setCancelReason("") } }}
       >
-        <DialogContent className="max-w-md">
+        <DialogContent className="md:max-w-md">
           <DialogHeader>
             <DialogTitle>Annuler le plan</DialogTitle>
             <DialogDescription>
@@ -1031,7 +1031,7 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
         surfaced by `run()`'s toast — this dialog is a normal action, not one that needs an in-form banner.
       */}
       <Dialog open={!!undoTarget} onOpenChange={(open) => { if (!open) setUndoTarget(null) }}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="md:max-w-md">
           <DialogHeader>
             <DialogTitle>Détacher la fiche de cet acte ?</DialogTitle>
             <DialogDescription>

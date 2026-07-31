@@ -599,7 +599,7 @@ export default function ClinicSettings() {
           </CardHeader>
           {!isClinicInfoCollapsed && (
             <CardContent className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="space-y-1">
                   <Label htmlFor="clinic-name" className="text-xs font-medium flex items-center gap-1">
                     Nom de la clinique
@@ -654,7 +654,7 @@ export default function ClinicSettings() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="space-y-1">
                   <Label htmlFor="phone" className="text-xs font-medium flex items-center gap-1">
                     Numéro de téléphone
@@ -1128,7 +1128,7 @@ export default function ClinicSettings() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">
                     <Checkbox

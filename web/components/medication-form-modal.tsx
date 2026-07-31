@@ -88,7 +88,7 @@ export function MedicationFormModal({ open, onOpenChange, editingMedication, onS
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-h-[90dvh] overflow-y-auto md:max-w-lg">
         <DialogHeader>
           <DialogTitle>{editingMedication ? "Modifier le médicament" : "Ajouter un médicament"}</DialogTitle>
           <DialogDescription>
@@ -116,7 +116,7 @@ export function MedicationFormModal({ open, onOpenChange, editingMedication, onS
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="form" className="text-sm">
                 Forme

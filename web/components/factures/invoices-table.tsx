@@ -717,7 +717,7 @@ export function InvoicesTable({
       </AlertDialog>
 
       <Dialog open={!!cancelTarget} onOpenChange={(open) => { if (!open) { setCancelTarget(null); setCancelReason("") } }}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="md:max-w-md">
           <DialogHeader>
             <DialogTitle>Annuler la facture</DialogTitle>
             <DialogDescription>
@@ -754,7 +754,7 @@ export function InvoicesTable({
       </Dialog>
 
       <Dialog open={!!avoirTarget} onOpenChange={(open) => { if (!open) setAvoirTarget(null) }}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="md:max-w-md">
           <DialogHeader>
             <DialogTitle>Établir un avoir</DialogTitle>
             <DialogDescription>

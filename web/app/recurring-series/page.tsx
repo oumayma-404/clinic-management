@@ -211,7 +211,7 @@ function NewSeriesDialog({ open, onOpenChange, patients, procedureTypes, onCreat
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
+      <DialogContent className="max-h-[90dvh] overflow-y-auto md:max-w-lg">
         <DialogHeader>
           <DialogTitle>Nouvelle série récurrente</DialogTitle>
           <DialogDescription>Planifiez une série de rendez-vous répétés pour un patient.</DialogDescription>
@@ -295,7 +295,7 @@ function NewSeriesDialog({ open, onOpenChange, patients, procedureTypes, onCreat
             {errors.patientId && <p className="text-xs text-destructive">{errors.patientId}</p>}
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="startDateTime">
                 Date et heure de début <span className="text-destructive">*</span>
@@ -325,7 +325,7 @@ function NewSeriesDialog({ open, onOpenChange, patients, procedureTypes, onCreat
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="frequency">
                 Fréquence <span className="text-destructive">*</span>

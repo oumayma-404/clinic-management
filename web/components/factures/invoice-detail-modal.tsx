@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Loader2, FileDown, Undo2, CalendarClock } from "lucide-react"
+import { Loader2, FileDown, Undo2, CalendarClock, Mail } from "lucide-react"
 import { toast } from "sonner"
 import { invoicesApi } from "@/lib/api/invoices"
 import { appointmentsApi } from "@/lib/api/appointments"
@@ -21,6 +21,16 @@ import { downloadBlob } from "@/lib/download"
 import { useSession } from "@/lib/auth/session"
 import { canReverseFinancials, REVERSAL_FORBIDDEN_HINT } from "@/lib/auth/can"
 import { invoiceStatusLabel, paymentMethodLabel } from "./invoice-labels"
+import { SendDocumentEmailDialog } from "@/components/send-document-email-dialog"
+import { DOCUMENT_EMAIL_KINDS, type DocumentEmailKind } from "@/lib/api/document-emails"
+
+/** What « Envoyer par email » was clicked for. One dialog serves the reçus and the avoirs of this modal. */
+interface EmailTarget {
+  kind: DocumentEmailKind
+  documentId: string
+  paymentId?: string
+  label: string
+}
 
 interface InvoiceDetailModalProps {
   open: boolean
@@ -52,6 +62,7 @@ export function InvoiceDetailModal({ open, onOpenChange, invoiceId, onChanged }:
 
   // The in-place void confirm: which payment, and the required motif.
   const [voidTarget, setVoidTarget] = useState<PaymentDto | null>(null)
+  const [emailTarget, setEmailTarget] = useState<EmailTarget | null>(null)
   const [voidReason, setVoidReason] = useState("")
   const [voidError, setVoidError] = useState<string | null>(null)
 
@@ -153,7 +164,7 @@ export function InvoiceDetailModal({ open, onOpenChange, invoiceId, onChanged }:
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-h-[90dvh] overflow-y-auto md:max-w-2xl">
         <DialogHeader>
           <DialogTitle className="flex flex-wrap items-center gap-2">
             {invoice?.number ? `Facture ${invoice.number}` : "Facture"}
@@ -259,6 +270,20 @@ export function InvoiceDetailModal({ open, onOpenChange, invoiceId, onChanged }:
                           >
                             <FileDown className="h-4 w-4" />
                           </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setEmailTarget({
+                              kind: DOCUMENT_EMAIL_KINDS.InvoicePaymentReceipt,
+                              documentId: invoice.id,
+                              paymentId: payment.id,
+                              label: `Reçu de paiement ${formatDT(payment.amount)}`,
+                            })}
+                            title="Envoyer le reçu par email"
+                            aria-label={`Envoyer par email le reçu du paiement de ${formatDT(payment.amount)} du ${formatDateFr(payment.paidOn)}`}
+                          >
+                            <Mail className="h-4 w-4" />
+                          </Button>
                           {!payment.isVoided && (
                             <Button
                               variant="ghost"
@@ -359,15 +384,30 @@ export function InvoiceDetailModal({ open, onOpenChange, invoiceId, onChanged }:
                             {creditNote.method ? ` · ${paymentMethodLabel(creditNote.method)}` : ""}
                           </span>
                         </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleDownloadAvoir(creditNote)}
-                          title="Télécharger l'avoir"
-                          aria-label={`Télécharger l'avoir ${creditNote.number} de ${formatDT(creditNote.amount)}`}
-                        >
-                          <FileDown className="h-4 w-4" />
-                        </Button>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDownloadAvoir(creditNote)}
+                            title="Télécharger l'avoir"
+                            aria-label={`Télécharger l'avoir ${creditNote.number} de ${formatDT(creditNote.amount)}`}
+                          >
+                            <FileDown className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setEmailTarget({
+                              kind: DOCUMENT_EMAIL_KINDS.CreditNote,
+                              documentId: creditNote.id,
+                              label: `Avoir ${creditNote.number}`,
+                            })}
+                            title="Envoyer l'avoir par email"
+                            aria-label={`Envoyer par email l'avoir ${creditNote.number} de ${formatDT(creditNote.amount)}`}
+                          >
+                            <Mail className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
                       <p className="text-xs text-muted-foreground">Motif : {creditNote.reason}</p>
                       {creditNote.correctedInvoiceIsTtnRegistered && (
@@ -422,6 +462,18 @@ export function InvoiceDetailModal({ open, onOpenChange, invoiceId, onChanged }:
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Fermer</Button>
         </DialogFooter>
+
+        {emailTarget && (
+          <SendDocumentEmailDialog
+            open={Boolean(emailTarget)}
+            onOpenChange={(next) => { if (!next) setEmailTarget(null) }}
+            documentKind={emailTarget.kind}
+            documentId={emailTarget.documentId}
+            paymentId={emailTarget.paymentId}
+            documentLabel={emailTarget.label}
+            patientId={invoice?.patientId}
+          />
+        )}
       </DialogContent>
     </Dialog>
   )

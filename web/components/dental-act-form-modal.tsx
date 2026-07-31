@@ -115,7 +115,7 @@ export function DentalActFormModal({ open, onOpenChange, editingAct, onSuccess }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-h-[90dvh] overflow-y-auto md:max-w-lg">
         <DialogHeader>
           <DialogTitle>{editingAct ? "Modifier l'acte" : "Ajouter un acte"}</DialogTitle>
           <DialogDescription>
@@ -130,7 +130,7 @@ export function DentalActFormModal({ open, onOpenChange, editingAct, onSuccess }
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="codeActe" className="text-sm">
                 Code acte <span className="text-destructive">*</span>
@@ -170,7 +170,7 @@ export function DentalActFormModal({ open, onOpenChange, editingAct, onSuccess }
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="coefficient" className="text-sm">
                 Coefficient

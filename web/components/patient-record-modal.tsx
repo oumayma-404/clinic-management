@@ -7,7 +7,9 @@ import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
+import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
+import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
+import { DiscardChangesDialog } from "@/components/ui/discard-changes-dialog"
 import { Trash2, Plus, AlertTriangle, Stethoscope } from "lucide-react"
 import { dentalRecordsApi } from "@/lib/api/dental-records"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
@@ -117,6 +119,7 @@ export function PatientRecordModal({
   const [linkedPlanItemId, setLinkedPlanItemId] = useState<string>(NO_PLAN_ITEM)
   const [openSections, setOpenSections] = useState({ details: false, acts: false, notes: false })
   const [loading, setLoading] = useState(false)
+  const guard = useDirtyGuard(open, onOpenChange)
   // A save conflict stays in the form; everything else keeps the existing toast.
   const conflict = useConflict()
 
@@ -512,11 +515,18 @@ export function PatientRecordModal({
   }, [appointment?.procedures, procedureTypes, acts, draft.procedureTypeId])
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      {/* NOTE: the width override MUST be `sm:max-w-*`. DialogContent's base class ends with `sm:max-w-lg`,
+    <>
+    {/* Only the ROOT and « Annuler » route through the guard — the save path calls the raw prop, so a saved
+        fiche closes without asking (AC-23). */}
+    <Dialog open={open} onOpenChange={guard.onOpenChange}>
+      {/* NOTE: the width override MUST be `md:max-w-*`. DialogContent's base class ends with `md:max-w-lg`,
           and tailwind-merge treats an unprefixed `max-w-*` as a different group — so a plain `max-w-3xl`
-          silently loses to it at every viewport ≥640px and the dialog stays 512px wide. */}
-      <DialogContent className="max-h-[92vh] w-[min(96vw,780px)] gap-3 overflow-y-auto sm:max-w-[min(96vw,780px)]">
+          silently loses to it at every viewport ≥768px and the dialog stays 512px wide. (The prefix was `sm:`
+          until P4 moved the whole dialog split to `md:`, matching the rest of the feature.) */}
+      <DialogContent
+        mobile="sheet"
+        className="gap-3 md:max-h-[92dvh] md:w-[min(96vw,780px)] md:max-w-[min(96vw,780px)]"
+      >
         <DialogHeader>
           <DialogTitle>{record ? "Modifier la fiche médicale" : "Ajouter une fiche médicale"}</DialogTitle>
           <DialogDescription>
@@ -528,6 +538,7 @@ export function PatientRecordModal({
           </DialogDescription>
         </DialogHeader>
 
+        <DialogBody className="flex flex-col gap-3">
         <FormErrorBanner message={conflict.error} />
 
         {/* Point-of-care medical alerts — surfaced before treatment (safety). */}
@@ -959,6 +970,7 @@ export function PatientRecordModal({
             <span className="text-base font-semibold tabular-nums">{formatDT(grandTotal)}</span>
           </div>
         </div>
+        </DialogBody>
 
         <DialogFooter className="gap-2 sm:justify-between">
           {/* Confirms the act in hand and clears the draft, keeping the selection so a second procedure on the
@@ -976,7 +988,7 @@ export function PatientRecordModal({
             <Plus className="mr-1 h-4 w-4" /> Ajouter un autre acte
           </Button>
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
+            <Button variant="outline" onClick={() => guard.onOpenChange(false)} disabled={loading}>
               Annuler
             </Button>
             <Button onClick={handleSave} disabled={loading} className="min-w-[150px]">
@@ -992,5 +1004,7 @@ export function PatientRecordModal({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+    <DiscardChangesDialog guard={guard} />
+    </>
   )
 }

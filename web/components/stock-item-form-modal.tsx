@@ -116,7 +116,7 @@ export function StockItemFormModal({ open, onOpenChange, editingItem, onSaved }:
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="md:max-w-md">
         <DialogHeader>
           <DialogTitle>{editingItem ? "Modifier l'article" : "Ajouter un article"}</DialogTitle>
           <DialogDescription>
@@ -133,7 +133,7 @@ export function StockItemFormModal({ open, onOpenChange, editingItem, onSaved }:
             {errors.name && <p className="text-xs text-destructive">{errors.name}</p>}
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="quantity">
                 Quantité <span className="text-destructive">*</span>
@@ -169,7 +169,7 @@ export function StockItemFormModal({ open, onOpenChange, editingItem, onSaved }:
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="minimumStockLevel">
                 Stock minimum <span className="text-destructive">*</span>
@@ -205,7 +205,7 @@ export function StockItemFormModal({ open, onOpenChange, editingItem, onSaved }:
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="unitPrice">Prix unitaire</Label>
               <Input
