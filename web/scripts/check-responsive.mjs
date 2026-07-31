@@ -30,7 +30,7 @@ const WEB_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SCAN_DIRS = ["app", "components", "lib", "contexts", "hooks"];
 
 /** Parts not yet landed. Remove an id when that part is committed. */
-const PENDING_PARTS = new Set(["P2", "P3", "P4", "P5", "P6", "P7", "P8"]);
+const PENDING_PARTS = new Set(["P3", "P4", "P5", "P6", "P7", "P8"]);
 
 // ── file walking ────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -198,7 +198,13 @@ check(
   "No ungated `hover:scale-*` — gate movement hovers behind `hover-hover:`",
   "On a touch device a hover state sticks after the tap, so a transform reads as a stuck element. " +
     "globals.css declares the `hover-hover:` variant for exactly this.",
-  () => scanLines(tsx(), /(?<!hover-hover:)\b(?:group-)?hover:scale-/)
+  /*
+   * Anchored on a CLASS BOUNDARY, not a lookbehind. `(?<!hover-hover:)` looked right and was wrong: in
+   * `hover-hover:group-hover:scale-105` the inner `hover:scale-` is preceded by `group-`, so the lookbehind
+   * passed and the correctly-gated class was reported as a violation. Requiring the token to start after
+   * whitespace or a quote means only a class that really begins with `hover:`/`group-hover:` matches.
+   */
+  () => scanLines(tsx(), /(?:^|[\s"'`{])(?:group-)?hover:scale-/)
 );
 
 check(

@@ -149,7 +149,8 @@ export function RecordToothChart({ isAdult, paint, onToggleTooth, disabled, toot
         title={toothTitle?.(num) ?? `Dent ${num}`}
         className="group flex flex-col items-center focus:outline-none disabled:cursor-not-allowed"
       >
-        <span className={cn("relative rounded-md p-0.5 transition-all group-hover:scale-105", selected && "ring-2 ring-primary")}>
+        {/* Movement hover gated behind `hover-hover:` (AC-11) — a tapped tooth kept the enlarged state. */}
+        <span className={cn("relative rounded-md p-0.5 transition-all hover-hover:group-hover:scale-105", selected && "ring-2 ring-primary")}>
           <ToothGlyph
             kind={toothKind(num)}
             fill={fill}

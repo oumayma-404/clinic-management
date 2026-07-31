@@ -14,6 +14,16 @@
 @custom-variant hover-hover (@media (hover: hover) and (pointer: fine));
 
 /*
+ * `coarse:` — a finger, not a mouse. The mirror of `hover-hover:` and the gate for the 44px touch-target floor
+ * (AC-10).
+ *
+ * Keyed on the POINTER, not on a breakpoint: an iPad in landscape is 1180px wide and is still operated with a
+ * gloved hand at the chair, so a `md:`-based rule would leave the one device this feature exists for on 36px
+ * buttons. A 1440px desk machine with a mouse is untouched either way.
+ */
+@custom-variant coarse (@media (pointer: coarse));
+
+/*
  * ── Palette: « menthe clinique » ──────────────────────────────────────────────────────────────────────────
  *
  * The previous theme read as washed out, and the cause was structural rather than a matter of taste:
@@ -193,6 +203,24 @@
   --text-2xs--line-height: calc(1 / 0.6875);
   --text-title: 1.625rem;
   --text-title--line-height: calc(2 / 1.625);
+
+  /*
+   * The bottom edge of a phone, owned in one place (AC-8).
+   *
+   * Four things want it: the bottom nav bar (a flex sibling of `<main>`, so it needs no offset of its own), the
+   * AI assistant's FAB and panel, the toasts, and P4's bottom sheets. Before this token each carried its own
+   * `bottom-4` and they simply overlapped — the FAB sat on top of the bar, and a toast covered both.
+   *
+   * `--bottom-inset` is what a FIXED element must clear to sit above the bar: the bar's height plus the home
+   * indicator. Elements in the normal flex flow need neither — `<main>` shrinks around the bar on its own, which
+   * is exactly why the bar is not `fixed` (EC-3: a landscape phone has ~250px of content height, and a fixed bar
+   * would overlay a quarter of it).
+   *
+   * The `0px` fallback matters: `env()` resolves to nothing at all in a browser that does not know it, and
+   * `calc(3.5rem + )` is an invalid declaration that drops silently.
+   */
+  --bottom-bar-h: 3.5rem;
+  --bottom-inset: calc(var(--bottom-bar-h) + env(safe-area-inset-bottom, 0px));
 }
 
 @theme inline {
@@ -243,6 +271,44 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+}
+
+@layer utilities {
+  /*
+   * `touch-target` — raises an element's TAPPABLE AREA to 44×44 px on a coarse pointer, without changing a
+   * single painted pixel (AC-10).
+   *
+   * Growing the controls themselves would have been one line, and wrong: the row actions of 22 tables are
+   * 32 px icon buttons, and inflating them to 44 px inflates every row on a tablet — a density regression on
+   * the exact device this feature is for. An overlaid pseudo-element leaves `ui/table.tsx`'s tuned
+   * `px-3 py-2.5` alone and still gives the finger something to hit.
+   *
+   * `min-width`/`min-height` with `width: 100%` resolves to max(own size, 44px), so a control that is already
+   * large enough is untouched rather than being forced to a square.
+   *
+   * Scoped entirely inside the media query — on a mouse this class emits nothing at all, so `position` is not
+   * changed and no existing absolutely-positioned child can shift. (Verified: no `<Button>` in the app has an
+   * absolute child without declaring `relative` on the button itself.)
+   *
+   * ⚠️ Only for elements that can host a pseudo-element. `<input>` is void and cannot — those grow their own
+   * height under `coarse:` instead, where paint and hit area are the same thing anyway.
+   */
+  @media (pointer: coarse) {
+    .touch-target {
+      position: relative;
+    }
+    .touch-target::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      translate: -50% -50%;
+      width: 100%;
+      height: 100%;
+      min-width: 44px;
+      min-height: 44px;
+    }
+  }
 }
 
 @layer base {

@@ -38,7 +38,10 @@ function Calendar({
       showOutsideDays={showOutsideDays}
       locale={locale}
       className={cn(
-        "bg-background group/calendar p-3 [--cell-size:--spacing(8)] [[data-slot=card-content]_&]:bg-transparent [[data-slot=popover-content]_&]:bg-transparent",
+        // 32px day cells become 44px on a coarse pointer (AC-10). The cell size is a variable the whole grid
+        // is built from, so raising it here moves the days, the weekday header and the nav buttons together —
+        // a `touch-target` overlay would instead leave every day overlapping its neighbours in a 7-across grid.
+        "bg-background group/calendar p-3 [--cell-size:--spacing(8)] coarse:[--cell-size:--spacing(11)] [[data-slot=card-content]_&]:bg-transparent [[data-slot=popover-content]_&]:bg-transparent",
         String.raw`rtl:**:[.rdp-button\_next>svg]:rotate-180`,
         String.raw`rtl:**:[.rdp-button\_previous>svg]:rotate-180`,
         className

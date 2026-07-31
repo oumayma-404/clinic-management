@@ -77,7 +77,8 @@ export function FilterChip({ label, active, onToggle, count, disabled = false }:
       disabled={disabled}
       onClick={onToggle}
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm transition-colors duration-150 ease-out",
+        // ~30px painted; `touch-target` raises the tappable area to 44px on a coarse pointer (AC-10).
+        "touch-target inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm transition-colors duration-150 ease-out",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
         "disabled:cursor-not-allowed disabled:opacity-60 motion-reduce:transition-none",
         active

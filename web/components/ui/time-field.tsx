@@ -72,7 +72,9 @@ export function TimeField({
       className={cn(
         // Matched to `ui/input.tsx` so it sits in the same forms without looking like a native control that
         // wandered in. `tabular-nums` keeps the digits from shifting width as the value changes.
-        "flex h-10 w-full min-w-0 rounded-md border border-input bg-transparent px-3 py-2 text-sm tabular-nums shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30",
+        // `text-base` below `md:` (AC-12) — same iOS focus-zoom guard as `Input`. A time field is one of the
+        // most-tapped controls in the booking dialogs, so it was one of the most reliable ways to trigger it.
+        "flex h-10 w-full min-w-0 rounded-md border border-input bg-transparent px-3 py-2 text-base md:text-sm tabular-nums shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30",
         className,
       )}
     />

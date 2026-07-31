@@ -704,18 +704,42 @@ export default function ClinicSettings() {
                         fill
                         className="object-cover"
                       />
+                      {/*
+                        AC-11 — two renderings of one action, because a hover-revealed control does not exist
+                        on a touch device and this is the only way to clear the logo.
+
+                        Not simply "always visible on touch": the fine-pointer version is a full-bleed overlay,
+                        and leaving that on would both hide the logo and turn the whole thumbnail into an
+                        unconfirmed delete target. So a coarse pointer gets a small persistent corner button
+                        instead, and the overlay stays where hovering is real.
+                      */}
                       {isEditingClinicInfo && (
-                        <button
-                          onClick={() => {
-                            setLogoPreview(null)
-                            setLogoFile(null)
-                          }}
-                          className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
-                        >
-                          <div className="bg-white dark:bg-slate-900 rounded-full p-1.5">
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setLogoPreview(null)
+                              setLogoFile(null)
+                            }}
+                            aria-label="Supprimer le logo"
+                            className="absolute inset-0 hidden bg-black/60 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 hover-hover:flex items-center justify-center"
+                          >
+                            <div className="bg-white dark:bg-slate-900 rounded-full p-1.5">
+                              <Trash2 className="w-4 h-4 text-red-500" />
+                            </div>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setLogoPreview(null)
+                              setLogoFile(null)
+                            }}
+                            aria-label="Supprimer le logo"
+                            className="touch-target absolute -right-1 -top-1 hidden rounded-full bg-white p-1.5 shadow ring-1 ring-border coarse:block dark:bg-slate-900"
+                          >
                             <Trash2 className="w-4 h-4 text-red-500" />
-                          </div>
-                        </button>
+                          </button>
+                        </>
                       )}
                     </div>
                   ) : isEditingClinicInfo ? (

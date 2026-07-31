@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react"
 import { usePathname } from "next/navigation"
+import { MD_BREAKPOINT_QUERY, useMediaQuery } from "@/lib/hooks/use-media-query"
 
 interface SidebarContextType {
   /** Desktop-only rail collapse. Persisted, and deliberately untouched by the mobile drawer (AC-P3.18). */
@@ -40,6 +41,22 @@ export function SidebarProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     setMobileOpen(false)
   }, [pathname])
+
+  /*
+   * EC-1 — close the drawer when the layout crosses to the desktop rail.
+   *
+   * This was a live bug, not a hypothetical. `SheetContent` carries `md:hidden`, which hides the drawer's
+   * *content* — but Radix's overlay, scroll lock and focus trap are portalled siblings that keep no such class,
+   * so rotating a tablet to landscape with the drawer open left an invisible overlay swallowing every click and
+   * a scroll lock on the body. Nothing on screen explained it, and the only escape was Escape.
+   *
+   * CSS cannot fix this: the state has to actually change. This is the first `matchMedia` in the codebase, and
+   * it is the narrow case that earns one.
+   */
+  const isDesktopWidth = useMediaQuery(MD_BREAKPOINT_QUERY)
+  useEffect(() => {
+    if (isDesktopWidth) setMobileOpen(false)
+  }, [isDesktopWidth])
 
   const toggleSidebar = useCallback(() => {
     setIsCollapsed((prev) => !prev)

@@ -22,15 +22,14 @@ import { useNotifications } from "@/lib/hooks/use-notifications"
 import { appointmentsApi } from "@/lib/api/appointments"
 import { patientsApi } from "@/lib/api/patients"
 import type { NotificationDto, PatientDto } from "@/lib/api/types"
-import { useSidebar } from "@/contexts/sidebar-context"
 import { cn } from "@/lib/utils"
-import { Bell, Search, LogOut, KeyRound, Loader2, UserCircle, Menu } from "lucide-react"
+import { Bell, Search, LogOut, KeyRound, Loader2, UserCircle } from "lucide-react"
 
 export function DashboardHeader() {
   const { user, isLoading, mode, logout } = useSession()
   const router = useRouter()
-  // The mobile nav drawer's only opener (AC-P3.12) — the rail itself is hidden below `md:`.
-  const { setMobileOpen } = useSidebar()
+  // No `useSidebar()` here any more: the drawer is opened from « Plus » in the bottom bar (AC-7), so the header
+  // no longer touches sidebar state at all.
 
   const [notifOpen, setNotifOpen] = useState(false)
   const { notifications, unreadCount, loading, error, markRead, markAllRead } = useNotifications(notifOpen)
@@ -193,19 +192,14 @@ export function DashboardHeader() {
   return (
     <>
     <PostVisitReviewPopup />
-    {/* Reflows rather than overflows below `md:` (AC-P3.15): tighter padding and gaps, the nav opener
-        appears, and the user block drops its name/email text so the row fits 375 px. */}
+    {/* Reflows rather than overflows below `md:` (AC-P3.15): tighter padding and gaps, and the user block drops
+        its name/email text so the row fits 375 px.
+
+        ⚠️ The hamburger that used to sit here is gone (AC-7). It was the drawer's only trigger — the wording of
+        AC-P3.12 — and « Plus » in the bottom bar supersedes it: same `isMobileOpen` state, same drawer, but a
+        thumb can reach it. Two openers for one drawer would just be two things to keep in step. */}
     <header className="flex h-16 items-center justify-between gap-2 border-b border-border bg-card px-4 md:px-6">
       <div className="flex min-w-0 flex-1 items-center gap-2 md:gap-4">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="shrink-0 md:hidden"
-          onClick={() => setMobileOpen(true)}
-          aria-label="Ouvrir la navigation"
-        >
-          <Menu className="h-5 w-5" />
-        </Button>
         <div ref={searchBoxRef} className="relative w-full min-w-0 max-w-md">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <input

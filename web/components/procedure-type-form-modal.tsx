@@ -317,7 +317,8 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
                     onClick={() => setSelectedColor(hex)}
                     disabled={loading}
                     className={cn(
-                      "relative flex flex-col items-center gap-1 rounded-lg border-2 p-2 transition-all hover:scale-105",
+                      // Movement hover gated behind `hover-hover:` (AC-11).
+                      "relative flex flex-col items-center gap-1 rounded-lg border-2 p-2 transition-all hover-hover:hover:scale-105",
                       selectedColor === hex
                         ? "border-primary bg-accent"
                         : "border-border bg-background hover:border-muted-foreground/50",

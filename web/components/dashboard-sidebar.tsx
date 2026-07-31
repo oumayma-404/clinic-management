@@ -49,7 +49,12 @@ export function DashboardSidebar() {
         className={cn(
           // py-1.5 → a 32px row (the same height as a `size="sm"` control), not py-2.5's 40px. With nineteen
           // destinations that four pixels each is 76px of nav, and the nav is what was overflowing.
-          "flex items-center gap-3 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+          //
+          // On a coarse pointer the row grows to clear 44px (AC-10) — a stacked list, so it grows its own
+          // height rather than overlaying a hit area that would overlap the row above. The density argument
+          // above is a DESKTOP one: it was about a 19-item nav overflowing a laptop's 100vh, and the drawer a
+          // finger uses scrolls anyway.
+          "flex items-center gap-3 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors coarse:py-3",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card",
           isActive
             ? "bg-accent text-accent-foreground"

@@ -428,7 +428,9 @@ function ToothCell({ toothNum, entries, patientId, onChanged }: ToothCellProps) 
             ? `Dent ${toothNum} — aucun état enregistré`
             : `Dent ${toothNum} — ${entries.length} état${entries.length > 1 ? "s" : ""} enregistré${entries.length > 1 ? "s" : ""}`
         }
-        className="group rounded-md transition-all hover:scale-105 focus:outline-none focus:ring-1 focus:ring-ring"
+        // Movement hover gated behind `hover-hover:` per the policy in globals.css: a tap fires `:hover` and
+        // leaves it applied, so on a tablet the tooth stayed enlarged and read as a stuck selection (AC-11).
+        className="group rounded-md transition-all hover-hover:hover:scale-105 focus:outline-none focus:ring-1 focus:ring-ring"
       >
         {box}
       </button>

@@ -44,6 +44,37 @@ function SheetOverlay({
   )
 }
 
+/**
+ * How many sheets are open right now. A counter, not a boolean: `/rappels` mounts a settings sheet on a page
+ * that also has the nav drawer, and a nested or overlapping pair must not have the first one to close clear the
+ * flag while the second is still up.
+ */
+let openSheetCount = 0
+
+/**
+ * Marks `<body data-sheet-open>` while any sheet is on screen, so things OUTSIDE the sheet can react to it —
+ * today the bottom nav bar, which hides rather than showing through under a full-screen sheet and sitting over
+ * the sheet's own primary action (AC-8).
+ *
+ * A body attribute rather than context because the consumers are not descendants of the sheet, and Radix
+ * already communicates this way (`data-scroll-locked`) so it is an idiom the codebase has rather than a new one.
+ * It deliberately does NOT live in `SidebarContext`, which is persistence-adjacent — a transient
+ * is-something-covering-the-screen flag has no business near the key that survives a reload.
+ */
+function useMarkSheetOpen() {
+  React.useEffect(() => {
+    openSheetCount += 1
+    document.body.setAttribute("data-sheet-open", "")
+    return () => {
+      openSheetCount -= 1
+      if (openSheetCount <= 0) {
+        openSheetCount = 0
+        document.body.removeAttribute("data-sheet-open")
+      }
+    }
+  }, [])
+}
+
 function SheetContent({
   className,
   children,
@@ -54,6 +85,9 @@ function SheetContent({
   side?: "top" | "right" | "bottom" | "left"
   showCloseButton?: boolean
 }) {
+  // Runs only while the content is mounted, which for a Radix sheet means only while it is open.
+  useMarkSheetOpen()
+
   return (
     <SheetPortal>
       <SheetOverlay />
@@ -78,8 +112,9 @@ function SheetContent({
         {...props}
       >
         {children}
+        {/* 16px icon, no padding — `touch-target` gives it a 44px tappable area on a coarse pointer (AC-10). */}
         {showCloseButton && (
-          <SheetPrimitive.Close className="absolute top-4 right-4 rounded-xs opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none data-[state=open]:bg-secondary">
+          <SheetPrimitive.Close className="touch-target absolute top-4 right-4 rounded-xs opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none data-[state=open]:bg-secondary">
             <XIcon className="size-4" />
             <span className="sr-only">Fermer</span>
           </SheetPrimitive.Close>

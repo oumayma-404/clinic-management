@@ -2,6 +2,7 @@ import type React from "react"
 import { cn } from "@/lib/utils"
 import { DashboardSidebar } from "@/components/dashboard-sidebar"
 import { DashboardHeader } from "@/components/dashboard-header"
+import { BottomNav } from "@/components/bottom-nav"
 
 /**
  * The app's one page shell: rail + header + `<main>`.
@@ -97,6 +98,13 @@ export function AppShell({
             children
           )}
         </main>
+
+        {/*
+          A flex sibling of `<main>`, deliberately — see the note in `bottom-nav.tsx`. Because it participates
+          in the column's layout, `<main className="flex-1 …">` shrinks around it automatically and no page
+          needs to know the bar exists. It renders itself away at `md:` and up.
+        */}
+        <BottomNav />
       </div>
     </div>
   )

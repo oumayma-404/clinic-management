@@ -495,7 +495,10 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
                   tabIndex={0}
                   aria-label={`Ouvrir le dossier ${folder.name}`}
                   className={cn(
-                    "p-4 cursor-pointer hover:shadow-md transition-all duration-200 hover:scale-105 border-border hover:border-primary/40 bg-gradient-to-br from-card to-accent/30/10 relative group",
+                    // Movement hover gated behind `hover-hover:` (AC-11); the shadow and border tints stay
+                    // ungated, per the policy — a lingering tint reads as "selected", a stuck transform reads
+                    // as broken.
+                    "p-4 cursor-pointer hover:shadow-md transition-all duration-200 hover-hover:hover:scale-105 border-border hover:border-primary/40 bg-gradient-to-br from-card to-accent/30/10 relative group",
                     CARD_FOCUS_CLASSES
                   )}
                   onClick={() => setCurrentFolderId(folder.id)}
@@ -513,7 +516,19 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="absolute top-2 right-2 h-7 w-7 p-0 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-100 dark:hover:bg-red-900/20 hover:text-red-600 dark:hover:text-red-400 z-10"
+                    /*
+                     * ⚠️ This is the OTHER hover rule (AC-11), and the opposite treatment.
+                     *
+                     * `opacity-0 group-hover:opacity-100` is not decoration — it is the only way to delete a
+                     * folder, and on a touch device there is no hover, so the control was invisible and
+                     * un-tappable: the capability simply did not exist on a tablet. Gating it behind
+                     * `hover-hover:` — the fix for a *movement* hover — would have made that permanent.
+                     *
+                     * So it inverts instead: hidden-until-hover only where a pointer can hover, always visible
+                     * on a coarse pointer. `features/LEARNINGS.md`: never let a presentation heuristic be the
+                     * only gate on a required affordance.
+                     */
+                    className="absolute top-2 right-2 h-7 w-7 p-0 opacity-100 hover-hover:opacity-0 hover-hover:group-hover:opacity-100 hover-hover:group-focus-within:opacity-100 transition-opacity hover:bg-red-100 dark:hover:bg-red-900/20 hover:text-red-600 dark:hover:text-red-400 z-10"
                     onClick={(e) => {
                       e.stopPropagation()
                       e.preventDefault()

@@ -179,14 +179,29 @@ export function MonProfilContent() {
             {cachetPreview ? (
               <div className="relative w-40 h-24 rounded-lg border-2 border-primary/30 overflow-hidden bg-white group">
                 <Image src={cachetPreview} alt="Cachet" fill className="object-contain" unoptimized />
+                {/*
+                  AC-11 — the same two-rendering treatment as the clinic logo. The hover overlay is the only
+                  way to clear a cachet, and hover does not exist on the tablet a dentist signs from; but an
+                  always-on full-bleed overlay would hide the cachet it is previewing and make a stray tap
+                  delete a signature. A coarse pointer gets a corner button instead.
+                */}
                 <button
                   type="button"
                   onClick={handleRemove}
                   disabled={saving}
-                  className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition flex items-center justify-center"
+                  className="absolute inset-0 hidden bg-black/50 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100 hover-hover:flex items-center justify-center"
                   aria-label="Supprimer le cachet"
                 >
                   <span className="bg-white rounded-full p-1.5"><Trash2 className="h-4 w-4 text-destructive" /></span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRemove}
+                  disabled={saving}
+                  className="touch-target absolute -right-1 -top-1 hidden rounded-full bg-white p-1.5 shadow ring-1 ring-border coarse:block"
+                  aria-label="Supprimer le cachet"
+                >
+                  <Trash2 className="h-4 w-4 text-destructive" />
                 </button>
               </div>
             ) : (

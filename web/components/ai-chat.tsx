@@ -691,7 +691,9 @@ export function AIChat({ className }: AIChatProps) {
 
   if (isMinimized) {
     return (
-      <div className={cn("fixed bottom-4 right-4 z-50", className)}>
+      // Clears the bottom bar (AC-8). `--bottom-inset` is the bar plus the home indicator; above `md:` there
+      // is no bar and the original `bottom-4` stands.
+      <div className={cn("fixed bottom-[calc(1rem+var(--bottom-inset))] right-4 z-50 md:bottom-4", className)}>
         <Button
           onClick={handleExpand}
           className="rounded-full h-14 w-14 shadow-lg bg-primary hover:bg-primary/90"
@@ -708,10 +710,15 @@ export function AIChat({ className }: AIChatProps) {
     // AC-P3.16 — viewport-relative below `md:`. A fixed `w-96 h-[600px]` panel is wider than a 375px phone
     // and taller than its viewport, so on a phone the assistant covered the page and its input sat off-screen.
     // At `md:` and above the original geometry is unchanged.
+    //
+    // ⚠️ AC-P3.16's bottom offset is deliberately re-opened by AC-8: `bottom-4` now sat on top of the bottom
+    // nav bar. It becomes `1rem + --bottom-inset` below `md:` — the same 1rem gap it always had, measured from
+    // above the bar instead of from the viewport floor — and the available height drops by the same amount so
+    // the panel still ends 1rem below the header rather than growing past it.
     <Card
       className={cn(
-        "fixed bottom-4 left-4 right-4 flex max-h-[calc(100dvh-2rem)] h-[70dvh] flex-col shadow-2xl z-50",
-        "md:left-auto md:h-[600px] md:max-h-none md:w-96",
+        "fixed bottom-[calc(1rem+var(--bottom-inset))] left-4 right-4 flex h-[70dvh] max-h-[calc(100dvh-2rem-var(--bottom-inset))] flex-col shadow-2xl z-50",
+        "md:bottom-4 md:left-auto md:h-[600px] md:max-h-none md:w-96",
         className
       )}
     >
