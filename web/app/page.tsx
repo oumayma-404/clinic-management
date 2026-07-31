@@ -19,8 +19,7 @@ import {
   Users,
   Wallet,
 } from "lucide-react"
-import { DashboardHeader } from "@/components/dashboard-header"
-import { DashboardSidebar } from "@/components/dashboard-sidebar"
+import { AppShell } from "@/components/app-shell"
 import { AppointmentList } from "@/components/appointment-list"
 import { ClinicGuard } from "@/components/clinic-guard"
 import { KpiCard } from "@/components/dashboard/kpi-card"
@@ -178,180 +177,170 @@ export default function DashboardPage() {
 
   return (
     <ClinicGuard>
-      <div className="flex h-screen bg-background">
-        <DashboardSidebar />
-
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <DashboardHeader />
-
-          <main className="flex-1 overflow-y-auto p-4 md:p-6">
-            <div className="mx-auto max-w-7xl space-y-8">
-              {/* Title + the one filter row, above everything it scopes. */}
-              <div className="flex flex-wrap items-end justify-between gap-4">
-                <div>
-                  <h1 className="text-3xl font-semibold text-foreground">Tableau de bord</h1>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {PERIOD_LABELS[period]} — chaque chiffre ouvre le détail correspondant.
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <PeriodSelector value={period} onChange={changePeriod} disabled={loading} />
-                  {/* Beside the period selector, in the one row that scopes the whole page — the same reasoning
-                      that keeps the period selector out of the individual sections. */}
-                  <DashboardCustomizer
-                    hidden={hidden}
-                    onToggle={toggle}
-                    onResetToDefaults={resetToDefaults}
-                    onShowAll={showAll}
-                    saving={saving}
-                    disabled={prefsLoading}
-                  />
-                </div>
-              </div>
-
-              {/*
-                Argent leads now, and « Net » is the hero.
-
-                The audience for this screen is the practitioner-owner, and the section order should say so: the
-                money block used to sit second behind Activité, with its five figures — encaissé, facturé, avoirs,
-                dépenses, net — rendered as five equal cards, so the one number that answers « comment va le
-                cabinet ce mois-ci ? » had exactly the same weight as the one that says how many notes were
-                printed. Net is now 4xl and spans two columns; the rest support it at normal weight.
-              */}
-              {sectionHasContent("money") && (
-                <DashboardSection
-                  title={SECTION_LABELS.money}
-                  hint={`Comparé à ${previousLabel}`}
-                  refetching={refetching}
-                  error={error}
-                  onRetry={refetch}
-                >
-                  {/*
-                    The hero stands OUTSIDE the grid, in its own column beside it.
-
-                    It paints a filled accent surface, and a filled cell inside a hairline grid reads as a rendering
-                    fault — the grid's shared border would also cut straight across the panel's own edge. Two
-                    columns instead of a `col-span-2` cell, and the grid drops to full width on its own when this
-                    user has « Net » switched off.
-                  */}
-                  <div
-                    className={cn(
-                      "grid gap-3",
-                      netCard && "lg:grid-cols-[minmax(0,1.05fr)_minmax(0,2fr)]",
-                    )}
-                  >
-                    {netCard}
-                    <KpiGrid columns={3}>
-                      {kpi("collected", money(data?.money.collected.current), Wallet, {
-                        comparison: data?.money.collected,
-                      })}
-                      {kpi("invoiced", money(data?.money.invoiced.current), Receipt, {
-                        comparison: data?.money.invoiced,
-                      })}
-                      {kpi("expenses", money(data?.money.expenses.current), PackageMinus, {
-                        comparison: data?.money.expenses,
-                        // More spending is not good news.
-                        sense: "up-is-bad",
-                      })}
-                      {kpi("refunds", money(data?.money.refunds.current), Undo2, {
-                        comparison: data?.money.refunds,
-                        // Refunding more is not good news either. « Encaissé » is gross, so this figure is not
-                        // hidden inside it — a month with a large avoir used to just look like a weak month.
-                        sense: "up-is-bad",
-                      })}
-                      {/* Créances carries NO comparison — it is a live balance, not a period total. It sits in the
-                          same surface as the period figures rather than in a stranded one-card row below them;
-                          its missing delta is what marks it as a different kind of number. */}
-                      {kpi("receivables", money(data?.receivables.total), HandCoins)}
-                    </KpiGrid>
-                  </div>
-                </DashboardSection>
-              )}
-
-              {sectionHasContent("activity") && (
-                <DashboardSection
-                  title={SECTION_LABELS.activity}
-                  hint={`Comparé à ${previousLabel}`}
-                  refetching={refetching}
-                  error={error}
-                  onRetry={refetch}
-                >
-                  <KpiGrid columns={4}>
-                    {kpi("completedAppointments", count(data?.activity.completedAppointments.current), CalendarCheck, {
-                      comparison: data?.activity.completedAppointments,
-                    })}
-                    {kpi("newPatients", count(data?.activity.newPatients.current), UserPlus, {
-                      comparison: data?.activity.newPatients,
-                    })}
-                    {kpi("absenceRate", percent(data?.activity.absenceRate.current), AlertCircle, {
-                      comparison: data?.activity.absenceRate,
-                      // A rising absence rate is bad news, so the arrow's colour must invert.
-                      sense: "up-is-bad",
-                    })}
-                    {kpi("acceptedPlans", count(data?.activity.acceptedPlans.current), BadgeCheck, {
-                      comparison: data?.activity.acceptedPlans,
-                    })}
-                  </KpiGrid>
-                </DashboardSection>
-              )}
-
-              {sectionHasContent("alerts") && (
-                <DashboardSection
-                  title={SECTION_LABELS.alerts}
-                  hint="État actuel — indépendant de la période"
-                  refetching={refetching}
-                  error={error}
-                  onRetry={refetch}
-                >
-                  {/* Compact density: these are single-digit counts whose LABEL is what you scan. At normal
-                      density the six of them took as much vertical space as the money and activity blocks
-                      combined, which is not what they are worth. */}
-                  <KpiGrid columns={3}>
-                    {/*
-                      « Patients à rappeler » was here. The card is gone, not the data: `alerts.patientsToRecall`
-                      is still computed and still on the wire, and the whole recall backend is intact.
-                      What went is its DESTINATION — /recalls was removed, and this KPI counts patients *due for
-                      a recall*, which the new « Rappels » delivery log does not list. Pointing it there would be
-                      a card that counts one set and opens another, which is the single defect `dashboard-links.ts`
-                      exists to make impossible. It comes back the day the worklist gets a new home.
-                    */}
-                    {kpi("draftPlans", count(data?.alerts.draftPlans), FileText, { emphasis: "compact" })}
-                    {kpi("overdueLabOrders", count(data?.alerts.overdueLabOrders), FlaskConical, {
-                      emphasis: "compact",
-                      variant: (data?.alerts.overdueLabOrders ?? 0) > 0 ? "urgent" : "default",
-                    })}
-                    {kpi("lowStock", count(data?.alerts.lowStock), PackageMinus, {
-                      emphasis: "compact",
-                      variant: (data?.alerts.lowStock ?? 0) > 0 ? "urgent" : "default",
-                    })}
-                    {/* Hidden entirely when the clinic switched the expiry alert off: « 0 » would claim nothing is
-                        expiring, when in truth nothing was checked. */}
-                    {data?.alerts.expiryAlertEnabled !== false &&
-                      kpi("expiringStock", count(data?.alerts.expiringStock), Hourglass, {
-                        emphasis: "compact",
-                        variant: (data?.alerts.expiringStock ?? 0) > 0 ? "urgent" : "default",
-                      })}
-                    {kpi("waitingList", count(data?.alerts.waitingList), Users, { emphasis: "compact" })}
-                  </KpiGrid>
-                </DashboardSection>
-              )}
-
-              {isVisible("trend") && (
-                <DashboardSection
-                  title={SECTION_LABELS.trend}
-                  refetching={refetching}
-                  error={error}
-                  onRetry={refetch}
-                >
-                  <CollectedTrendChart points={data?.trend ?? []} loading={loading} />
-                </DashboardSection>
-              )}
-
-              {isVisible("todayAppointments") && <AppointmentList />}
-            </div>
-          </main>
+      <AppShell contentClassName="space-y-8">
+        {/* Title + the one filter row, above everything it scopes. */}
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-semibold text-foreground">Tableau de bord</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {PERIOD_LABELS[period]} — chaque chiffre ouvre le détail correspondant.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <PeriodSelector value={period} onChange={changePeriod} disabled={loading} />
+            {/* Beside the period selector, in the one row that scopes the whole page — the same reasoning
+                that keeps the period selector out of the individual sections. */}
+            <DashboardCustomizer
+              hidden={hidden}
+              onToggle={toggle}
+              onResetToDefaults={resetToDefaults}
+              onShowAll={showAll}
+              saving={saving}
+              disabled={prefsLoading}
+            />
+          </div>
         </div>
-      </div>
+
+        {/*
+          Argent leads now, and « Net » is the hero.
+
+          The audience for this screen is the practitioner-owner, and the section order should say so: the
+          money block used to sit second behind Activité, with its five figures — encaissé, facturé, avoirs,
+          dépenses, net — rendered as five equal cards, so the one number that answers « comment va le
+          cabinet ce mois-ci ? » had exactly the same weight as the one that says how many notes were
+          printed. Net is now 4xl and spans two columns; the rest support it at normal weight.
+        */}
+        {sectionHasContent("money") && (
+          <DashboardSection
+            title={SECTION_LABELS.money}
+            hint={`Comparé à ${previousLabel}`}
+            refetching={refetching}
+            error={error}
+            onRetry={refetch}
+          >
+            {/*
+              The hero stands OUTSIDE the grid, in its own column beside it.
+
+              It paints a filled accent surface, and a filled cell inside a hairline grid reads as a rendering
+              fault — the grid's shared border would also cut straight across the panel's own edge. Two
+              columns instead of a `col-span-2` cell, and the grid drops to full width on its own when this
+              user has « Net » switched off.
+            */}
+            <div
+              className={cn(
+                "grid gap-3",
+                netCard && "lg:grid-cols-[minmax(0,1.05fr)_minmax(0,2fr)]",
+              )}
+            >
+              {netCard}
+              <KpiGrid columns={3}>
+                {kpi("collected", money(data?.money.collected.current), Wallet, {
+                  comparison: data?.money.collected,
+                })}
+                {kpi("invoiced", money(data?.money.invoiced.current), Receipt, {
+                  comparison: data?.money.invoiced,
+                })}
+                {kpi("expenses", money(data?.money.expenses.current), PackageMinus, {
+                  comparison: data?.money.expenses,
+                  // More spending is not good news.
+                  sense: "up-is-bad",
+                })}
+                {kpi("refunds", money(data?.money.refunds.current), Undo2, {
+                  comparison: data?.money.refunds,
+                  // Refunding more is not good news either. « Encaissé » is gross, so this figure is not
+                  // hidden inside it — a month with a large avoir used to just look like a weak month.
+                  sense: "up-is-bad",
+                })}
+                {/* Créances carries NO comparison — it is a live balance, not a period total. It sits in the
+                    same surface as the period figures rather than in a stranded one-card row below them;
+                    its missing delta is what marks it as a different kind of number. */}
+                {kpi("receivables", money(data?.receivables.total), HandCoins)}
+              </KpiGrid>
+            </div>
+          </DashboardSection>
+        )}
+
+        {sectionHasContent("activity") && (
+          <DashboardSection
+            title={SECTION_LABELS.activity}
+            hint={`Comparé à ${previousLabel}`}
+            refetching={refetching}
+            error={error}
+            onRetry={refetch}
+          >
+            <KpiGrid columns={4}>
+              {kpi("completedAppointments", count(data?.activity.completedAppointments.current), CalendarCheck, {
+                comparison: data?.activity.completedAppointments,
+              })}
+              {kpi("newPatients", count(data?.activity.newPatients.current), UserPlus, {
+                comparison: data?.activity.newPatients,
+              })}
+              {kpi("absenceRate", percent(data?.activity.absenceRate.current), AlertCircle, {
+                comparison: data?.activity.absenceRate,
+                // A rising absence rate is bad news, so the arrow's colour must invert.
+                sense: "up-is-bad",
+              })}
+              {kpi("acceptedPlans", count(data?.activity.acceptedPlans.current), BadgeCheck, {
+                comparison: data?.activity.acceptedPlans,
+              })}
+            </KpiGrid>
+          </DashboardSection>
+        )}
+
+        {sectionHasContent("alerts") && (
+          <DashboardSection
+            title={SECTION_LABELS.alerts}
+            hint="État actuel — indépendant de la période"
+            refetching={refetching}
+            error={error}
+            onRetry={refetch}
+          >
+            {/* Compact density: these are single-digit counts whose LABEL is what you scan. At normal
+                density the six of them took as much vertical space as the money and activity blocks
+                combined, which is not what they are worth. */}
+            <KpiGrid columns={3}>
+              {/*
+                « Patients à rappeler » was here. The card is gone, not the data: `alerts.patientsToRecall`
+                is still computed and still on the wire, and the whole recall backend is intact.
+                What went is its DESTINATION — /recalls was removed, and this KPI counts patients *due for
+                a recall*, which the new « Rappels » delivery log does not list. Pointing it there would be
+                a card that counts one set and opens another, which is the single defect `dashboard-links.ts`
+                exists to make impossible. It comes back the day the worklist gets a new home.
+              */}
+              {kpi("draftPlans", count(data?.alerts.draftPlans), FileText, { emphasis: "compact" })}
+              {kpi("overdueLabOrders", count(data?.alerts.overdueLabOrders), FlaskConical, {
+                emphasis: "compact",
+                variant: (data?.alerts.overdueLabOrders ?? 0) > 0 ? "urgent" : "default",
+              })}
+              {kpi("lowStock", count(data?.alerts.lowStock), PackageMinus, {
+                emphasis: "compact",
+                variant: (data?.alerts.lowStock ?? 0) > 0 ? "urgent" : "default",
+              })}
+              {/* Hidden entirely when the clinic switched the expiry alert off: « 0 » would claim nothing is
+                  expiring, when in truth nothing was checked. */}
+              {data?.alerts.expiryAlertEnabled !== false &&
+                kpi("expiringStock", count(data?.alerts.expiringStock), Hourglass, {
+                  emphasis: "compact",
+                  variant: (data?.alerts.expiringStock ?? 0) > 0 ? "urgent" : "default",
+                })}
+              {kpi("waitingList", count(data?.alerts.waitingList), Users, { emphasis: "compact" })}
+            </KpiGrid>
+          </DashboardSection>
+        )}
+
+        {isVisible("trend") && (
+          <DashboardSection
+            title={SECTION_LABELS.trend}
+            refetching={refetching}
+            error={error}
+            onRetry={refetch}
+          >
+            <CollectedTrendChart points={data?.trend ?? []} loading={loading} />
+          </DashboardSection>
+        )}
+
+        {isVisible("todayAppointments") && <AppointmentList />}
+      </AppShell>
     </ClinicGuard>
   )
 }

@@ -84,7 +84,7 @@ export function HeroKpi({
 
       <div className="relative">
         <div className="flex items-center justify-between gap-3">
-          <p className="text-[13px] font-semibold tracking-wide opacity-85">{label}</p>
+          <p className="text-sm font-semibold tracking-wide opacity-85">{label}</p>
 
           {/* On a saturated ground the delta pill is translucent white rather than green/red: a semantic wash would
               fight the surface, and the arrow plus the signed number already carry the direction. The favourable /

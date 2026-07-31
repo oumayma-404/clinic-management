@@ -3,8 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import { ClinicGuard } from "@/components/clinic-guard"
 import { PageHeader } from "@/components/ui/page-header"
-import { DashboardSidebar } from "@/components/dashboard-sidebar"
-import { DashboardHeader } from "@/components/dashboard-header"
+import { AppShell } from "@/components/app-shell"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -97,122 +96,114 @@ export default function FacturesPage() {
 
   return (
     <ClinicGuard>
-      <div className="flex h-screen bg-background">
-        <DashboardSidebar />
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <DashboardHeader />
-          <main className="flex-1 overflow-auto p-4 md:p-6">
-            <div className="mx-auto max-w-7xl space-y-6">
-              <PageHeader
-                zone="Argent"
-                title="Factures &amp; recettes"
-                subtitle="Notes d'honoraires, encaissements et suivi des recettes."
-              />
+      <AppShell contentClassName="space-y-6">
+        <PageHeader
+          zone="Argent"
+          title="Factures &amp; recettes"
+          subtitle="Notes d'honoraires, encaissements et suivi des recettes."
+        />
 
-              {/* Revenue summary. AC-P3.28 — three states, never conflated: loading, failed-to-load (with a
-                  retry), and a real figure. */}
-              {revenueError && (
-                <div
-                  role="status"
-                  className="flex flex-wrap items-center gap-3 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm"
-                >
-                  <AlertTriangle className="h-4 w-4 shrink-0 text-destructive" aria-hidden="true" />
-                  <span className="flex-1 min-w-0">{revenueError}</span>
-                  <Button size="sm" variant="outline" onClick={() => void loadRevenue()}>
-                    Réessayer
-                  </Button>
-                </div>
-              )}
-              <div className="grid gap-4 sm:grid-cols-3">
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-medium text-muted-foreground">Total facturé</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">
-                      <RevenueValue
-                        loading={revenueLoading}
-                        failed={!!revenueError}
-                        value={revenue?.totalInvoiced}
-                      />
-                    </div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-medium text-muted-foreground">Total encaissé</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold text-green-700 dark:text-green-400">
-                      <RevenueValue
-                        loading={revenueLoading}
-                        failed={!!revenueError}
-                        value={revenue?.totalCollected}
-                      />
-                    </div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-medium text-muted-foreground">Reste à recouvrer</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold text-amber-700 dark:text-amber-400">
-                      <RevenueValue
-                        loading={revenueLoading}
-                        failed={!!revenueError}
-                        value={revenue?.outstanding}
-                      />
-                    </div>
-                  </CardContent>
-                </Card>
+        {/* Revenue summary. AC-P3.28 — three states, never conflated: loading, failed-to-load (with a
+            retry), and a real figure. */}
+        {revenueError && (
+          <div
+            role="status"
+            className="flex flex-wrap items-center gap-3 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm"
+          >
+            <AlertTriangle className="h-4 w-4 shrink-0 text-destructive" aria-hidden="true" />
+            <span className="flex-1 min-w-0">{revenueError}</span>
+            <Button size="sm" variant="outline" onClick={() => void loadRevenue()}>
+              Réessayer
+            </Button>
+          </div>
+        )}
+        <div className="grid gap-4 sm:grid-cols-3">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Total facturé</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">
+                <RevenueValue
+                  loading={revenueLoading}
+                  failed={!!revenueError}
+                  value={revenue?.totalInvoiced}
+                />
               </div>
-
-              {/* Filters */}
-              <Card>
-                <CardContent className="flex flex-wrap items-end gap-4 pt-6">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="from">Du</Label>
-                    <Input id="from" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="to">Au</Label>
-                    <Input id="to" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="status">Statut</Label>
-                    <Select value={status} onValueChange={setStatus}>
-                      <SelectTrigger id="status" className="w-48">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={ALL_STATUSES}>Tous</SelectItem>
-                        {Object.entries(INVOICE_STATUS_LABELS).map(([value, label]) => (
-                          <SelectItem key={value} value={value}>
-                            {label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button onClick={applyFilters}>Filtrer</Button>
-                    <Button variant="outline" onClick={resetFilters}>Réinitialiser</Button>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <InvoicesTable
-                from={fromIso}
-                to={toIso}
-                status={statusFilter}
-                reloadKey={reloadKey}
-                onChanged={loadRevenue}
-              />
-            </div>
-          </main>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Total encaissé</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-green-700 dark:text-green-400">
+                <RevenueValue
+                  loading={revenueLoading}
+                  failed={!!revenueError}
+                  value={revenue?.totalCollected}
+                />
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Reste à recouvrer</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-amber-700 dark:text-amber-400">
+                <RevenueValue
+                  loading={revenueLoading}
+                  failed={!!revenueError}
+                  value={revenue?.outstanding}
+                />
+              </div>
+            </CardContent>
+          </Card>
         </div>
-      </div>
+
+        {/* Filters */}
+        <Card>
+          <CardContent className="flex flex-wrap items-end gap-4 pt-6">
+            <div className="space-y-1.5">
+              <Label htmlFor="from">Du</Label>
+              <Input id="from" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="to">Au</Label>
+              <Input id="to" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="status">Statut</Label>
+              <Select value={status} onValueChange={setStatus}>
+                <SelectTrigger id="status" className="w-48">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_STATUSES}>Tous</SelectItem>
+                  {Object.entries(INVOICE_STATUS_LABELS).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex gap-2">
+              <Button onClick={applyFilters}>Filtrer</Button>
+              <Button variant="outline" onClick={resetFilters}>Réinitialiser</Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        <InvoicesTable
+          from={fromIso}
+          to={toIso}
+          status={statusFilter}
+          reloadKey={reloadKey}
+          onChanged={loadRevenue}
+        />
+      </AppShell>
     </ClinicGuard>
   )
 }

@@ -3,8 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { SlidersHorizontal } from "lucide-react"
 
-import { DashboardHeader } from "@/components/dashboard-header"
-import { DashboardSidebar } from "@/components/dashboard-sidebar"
+import { AppShell } from "@/components/app-shell"
 import { ClinicGuard } from "@/components/clinic-guard"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet"
@@ -140,153 +139,143 @@ export default function RappelsPage() {
 
   return (
     <ClinicGuard>
-      <div className="flex h-screen bg-background">
-        <DashboardSidebar />
+      <AppShell contentClassName="flex flex-col gap-6">
 
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <DashboardHeader />
-
-          <main className="flex-1 overflow-y-auto p-4 md:p-6">
-            <div className="mx-auto flex max-w-7xl flex-col gap-6">
-
-              {/* PageHeader: mono zone crumb, one title size, a subtitle carrying a FACT, actions right. */}
-              <div className="flex flex-wrap items-end justify-between gap-4">
-                <div>
-                  <p className="font-mono text-[10.5px] uppercase tracking-[0.1em] text-muted-foreground">
-                    Opérations
-                  </p>
-                  <h1 className="mt-1 text-[26px] font-[650] leading-tight tracking-[-0.022em]">Rappels</h1>
-                  <p className="mt-1 max-w-[56ch] text-sm text-muted-foreground">
-                    {data
-                      ? `${data.page.totalCount.toLocaleString("fr-TN")} message${data.page.totalCount === 1 ? "" : "s"} sur la période · SMS et WhatsApp`
-                      : "Messages envoyés aux patients — SMS et WhatsApp."}
-                  </p>
-                </div>
-                {isAdmin && (
-                  <Button variant="outline" className="gap-2" onClick={() => setConfigOpen(true)}>
-                    <SlidersHorizontal className="h-4 w-4" />
-                    Configurer les canaux
-                  </Button>
-                )}
-              </div>
-
-              {/* Counters: one shared surface with hairlines, the KpiGrid idiom — not three bordered cards. */}
-              <div className="grid grid-cols-1 gap-px overflow-hidden rounded-xl border bg-border sm:grid-cols-3">
-                {counters.map((c) => (
-                  <div key={c.key} className="flex flex-col gap-0.5 bg-card px-4 py-3">
-                    <span className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <i aria-hidden="true" className={cn("size-1.5 shrink-0 rounded-full", TONE_DOT[c.tone])} />
-                      {c.label}
-                    </span>
-                    {c.value === undefined ? (
-                      <span className="h-7 w-12 animate-pulse rounded bg-muted" aria-label="Chargement" />
-                    ) : (
-                      <span
-                        className={cn(
-                          "text-[22px] font-[650] tabular-nums tracking-[-0.01em]",
-                          // Only the failure counter can turn red, and only when non-zero: it is the one
-                          // actionable figure here. A red zero would raise an alarm about nothing.
-                          c.tone === "destructive" && c.value > 0 && "text-destructive",
-                        )}
-                      >
-                        {c.value.toLocaleString("fr-TN")}
-                      </span>
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              {/* ListToolbar: only what NARROWS the list. Counted chips, so an active filter is visible as a
-                  state rather than having to be read out of a changing button label. */}
-              <div className="flex flex-wrap items-center gap-2 border-b pb-3">
-                {STATUS_CHIPS.map((chip) => (
-                  <button
-                    key={chip.value}
-                    type="button"
-                    aria-pressed={status === chip.value}
-                    onClick={() => setFilter(setStatus)(chip.value)}
-                    className={cn(
-                      "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[13px] transition-colors",
-                      status === chip.value
-                        ? "border-primary bg-accent font-semibold text-accent-foreground"
-                        : "border-border text-muted-foreground hover:bg-accent/50",
-                    )}
-                  >
-                    {chip.label}
-                    {chip.count(data) !== undefined && (
-                      <span className="font-mono text-[11px] opacity-75 tabular-nums">{chip.count(data)}</span>
-                    )}
-                  </button>
-                ))}
-
-                <select
-                  className="rounded-lg border bg-transparent px-2 py-1.5 text-[13px]"
-                  value={channel}
-                  onChange={(e) => setFilter(setChannel)(e.target.value as ChannelFilter)}
-                  aria-label="Canal"
-                >
-                  <option value="all">Tous les canaux</option>
-                  <option value="SMS">SMS</option>
-                  <option value="WhatsApp">WhatsApp</option>
-                </select>
-
-                <span className="flex items-center gap-1.5">
-                  <input
-                    type="date"
-                    value={from}
-                    onChange={(e) => setFilter(setFrom)(e.target.value)}
-                    aria-label="Du"
-                    className="rounded-lg border bg-transparent px-2 py-1.5 text-[13px] tabular-nums"
-                  />
-                  <span className="text-xs text-muted-foreground">au</span>
-                  <input
-                    type="date"
-                    value={to}
-                    onChange={(e) => setFilter(setTo)(e.target.value)}
-                    aria-label="Au"
-                    className="rounded-lg border bg-transparent px-2 py-1.5 text-[13px] tabular-nums"
-                  />
-                </span>
-              </div>
-
-              <ReminderLogTable
-                rows={rows}
-                loading={loading}
-                refreshing={refreshing}
-                isFiltered={isFiltered}
-                onResetFilters={resetFilters}
-                noChannelConfigured={looksUnconfigured}
-                onConfigure={isAdmin ? () => setConfigOpen(true) : undefined}
-              />
-
-              {data && data.page.totalCount > 0 && (
-                <DataTablePagination page={data.page} onPageChange={setPage} onPageSizeChange={setPageSize} />
-              )}
-            </div>
-          </main>
+        {/* PageHeader: mono zone crumb, one title size, a subtitle carrying a FACT, actions right. */}
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p className="font-mono text-2xs uppercase tracking-[0.1em] text-muted-foreground">
+              Opérations
+            </p>
+            <h1 className="mt-1 text-title font-[650] leading-tight tracking-[-0.022em]">Rappels</h1>
+            <p className="mt-1 max-w-[56ch] text-sm text-muted-foreground">
+              {data
+                ? `${data.page.totalCount.toLocaleString("fr-TN")} message${data.page.totalCount === 1 ? "" : "s"} sur la période · SMS et WhatsApp`
+                : "Messages envoyés aux patients — SMS et WhatsApp."}
+            </p>
+          </div>
+          {isAdmin && (
+            <Button variant="outline" className="gap-2" onClick={() => setConfigOpen(true)}>
+              <SlidersHorizontal className="h-4 w-4" />
+              Configurer les canaux
+            </Button>
+          )}
         </div>
 
+        {/* Counters: one shared surface with hairlines, the KpiGrid idiom — not three bordered cards. */}
+        <div className="grid grid-cols-1 gap-px overflow-hidden rounded-xl border bg-border sm:grid-cols-3">
+          {counters.map((c) => (
+            <div key={c.key} className="flex flex-col gap-0.5 bg-card px-4 py-3">
+              <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                <i aria-hidden="true" className={cn("size-1.5 shrink-0 rounded-full", TONE_DOT[c.tone])} />
+                {c.label}
+              </span>
+              {c.value === undefined ? (
+                <span className="h-7 w-12 animate-pulse rounded bg-muted" aria-label="Chargement" />
+              ) : (
+                <span
+                  className={cn(
+                    "text-2xl font-[650] tabular-nums tracking-[-0.01em]",
+                    // Only the failure counter can turn red, and only when non-zero: it is the one
+                    // actionable figure here. A red zero would raise an alarm about nothing.
+                    c.tone === "destructive" && c.value > 0 && "text-destructive",
+                  )}
+                >
+                  {c.value.toLocaleString("fr-TN")}
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* ListToolbar: only what NARROWS the list. Counted chips, so an active filter is visible as a
+            state rather than having to be read out of a changing button label. */}
+        <div className="flex flex-wrap items-center gap-2 border-b pb-3">
+          {STATUS_CHIPS.map((chip) => (
+            <button
+              key={chip.value}
+              type="button"
+              aria-pressed={status === chip.value}
+              onClick={() => setFilter(setStatus)(chip.value)}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm transition-colors",
+                status === chip.value
+                  ? "border-primary bg-accent font-semibold text-accent-foreground"
+                  : "border-border text-muted-foreground hover:bg-accent/50",
+              )}
+            >
+              {chip.label}
+              {chip.count(data) !== undefined && (
+                <span className="font-mono text-2xs opacity-75 tabular-nums">{chip.count(data)}</span>
+              )}
+            </button>
+          ))}
+
+          <select
+            className="rounded-lg border bg-transparent px-2 py-1.5 text-sm"
+            value={channel}
+            onChange={(e) => setFilter(setChannel)(e.target.value as ChannelFilter)}
+            aria-label="Canal"
+          >
+            <option value="all">Tous les canaux</option>
+            <option value="SMS">SMS</option>
+            <option value="WhatsApp">WhatsApp</option>
+          </select>
+
+          <span className="flex items-center gap-1.5">
+            <input
+              type="date"
+              value={from}
+              onChange={(e) => setFilter(setFrom)(e.target.value)}
+              aria-label="Du"
+              className="rounded-lg border bg-transparent px-2 py-1.5 text-sm tabular-nums"
+            />
+            <span className="text-xs text-muted-foreground">au</span>
+            <input
+              type="date"
+              value={to}
+              onChange={(e) => setFilter(setTo)(e.target.value)}
+              aria-label="Au"
+              className="rounded-lg border bg-transparent px-2 py-1.5 text-sm tabular-nums"
+            />
+          </span>
+        </div>
+
+        <ReminderLogTable
+          rows={rows}
+          loading={loading}
+          refreshing={refreshing}
+          isFiltered={isFiltered}
+          onResetFilters={resetFilters}
+          noChannelConfigured={looksUnconfigured}
+          onConfigure={isAdmin ? () => setConfigOpen(true) : undefined}
+        />
+
+        {data && data.page.totalCount > 0 && (
+          <DataTablePagination page={data.page} onPageChange={setPage} onPageSizeChange={setPageSize} />
+        )}
+
         {/*
-          The configuration, unchanged in substance — the existing `ReminderSettings` component, moved rather than
-          rewritten. It carries working logic for two channels, secret handling, lead times, the message template
-          and the WhatsApp Embedded-Signup flow; reimplementing 768 lines to change where it lives would be a
-          second implementation of all of it, which is how the two would drift.
+        The configuration, unchanged in substance — the existing `ReminderSettings` component, moved rather than
+        rewritten. It carries working logic for two channels, secret handling, lead times, the message template
+        and the WhatsApp Embedded-Signup flow; reimplementing 768 lines to change where it lives would be a
+        second implementation of all of it, which is how the two would drift.
         */}
         <Sheet open={configOpen} onOpenChange={setConfigOpen}>
-          <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-xl">
-            <SheetHeader>
-              <SheetTitle>Canaux de rappel</SheetTitle>
-              <SheetDescription>
-                Réglages propres à cette clinique. Les champs laissés vides héritent de la configuration de
-                l&apos;installation.
-              </SheetDescription>
-            </SheetHeader>
-            <div className="px-4 pb-6">
-              <ReminderSettings />
-            </div>
-          </SheetContent>
+        <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-xl">
+          <SheetHeader>
+            <SheetTitle>Canaux de rappel</SheetTitle>
+            <SheetDescription>
+              Réglages propres à cette clinique. Les champs laissés vides héritent de la configuration de
+              l&apos;installation.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="px-4 pb-6">
+            <ReminderSettings />
+          </div>
+        </SheetContent>
         </Sheet>
-      </div>
+      </AppShell>
     </ClinicGuard>
   )
 }

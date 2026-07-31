@@ -2,8 +2,7 @@
 
 import { useState, useEffect, useRef } from "react"
 import { useParams, useRouter } from "next/navigation"
-import { DashboardHeader } from "@/components/dashboard-header"
-import { DashboardSidebar } from "@/components/dashboard-sidebar"
+import { AppShell } from "@/components/app-shell"
 import { ClinicGuard } from "@/components/clinic-guard"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -472,28 +471,23 @@ export default function PatientDetailsPage() {
   }
 
   if (loading) {
+    // A skeleton in the shape of the page, so nothing jumps when the identity lands — replacing a single line
+    // of centred text that gave no hint of what was coming. This branch is now short-lived (one request)
+    // rather than covering eight. `role="status"` moved from `<main>` onto the skeleton itself: the shell's
+    // `<main>` is shared by every page, so the live region has to belong to the thing that is loading.
     return (
-      <div className="flex h-screen bg-background">
-        <DashboardSidebar />
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <DashboardHeader />
-          {/* A skeleton in the shape of the page, so nothing jumps when the identity lands — replacing a
-              single line of centred text that gave no hint of what was coming. This branch is now short-lived
-              (one request) rather than covering eight. */}
-          <main className="flex-1 overflow-y-auto p-4 md:p-6" role="status" aria-label="Chargement du dossier patient">
-            <div className="mx-auto max-w-7xl space-y-6">
-              <div className="h-9 w-48 animate-pulse rounded bg-muted" />
-              <div className="space-y-3">
-                <div className="h-9 w-72 animate-pulse rounded bg-muted" />
-                <div className="h-5 w-full max-w-2xl animate-pulse rounded bg-muted" />
-              </div>
-              <div className="h-64 animate-pulse rounded-lg bg-muted" />
-              <div className="h-10 w-full animate-pulse rounded-lg bg-muted" />
-              <div className="h-48 animate-pulse rounded-lg bg-muted" />
-            </div>
-          </main>
+      <AppShell>
+        <div role="status" aria-label="Chargement du dossier patient" className="space-y-6">
+          <div className="h-9 w-48 animate-pulse rounded bg-muted" />
+          <div className="space-y-3">
+            <div className="h-9 w-72 animate-pulse rounded bg-muted" />
+            <div className="h-5 w-full max-w-2xl animate-pulse rounded bg-muted" />
         </div>
-      </div>
+        <div className="h-64 animate-pulse rounded-lg bg-muted" />
+        <div className="h-10 w-full animate-pulse rounded-lg bg-muted" />
+        <div className="h-48 animate-pulse rounded-lg bg-muted" />
+        </div>
+      </AppShell>
     )
   }
 
@@ -501,23 +495,17 @@ export default function PatientDetailsPage() {
   // this screen is reserved for the case where there is genuinely nothing to show.
   if (!patient) {
     return (
-      <div className="flex h-screen bg-background">
-        <DashboardSidebar />
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <DashboardHeader />
-          <main className="flex flex-1 items-center justify-center">
-            <div className="text-center">
-              <h2 className="text-2xl font-semibold text-foreground">Patient introuvable</h2>
-              <p className="mt-2 text-muted-foreground">
-                {error || "Le patient recherché n'existe pas."}
-              </p>
-              <Button onClick={() => router.push("/patients")} className="mt-4">
-                Retour aux patients
-              </Button>
-            </div>
-          </main>
+      <AppShell width="none" gutter={false} mainClassName="flex items-center justify-center">
+        <div className="text-center">
+          <h2 className="text-2xl font-semibold text-foreground">Patient introuvable</h2>
+          <p className="mt-2 text-muted-foreground">
+            {error || "Le patient recherché n'existe pas."}
+          </p>
+          <Button onClick={() => router.push("/patients")} className="mt-4">
+            Retour aux patients
+          </Button>
         </div>
-      </div>
+      </AppShell>
     )
   }
 
@@ -639,1285 +627,1276 @@ export default function PatientDetailsPage() {
 
   return (
     <ClinicGuard>
-      <div className="flex h-screen bg-background">
-        <DashboardSidebar />
+      <AppShell contentClassName="space-y-6">
+        {/* Back Button */}
+        <Button variant="ghost" onClick={() => router.push("/patients")} className="gap-2">
+          <ArrowLeft className="h-4 w-4" />
+          Retour aux patients
+        </Button>
 
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <DashboardHeader />
-
-        <main className="flex-1 overflow-y-auto p-4 md:p-6">
-          <div className="mx-auto max-w-7xl space-y-6">
-            {/* Back Button */}
-            <Button variant="ghost" onClick={() => router.push("/patients")} className="gap-2">
-              <ArrowLeft className="h-4 w-4" />
-              Retour aux patients
-            </Button>
-
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div className="min-w-0 space-y-2">
-                <div className="flex min-w-0 flex-wrap items-center gap-3">
-                  {/* `truncate` + `min-w-0` is what makes the `shrink-0` on the action row mean something: without
-                      it the name refuses to shrink below its text, so it keeps pushing until the group wraps
-                      anyway. A very long name ellipsizes and carries the full value in its `title`. */}
-                  <h1 className="min-w-0 truncate text-3xl font-semibold text-foreground" title={patientName}>
-                    {patientName}
-                  </h1>
-                  {hasFlags && (
-                    <div className="flex flex-wrap gap-1">
-                      {patient.flags?.filter(flag => flag.isActive).map((flag) => (
-                        <Badge key={flag.id} variant="destructive" className="gap-1">
-                          <Flag className="h-3 w-3" />
-                          {flag.flagType}
-                        </Badge>
-                      ))}
-                    </div>
-                  )}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0 space-y-2">
+            <div className="flex min-w-0 flex-wrap items-center gap-3">
+              {/* `truncate` + `min-w-0` is what makes the `shrink-0` on the action row mean something: without
+                  it the name refuses to shrink below its text, so it keeps pushing until the group wraps
+                  anyway. A very long name ellipsizes and carries the full value in its `title`. */}
+              <h1 className="min-w-0 truncate text-3xl font-semibold text-foreground" title={patientName}>
+                {patientName}
+              </h1>
+              {hasFlags && (
+                <div className="flex flex-wrap gap-1">
+                  {patient.flags?.filter(flag => flag.isActive).map((flag) => (
+                    <Badge key={flag.id} variant="destructive" className="gap-1">
+                      <Flag className="h-3 w-3" />
+                      {flag.flagType}
+                    </Badge>
+                  ))}
                 </div>
-
-                {/*
-                  Identity strip — âge · téléphone · assureur, and allergies.
-
-                  Every one of these facts already existed on this page, in the three-card grid at the very
-                  bottom — *below* a full-width odontogram, the plan card and seven tabs of tables. Allergies
-                  in particular sat at the end of the second card, which means the one thing a dentist must
-                  see before injecting anything was several screens of scrolling away, on the page they open
-                  to check it. The cards below stay as the complete record; this is the part that cannot wait.
-
-                  Allergies use `destructive`, the same weight as a patient flag, and the « Aucune allergie
-                  signalée » case is stated explicitly rather than rendering nothing — an empty space cannot
-                  distinguish « nothing to declare » from « nobody has asked yet », and those are different
-                  clinical facts.
-                */}
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
-                  {age !== null && (
-                    <span className="text-muted-foreground">
-                      <span className="font-medium text-foreground">{age} ans</span>
-                      {patient.gender ? ` · ${genderLabel(patient.gender)}` : ""}
-                    </span>
-                  )}
-                  {patient.phoneNumber ? (
-                    <a
-                      href={`tel:${patient.phoneNumber}`}
-                      className="font-medium text-foreground underline-offset-2 hover:underline"
-                    >
-                      {patient.phoneNumber}
-                    </a>
-                  ) : (
-                    <span className="text-amber-700 dark:text-amber-400">Aucun téléphone</span>
-                  )}
-                  {patient.insuranceInfo?.provider && (
-                    <span className="text-muted-foreground">{patient.insuranceInfo.provider}</span>
-                  )}
-                  {/* « Adressé par » belongs in the strip and not only in the card below: a referred patient owes
-                      the referrer a lettre de liaison, and that obligation has to be visible on opening the file
-                      rather than three screens down. Rendered only when there is one — a patient who came on
-                      their own has nothing to state. */}
-                  {patient.referredBy && (
-                    <span className="text-muted-foreground">
-                      Adressé par <span className="font-medium text-foreground">{patient.referredBy}</span>
-                    </span>
-                  )}
-                </div>
-
-                <div className="flex flex-wrap items-center gap-2">
-                  {allergiesList.length > 0 ? (
-                    <>
-                      <span className="text-xs font-semibold uppercase tracking-wide text-destructive">
-                        Allergies
-                      </span>
-                      {allergiesList.map((allergy: string, index: number) => (
-                        <Badge key={index} variant="destructive" className="text-xs">
-                          {allergy}
-                        </Badge>
-                      ))}
-                    </>
-                  ) : (
-                    <span className="text-xs text-muted-foreground">Aucune allergie signalée</span>
-                  )}
-                </div>
-              </div>
-
-              {/*
-                `size="sm"` + trimmed labels so the four actions stay on the NAME's line with the rail expanded.
-                At default size and full wording they measured ~780px, which does not fit beside a `text-3xl`
-                name once the sidebar takes its 256px — so the whole group dropped to a second row, pushing the
-                identity strip and everything under it down by a button's height.
-
-                The words removed are the ones the context already supplies: this *is* the patient's page, so
-                « Modifier le patient » is « Modifier », and each button keeps its icon plus a `title` carrying
-                the full phrase. `shrink-0` stops the row being compressed instead of the name.
-
-                `flex-wrap` is kept deliberately as the last resort: below roughly 1100px of content the group
-                genuinely cannot fit, and wrapping there is far better than overflowing horizontally on a phone.
-              */}
-              <div className="flex shrink-0 flex-wrap gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setEditDialogOpen(true)}
-                  className="gap-2"
-                  title="Modifier le patient"
-                >
-                  <Edit className="h-4 w-4" />
-                  Modifier
-                </Button>
-                {/* Files live on their own route, which is the whole manager — folders, upload, delete. It sits in
-                    the action row rather than as a panel above the odontogram: « do they have a panoramique? » is a
-                    question you go and answer, not one worth spending permanent vertical space on. */}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => router.push(`/patients/${patient.id}/files`)}
-                  className="gap-2"
-                  title="Fichiers et dossiers du patient"
-                >
-                  <FolderOpen className="h-4 w-4" />
-                  Fichiers
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setRecordModalOpen(true)}
-                  className="gap-2"
-                  title="Ajouter un dossier médical"
-                >
-                  <FileText className="h-4 w-4" />
-                  Dossier médical
-                </Button>
-                <Button size="sm" onClick={() => router.push(`/appointments?patientId=${patient.id}`)}>
-                  Planifier un RDV
-                </Button>
-              </div>
+              )}
             </div>
 
-            {/* Past visits with no fiche yet. Renders nothing when there are none, so it costs no space in the
-                steady state — and when it does appear it is the most actionable thing on the page, which is why it
-                sits above the notes rather than below them. */}
-            <PatientUndocumentedVisits
-              appointments={appointments}
-              records={dentalRecords}
-              onRecord={(appointmentId) => {
-                // Exactly the state the `?addRecord=1&appointmentId=…` deep-link sets: thread the visit so the
-                // editor proposes its booked acts and saving closes that visit's post-visit prompt. `editingRecord`
-                // must be cleared first — a stale edit target forces `recordAppointment` to null.
-                setEditingRecord(null)
-                setReviewAppointmentId(appointmentId)
-                setRecordModalOpen(true)
+            {/*
+              Identity strip — âge · téléphone · assureur, and allergies.
+
+              Every one of these facts already existed on this page, in the three-card grid at the very
+              bottom — *below* a full-width odontogram, the plan card and seven tabs of tables. Allergies
+              in particular sat at the end of the second card, which means the one thing a dentist must
+              see before injecting anything was several screens of scrolling away, on the page they open
+              to check it. The cards below stay as the complete record; this is the part that cannot wait.
+
+              Allergies use `destructive`, the same weight as a patient flag, and the « Aucune allergie
+              signalée » case is stated explicitly rather than rendering nothing — an empty space cannot
+              distinguish « nothing to declare » from « nobody has asked yet », and those are different
+              clinical facts.
+            */}
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+              {age !== null && (
+                <span className="text-muted-foreground">
+                  <span className="font-medium text-foreground">{age} ans</span>
+                  {patient.gender ? ` · ${genderLabel(patient.gender)}` : ""}
+                </span>
+              )}
+              {patient.phoneNumber ? (
+                <a
+                  href={`tel:${patient.phoneNumber}`}
+                  className="font-medium text-foreground underline-offset-2 hover:underline"
+                >
+                  {patient.phoneNumber}
+                </a>
+              ) : (
+                <span className="text-amber-700 dark:text-amber-400">Aucun téléphone</span>
+              )}
+              {patient.insuranceInfo?.provider && (
+                <span className="text-muted-foreground">{patient.insuranceInfo.provider}</span>
+              )}
+              {/* « Adressé par » belongs in the strip and not only in the card below: a referred patient owes
+                  the referrer a lettre de liaison, and that obligation has to be visible on opening the file
+                  rather than three screens down. Rendered only when there is one — a patient who came on
+                  their own has nothing to state. */}
+              {patient.referredBy && (
+                <span className="text-muted-foreground">
+                  Adressé par <span className="font-medium text-foreground">{patient.referredBy}</span>
+                </span>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {allergiesList.length > 0 ? (
+                <>
+                  <span className="text-xs font-semibold uppercase tracking-wide text-destructive">
+                    Allergies
+                  </span>
+                  {allergiesList.map((allergy: string, index: number) => (
+                    <Badge key={index} variant="destructive" className="text-xs">
+                      {allergy}
+                    </Badge>
+                  ))}
+                </>
+              ) : (
+                <span className="text-xs text-muted-foreground">Aucune allergie signalée</span>
+              )}
+            </div>
+          </div>
+
+          {/*
+            `size="sm"` + trimmed labels so the four actions stay on the NAME's line with the rail expanded.
+            At default size and full wording they measured ~780px, which does not fit beside a `text-3xl`
+            name once the sidebar takes its 256px — so the whole group dropped to a second row, pushing the
+            identity strip and everything under it down by a button's height.
+
+            The words removed are the ones the context already supplies: this *is* the patient's page, so
+            « Modifier le patient » is « Modifier », and each button keeps its icon plus a `title` carrying
+            the full phrase. `shrink-0` stops the row being compressed instead of the name.
+
+            `flex-wrap` is kept deliberately as the last resort: below roughly 1100px of content the group
+            genuinely cannot fit, and wrapping there is far better than overflowing horizontally on a phone.
+          */}
+          <div className="flex shrink-0 flex-wrap gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setEditDialogOpen(true)}
+              className="gap-2"
+              title="Modifier le patient"
+            >
+              <Edit className="h-4 w-4" />
+              Modifier
+            </Button>
+            {/* Files live on their own route, which is the whole manager — folders, upload, delete. It sits in
+                the action row rather than as a panel above the odontogram: « do they have a panoramique? » is a
+                question you go and answer, not one worth spending permanent vertical space on. */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => router.push(`/patients/${patient.id}/files`)}
+              className="gap-2"
+              title="Fichiers et dossiers du patient"
+            >
+              <FolderOpen className="h-4 w-4" />
+              Fichiers
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setRecordModalOpen(true)}
+              className="gap-2"
+              title="Ajouter un dossier médical"
+            >
+              <FileText className="h-4 w-4" />
+              Dossier médical
+            </Button>
+            <Button size="sm" onClick={() => router.push(`/appointments?patientId=${patient.id}`)}>
+              Planifier un RDV
+            </Button>
+          </div>
+        </div>
+
+        {/* Past visits with no fiche yet. Renders nothing when there are none, so it costs no space in the
+            steady state — and when it does appear it is the most actionable thing on the page, which is why it
+            sits above the notes rather than below them. */}
+        <PatientUndocumentedVisits
+          appointments={appointments}
+          records={dentalRecords}
+          onRecord={(appointmentId) => {
+            // Exactly the state the `?addRecord=1&appointmentId=…` deep-link sets: thread the visit so the
+            // editor proposes its booked acts and saving closes that visit's post-visit prompt. `editingRecord`
+            // must be cleared first — a stale edit target forces `recordAppointment` to null.
+            setEditingRecord(null)
+            setReviewAppointmentId(appointmentId)
+            setRecordModalOpen(true)
+          }}
+        />
+
+        {/* Notes own this row now — alerts on the left, ordinary notes on the right. Files moved to a button in
+            the action row above, which freed the whole width for the one thing here that must be read. */}
+        <PatientNotesStrip
+          patient={patient}
+          records={dentalRecords}
+          onEdit={() => setEditDialogOpen(true)}
+        />
+
+        {/* An archived patient is hidden from every list and search but still reachable by direct URL —
+            which makes this page the only place that can say so. */}
+        {patient?.isArchived && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-amber-900 dark:text-amber-200">
+                  Ce patient est archivé
+                  {patient.archivedAt ? ` depuis le ${formatDateFr(patient.archivedAt)}` : ""}.
+                </p>
+                <p className="text-sm text-amber-800 dark:text-amber-300">
+                  Il n&apos;apparaît plus dans les listes, la recherche, les relances ni les sélecteurs de
+                  patient. Aucune donnée n&apos;a été supprimée.
+                  {patient.archiveReason ? ` Motif : ${patient.archiveReason}` : ""}
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={unarchiving}
+                onClick={async () => {
+                  try {
+                    setUnarchiving(true)
+                    const restored = await patientsApi.unarchive(patient.id)
+                    setPatient(restored)
+                  } finally {
+                    setUnarchiving(false)
+                  }
+                }}
+              >
+                {unarchiving ? "Restauration…" : "Restaurer"}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/*
+          The odontogram leads the patient page: for a dentist it is the chart the whole consultation is
+          read off, and it spent its life as the 2nd of 8 tabs — one click away, and invisible until asked
+          for. Promoted to a full-width card of its own (it needs the width: 16 teeth per arch, two
+          dentitions), above the plan card and above the tabs.
+
+          It deliberately replaced the « Solde patient » card that used to sit here. That card put six money
+          figures across the top of every patient page, two of which measured different things — « Solde dû »
+          is what is still owed, « Reste à charge » is lifetime gross billed minus CNAM's share — so the same
+          patient legitimately read « 90,000 DT » and « 1 770,000 DT » side by side with nothing saying why.
+          Outstanding debt is still one click away in « Créances », the patient's Factures tab, and the plan
+          card's own encaissé / total line.
+        */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2">
+              <Smile className="h-5 w-5" />
+              Odontogramme
+            </CardTitle>
+            <CardDescription>
+              Cliquez sur une dent pour noter un diagnostic (à traiter) ; les actes réalisés s&apos;ajoutent
+              automatiquement lors de l&apos;enregistrement d&apos;un acte médical.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Odontogram
+              patientId={patientId}
+              dentition={patient.dentition}
+              onCreatePlan={(seeds) => {
+                setPlanSeeds(seeds)
+                setSeededPlanOpen(true)
               }}
             />
+          </CardContent>
+        </Card>
 
-            {/* Notes own this row now — alerts on the left, ordinary notes on the right. Files moved to a button in
-                the action row above, which freed the whole width for the one thing here that must be read. */}
-            <PatientNotesStrip
-              patient={patient}
-              records={dentalRecords}
-              onEdit={() => setEditDialogOpen(true)}
-            />
+        {/* Treatment leads the patient page now. A devis buried in the 8th tab was the whole reason the plan
+            felt disconnected from the patient it belongs to. A band rather than a card since the redesign —
+            ~76 px instead of ~250 — and it renders only when the patient has no plans at all. */}
+        <PatientPlansStrip
+          plans={treatmentPlans}
+          onOpen={() => openTab("treatment-plans")}
+          onChanged={() => setRefreshKey((k) => k + 1)}
+        />
 
-            {/* An archived patient is hidden from every list and search but still reachable by direct URL —
-                which makes this page the only place that can say so. */}
-            {patient?.isArchived && (
-              <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="space-y-1">
-                    <p className="text-sm font-medium text-amber-900 dark:text-amber-200">
-                      Ce patient est archivé
-                      {patient.archivedAt ? ` depuis le ${formatDateFr(patient.archivedAt)}` : ""}.
-                    </p>
-                    <p className="text-sm text-amber-800 dark:text-amber-300">
-                      Il n&apos;apparaît plus dans les listes, la recherche, les relances ni les sélecteurs de
-                      patient. Aucune donnée n&apos;a été supprimée.
-                      {patient.archiveReason ? ` Motif : ${patient.archiveReason}` : ""}
-                    </p>
+        <div ref={tabsRef} className="scroll-mt-4" />
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+          {/*
+            Seven, not eight: the odontogram is now a card above, not a tab.
+
+            Seven equal columns of icon + French label do not fit a laptop: « Dossiers médicaux » and
+            « Plan de traitement » in one seventh of the width crushed or clipped below roughly 1280 px,
+            and this page is outside the responsive pass. It now wraps into rows — 2 across on a phone,
+            4 on a tablet, 7 only when there is genuinely room — which needs `h-auto` to override the
+            primitive's fixed `h-9`, and `items-stretch` so a wrapped row's triggers keep equal heights.
+          */}
+          <TabsList className="grid h-auto w-full grid-cols-2 items-stretch gap-1 p-1 sm:grid-cols-4 lg:grid-cols-7">
+            <TabsTrigger value="medical-records" className="h-auto min-h-9 gap-2 whitespace-normal py-1.5 text-center leading-tight">
+              <FileCheck className="h-4 w-4" />
+              Dossiers médicaux
+            </TabsTrigger>
+            <TabsTrigger value="appointments" className="h-auto min-h-9 gap-2 whitespace-normal py-1.5 text-center leading-tight">
+              <Calendar className="h-4 w-4" />
+              Rendez-vous
+            </TabsTrigger>
+            <TabsTrigger value="notes" className="h-auto min-h-9 gap-2 whitespace-normal py-1.5 text-center leading-tight">
+              <FileText className="h-4 w-4" />
+              Notes
+            </TabsTrigger>
+            <TabsTrigger value="documents" className="h-auto min-h-9 gap-2 whitespace-normal py-1.5 text-center leading-tight">
+              <FileText className="h-4 w-4" />
+              Documents
+            </TabsTrigger>
+            <TabsTrigger value="files" className="h-auto min-h-9 gap-2 whitespace-normal py-1.5 text-center leading-tight">
+              <FileText className="h-4 w-4" />
+              Fichiers
+            </TabsTrigger>
+            <TabsTrigger value="factures" className="h-auto min-h-9 gap-2 whitespace-normal py-1.5 text-center leading-tight">
+              <Receipt className="h-4 w-4" />
+              Factures
+            </TabsTrigger>
+            <TabsTrigger value="treatment-plans" className="h-auto min-h-9 gap-2 whitespace-normal py-1.5 text-center leading-tight">
+              <ClipboardCheck className="h-4 w-4" />
+              Plan de traitement
+            </TabsTrigger>
+          </TabsList>
+
+          {/* Medical Records Tab - Unified View */}
+          <TabsContent value="medical-records" className="space-y-4">
+            {/* Dental Records Section */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <FileCheck className="h-5 w-5" />
+                      Dossiers dentaires
+                    </CardTitle>
+                    <CardDescription>Historique complet des actes et interventions dentaires</CardDescription>
                   </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={unarchiving}
-                    onClick={async () => {
-                      try {
-                        setUnarchiving(true)
-                        const restored = await patientsApi.unarchive(patient.id)
-                        setPatient(restored)
-                      } finally {
-                        setUnarchiving(false)
-                      }
-                    }}
-                  >
-                    {unarchiving ? "Restauration…" : "Restaurer"}
+                  <Button onClick={() => {
+                    setEditingRecord(null)
+                    setRecordModalOpen(true)
+                  }} size="sm">
+                    Ajouter un dossier dentaire
                   </Button>
                 </div>
-              </div>
-            )}
-
-            {/*
-              The odontogram leads the patient page: for a dentist it is the chart the whole consultation is
-              read off, and it spent its life as the 2nd of 8 tabs — one click away, and invisible until asked
-              for. Promoted to a full-width card of its own (it needs the width: 16 teeth per arch, two
-              dentitions), above the plan card and above the tabs.
-
-              It deliberately replaced the « Solde patient » card that used to sit here. That card put six money
-              figures across the top of every patient page, two of which measured different things — « Solde dû »
-              is what is still owed, « Reste à charge » is lifetime gross billed minus CNAM's share — so the same
-              patient legitimately read « 90,000 DT » and « 1 770,000 DT » side by side with nothing saying why.
-              Outstanding debt is still one click away in « Créances », the patient's Factures tab, and the plan
-              card's own encaissé / total line.
-            */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2">
-                  <Smile className="h-5 w-5" />
-                  Odontogramme
-                </CardTitle>
-                <CardDescription>
-                  Cliquez sur une dent pour noter un diagnostic (à traiter) ; les actes réalisés s&apos;ajoutent
-                  automatiquement lors de l&apos;enregistrement d&apos;un acte médical.
-                </CardDescription>
               </CardHeader>
               <CardContent>
-                <Odontogram
-                  patientId={patientId}
-                  dentition={patient.dentition}
-                  onCreatePlan={(seeds) => {
-                    setPlanSeeds(seeds)
-                    setSeededPlanOpen(true)
-                  }}
-                />
-              </CardContent>
-            </Card>
+                {dentalRecords.length === 0 ? (
+                  <EmptyOrLoading loading={detailsLoading}>Aucun dossier dentaire</EmptyOrLoading>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Date</TableHead>
+                          <TableHead>Type d'acte</TableHead>
+                          {/* « Type de dents » removed: the dentition is a property of the patient, stated once
+                              in their file, so repeating it on every row said nothing per-row. */}
+                          <TableHead>Dents</TableHead>
+                          <TableHead>Montant payé</TableHead>
+                          <TableHead>Reste</TableHead>
+                          <TableHead>Notes</TableHead>
+                          <TableHead className="text-right">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {dentalRecords.map((record) => (
+                          <TableRow key={record.id}>
+                            <TableCell className="font-medium">
+                              {formatDate(record.interventionDate)}
+                            </TableCell>
+                            <TableCell>{record.procedureType}</TableCell>
+                            <TableCell>
+                              {record.toothNumbers.length > 0 ? (
+                                <div className="flex flex-wrap gap-1">
+                                  {record.toothNumbers.map((toothNum) => (
+                                    <Badge key={toothNum} variant="secondary" className="text-xs">
+                                      {toothNum}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              ) : (
+                                <span className="text-muted-foreground text-sm">-</span>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              {invoicedDentalRecordIds.has(record.id) ? (
+                                <span className="text-muted-foreground line-through" title="Facturé — le montant est géré par la facture">
+                                  {formatDT(record.amountPaid)}
+                                </span>
+                              ) : (
+                                formatDT(record.amountPaid)
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              {invoicedDentalRecordIds.has(record.id) ? (
+                                <span className="text-muted-foreground text-xs">Facturé</span>
+                              ) : (() => {
+                                const reste = Math.max(0, record.balance ?? (record.cost - record.amountPaid))
+                                return reste > 0
+                                  ? <span className="font-semibold text-amber-600">{formatDT(reste)}</span>
+                                  : <span className="text-muted-foreground">{formatDT(0)}</span>
+                              })()}
+                            </TableCell>
+                            <TableCell className="max-w-xs">
+                              {(() => {
+                                const hasNotes = (record.notes && record.notes.length > 0) || (record.importantNotes && record.importantNotes.length > 0)
+                                const isExpanded = expandedNotes.has(record.id)
+                                const totalNotesCount = (record.importantNotes?.length || 0) + (record.notes?.length || 0)
 
-            {/* Treatment leads the patient page now. A devis buried in the 8th tab was the whole reason the plan
-                felt disconnected from the patient it belongs to. A band rather than a card since the redesign —
-                ~76 px instead of ~250 — and it renders only when the patient has no plans at all. */}
-            <PatientPlansStrip
-              plans={treatmentPlans}
-              onOpen={() => openTab("treatment-plans")}
-              onChanged={() => setRefreshKey((k) => k + 1)}
-            />
+                                if (!hasNotes) {
+                                  return <span className="text-muted-foreground text-sm">-</span>
+                                }
 
-            <div ref={tabsRef} className="scroll-mt-4" />
-            <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-              {/*
-                Seven, not eight: the odontogram is now a card above, not a tab.
-
-                Seven equal columns of icon + French label do not fit a laptop: « Dossiers médicaux » and
-                « Plan de traitement » in one seventh of the width crushed or clipped below roughly 1280 px,
-                and this page is outside the responsive pass. It now wraps into rows — 2 across on a phone,
-                4 on a tablet, 7 only when there is genuinely room — which needs `h-auto` to override the
-                primitive's fixed `h-9`, and `items-stretch` so a wrapped row's triggers keep equal heights.
-              */}
-              <TabsList className="grid h-auto w-full grid-cols-2 items-stretch gap-1 p-1 sm:grid-cols-4 lg:grid-cols-7">
-                <TabsTrigger value="medical-records" className="h-auto min-h-9 gap-2 whitespace-normal py-1.5 text-center leading-tight">
-                  <FileCheck className="h-4 w-4" />
-                  Dossiers médicaux
-                </TabsTrigger>
-                <TabsTrigger value="appointments" className="h-auto min-h-9 gap-2 whitespace-normal py-1.5 text-center leading-tight">
-                  <Calendar className="h-4 w-4" />
-                  Rendez-vous
-                </TabsTrigger>
-                <TabsTrigger value="notes" className="h-auto min-h-9 gap-2 whitespace-normal py-1.5 text-center leading-tight">
-                  <FileText className="h-4 w-4" />
-                  Notes
-                </TabsTrigger>
-                <TabsTrigger value="documents" className="h-auto min-h-9 gap-2 whitespace-normal py-1.5 text-center leading-tight">
-                  <FileText className="h-4 w-4" />
-                  Documents
-                </TabsTrigger>
-                <TabsTrigger value="files" className="h-auto min-h-9 gap-2 whitespace-normal py-1.5 text-center leading-tight">
-                  <FileText className="h-4 w-4" />
-                  Fichiers
-                </TabsTrigger>
-                <TabsTrigger value="factures" className="h-auto min-h-9 gap-2 whitespace-normal py-1.5 text-center leading-tight">
-                  <Receipt className="h-4 w-4" />
-                  Factures
-                </TabsTrigger>
-                <TabsTrigger value="treatment-plans" className="h-auto min-h-9 gap-2 whitespace-normal py-1.5 text-center leading-tight">
-                  <ClipboardCheck className="h-4 w-4" />
-                  Plan de traitement
-                </TabsTrigger>
-              </TabsList>
-
-              {/* Medical Records Tab - Unified View */}
-              <TabsContent value="medical-records" className="space-y-4">
-                {/* Dental Records Section */}
-                <Card>
-                  <CardHeader>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <CardTitle className="flex items-center gap-2">
-                          <FileCheck className="h-5 w-5" />
-                          Dossiers dentaires
-                        </CardTitle>
-                        <CardDescription>Historique complet des actes et interventions dentaires</CardDescription>
-                      </div>
-                      <Button onClick={() => {
-                        setEditingRecord(null)
-                        setRecordModalOpen(true)
-                      }} size="sm">
-                        Ajouter un dossier dentaire
-                      </Button>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    {dentalRecords.length === 0 ? (
-                      <EmptyOrLoading loading={detailsLoading}>Aucun dossier dentaire</EmptyOrLoading>
-                    ) : (
-                      <div className="overflow-x-auto">
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>Date</TableHead>
-                              <TableHead>Type d'acte</TableHead>
-                              {/* « Type de dents » removed: the dentition is a property of the patient, stated once
-                                  in their file, so repeating it on every row said nothing per-row. */}
-                              <TableHead>Dents</TableHead>
-                              <TableHead>Montant payé</TableHead>
-                              <TableHead>Reste</TableHead>
-                              <TableHead>Notes</TableHead>
-                              <TableHead className="text-right">Actions</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {dentalRecords.map((record) => (
-                              <TableRow key={record.id}>
-                                <TableCell className="font-medium">
-                                  {formatDate(record.interventionDate)}
-                                </TableCell>
-                                <TableCell>{record.procedureType}</TableCell>
-                                <TableCell>
-                                  {record.toothNumbers.length > 0 ? (
-                                    <div className="flex flex-wrap gap-1">
-                                      {record.toothNumbers.map((toothNum) => (
-                                        <Badge key={toothNum} variant="secondary" className="text-xs">
-                                          {toothNum}
-                                        </Badge>
-                                      ))}
-                                    </div>
-                                  ) : (
-                                    <span className="text-muted-foreground text-sm">-</span>
-                                  )}
-                                </TableCell>
-                                <TableCell>
-                                  {invoicedDentalRecordIds.has(record.id) ? (
-                                    <span className="text-muted-foreground line-through" title="Facturé — le montant est géré par la facture">
-                                      {formatDT(record.amountPaid)}
-                                    </span>
-                                  ) : (
-                                    formatDT(record.amountPaid)
-                                  )}
-                                </TableCell>
-                                <TableCell>
-                                  {invoicedDentalRecordIds.has(record.id) ? (
-                                    <span className="text-muted-foreground text-xs">Facturé</span>
-                                  ) : (() => {
-                                    const reste = Math.max(0, record.balance ?? (record.cost - record.amountPaid))
-                                    return reste > 0
-                                      ? <span className="font-semibold text-amber-600">{formatDT(reste)}</span>
-                                      : <span className="text-muted-foreground">{formatDT(0)}</span>
-                                  })()}
-                                </TableCell>
-                                <TableCell className="max-w-xs">
-                                  {(() => {
-                                    const hasNotes = (record.notes && record.notes.length > 0) || (record.importantNotes && record.importantNotes.length > 0)
-                                    const isExpanded = expandedNotes.has(record.id)
-                                    const totalNotesCount = (record.importantNotes?.length || 0) + (record.notes?.length || 0)
-
-                                    if (!hasNotes) {
-                                      return <span className="text-muted-foreground text-sm">-</span>
-                                    }
-
-                                    return (
-                                      <div className="space-y-1">
-                                        {isExpanded ? (
-                                          <div className="space-y-2">
-                                            {record.importantNotes && record.importantNotes.length > 0 && (
-                                              <div className="space-y-1">
-                                                <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 mb-1">
-                                                  Notes importantes :
-                                                </p>
-                                                <ul className="list-disc list-inside space-y-1 ml-2">
-                                                  {record.importantNotes.map((note, idx) => (
-                                                    <li key={idx} className="text-xs font-medium text-amber-900 dark:text-amber-100 bg-amber-50 dark:bg-amber-950/40 px-2 py-1 rounded border border-amber-200 dark:border-amber-800">
-                                                      ⚠ {note}
-                                                    </li>
-                                                  ))}
-                                                </ul>
-                                              </div>
-                                            )}
-                                            {record.notes && record.notes.length > 0 && (
-                                              <div className="space-y-1">
-                                                {record.importantNotes && record.importantNotes.length > 0 && (
-                                                  <p className="text-xs font-semibold text-muted-foreground mb-1">
-                                                    Notes :
-                                                  </p>
-                                                )}
-                                                <ul className="list-disc list-inside space-y-1 ml-2">
-                                                  {record.notes.map((note, idx) => (
-                                                    <li key={idx} className="text-sm text-foreground bg-muted/50 px-2 py-1 rounded">
-                                                      {note}
-                                                    </li>
-                                                  ))}
-                                                </ul>
-                                              </div>
-                                            )}
-                                            <Button
-                                              variant="ghost"
-                                              size="sm"
-                                              className="h-6 text-xs text-muted-foreground hover:text-foreground"
-                                              onClick={(e) => {
-                                                e.stopPropagation()
-                                                setExpandedNotes(prev => {
-                                                  const next = new Set(prev)
-                                                  next.delete(record.id)
-                                                  return next
-                                                })
-                                              }}
-                                            >
-                                              <ChevronUp className="h-3 w-3 mr-1" />
-                                              Réduire
-                                            </Button>
-                                          </div>
-                                        ) : (
+                                return (
+                                  <div className="space-y-1">
+                                    {isExpanded ? (
+                                      <div className="space-y-2">
+                                        {record.importantNotes && record.importantNotes.length > 0 && (
                                           <div className="space-y-1">
-                                            <div className="flex items-center gap-2">
-                                              <span className="text-sm text-muted-foreground">
-                                                {totalNotesCount} {totalNotesCount === 1 ? 'note' : 'notes'}
-                                              </span>
-                                              {record.importantNotes && record.importantNotes.length > 0 && (
-                                                <Badge variant="outline" className="text-xs bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800">
-                                                  {record.importantNotes.length} importantes
-                                                </Badge>
-                                              )}
-                                            </div>
-                                            <Button
-                                              variant="ghost"
-                                              size="sm"
-                                              className="h-6 text-xs text-muted-foreground hover:text-foreground"
-                                              onClick={(e) => {
-                                                e.stopPropagation()
-                                                setExpandedNotes(prev => new Set(prev).add(record.id))
-                                              }}
-                                            >
-                                              <ChevronDown className="h-3 w-3 mr-1" />
-                                              Voir les notes
-                                            </Button>
+                                            <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 mb-1">
+                                              Notes importantes :
+                                            </p>
+                                            <ul className="list-disc list-inside space-y-1 ml-2">
+                                              {record.importantNotes.map((note, idx) => (
+                                                <li key={idx} className="text-xs font-medium text-amber-900 dark:text-amber-100 bg-amber-50 dark:bg-amber-950/40 px-2 py-1 rounded border border-amber-200 dark:border-amber-800">
+                                                  ⚠ {note}
+                                                </li>
+                                              ))}
+                                            </ul>
                                           </div>
                                         )}
+                                        {record.notes && record.notes.length > 0 && (
+                                          <div className="space-y-1">
+                                            {record.importantNotes && record.importantNotes.length > 0 && (
+                                              <p className="text-xs font-semibold text-muted-foreground mb-1">
+                                                Notes :
+                                              </p>
+                                            )}
+                                            <ul className="list-disc list-inside space-y-1 ml-2">
+                                              {record.notes.map((note, idx) => (
+                                                <li key={idx} className="text-sm text-foreground bg-muted/50 px-2 py-1 rounded">
+                                                  {note}
+                                                </li>
+                                              ))}
+                                            </ul>
+                                          </div>
+                                        )}
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          className="h-6 text-xs text-muted-foreground hover:text-foreground"
+                                          onClick={(e) => {
+                                            e.stopPropagation()
+                                            setExpandedNotes(prev => {
+                                              const next = new Set(prev)
+                                              next.delete(record.id)
+                                              return next
+                                            })
+                                          }}
+                                        >
+                                          <ChevronUp className="h-3 w-3 mr-1" />
+                                          Réduire
+                                        </Button>
                                       </div>
-                                    )
-                                  })()}
-                                </TableCell>
-                                <TableCell className="text-right">
-                                  <div className="flex items-center justify-end gap-1">
-                                    {invoicedDentalRecordIds.has(record.id) ? (
-                                      <Badge variant="outline" className="text-xs gap-1">
-                                        <Receipt className="h-3 w-3" />
-                                        Facturé
-                                      </Badge>
                                     ) : (
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="h-8 w-8 p-0"
-                                        onClick={() => setBillingRecord(record)}
-                                        title="Facturer cette intervention"
-                                      >
-                                        <Receipt className="h-4 w-4" />
-                                      </Button>
-                                    )}
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      className="h-8 w-8 p-0"
-                                      onClick={() => {
-                                        setEditingRecord(record)
-                                        setRecordModalOpen(true)
-                                      }}
-                                      title="Modifier le dossier"
-                                    >
-                                      <Pencil className="h-4 w-4" />
-                                    </Button>
-                                    {canDeleteClinicalRecords && (
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="h-8 w-8 p-0 text-destructive hover:text-destructive"
-                                        onClick={() => setRecordToDelete(record)}
-                                        title="Supprimer la fiche de soins"
-                                      >
-                                        <Trash2 className="h-4 w-4" />
-                                      </Button>
+                                      <div className="space-y-1">
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-sm text-muted-foreground">
+                                            {totalNotesCount} {totalNotesCount === 1 ? 'note' : 'notes'}
+                                          </span>
+                                          {record.importantNotes && record.importantNotes.length > 0 && (
+                                            <Badge variant="outline" className="text-xs bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800">
+                                              {record.importantNotes.length} importantes
+                                            </Badge>
+                                          )}
+                                        </div>
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          className="h-6 text-xs text-muted-foreground hover:text-foreground"
+                                          onClick={(e) => {
+                                            e.stopPropagation()
+                                            setExpandedNotes(prev => new Set(prev).add(record.id))
+                                          }}
+                                        >
+                                          <ChevronDown className="h-3 w-3 mr-1" />
+                                          Voir les notes
+                                        </Button>
+                                      </div>
                                     )}
                                   </div>
-                                </TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </TabsContent>
-
-              {/* Notes Tab */}
-              <TabsContent value="notes">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Notes des dossiers médicaux</CardTitle>
-                    <CardDescription>Notes et notes importantes des dossiers dentaires</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    {dentalRecords.length === 0 ? (
-                      <EmptyOrLoading loading={detailsLoading}>Aucun dossier médical</EmptyOrLoading>
-                    ) : (
-                      <div className="space-y-4">
-                        {dentalRecords
-                          .filter(record => 
-                            (record.notes && record.notes.length > 0) || 
-                            (record.importantNotes && record.importantNotes.length > 0)
-                          )
-                          .map((record) => (
-                          <div key={record.id} className="rounded-lg border bg-card p-4 space-y-3">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                <p className="text-sm font-medium text-foreground">
-                                  {record.procedureType}
-                                </p>
-                                <Badge variant="outline" className="text-xs">
-                                  {formatDate(record.interventionDate)}
-                                </Badge>
-                              </div>
-                            </div>
-                            
-                            {/* Important Notes - Highlighted */}
-                            {record.importantNotes && record.importantNotes.length > 0 && (
-                              <div className="space-y-2">
-                                <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wide">
-                                  Notes importantes
-                                </p>
-                                <div className="space-y-2">
-                                  {record.importantNotes.map((note, idx) => (
-                                    <div 
-                                      key={idx} 
-                                      className="text-sm font-medium text-amber-900 dark:text-amber-100 bg-amber-50 dark:bg-amber-950/40 px-3 py-2 rounded border border-amber-200 dark:border-amber-800"
-                                    >
-                                      ⚠ {note}
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Regular Notes */}
-                            {record.notes && record.notes.length > 0 && (
-                              <div className="space-y-2">
-                                {record.importantNotes && record.importantNotes.length > 0 && (
-                                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                                    Notes
-                                  </p>
-                                )}
-                                <div className="space-y-2">
-                                  {record.notes.map((note, idx) => (
-                                    <p 
-                                      key={idx} 
-                                      className="text-sm text-foreground bg-muted/50 px-3 py-2 rounded"
-                                    >
-                                      {note}
-                                    </p>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                        {dentalRecords.filter(record => 
-                          (record.notes && record.notes.length > 0) || 
-                          (record.importantNotes && record.importantNotes.length > 0)
-                        ).length === 0 && (
-                          <p className="text-center text-muted-foreground py-8">Aucune note dans les dossiers médicaux</p>
-                        )}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </TabsContent>
-
-              {/* Documents Tab — saved medical documents; reopen the editor to edit / reprint. */}
-              <TabsContent value="documents">
-                <Card>
-                  <CardHeader>
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="space-y-1.5">
-                        <CardTitle className="flex items-center gap-2">
-                          <FileText className="h-5 w-5" />
-                          Documents médicaux
-                        </CardTitle>
-                        <CardDescription>
-                          Ordonnances, certificats, lettres de liaison et bulletins CNAM enregistrés. Cliquez sur « Ouvrir » pour modifier ou réimprimer.
-                        </CardDescription>
-                      </div>
-                      {/* P2-A: prescribe for the open patient without leaving the page / re-searching them. */}
-                      <Button
-                        size="sm"
-                        className="shrink-0 gap-1"
-                        onClick={() => router.push(`/documents/prescription?patientId=${patientId}`)}
-                      >
-                        <FileText className="h-4 w-4" />
-                        Nouvelle ordonnance
-                      </Button>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    {medicalDocuments.length === 0 ? (
-                      <EmptyOrLoading loading={detailsLoading}>Aucun document enregistré</EmptyOrLoading>
-                    ) : (
-                      <div className="overflow-x-auto">
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>Type</TableHead>
-                              <TableHead>Date</TableHead>
-                              <TableHead className="text-right">Actions</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {medicalDocuments.map((doc) => (
-                              <TableRow key={doc.id}>
-                                <TableCell className="font-medium">{documentTypeLabel(doc.documentType)}</TableCell>
-                                <TableCell className="text-muted-foreground">{formatDate(doc.documentDate)}</TableCell>
-                                <TableCell className="text-right">
+                                )
+                              })()}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex items-center justify-end gap-1">
+                                {invoicedDentalRecordIds.has(record.id) ? (
+                                  <Badge variant="outline" className="text-xs gap-1">
+                                    <Receipt className="h-3 w-3" />
+                                    Facturé
+                                  </Badge>
+                                ) : (
                                   <Button
                                     variant="ghost"
                                     size="sm"
-                                    className="gap-1"
-                                    onClick={() =>
-                                      router.push(
-                                        // The "honoraires" document type is retired (PDF now rejects it) —
-                                        // route legacy rows to the Factures module instead of the dead editor (#13).
-                                        doc.documentType === "honoraires"
-                                          ? "/factures"
-                                          : `/documents/${doc.documentType}?id=${doc.id}`,
-                                      )
-                                    }
-                                    title="Ouvrir le document"
+                                    className="h-8 w-8 p-0"
+                                    onClick={() => setBillingRecord(record)}
+                                    title="Facturer cette intervention"
                                   >
-                                    <Eye className="h-4 w-4" />
-                                    Ouvrir
+                                    <Receipt className="h-4 w-4" />
                                   </Button>
-                                  {canDeleteClinicalRecords && (
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      className="gap-1 text-destructive hover:text-destructive"
-                                      onClick={() => setDocumentToDelete(doc)}
-                                      title="Supprimer le document"
-                                    >
-                                      <Trash2 className="h-4 w-4" />
-                                      Supprimer
-                                    </Button>
-                                  )}
-                                </TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </TabsContent>
-
-              {/* Appointments Tab - Merged with Procedures */}
-              <TabsContent value="appointments">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Historique des rendez-vous</CardTitle>
-                    <CardDescription>Historique complet des rendez-vous et des actes</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    {appointments.length === 0 ? (
-                      <EmptyOrLoading loading={detailsLoading}>Aucun rendez-vous</EmptyOrLoading>
-                    ) : (
-                      <div className="overflow-x-auto">
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>Date et heure</TableHead>
-                              <TableHead>Acte / Type</TableHead>
-                              <TableHead>Médecin</TableHead>
-                              <TableHead>Durée</TableHead>
-                              <TableHead>Statut</TableHead>
-                              <TableHead>Notes</TableHead>
-                              <TableHead className="text-right">Actions</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {appointments
-                              .sort((a, b) => {
-                                const dateA = new Date(a.appointmentDateTime).getTime()
-                                const dateB = new Date(b.appointmentDateTime).getTime()
-                                return dateB - dateA // Sort descending (newest first)
-                              })
-                              .map((appointment) => {
-                                const durationMinutes = appointment.duration 
-                                  ? parseInt(appointment.duration.split(':')[0]) * 60 + parseInt(appointment.duration.split(':')[1] || '0')
-                                  : 0
-                                
-                                /*
-                                 * « Enregistrer la fiche » — the same action the post-visit notification offers,
-                                 * reachable from the history instead of only from the bell (which is dismissible,
-                                 * and gone once read).
-                                 *
-                                 * Offered when the visit is OVER and not yet recorded. "Over" is measured from the
-                                 * appointment's END, not its start, matching what makes the post-visit review due
-                                 * server-side — a 30-minute visit is not finished ten minutes in.
-                                 *
-                                 * `Cancelled` / `NoShow` are excluded even though neither is « Terminé ». Saving a
-                                 * fiche calls `Appointment.MarkVisitCompleted`, which returns `Contradicted` for
-                                 * exactly those two and is swallowed by its best-effort caller — so the fiche would
-                                 * persist while the appointment silently stayed cancelled. A visit recorded as not
-                                 * having happened should not offer to record what happened during it.
-                                 */
-                                const status = normalizeStatus(appointment.status)
-                                const endedAt =
-                                  new Date(appointment.appointmentDateTime).getTime() + durationMinutes * 60_000
-                                const canRecordVisit =
-                                  endedAt < Date.now() &&
-                                  status !== "Completed" &&
-                                  status !== "Cancelled" &&
-                                  status !== "NoShow"
-
-                                // Determine row color based on status and procedure type
-                                const isCanceled = appointment.status === "Cancelled"
-                                const rowColor = isCanceled 
-                                  ? "bg-muted/50" 
-                                  : appointment.procedureColorHex 
-                                    ? undefined 
-                                    : "bg-background"
-                                
-                                const borderColor = isCanceled 
-                                  ? undefined 
-                                  : appointment.procedureColorHex 
-                                    ? appointment.procedureColorHex 
-                                    : undefined
-                                
-                                return (
-                                  <TableRow 
-                                    key={appointment.id}
-                                    className={rowColor}
-                                    style={borderColor ? { borderLeft: `4px solid ${borderColor}` } : undefined}
-                                  >
-                                    <TableCell className="font-medium">
-                                      {formatDateTime(appointment.appointmentDateTime)}
-                                    </TableCell>
-                                    <TableCell>
-                                      {/* A visit can be several acts; the shared summary joins them
-                                          (« Détartrage + Obturation ») and the dot keeps the lead act's colour,
-                                          which is what the row's own left border already uses. */}
-                                      {appointmentActsSummary(appointment) ? (
-                                        <div className="flex items-center gap-2">
-                                          <div
-                                            className="h-3 w-3 rounded-full shrink-0"
-                                            style={{ backgroundColor: appointment.procedureColorHex || "#6C757D" }}
-                                          />
-                                          <span>{appointmentActsSummary(appointment)}</span>
-                                        </div>
-                                      ) : (
-                                        <span className="text-muted-foreground">Rendez-vous général</span>
-                                      )}
-                                    </TableCell>
-                                    <TableCell>
-                                      {appointment.doctorName || (
-                                        <span className="text-muted-foreground">-</span>
-                                      )}
-                                    </TableCell>
-                                    <TableCell>
-                                      {durationMinutes > 0 ? (
-                                        `${durationMinutes} min`
-                                      ) : (
-                                        <span className="text-muted-foreground">-</span>
-                                      )}
-                                    </TableCell>
-                                    <TableCell>
-                                      {/* AC-P1.42: printed the raw English enum name. */}
-                                      <Badge
-                                        variant="secondary"
-                                        className={appointmentStatusBadgeClass(appointment.status)}
-                                      >
-                                        {appointmentStatusLabel(appointment.status)}
-                                      </Badge>
-                                    </TableCell>
-                                <TableCell className="max-w-xs">
-                                  {appointment.notes ? (
-                                    <p className="text-sm truncate" title={appointment.notes}>
-                                      {appointment.notes}
-                                    </p>
-                                  ) : (
-                                    <span className="text-muted-foreground text-sm">-</span>
-                                  )}
-                                </TableCell>
-                                    <TableCell className="text-right">
-                                      {canRecordVisit ? (
-                                        <Button
-                                          variant="outline"
-                                          size="sm"
-                                          className="gap-1.5 whitespace-nowrap"
-                                          onClick={() => {
-                                            /*
-                                             * Exactly the state the `?addRecord=1&appointmentId=…` deep-link sets,
-                                             * so the modal prefills identically: `reviewAppointmentId` feeds
-                                             * `recordAppointment`, which proposes the visit's booked act and
-                                             * pre-selects its devis step. Setting it here rather than navigating
-                                             * avoids a round trip through the URL for something already on screen.
-                                             *
-                                             * `setEditingRecord(null)` is required, not tidying: a non-null
-                                             * `editingRecord` forces `recordAppointment` to null (an edit must never
-                                             * be re-proposed), so a stale value would open the modal with no prefill.
-                                             */
-                                            setEditingRecord(null)
-                                            setReviewAppointmentId(appointment.id)
-                                            setRecordModalOpen(true)
-                                          }}
-                                          title="Enregistrer la fiche de soins de cette séance"
-                                        >
-                                          <FileText className="h-3.5 w-3.5" />
-                                          Enregistrer la fiche
-                                        </Button>
-                                      ) : (
-                                        <span className="text-muted-foreground/60">—</span>
-                                      )}
-                                    </TableCell>
-                                  </TableRow>
-                                )
-                              })}
-                          </TableBody>
-                        </Table>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </TabsContent>
-
-              {/* Files Tab */}
-              <TabsContent value="files">
-                <Card>
-                  <CardHeader>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <CardTitle>Fichiers du patient</CardTitle>
-                        <CardDescription>
-                          {currentFolderId 
-                            ? `Fichiers du dossier`
-                            : `Tous les fichiers et documents téléversés (${files.length} fichier${files.length !== 1 ? 's' : ''})`}
-                        </CardDescription>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {currentFolderId && (
-                          <Button 
-                            variant="outline" 
-                            size="sm"
-                            onClick={() => setCurrentFolderId(null)}
-                            className="gap-2"
-                          >
-                            <ArrowLeft className="h-4 w-4" />
-                            Retour
-                          </Button>
-                        )}
-                        <Button onClick={() => router.push(`/patients/${patientId}/files`)} variant="default">
-                          Gérer les fichiers
-                        </Button>
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    {detailsLoading ? (
-                      <EmptyOrLoading loading>Aucun fichier téléversé</EmptyOrLoading>
-                    ) : files.length === 0 && folders.length === 0 ? (
-                      <div className="text-center py-8">
-                        <FileText className="h-12 w-12 mx-auto mb-3 opacity-50 text-muted-foreground" />
-                        <p className="text-sm text-muted-foreground mb-4">
-                          Aucun fichier téléversé
-                        </p>
-                        <Button onClick={() => router.push(`/patients/${patientId}/files`)}>
-                          Téléverser des fichiers
-                        </Button>
-                      </div>
-                    ) : (
-                      <div className="space-y-4">
-                        {/* Folders List (only show at root level) */}
-                        {!currentFolderId && folders.length > 0 && (
-                          <div>
-                            <h3 className="text-sm font-semibold mb-3 text-foreground">Dossiers</h3>
-                            <div className="space-y-2">
-                              {folders.map((folder) => (
-                                <Card
-                                  key={folder.id}
-                                  className="p-3 cursor-pointer hover:bg-accent transition-colors hover:border-primary/40"
-                                  onClick={() => setCurrentFolderId(folder.id)}
+                                )}
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 w-8 p-0"
+                                  onClick={() => {
+                                    setEditingRecord(record)
+                                    setRecordModalOpen(true)
+                                  }}
+                                  title="Modifier le dossier"
                                 >
-                                  <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-3 flex-1 min-w-0">
-                                      <div className="p-2 rounded-lg bg-accent/30">
-                                        <Folder className="h-5 w-5 text-primary" />
-                                      </div>
-                                      <div className="flex-1 min-w-0">
-                                        <p className="text-sm font-semibold truncate text-foreground">{folder.name}</p>
-                                        <p className="text-xs text-muted-foreground">
-                                          {folder.fileCount} {folder.fileCount === 1 ? "fichier" : "fichiers"}
-                                        </p>
-                                      </div>
-                                    </div>
-                                    <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                                  </div>
-                                </Card>
+                                  <Pencil className="h-4 w-4" />
+                                </Button>
+                                {canDeleteClinicalRecords && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                                    onClick={() => setRecordToDelete(record)}
+                                    title="Supprimer la fiche de soins"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                )}
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Notes Tab */}
+          <TabsContent value="notes">
+            <Card>
+              <CardHeader>
+                <CardTitle>Notes des dossiers médicaux</CardTitle>
+                <CardDescription>Notes et notes importantes des dossiers dentaires</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {dentalRecords.length === 0 ? (
+                  <EmptyOrLoading loading={detailsLoading}>Aucun dossier médical</EmptyOrLoading>
+                ) : (
+                  <div className="space-y-4">
+                    {dentalRecords
+                      .filter(record => 
+                        (record.notes && record.notes.length > 0) || 
+                        (record.importantNotes && record.importantNotes.length > 0)
+                      )
+                      .map((record) => (
+                      <div key={record.id} className="rounded-lg border bg-card p-4 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm font-medium text-foreground">
+                              {record.procedureType}
+                            </p>
+                            <Badge variant="outline" className="text-xs">
+                              {formatDate(record.interventionDate)}
+                            </Badge>
+                          </div>
+                        </div>
+                            
+                        {/* Important Notes - Highlighted */}
+                        {record.importantNotes && record.importantNotes.length > 0 && (
+                          <div className="space-y-2">
+                            <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wide">
+                              Notes importantes
+                            </p>
+                            <div className="space-y-2">
+                              {record.importantNotes.map((note, idx) => (
+                                <div 
+                                  key={idx} 
+                                  className="text-sm font-medium text-amber-900 dark:text-amber-100 bg-amber-50 dark:bg-amber-950/40 px-3 py-2 rounded border border-amber-200 dark:border-amber-800"
+                                >
+                                  ⚠ {note}
+                                </div>
                               ))}
                             </div>
                           </div>
                         )}
 
-                        {/* Files List */}
-                        {currentFiles.length === 0 ? (
-                          <div>
-                            <h3 className="text-sm font-semibold mb-3 text-foreground">
-                              {currentFolderId ? "Fichiers du dossier" : "Fichiers"}
-                            </h3>
-                            <Card className="p-8 border-dashed">
-                              <div className="text-center text-muted-foreground">
-                                <FileText className="h-12 w-12 mx-auto mb-3 opacity-50" />
-                                <p className="text-sm">
-                                  {currentFolderId ? "Aucun fichier dans ce dossier" : "Aucun fichier à la racine"}
+                        {/* Regular Notes */}
+                        {record.notes && record.notes.length > 0 && (
+                          <div className="space-y-2">
+                            {record.importantNotes && record.importantNotes.length > 0 && (
+                              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                                Notes
+                              </p>
+                            )}
+                            <div className="space-y-2">
+                              {record.notes.map((note, idx) => (
+                                <p 
+                                  key={idx} 
+                                  className="text-sm text-foreground bg-muted/50 px-3 py-2 rounded"
+                                >
+                                  {note}
                                 </p>
-                              </div>
-                            </Card>
-                          </div>
-                        ) : (
-                          <div>
-                            <h3 className="text-sm font-semibold mb-3 text-foreground">
-                              {currentFolderId ? "Fichiers du dossier" : "Fichiers"}
-                            </h3>
-                            <div className="overflow-x-auto">
-                              <Table>
-                                <TableHeader>
-                                  <TableRow>
-                                    <TableHead>Nom du fichier</TableHead>
-                                    <TableHead>Type</TableHead>
-                                    <TableHead>Taille</TableHead>
-                                    <TableHead>Téléversé le</TableHead>
-                                    <TableHead className="text-right">Actions</TableHead>
-                                  </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                  {currentFiles
-                                    .sort((a, b) => {
-                                      const dateA = new Date(a.uploadedAt).getTime()
-                                      const dateB = new Date(b.uploadedAt).getTime()
-                                      return dateB - dateA // Sort descending (newest first)
-                                    })
-                                    .map((file) => {
-                                      const isImage = isImageFile(file)
-                                      const isPdf = isPdfFile(file)
-                                      const isPreviewable = isPreviewableFile(file)
-
-                                      return (
-                                        <TableRow 
-                                          key={file.id}
-                                          className="cursor-pointer hover:bg-muted/50"
-                                          onClick={() => handlePreviewFile(file)}
-                                        >
-                                          <TableCell className="font-medium">
-                                            <div className="flex items-center gap-2">
-                                              {isImage ? (
-                                                <ImageIcon className="h-4 w-4 text-muted-foreground" />
-                                              ) : isPdf ? (
-                                                <FileText className="h-4 w-4 text-muted-foreground" />
-                                              ) : (
-                                                <FileText className="h-4 w-4 text-muted-foreground" />
-                                              )}
-                                              <span className="truncate max-w-xs" title={file.fileName}>
-                                                {file.fileName}
-                                              </span>
-                                            </div>
-                                          </TableCell>
-                                          <TableCell>
-                                            <Badge variant="outline" className="text-xs">
-                                              {file.fileType || file.contentType.split('/')[1] || 'Inconnu'}
-                                            </Badge>
-                                          </TableCell>
-                                          <TableCell className="text-muted-foreground">
-                                            {formatFileSize(file.fileSize)}
-                                          </TableCell>
-                                          <TableCell className="text-muted-foreground">
-                                            {formatDate(file.uploadedAt)}
-                                          </TableCell>
-                                          <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                                            <div className="flex items-center justify-end gap-2">
-                                              {isPreviewable && (
-                                                <Button
-                                                  variant="ghost"
-                                                  size="sm"
-                                                  className="h-8 w-8 p-0"
-                                                  onClick={() => handlePreviewFile(file)}
-                                                  title="Aperçu du fichier"
-                                                  aria-label={`Aperçu de ${file.fileName}`}
-                                                >
-                                                  <Eye className="h-4 w-4" />
-                                                </Button>
-                                              )}
-                                              <Button
-                                                variant="ghost"
-                                                size="sm"
-                                                className="h-8 w-8 p-0"
-                                                onClick={() => handleDownloadFile(file)}
-                                                title="Télécharger le fichier"
-                                                aria-label={`Télécharger ${file.fileName}`}
-                                              >
-                                                <Download className="h-4 w-4" />
-                                              </Button>
-                                            </div>
-                                          </TableCell>
-                                        </TableRow>
-                                      )
-                                    })}
-                                </TableBody>
-                              </Table>
+                              ))}
                             </div>
                           </div>
                         )}
                       </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </TabsContent>
-
-              {/* Factures Tab */}
-              <TabsContent value="factures" className="space-y-4">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Receipt className="h-5 w-5" />
-                      Factures
-                    </CardTitle>
-                    <CardDescription>Notes d'honoraires du patient — création, émission, paiement et PDF.</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    {/* onChanged was missing: recording a payment here left the plan card above showing the
-                        pre-payment figures until a manual refresh. */}
-                    <InvoicesTable
-                      patientId={patientId}
-                      patientName={patientName}
-                      showPatientColumn={false}
-                      onChanged={() => setRefreshKey((k) => k + 1)}
-                    />
-                  </CardContent>
-                </Card>
-              </TabsContent>
-
-              {/* Plan de traitement Tab */}
-              <TabsContent value="treatment-plans" className="space-y-4">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <ClipboardCheck className="h-5 w-5" />
-                      Plans de traitement
-                    </CardTitle>
-                    <CardDescription>Devis, actes planifiés et échéanciers de paiement du patient.</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <TreatmentPlansTable patientId={patientId} patientName={patientName} showPatientColumn={false} />
-                  </CardContent>
-                </Card>
-              </TabsContent>
-
-            </Tabs>
-
-            <div className="grid gap-6 lg:grid-cols-3">
-              {/* Personal Information */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <User className="h-5 w-5 text-muted-foreground" />
-                    Informations personnelles
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div>
-                    <p className="text-xs font-medium text-muted-foreground">Nom complet</p>
-                    <p className="text-sm text-foreground">{patientName}</p>
-                  </div>
-                  <Separator />
-                  <div>
-                    <p className="text-xs font-medium text-muted-foreground">Adressé par</p>
-                    <p className="text-sm text-foreground">{patient.referredBy || "Non renseigné"}</p>
-                  </div>
-                  <Separator />
-                  <div>
-                    <p className="text-xs font-medium text-muted-foreground">Date de naissance</p>
-                    <p className="text-sm text-foreground">
-                      {formatDate(patient.dateOfBirth)} {age !== null && `(${age} ans)`}
-                    </p>
-                  </div>
-                  <Separator />
-                  <div>
-                    <p className="text-xs font-medium text-muted-foreground">Sexe</p>
-                    <p className="text-sm text-foreground">{genderLabel(patient.gender)}</p>
-                  </div>
-                  <Separator />
-                  <div>
-                    <p className="text-xs font-medium text-muted-foreground">Téléphone</p>
-                    <p className="text-sm text-foreground">{patient.phoneNumber || "Non renseigné"}</p>
-                    {/* The blank alone reads as "nobody typed it in yet". What matters is that this patient
-                        is silently excluded from every automated contact. */}
-                    {!patient.phoneNumber && (
-                      <p className="text-xs text-amber-700 dark:text-amber-400">
-                        Ni rappel ni relance ne peuvent lui être envoyés.
-                      </p>
+                    ))}
+                    {dentalRecords.filter(record => 
+                      (record.notes && record.notes.length > 0) || 
+                      (record.importantNotes && record.importantNotes.length > 0)
+                    ).length === 0 && (
+                      <p className="text-center text-muted-foreground py-8">Aucune note dans les dossiers médicaux</p>
                     )}
                   </div>
-                  <Separator />
-                  <div>
-                    <p className="text-xs font-medium text-muted-foreground">Email</p>
-                    <p className="text-sm text-foreground">{patient.email || "Non renseigné"}</p>
-                  </div>
-                  <Separator />
-                  <div>
-                    <p className="text-xs font-medium text-muted-foreground">Adresse</p>
-                    <p className="text-sm text-foreground">{formatAddress(patient.address)}</p>
-                  </div>
-                  {patient.emergencyContactName && (
-                    <>
-                      <Separator />
-                      <div>
-                        <p className="text-xs font-medium text-muted-foreground">Contact d'urgence</p>
-                        <p className="text-sm text-foreground">
-                          {patient.emergencyContactName}
-                          {patient.emergencyContactPhone && ` - ${patient.emergencyContactPhone}`}
-                        </p>
-                      </div>
-                    </>
-                  )}
-                </CardContent>
-              </Card>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
 
-              {/* Medical Information */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <Activity className="h-5 w-5 text-muted-foreground" />
-                    Informations médicales
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div>
-                    <p className="text-xs font-medium text-muted-foreground">Maladies chroniques / affections</p>
-                    <p className="text-sm text-foreground whitespace-pre-wrap">
-                      {medicalHistoryText}
-                    </p>
+          {/* Documents Tab — saved medical documents; reopen the editor to edit / reprint. */}
+          <TabsContent value="documents">
+            <Card>
+              <CardHeader>
+                <div className="flex items-start justify-between gap-4">
+                  <div className="space-y-1.5">
+                    <CardTitle className="flex items-center gap-2">
+                      <FileText className="h-5 w-5" />
+                      Documents médicaux
+                    </CardTitle>
+                    <CardDescription>
+                      Ordonnances, certificats, lettres de liaison et bulletins CNAM enregistrés. Cliquez sur « Ouvrir » pour modifier ou réimprimer.
+                    </CardDescription>
                   </div>
-                  <Separator />
-                  <div>
-                    <p className="text-xs font-medium text-muted-foreground mb-2">Antécédents médicaux</p>
-                    {medicalHistoryEntries.length > 0 ? (
-                      <div className="space-y-2">
-                        {medicalHistoryEntries.map((entry) => (
-                          <div key={entry.id} className="rounded-lg border bg-muted/30 p-2">
-                            <p className="text-sm font-medium text-foreground">{entry.description}</p>
-                            {entry.date && (
-                              <p className="text-xs text-muted-foreground mt-1">
-                                Date : {formatDate(entry.date)}
-                              </p>
-                            )}
-                            {entry.notes && (
-                              <p className="text-xs text-muted-foreground mt-1">{entry.notes}</p>
-                            )}
-                          </div>
+                  {/* P2-A: prescribe for the open patient without leaving the page / re-searching them. */}
+                  <Button
+                    size="sm"
+                    className="shrink-0 gap-1"
+                    onClick={() => router.push(`/documents/prescription?patientId=${patientId}`)}
+                  >
+                    <FileText className="h-4 w-4" />
+                    Nouvelle ordonnance
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {medicalDocuments.length === 0 ? (
+                  <EmptyOrLoading loading={detailsLoading}>Aucun document enregistré</EmptyOrLoading>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Type</TableHead>
+                          <TableHead>Date</TableHead>
+                          <TableHead className="text-right">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {medicalDocuments.map((doc) => (
+                          <TableRow key={doc.id}>
+                            <TableCell className="font-medium">{documentTypeLabel(doc.documentType)}</TableCell>
+                            <TableCell className="text-muted-foreground">{formatDate(doc.documentDate)}</TableCell>
+                            <TableCell className="text-right">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="gap-1"
+                                onClick={() =>
+                                  router.push(
+                                    // The "honoraires" document type is retired (PDF now rejects it) —
+                                    // route legacy rows to the Factures module instead of the dead editor (#13).
+                                    doc.documentType === "honoraires"
+                                      ? "/factures"
+                                      : `/documents/${doc.documentType}?id=${doc.id}`,
+                                  )
+                                }
+                                title="Ouvrir le document"
+                              >
+                                <Eye className="h-4 w-4" />
+                                Ouvrir
+                              </Button>
+                              {canDeleteClinicalRecords && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="gap-1 text-destructive hover:text-destructive"
+                                  onClick={() => setDocumentToDelete(doc)}
+                                  title="Supprimer le document"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                  Supprimer
+                                </Button>
+                              )}
+                            </TableCell>
+                          </TableRow>
                         ))}
-                      </div>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">Aucun antécédent médical</p>
-                    )}
+                      </TableBody>
+                    </Table>
                   </div>
-                  <Separator />
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Appointments Tab - Merged with Procedures */}
+          <TabsContent value="appointments">
+            <Card>
+              <CardHeader>
+                <CardTitle>Historique des rendez-vous</CardTitle>
+                <CardDescription>Historique complet des rendez-vous et des actes</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {appointments.length === 0 ? (
+                  <EmptyOrLoading loading={detailsLoading}>Aucun rendez-vous</EmptyOrLoading>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Date et heure</TableHead>
+                          <TableHead>Acte / Type</TableHead>
+                          <TableHead>Médecin</TableHead>
+                          <TableHead>Durée</TableHead>
+                          <TableHead>Statut</TableHead>
+                          <TableHead>Notes</TableHead>
+                          <TableHead className="text-right">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {appointments
+                          .sort((a, b) => {
+                            const dateA = new Date(a.appointmentDateTime).getTime()
+                            const dateB = new Date(b.appointmentDateTime).getTime()
+                            return dateB - dateA // Sort descending (newest first)
+                          })
+                          .map((appointment) => {
+                            const durationMinutes = appointment.duration 
+                              ? parseInt(appointment.duration.split(':')[0]) * 60 + parseInt(appointment.duration.split(':')[1] || '0')
+                              : 0
+                                
+                            /*
+                             * « Enregistrer la fiche » — the same action the post-visit notification offers,
+                             * reachable from the history instead of only from the bell (which is dismissible,
+                             * and gone once read).
+                             *
+                             * Offered when the visit is OVER and not yet recorded. "Over" is measured from the
+                             * appointment's END, not its start, matching what makes the post-visit review due
+                             * server-side — a 30-minute visit is not finished ten minutes in.
+                             *
+                             * `Cancelled` / `NoShow` are excluded even though neither is « Terminé ». Saving a
+                             * fiche calls `Appointment.MarkVisitCompleted`, which returns `Contradicted` for
+                             * exactly those two and is swallowed by its best-effort caller — so the fiche would
+                             * persist while the appointment silently stayed cancelled. A visit recorded as not
+                             * having happened should not offer to record what happened during it.
+                             */
+                            const status = normalizeStatus(appointment.status)
+                            const endedAt =
+                              new Date(appointment.appointmentDateTime).getTime() + durationMinutes * 60_000
+                            const canRecordVisit =
+                              endedAt < Date.now() &&
+                              status !== "Completed" &&
+                              status !== "Cancelled" &&
+                              status !== "NoShow"
+
+                            // Determine row color based on status and procedure type
+                            const isCanceled = appointment.status === "Cancelled"
+                            const rowColor = isCanceled 
+                              ? "bg-muted/50" 
+                              : appointment.procedureColorHex 
+                                ? undefined 
+                                : "bg-background"
+                                
+                            const borderColor = isCanceled 
+                              ? undefined 
+                              : appointment.procedureColorHex 
+                                ? appointment.procedureColorHex 
+                                : undefined
+                                
+                            return (
+                              <TableRow 
+                                key={appointment.id}
+                                className={rowColor}
+                                style={borderColor ? { borderLeft: `4px solid ${borderColor}` } : undefined}
+                              >
+                                <TableCell className="font-medium">
+                                  {formatDateTime(appointment.appointmentDateTime)}
+                                </TableCell>
+                                <TableCell>
+                                  {/* A visit can be several acts; the shared summary joins them
+                                      (« Détartrage + Obturation ») and the dot keeps the lead act's colour,
+                                      which is what the row's own left border already uses. */}
+                                  {appointmentActsSummary(appointment) ? (
+                                    <div className="flex items-center gap-2">
+                                      <div
+                                        className="h-3 w-3 rounded-full shrink-0"
+                                        style={{ backgroundColor: appointment.procedureColorHex || "#6C757D" }}
+                                      />
+                                      <span>{appointmentActsSummary(appointment)}</span>
+                                    </div>
+                                  ) : (
+                                    <span className="text-muted-foreground">Rendez-vous général</span>
+                                  )}
+                                </TableCell>
+                                <TableCell>
+                                  {appointment.doctorName || (
+                                    <span className="text-muted-foreground">-</span>
+                                  )}
+                                </TableCell>
+                                <TableCell>
+                                  {durationMinutes > 0 ? (
+                                    `${durationMinutes} min`
+                                  ) : (
+                                    <span className="text-muted-foreground">-</span>
+                                  )}
+                                </TableCell>
+                                <TableCell>
+                                  {/* AC-P1.42: printed the raw English enum name. */}
+                                  <Badge
+                                    variant="secondary"
+                                    className={appointmentStatusBadgeClass(appointment.status)}
+                                  >
+                                    {appointmentStatusLabel(appointment.status)}
+                                  </Badge>
+                                </TableCell>
+                            <TableCell className="max-w-xs">
+                              {appointment.notes ? (
+                                <p className="text-sm truncate" title={appointment.notes}>
+                                  {appointment.notes}
+                                </p>
+                              ) : (
+                                <span className="text-muted-foreground text-sm">-</span>
+                              )}
+                            </TableCell>
+                                <TableCell className="text-right">
+                                  {canRecordVisit ? (
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="gap-1.5 whitespace-nowrap"
+                                      onClick={() => {
+                                        /*
+                                         * Exactly the state the `?addRecord=1&appointmentId=…` deep-link sets,
+                                         * so the modal prefills identically: `reviewAppointmentId` feeds
+                                         * `recordAppointment`, which proposes the visit's booked act and
+                                         * pre-selects its devis step. Setting it here rather than navigating
+                                         * avoids a round trip through the URL for something already on screen.
+                                         *
+                                         * `setEditingRecord(null)` is required, not tidying: a non-null
+                                         * `editingRecord` forces `recordAppointment` to null (an edit must never
+                                         * be re-proposed), so a stale value would open the modal with no prefill.
+                                         */
+                                        setEditingRecord(null)
+                                        setReviewAppointmentId(appointment.id)
+                                        setRecordModalOpen(true)
+                                      }}
+                                      title="Enregistrer la fiche de soins de cette séance"
+                                    >
+                                      <FileText className="h-3.5 w-3.5" />
+                                      Enregistrer la fiche
+                                    </Button>
+                                  ) : (
+                                    <span className="text-muted-foreground/60">—</span>
+                                  )}
+                                </TableCell>
+                              </TableRow>
+                            )
+                          })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Files Tab */}
+          <TabsContent value="files">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-xs font-medium text-muted-foreground mb-2">Antécédents familiaux</p>
-                    {familyHistoryEntries.length > 0 ? (
-                      <div className="space-y-2">
-                        {familyHistoryEntries.map((entry) => (
-                          <div key={entry.id} className="rounded-lg border bg-muted/30 p-2">
-                            <p className="text-sm font-medium text-foreground">
-                              {entry.relationship}: {entry.condition}
+                    <CardTitle>Fichiers du patient</CardTitle>
+                    <CardDescription>
+                      {currentFolderId 
+                        ? `Fichiers du dossier`
+                        : `Tous les fichiers et documents téléversés (${files.length} fichier${files.length !== 1 ? 's' : ''})`}
+                    </CardDescription>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {currentFolderId && (
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        onClick={() => setCurrentFolderId(null)}
+                        className="gap-2"
+                      >
+                        <ArrowLeft className="h-4 w-4" />
+                        Retour
+                      </Button>
+                    )}
+                    <Button onClick={() => router.push(`/patients/${patientId}/files`)} variant="default">
+                      Gérer les fichiers
+                    </Button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {detailsLoading ? (
+                  <EmptyOrLoading loading>Aucun fichier téléversé</EmptyOrLoading>
+                ) : files.length === 0 && folders.length === 0 ? (
+                  <div className="text-center py-8">
+                    <FileText className="h-12 w-12 mx-auto mb-3 opacity-50 text-muted-foreground" />
+                    <p className="text-sm text-muted-foreground mb-4">
+                      Aucun fichier téléversé
+                    </p>
+                    <Button onClick={() => router.push(`/patients/${patientId}/files`)}>
+                      Téléverser des fichiers
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {/* Folders List (only show at root level) */}
+                    {!currentFolderId && folders.length > 0 && (
+                      <div>
+                        <h3 className="text-sm font-semibold mb-3 text-foreground">Dossiers</h3>
+                        <div className="space-y-2">
+                          {folders.map((folder) => (
+                            <Card
+                              key={folder.id}
+                              className="p-3 cursor-pointer hover:bg-accent transition-colors hover:border-primary/40"
+                              onClick={() => setCurrentFolderId(folder.id)}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3 flex-1 min-w-0">
+                                  <div className="p-2 rounded-lg bg-accent/30">
+                                    <Folder className="h-5 w-5 text-primary" />
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-semibold truncate text-foreground">{folder.name}</p>
+                                    <p className="text-xs text-muted-foreground">
+                                      {folder.fileCount} {folder.fileCount === 1 ? "fichier" : "fichiers"}
+                                    </p>
+                                  </div>
+                                </div>
+                                <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                              </div>
+                            </Card>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Files List */}
+                    {currentFiles.length === 0 ? (
+                      <div>
+                        <h3 className="text-sm font-semibold mb-3 text-foreground">
+                          {currentFolderId ? "Fichiers du dossier" : "Fichiers"}
+                        </h3>
+                        <Card className="p-8 border-dashed">
+                          <div className="text-center text-muted-foreground">
+                            <FileText className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                            <p className="text-sm">
+                              {currentFolderId ? "Aucun fichier dans ce dossier" : "Aucun fichier à la racine"}
                             </p>
-                            {entry.notes && (
-                              <p className="text-xs text-muted-foreground mt-1">{entry.notes}</p>
-                            )}
                           </div>
-                        ))}
+                        </Card>
                       </div>
                     ) : (
-                      <p className="text-sm text-muted-foreground">Aucun antécédent familial</p>
+                      <div>
+                        <h3 className="text-sm font-semibold mb-3 text-foreground">
+                          {currentFolderId ? "Fichiers du dossier" : "Fichiers"}
+                        </h3>
+                        <div className="overflow-x-auto">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Nom du fichier</TableHead>
+                                <TableHead>Type</TableHead>
+                                <TableHead>Taille</TableHead>
+                                <TableHead>Téléversé le</TableHead>
+                                <TableHead className="text-right">Actions</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {currentFiles
+                                .sort((a, b) => {
+                                  const dateA = new Date(a.uploadedAt).getTime()
+                                  const dateB = new Date(b.uploadedAt).getTime()
+                                  return dateB - dateA // Sort descending (newest first)
+                                })
+                                .map((file) => {
+                                  const isImage = isImageFile(file)
+                                  const isPdf = isPdfFile(file)
+                                  const isPreviewable = isPreviewableFile(file)
+
+                                  return (
+                                    <TableRow 
+                                      key={file.id}
+                                      className="cursor-pointer hover:bg-muted/50"
+                                      onClick={() => handlePreviewFile(file)}
+                                    >
+                                      <TableCell className="font-medium">
+                                        <div className="flex items-center gap-2">
+                                          {isImage ? (
+                                            <ImageIcon className="h-4 w-4 text-muted-foreground" />
+                                          ) : isPdf ? (
+                                            <FileText className="h-4 w-4 text-muted-foreground" />
+                                          ) : (
+                                            <FileText className="h-4 w-4 text-muted-foreground" />
+                                          )}
+                                          <span className="truncate max-w-xs" title={file.fileName}>
+                                            {file.fileName}
+                                          </span>
+                                        </div>
+                                      </TableCell>
+                                      <TableCell>
+                                        <Badge variant="outline" className="text-xs">
+                                          {file.fileType || file.contentType.split('/')[1] || 'Inconnu'}
+                                        </Badge>
+                                      </TableCell>
+                                      <TableCell className="text-muted-foreground">
+                                        {formatFileSize(file.fileSize)}
+                                      </TableCell>
+                                      <TableCell className="text-muted-foreground">
+                                        {formatDate(file.uploadedAt)}
+                                      </TableCell>
+                                      <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                                        <div className="flex items-center justify-end gap-2">
+                                          {isPreviewable && (
+                                            <Button
+                                              variant="ghost"
+                                              size="sm"
+                                              className="h-8 w-8 p-0"
+                                              onClick={() => handlePreviewFile(file)}
+                                              title="Aperçu du fichier"
+                                              aria-label={`Aperçu de ${file.fileName}`}
+                                            >
+                                              <Eye className="h-4 w-4" />
+                                            </Button>
+                                          )}
+                                          <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-8 w-8 p-0"
+                                            onClick={() => handleDownloadFile(file)}
+                                            title="Télécharger le fichier"
+                                            aria-label={`Télécharger ${file.fileName}`}
+                                          >
+                                            <Download className="h-4 w-4" />
+                                          </Button>
+                                        </div>
+                                      </TableCell>
+                                    </TableRow>
+                                  )
+                                })}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      </div>
                     )}
                   </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Factures Tab */}
+          <TabsContent value="factures" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Receipt className="h-5 w-5" />
+                  Factures
+                </CardTitle>
+                <CardDescription>Notes d'honoraires du patient — création, émission, paiement et PDF.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {/* onChanged was missing: recording a payment here left the plan card above showing the
+                    pre-payment figures until a manual refresh. */}
+                <InvoicesTable
+                  patientId={patientId}
+                  patientName={patientName}
+                  showPatientColumn={false}
+                  onChanged={() => setRefreshKey((k) => k + 1)}
+                />
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Plan de traitement Tab */}
+          <TabsContent value="treatment-plans" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <ClipboardCheck className="h-5 w-5" />
+                  Plans de traitement
+                </CardTitle>
+                <CardDescription>Devis, actes planifiés et échéanciers de paiement du patient.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <TreatmentPlansTable patientId={patientId} patientName={patientName} showPatientColumn={false} />
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+        </Tabs>
+
+        <div className="grid gap-6 lg:grid-cols-3">
+          {/* Personal Information */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <User className="h-5 w-5 text-muted-foreground" />
+                Informations personnelles
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <p className="text-xs font-medium text-muted-foreground">Nom complet</p>
+                <p className="text-sm text-foreground">{patientName}</p>
+              </div>
+              <Separator />
+              <div>
+                <p className="text-xs font-medium text-muted-foreground">Adressé par</p>
+                <p className="text-sm text-foreground">{patient.referredBy || "Non renseigné"}</p>
+              </div>
+              <Separator />
+              <div>
+                <p className="text-xs font-medium text-muted-foreground">Date de naissance</p>
+                <p className="text-sm text-foreground">
+                  {formatDate(patient.dateOfBirth)} {age !== null && `(${age} ans)`}
+                </p>
+              </div>
+              <Separator />
+              <div>
+                <p className="text-xs font-medium text-muted-foreground">Sexe</p>
+                <p className="text-sm text-foreground">{genderLabel(patient.gender)}</p>
+              </div>
+              <Separator />
+              <div>
+                <p className="text-xs font-medium text-muted-foreground">Téléphone</p>
+                <p className="text-sm text-foreground">{patient.phoneNumber || "Non renseigné"}</p>
+                {/* The blank alone reads as "nobody typed it in yet". What matters is that this patient
+                    is silently excluded from every automated contact. */}
+                {!patient.phoneNumber && (
+                  <p className="text-xs text-amber-700 dark:text-amber-400">
+                    Ni rappel ni relance ne peuvent lui être envoyés.
+                  </p>
+                )}
+              </div>
+              <Separator />
+              <div>
+                <p className="text-xs font-medium text-muted-foreground">Email</p>
+                <p className="text-sm text-foreground">{patient.email || "Non renseigné"}</p>
+              </div>
+              <Separator />
+              <div>
+                <p className="text-xs font-medium text-muted-foreground">Adresse</p>
+                <p className="text-sm text-foreground">{formatAddress(patient.address)}</p>
+              </div>
+              {patient.emergencyContactName && (
+                <>
                   <Separator />
                   <div>
-                    <p className="text-xs font-medium text-muted-foreground">Allergies</p>
-                    {allergiesList.length > 0 ? (
-                      <div className="mt-1 flex flex-wrap gap-1">
-                        {allergiesList.map((allergy: string, index: number) => (
-                          <Badge key={index} variant="destructive" className="text-xs">
-                            {allergy}
-                          </Badge>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">Aucune signalée</p>
-                    )}
+                    <p className="text-xs font-medium text-muted-foreground">Contact d'urgence</p>
+                    <p className="text-sm text-foreground">
+                      {patient.emergencyContactName}
+                      {patient.emergencyContactPhone && ` - ${patient.emergencyContactPhone}`}
+                    </p>
                   </div>
-                </CardContent>
-              </Card>
+                </>
+              )}
+            </CardContent>
+          </Card>
 
-              {/* Administrative Information */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <CreditCard className="h-5 w-5 text-muted-foreground" />
-                    Informations administratives
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div>
-                    <p className="text-xs font-medium text-muted-foreground">Assureur</p>
-                    <p className="text-sm text-foreground">{patient.insuranceInfo?.provider || "Non renseigné"}</p>
+          {/* Medical Information */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Activity className="h-5 w-5 text-muted-foreground" />
+                Informations médicales
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <p className="text-xs font-medium text-muted-foreground">Maladies chroniques / affections</p>
+                <p className="text-sm text-foreground whitespace-pre-wrap">
+                  {medicalHistoryText}
+                </p>
+              </div>
+              <Separator />
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-2">Antécédents médicaux</p>
+                {medicalHistoryEntries.length > 0 ? (
+                  <div className="space-y-2">
+                    {medicalHistoryEntries.map((entry) => (
+                      <div key={entry.id} className="rounded-lg border bg-muted/30 p-2">
+                        <p className="text-sm font-medium text-foreground">{entry.description}</p>
+                        {entry.date && (
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Date : {formatDate(entry.date)}
+                          </p>
+                        )}
+                        {entry.notes && (
+                          <p className="text-xs text-muted-foreground mt-1">{entry.notes}</p>
+                        )}
+                      </div>
+                    ))}
                   </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">Aucun antécédent médical</p>
+                )}
+              </div>
+              <Separator />
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-2">Antécédents familiaux</p>
+                {familyHistoryEntries.length > 0 ? (
+                  <div className="space-y-2">
+                    {familyHistoryEntries.map((entry) => (
+                      <div key={entry.id} className="rounded-lg border bg-muted/30 p-2">
+                        <p className="text-sm font-medium text-foreground">
+                          {entry.relationship}: {entry.condition}
+                        </p>
+                        {entry.notes && (
+                          <p className="text-xs text-muted-foreground mt-1">{entry.notes}</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">Aucun antécédent familial</p>
+                )}
+              </div>
+              <Separator />
+              <div>
+                <p className="text-xs font-medium text-muted-foreground">Allergies</p>
+                {allergiesList.length > 0 ? (
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {allergiesList.map((allergy: string, index: number) => (
+                      <Badge key={index} variant="destructive" className="text-xs">
+                        {allergy}
+                      </Badge>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">Aucune signalée</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Administrative Information */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <CreditCard className="h-5 w-5 text-muted-foreground" />
+                Informations administratives
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <p className="text-xs font-medium text-muted-foreground">Assureur</p>
+                <p className="text-sm text-foreground">{patient.insuranceInfo?.provider || "Non renseigné"}</p>
+              </div>
+              <Separator />
+              <div>
+                <p className="text-xs font-medium text-muted-foreground">Numéro de police</p>
+                <p className="font-mono text-sm text-foreground">{patient.insuranceInfo?.policyNumber || "Non renseigné"}</p>
+              </div>
+              {patient.insuranceInfo?.groupNumber && (
+                <>
                   <Separator />
                   <div>
-                    <p className="text-xs font-medium text-muted-foreground">Numéro de police</p>
-                    <p className="font-mono text-sm text-foreground">{patient.insuranceInfo?.policyNumber || "Non renseigné"}</p>
+                    <p className="text-xs font-medium text-muted-foreground">Numéro de groupe</p>
+                    <p className="text-sm text-foreground">{patient.insuranceInfo.groupNumber}</p>
                   </div>
-                  {patient.insuranceInfo?.groupNumber && (
-                    <>
-                      <Separator />
-                      <div>
-                        <p className="text-xs font-medium text-muted-foreground">Numéro de groupe</p>
-                        <p className="text-sm text-foreground">{patient.insuranceInfo.groupNumber}</p>
-                      </div>
-                    </>
-                  )}
-                  {patient.insuranceInfo?.expiryDate && (
-                    <>
-                      <Separator />
-                      <div>
-                        <p className="text-xs font-medium text-muted-foreground">Date d'expiration</p>
-                        <p className="text-sm text-foreground">{formatDate(patient.insuranceInfo.expiryDate)}</p>
-                      </div>
-                    </>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
+                </>
+              )}
+              {patient.insuranceInfo?.expiryDate && (
+                <>
+                  <Separator />
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground">Date d'expiration</p>
+                    <p className="text-sm text-foreground">{formatDate(patient.insuranceInfo.expiryDate)}</p>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </div>
 
-          </div>
-        </main>
-      </div>
+      </AppShell>
 
       <EditPatientDialog
         open={editDialogOpen}
@@ -2153,7 +2132,6 @@ export default function PatientDetailsPage() {
           )}
         </DialogContent>
       </Dialog>
-      </div>
     </ClinicGuard>
   )
 }

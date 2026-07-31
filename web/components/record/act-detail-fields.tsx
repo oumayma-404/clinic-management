@@ -41,7 +41,7 @@ export function ActDetailFields({ draft, toothCount, dispatch, disabled }: ActDe
       {/* A free-text act has no catalogue name to fall back on, so it stays editable here. */}
       {draft.procedureTypeId === null && draft.procedureName.trim() !== "" && (
         <div className="flex flex-wrap items-center gap-2">
-          <span className="shrink-0 text-[11px] text-muted-foreground">Désignation</span>
+          <span className="shrink-0 text-2xs text-muted-foreground">Désignation</span>
           <Input
             value={draft.procedureName}
             onChange={(e) => dispatch({ type: "patchDraft", patch: { procedureName: e.target.value } })}
@@ -53,7 +53,7 @@ export function ActDetailFields({ draft, toothCount, dispatch, disabled }: ActDe
       )}
 
       <div className="flex flex-wrap items-center gap-2">
-        <span className="shrink-0 text-[11px] text-muted-foreground">Tarif</span>
+        <span className="shrink-0 text-2xs text-muted-foreground">Tarif</span>
         <Input
           type="number"
           min="0"
@@ -70,7 +70,7 @@ export function ActDetailFields({ draft, toothCount, dispatch, disabled }: ActDe
             type="button"
             variant={draft.perTooth ? "default" : "ghost"}
             size="sm"
-            className="h-7 px-2 text-[11px]"
+            className="h-7 px-2 text-2xs"
             onClick={() => dispatch({ type: "patchDraft", patch: { perTooth: true } })}
             disabled={disabled || toothCount === 0}
             title={toothCount === 0 ? "Sélectionnez au moins une dent" : "Prix par dent"}
@@ -81,7 +81,7 @@ export function ActDetailFields({ draft, toothCount, dispatch, disabled }: ActDe
             type="button"
             variant={!draft.perTooth ? "default" : "ghost"}
             size="sm"
-            className="h-7 px-2 text-[11px]"
+            className="h-7 px-2 text-2xs"
             onClick={() => dispatch({ type: "patchDraft", patch: { perTooth: false } })}
             disabled={disabled}
             title="Montant forfaitaire pour l'acte entier"
@@ -106,7 +106,7 @@ export function ActDetailFields({ draft, toothCount, dispatch, disabled }: ActDe
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <span className="shrink-0 text-[11px] text-muted-foreground">État résultant</span>
+        <span className="shrink-0 text-2xs text-muted-foreground">État résultant</span>
         <span className="inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs">
           <span
             className={cn(
@@ -135,11 +135,11 @@ export function ActDetailFields({ draft, toothCount, dispatch, disabled }: ActDe
             ))}
           </SelectContent>
         </Select>
-        <span className="ml-auto text-[11px] text-muted-foreground">alimente l&apos;odontogramme</span>
+        <span className="ml-auto text-2xs text-muted-foreground">alimente l&apos;odontogramme</span>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <span className="shrink-0 text-[11px] text-muted-foreground">Faces</span>
+        <span className="shrink-0 text-2xs text-muted-foreground">Faces</span>
         <div className="flex items-center gap-1">
           {SURFACE_ORDER.map((s) => (
             <Button
@@ -167,7 +167,7 @@ export function ActDetailFields({ draft, toothCount, dispatch, disabled }: ActDe
       </div>
 
       {toothCount > 1 && (draft.surfaces.size > 0 || draft.note.trim() !== "") && (
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-2xs text-muted-foreground">
           Les faces et la note s&apos;appliquent aux {toothCount} dents. Pour des faces différentes, enregistrez
           un acte par dent.
         </p>

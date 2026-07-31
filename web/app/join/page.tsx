@@ -94,7 +94,7 @@ export default function JoinClinicPage() {
 
   if (userLoading || authLoading || isChecking) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-accent via-white to-slate-50 dark:from-slate-950 dark:to-slate-900 flex items-center justify-center p-6">
+      <div className="min-h-dvh bg-gradient-to-br from-accent via-white to-slate-50 dark:from-slate-950 dark:to-slate-900 flex items-center justify-center p-6">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
           <p className="text-muted-foreground">Vérification du statut de votre clinique…</p>
@@ -109,7 +109,7 @@ export default function JoinClinicPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-accent via-white to-slate-50 dark:from-slate-950 dark:to-slate-900 flex items-center justify-center p-6">
+    <div className="min-h-dvh bg-gradient-to-br from-accent via-white to-slate-50 dark:from-slate-950 dark:to-slate-900 flex items-center justify-center p-6">
       <div className="w-full max-w-md">
         <Card className="border-primary/20 shadow-lg">
           <CardHeader className="text-center space-y-4">

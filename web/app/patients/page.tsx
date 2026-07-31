@@ -2,8 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
-import { DashboardHeader } from "@/components/dashboard-header"
-import { DashboardSidebar } from "@/components/dashboard-sidebar"
+import { AppShell } from "@/components/app-shell"
 import { ClinicGuard } from "@/components/clinic-guard"
 import { PageHeader } from "@/components/ui/page-header"
 import { ListToolbar, FilterChip } from "@/components/ui/list-toolbar"
@@ -57,92 +56,82 @@ export default function PatientsPage() {
 
   return (
     <ClinicGuard>
-      <div className="flex h-screen bg-background">
-        <DashboardSidebar />
+      <AppShell contentClassName="space-y-6">
+        {/* The page's ONE primary action lives in the header, not in the filter row — a create button and a
+            filter had the same weight there, which left the row with no single meaning. */}
+        <PageHeader
+          zone="Dossiers"
+          title="Patients"
+          subtitle="Rechercher un dossier, ou en créer un."
+          actions={
+            <Button onClick={() => setCreateDialogOpen(true)} className="gap-2">
+              <Plus className="h-4 w-4" />
+              Ajouter un patient
+            </Button>
+          }
+        />
 
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <DashboardHeader />
+        {/* Only what NARROWS the list. « Signalés » is a chip with a stable label and `aria-pressed`, where it
+            used to be a Button whose text flipped between « Afficher les signalés » and « Signalés affichés »
+            — so the only way to know the filter was on was to read a sentence and infer its tense. */}
+        <ListToolbar
+          search={{
+            value: searchQuery,
+            onChange: setSearchQuery,
+            placeholder: "Nom ou téléphone…",
+            label: "Rechercher un patient",
+          }}
+        >
+          <FilterChip
+            label="Signalés"
+            active={showFlaggedOnly}
+            onToggle={() => setShowFlaggedOnly(!showFlaggedOnly)}
+          />
+        </ListToolbar>
 
-          <main className="flex-1 overflow-y-auto p-4 md:p-6">
-            <div className="mx-auto max-w-7xl space-y-6">
-              {/* The page's ONE primary action lives in the header, not in the filter row — a create button and a
-                  filter had the same weight there, which left the row with no single meaning. */}
-              <PageHeader
-                zone="Dossiers"
-                title="Patients"
-                subtitle="Rechercher un dossier, ou en créer un."
-                actions={
-                  <Button onClick={() => setCreateDialogOpen(true)} className="gap-2">
-                    <Plus className="h-4 w-4" />
-                    Ajouter un patient
-                  </Button>
-                }
-              />
+        {/* The active date window, stated explicitly and removable. An invisible filter is how a user
+            concludes their patients have disappeared. */}
+        {hasDateWindow && (
+          <div
+            role="status"
+            className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/40 p-3 text-sm"
+          >
+            <span className="min-w-0 flex-1">
+              Inscrits {createdFrom ? `du ${formatDateFr(createdFrom)}` : ""}
+              {createdTo ? ` au ${formatDateFr(createdTo)}` : ""}
+            </span>
+            <Button size="sm" variant="outline" onClick={clearDateWindow}>
+              Afficher tous les patients
+            </Button>
+          </div>
+        )}
 
-              {/* Only what NARROWS the list. « Signalés » is a chip with a stable label and `aria-pressed`, where it
-                  used to be a Button whose text flipped between « Afficher les signalés » and « Signalés affichés »
-                  — so the only way to know the filter was on was to read a sentence and infer its tense. */}
-              <ListToolbar
-                search={{
-                  value: searchQuery,
-                  onChange: setSearchQuery,
-                  placeholder: "Nom ou téléphone…",
-                  label: "Rechercher un patient",
-                }}
-              >
-                <FilterChip
-                  label="Signalés"
-                  active={showFlaggedOnly}
-                  onToggle={() => setShowFlaggedOnly(!showFlaggedOnly)}
-                />
-              </ListToolbar>
+        {/* Patients Table */}
+        <PatientsTable
+          key={refreshKey}
+          searchQuery={searchQuery}
+          showFlaggedOnly={showFlaggedOnly}
+          createdFrom={createdFrom}
+          createdTo={createdTo}
+        />
 
-              {/* The active date window, stated explicitly and removable. An invisible filter is how a user
-                  concludes their patients have disappeared. */}
-              {hasDateWindow && (
-                <div
-                  role="status"
-                  className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/40 p-3 text-sm"
-                >
-                  <span className="min-w-0 flex-1">
-                    Inscrits {createdFrom ? `du ${formatDateFr(createdFrom)}` : ""}
-                    {createdTo ? ` au ${formatDateFr(createdTo)}` : ""}
-                  </span>
-                  <Button size="sm" variant="outline" onClick={clearDateWindow}>
-                    Afficher tous les patients
-                  </Button>
-                </div>
-              )}
-
-              {/* Patients Table */}
-              <PatientsTable
-                key={refreshKey}
-                searchQuery={searchQuery}
-                showFlaggedOnly={showFlaggedOnly}
-                createdFrom={createdFrom}
-                createdTo={createdTo}
-              />
-
-              {/* Create Patient Dialog */}
-              <EditPatientDialog
-                open={createDialogOpen}
-                onOpenChange={setCreateDialogOpen}
-                patient={null}
-                onSuccess={(created) => {
-                  setCreateDialogOpen(false)
-                  // Open the new patient's detail page so clinical work can start immediately;
-                  // fall back to refreshing the list if the id is somehow missing.
-                  if (created?.id) {
-                    router.push(`/patients/${created.id}`)
-                  } else {
-                    setRefreshKey(prev => prev + 1)
-                  }
-                }}
-              />
-            </div>
-          </main>
-        </div>
-      </div>
+        {/* Create Patient Dialog */}
+        <EditPatientDialog
+          open={createDialogOpen}
+          onOpenChange={setCreateDialogOpen}
+          patient={null}
+          onSuccess={(created) => {
+            setCreateDialogOpen(false)
+            // Open the new patient's detail page so clinical work can start immediately;
+            // fall back to refreshing the list if the id is somehow missing.
+            if (created?.id) {
+              router.push(`/patients/${created.id}`)
+            } else {
+              setRefreshKey(prev => prev + 1)
+            }
+          }}
+        />
+      </AppShell>
     </ClinicGuard>
   )
 }

@@ -192,7 +192,7 @@ export function MonProfilContent() {
             ) : (
               <label className="w-40 h-24 flex flex-col items-center justify-center border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-lg cursor-pointer hover:border-primary hover:bg-accent transition text-slate-400 hover:text-primary">
                 <Upload className="h-5 w-5" />
-                <span className="text-[11px] font-medium mt-1">Charger</span>
+                <span className="text-2xs font-medium mt-1">Charger</span>
                 <input type="file" accept="image/*" onChange={handleFile} className="hidden" disabled={saving} />
               </label>
             )}

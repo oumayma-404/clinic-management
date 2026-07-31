@@ -434,7 +434,7 @@ export function AppointmentActsPicker({
             </div>
           </div>
           <div className="flex items-center justify-between gap-3">
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-2xs text-muted-foreground">
               Durée et montant optionnels. Sans durée, {fallbackDurationMinutes} min est utilisé.
             </p>
             <div className="flex shrink-0 gap-2">

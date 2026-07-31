@@ -110,7 +110,7 @@ export function PatientUndocumentedVisits({
           )}
         />
         <ClipboardPlus aria-hidden="true" className="h-4 w-4 shrink-0 text-primary" />
-        <h2 className="text-[11px] font-semibold uppercase tracking-wide text-primary">
+        <h2 className="text-2xs font-semibold uppercase tracking-wide text-primary">
           À compléter — séances sans fiche
         </h2>
         {/* Visible in every state — this is what makes the collapsed state a deferral rather than a hiding place. */}

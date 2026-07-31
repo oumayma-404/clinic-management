@@ -118,7 +118,7 @@ export function PatientPlansStrip({ plans, onOpen, onChanged }: PatientPlansStri
           {next.kind === "record" && (
             <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" aria-hidden="true" />
           )}
-          <span className="text-[15px] font-semibold">{planHeadline(plan)}</span>
+          <span className="text-base font-semibold">{planHeadline(plan)}</span>
         </span>
 
         {next.kind === "accept" ? (

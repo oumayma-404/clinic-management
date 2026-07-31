@@ -1,5 +1,5 @@
 import type React from "react"
-import type { Metadata } from "next"
+import type { Metadata, Viewport } from "next"
 import { Geist, Geist_Mono } from "next/font/google"
 import { Analytics } from "@vercel/analytics/next"
 import { resolveAuthMode } from "@/lib/auth/local-auth"
@@ -36,6 +36,26 @@ export const metadata: Metadata = {
   },
 }
 
+/*
+ * Next injects `width=device-width, initial-scale=1` when no viewport is exported, which is why the app scales
+ * at all today — but the two settings that matter on a phone are not in that default:
+ *
+ *   viewportFit: "cover"          without it `env(safe-area-inset-*)` resolves to 0px, so the bottom nav bar
+ *                                 would sit under the home indicator and the notch would clip the header.
+ *   interactiveWidget             "resizes-content" makes the on-screen keyboard shrink the viewport instead of
+ *                                 scrolling the page over it, which is what keeps a sheet's sticky footer — and
+ *                                 the primary action in it — visible while typing.
+ *
+ * `maximumScale` / `userScalable` are deliberately NOT set: capping zoom is an accessibility regression, and a
+ * clinician reading a chart at arm's length is a real user of it.
+ */
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  interactiveWidget: "resizes-content",
+}
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -46,7 +66,12 @@ export default function RootLayout({
   const SessionProvider = resolveAuthMode() === "local" ? LocalSessionProvider : CloudSessionProvider
 
   return (
-    <html lang="fr">
+    /*
+      `suppressHydrationWarning` is required by the theme provider landing in P7: next-themes' pre-hydration
+      script sets the theme class on <html> before React hydrates, so the server and client markup differ on
+      this element by design. Added now rather than in P7 so layout.tsx is edited once.
+    */
+    <html lang="fr" suppressHydrationWarning>
       <body className={`font-sans antialiased`}>
         <SessionProvider>
           <ConnectivityProvider>

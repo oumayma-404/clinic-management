@@ -108,16 +108,16 @@ export function SessionActsList({
         </span>
 
         {isShared && (
-          <span className="flex shrink-0 items-center gap-0.5 text-[10px] text-muted-foreground" title="Acte partagé entre plusieurs dents">
+          <span className="flex shrink-0 items-center gap-0.5 text-2xs text-muted-foreground" title="Acte partagé entre plusieurs dents">
             <Link2 className="h-3 w-3" />
             {act.toothNumbers.join(", ")}
           </span>
         )}
         {act.surfaces.size > 0 && (
-          <span className="shrink-0 text-[10px] text-muted-foreground">{Array.from(act.surfaces).join("")}</span>
+          <span className="shrink-0 text-2xs text-muted-foreground">{Array.from(act.surfaces).join("")}</span>
         )}
         {duplicateKeys.has(act.key) && (
-          <Badge variant="outline" className="shrink-0 border-amber-500 text-[9px] text-amber-700 dark:text-amber-300">
+          <Badge variant="outline" className="shrink-0 border-amber-500 text-2xs text-amber-700 dark:text-amber-300">
             en double ?
           </Badge>
         )}
@@ -127,13 +127,13 @@ export function SessionActsList({
             <>
               {formatDT(cost)}
               {act.perTooth && act.toothNumbers.length > 1 && (
-                <span className="ml-1 text-[10px] text-muted-foreground">
+                <span className="ml-1 text-2xs text-muted-foreground">
                   ({formatDT(Number.parseFloat(act.unitCost) || 0)} / dent)
                 </span>
               )}
             </>
           ) : (
-            <span className="text-[10px] italic text-muted-foreground">inclus</span>
+            <span className="text-2xs italic text-muted-foreground">inclus</span>
           )}
         </span>
 
@@ -172,7 +172,7 @@ export function SessionActsList({
           <div className="flex items-center gap-2">
             <span className="text-xs font-semibold text-foreground">Dent {tooth}</span>
             <span className="h-px flex-1 bg-border" />
-            <span className="text-[10px] text-muted-foreground">
+            <span className="text-2xs text-muted-foreground">
               {toothActs.length} acte{toothActs.length > 1 ? "s" : ""}
             </span>
           </div>
@@ -185,7 +185,7 @@ export function SessionActsList({
           <div className="flex items-center gap-2">
             <span className="text-xs font-semibold text-foreground">Actes généraux</span>
             <span className="h-px flex-1 bg-border" />
-            <span className="text-[10px] text-muted-foreground">sans dent</span>
+            <span className="text-2xs text-muted-foreground">sans dent</span>
           </div>
           <ul className="space-y-1">{generalActs.map((act) => renderRow(act, null))}</ul>
         </div>
@@ -202,7 +202,7 @@ export function SessionActsList({
           <div className="flex items-center gap-2">
             <span className="text-xs font-semibold text-amber-700 dark:text-amber-300">En cours de saisie</span>
             <span className="h-px flex-1 bg-border" />
-            <span className="text-[10px] text-muted-foreground">sera enregistré</span>
+            <span className="text-2xs text-muted-foreground">sera enregistré</span>
           </div>
           <div className="flex items-center gap-2 rounded-md border border-amber-400 bg-amber-50/60 px-2 py-1.5 text-xs dark:bg-amber-950/20">
             <span
@@ -223,14 +223,14 @@ export function SessionActsList({
             </span>
             {pendingAct.toothNumbers.length > 0 ? (
               <span
-                className="flex shrink-0 items-center gap-0.5 text-[10px] text-muted-foreground"
+                className="flex shrink-0 items-center gap-0.5 text-2xs text-muted-foreground"
                 title="Dents sélectionnées"
               >
                 <Link2 className="h-3 w-3" />
                 {pendingAct.toothNumbers.join(", ")}
               </span>
             ) : (
-              <span className="shrink-0 text-[10px] italic text-muted-foreground">acte général</span>
+              <span className="shrink-0 text-2xs italic text-muted-foreground">acte général</span>
             )}
             <span className="shrink-0 tabular-nums">
               {formatDT(
@@ -238,7 +238,7 @@ export function SessionActsList({
               )}
             </span>
           </div>
-          <p className="text-[10px] text-muted-foreground">
+          <p className="text-2xs text-muted-foreground">
             Cet acte est inclus dans le total et sera enregistré tel quel. « Ajouter un autre acte » le valide et
             libère la saisie pour le suivant.
           </p>

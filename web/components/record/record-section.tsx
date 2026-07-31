@@ -34,7 +34,7 @@ export function RecordSection({ title, summary, open, onToggle, children, highli
           <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
         )}
         <span className="shrink-0 text-xs font-semibold">{title}</span>
-        <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">{summary}</span>
+        <span className="min-w-0 flex-1 truncate text-2xs text-muted-foreground">{summary}</span>
       </button>
       {open && <div className="grid gap-3 border-t px-3 pb-3 pt-3">{children}</div>}
     </div>

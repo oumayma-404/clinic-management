@@ -332,7 +332,7 @@ export function UserManagement() {
                                 <Badge variant="destructive">Inactif</Badge>
                               )}
                               {user.mustChangePassword && (
-                                <Badge variant="secondary" className="text-[10px]">Doit changer le mot de passe</Badge>
+                                <Badge variant="secondary" className="text-2xs">Doit changer le mot de passe</Badge>
                               )}
                             </div>
                           </TableCell>

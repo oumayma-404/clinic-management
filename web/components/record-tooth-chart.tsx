@@ -158,13 +158,15 @@ export function RecordToothChart({ isAdult, paint, onToggleTooth, disabled, toot
             outline={p?.existingColor ?? null}
             dashedOutline={p?.existingIsDiagnosis}
           />
+          {/* h-4, not h-3.5: the count rose from 8px to the 11px legibility floor (AC-2) and a 14px circle
+              clips a two-digit count. `leading-none` keeps it optically centred at the larger size. */}
           {p && p.count > 1 && (
-            <span className="absolute -right-1 -top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-primary text-[8px] font-semibold text-primary-foreground">
+            <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-2xs font-semibold leading-none text-primary-foreground">
               {p.count}
             </span>
           )}
         </span>
-        <span className={cn("mt-0.5 text-[9px] font-medium", selected ? "text-primary" : "text-muted-foreground")}>
+        <span className={cn("mt-0.5 text-2xs font-medium", selected ? "text-primary" : "text-muted-foreground")}>
           {num}
         </span>
       </button>
@@ -175,7 +177,7 @@ export function RecordToothChart({ isAdult, paint, onToggleTooth, disabled, toot
     <div className="overflow-x-auto rounded-lg border border-border bg-card p-3">
       {/* Upper jaw */}
       <div className="space-y-1.5">
-        <div className="text-center text-[10px] font-medium text-muted-foreground">Maxillaire (haut)</div>
+        <div className="text-center text-2xs font-medium text-muted-foreground">Maxillaire (haut)</div>
         <div className="flex justify-center gap-2">
           <div className="flex gap-0.5">{teeth.upperRight.map(renderTooth)}</div>
           <div className="w-px bg-border" />
@@ -192,7 +194,7 @@ export function RecordToothChart({ isAdult, paint, onToggleTooth, disabled, toot
           <div className="w-px bg-border" />
           <div className="flex gap-0.5">{teeth.lowerLeft.map(renderTooth)}</div>
         </div>
-        <div className="text-center text-[10px] font-medium text-muted-foreground">Mandibule (bas)</div>
+        <div className="text-center text-2xs font-medium text-muted-foreground">Mandibule (bas)</div>
       </div>
     </div>
   )

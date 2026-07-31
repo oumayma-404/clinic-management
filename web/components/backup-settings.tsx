@@ -121,7 +121,7 @@ export function BackupSettings() {
             <div className="space-y-0.5">
               <p className="text-xs font-medium text-green-900 dark:text-green-100">Dernière sauvegarde</p>
               <p className="text-xs text-green-700 dark:text-green-300 break-all">{lastResult.path}</p>
-              <p className="text-[10px] text-green-600 dark:text-green-400">{lastResult.size}</p>
+              <p className="text-2xs text-green-600 dark:text-green-400">{lastResult.size}</p>
             </div>
           </div>
         )}

@@ -8,8 +8,7 @@ import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { format, parseISO } from "date-fns"
 import { fr } from "date-fns/locale"
 import { toast } from "sonner"
-import { DashboardHeader } from "@/components/dashboard-header"
-import { DashboardSidebar } from "@/components/dashboard-sidebar"
+import { AppShell } from "@/components/app-shell"
 import { ClinicGuard } from "@/components/clinic-guard"
 import { PageHeader } from "@/components/ui/page-header"
 import { KpiGrid } from "@/components/dashboard/kpi-grid"
@@ -238,235 +237,225 @@ export default function CaissePage() {
 
   return (
     <ClinicGuard>
-      <div className="flex h-screen bg-background">
-        <DashboardSidebar />
+      <AppShell contentClassName="space-y-6">
+        {/* Page Header */}
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <PageHeader zone="Argent" title="Caisse" subtitle={<span className="capitalize">{dayLabel}</span>} />
 
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <DashboardHeader />
-
-          <main className="flex-1 overflow-y-auto p-4 md:p-6">
-            <div className="mx-auto max-w-7xl space-y-6">
-              {/* Page Header */}
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                <PageHeader zone="Argent" title="Caisse" subtitle={<span className="capitalize">{dayLabel}</span>} />
-
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-                  <div className="flex items-end gap-2">
-                    <div className="space-y-1.5">
-                      <Label htmlFor="caisse-day" className="text-sm text-muted-foreground">
-                        {isRange ? "Du" : "Jour"}
-                      </Label>
-                      <Input
-                        id="caisse-day"
-                        type="date"
-                        value={selectedDay}
-                        onChange={(e) => setSelectedDay(e.target.value)}
-                        className="w-auto"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="caisse-day-end" className="text-sm text-muted-foreground">
-                        Au (optionnel)
-                      </Label>
-                      <Input
-                        id="caisse-day-end"
-                        type="date"
-                        value={endDay}
-                        min={selectedDay}
-                        onChange={(e) => setEndDay(e.target.value)}
-                        className="w-auto"
-                      />
-                    </div>
-                    {isRange && (
-                      <Button variant="outline" onClick={() => setEndDay("")}>
-                        Journée
-                      </Button>
-                    )}
-                  </div>
-                  <Button onClick={handleAddNew} className="gap-2">
-                    <Plus className="h-4 w-4" />
-                    Nouvelle dépense
-                  </Button>
-                </div>
-              </div>
-
-              {/* Caisse summary. Four figures, not three: « Encaissements » is now GROSS and avoirs have their own
-                  card. They used to be silently subtracted inside it, which stopped working the moment the
-                  statement below listed a refund as money leaving — the lines would not have summed to the total
-                  printed above them. Net = Encaissements − Avoirs − Dépenses. */}
-              {/*
-                The four figures share ONE surface (`KpiGrid`), the same treatment the dashboard uses for the same
-                numbers — four separate `Card`s meant four borders, four shadows and four figures of equal weight,
-                and the two screens reporting identical money looked like two different products.
-
-                « Net » takes the accent: it is the *result* of the three beside it, which four identical cards had
-                no way of saying. The other three keep their semantic colour (encaissé positive, avoirs warning,
-                dépenses destructive) through the theme tokens rather than raw `emerald-600` / `amber-600`.
-              */}
-              <KpiGrid columns={4}>
-                <CaisseFigure label="Encaissements" hint="brut, hors avoirs" value={formatDT(cashIn)} tone="text-success" />
-                <CaisseFigure label="Avoirs remboursés" hint="rendus aux patients" value={formatDT(refunds)} tone="text-warning-ink" />
-                <CaisseFigure label="Dépenses" hint="sorties de caisse" value={formatDT(cashOut)} tone="text-destructive" />
-                <CaisseFigure
-                  label="Net"
-                  hint="encaissé − avoirs − dépenses"
-                  value={formatDT(net)}
-                  tone={net < 0 ? "text-destructive" : "text-primary"}
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+            <div className="flex items-end gap-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="caisse-day" className="text-sm text-muted-foreground">
+                  {isRange ? "Du" : "Jour"}
+                </Label>
+                <Input
+                  id="caisse-day"
+                  type="date"
+                  value={selectedDay}
+                  onChange={(e) => setSelectedDay(e.target.value)}
+                  className="w-auto"
                 />
-              </KpiGrid>
-
-              {/* The « extrait » — the statement behind the four figures above. It sits above the expenses table
-                  because the expenses are a subset of it; that table stays for its edit/delete actions, which
-                  belong to the expense aggregate and not to a read-only movement line. */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <ArrowLeftRight className="h-5 w-5" />
-                    Extrait de caisse
-                    <Badge variant="secondary" className="ml-2">
-                      {ledger?.totalCount ?? 0}
-                    </Badge>
-                  </CardTitle>
-                  <CardDescription>
-                    Tous les mouvements de la période, du plus ancien au plus récent — paiements de factures,
-                    échéances de devis, avoirs remboursés et dépenses. Un mouvement annulé reste visible, barré,
-                    et ne compte pas dans le solde.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="mb-4">
-                    <Label htmlFor="caisse-search" className="sr-only">
-                      Rechercher un mouvement
-                    </Label>
-                    <div className="relative">
-                      <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                      <Input
-                        id="caisse-search"
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                        placeholder="Rechercher un mouvement ou une dépense (libellé, patient, référence)…"
-                        className="pl-9"
-                      />
-                    </div>
-                  </div>
-                  {error && !loading ? (
-                    <p className="py-8 text-center text-sm text-destructive">{error}</p>
-                  ) : (
-                    <>
-                      <CaisseLedgerTable movements={ledger?.movements ?? []} loading={loading} />
-                      {ledger && (
-                        <DataTablePagination
-                          page={ledger}
-                          onPageChange={setLedgerPageNumber}
-                          onPageSizeChange={setPageSize}
-                          loading={loading}
-                          label={["mouvement", "mouvements"]}
-                        />
-                      )}
-                    </>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Expenses table */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Wallet className="h-5 w-5" />
-                    Dépenses du jour
-                    <Badge variant="secondary" className="ml-2">
-                      {expensePage.totalCount}
-                    </Badge>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {loading ? (
-                    <div className="flex items-center justify-center py-12 text-muted-foreground">
-                      <Loader2 className="h-5 w-5 animate-spin" />
-                    </div>
-                  ) : error ? (
-                    <p className="py-12 text-center text-sm text-destructive">{error}</p>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Date</TableHead>
-                            <TableHead>Catégorie</TableHead>
-                            <TableHead className="text-right">Montant</TableHead>
-                            <TableHead>Mode</TableHead>
-                            <TableHead>Description</TableHead>
-                            <TableHead className="text-right">Actions</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {expenses.length === 0 ? (
-                            <TableRow>
-                              <TableCell colSpan={6} className="h-24 text-center">
-                                <p className="text-muted-foreground">
-                                  {search.trim()
-                                    ? "Aucune dépense ne correspond à votre recherche"
-                                    : "Aucune dépense pour ce jour"}
-                                </p>
-                              </TableCell>
-                            </TableRow>
-                          ) : (
-                            expenses.map((expense) => (
-                              <TableRow key={expense.id}>
-                                <TableCell className="text-muted-foreground">
-                                  {format(parseISO(expense.expenseDate), "dd/MM/yyyy", { locale: fr })}
-                                </TableCell>
-                                <TableCell>
-                                  <Badge variant="outline">{expense.category}</Badge>
-                                </TableCell>
-                                <TableCell className="text-right font-medium text-foreground">
-                                  {formatDT(expense.amount)}
-                                </TableCell>
-                                <TableCell className="text-muted-foreground">{methodLabel(expense.method)}</TableCell>
-                                <TableCell className="max-w-xs truncate text-muted-foreground">
-                                  {expense.description?.trim() ? expense.description : "—"}
-                                </TableCell>
-                                <TableCell className="text-right">
-                                  <div className="flex justify-end gap-2">
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => handleEdit(expense)}
-                                      className="h-8 gap-1"
-                                    >
-                                      <Pencil className="h-3 w-3" />
-                                      Modifier
-                                    </Button>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => handleDelete(expense)}
-                                      className="h-8 gap-1 text-destructive hover:text-destructive"
-                                    >
-                                      <Trash2 className="h-3 w-3" />
-                                      Supprimer
-                                    </Button>
-                                  </div>
-                                </TableCell>
-                              </TableRow>
-                            ))
-                          )}
-                        </TableBody>
-                      </Table>
-                      <DataTablePagination
-                        page={expensePage}
-                        onPageChange={setExpensePageNumber}
-                        onPageSizeChange={setPageSize}
-                        loading={loading}
-                        label={["dépense", "dépenses"]}
-                      />
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="caisse-day-end" className="text-sm text-muted-foreground">
+                  Au (optionnel)
+                </Label>
+                <Input
+                  id="caisse-day-end"
+                  type="date"
+                  value={endDay}
+                  min={selectedDay}
+                  onChange={(e) => setEndDay(e.target.value)}
+                  className="w-auto"
+                />
+              </div>
+              {isRange && (
+                <Button variant="outline" onClick={() => setEndDay("")}>
+                  Journée
+                </Button>
+              )}
             </div>
-          </main>
+            <Button onClick={handleAddNew} className="gap-2">
+              <Plus className="h-4 w-4" />
+              Nouvelle dépense
+            </Button>
+          </div>
         </div>
+
+        {/* Caisse summary. Four figures, not three: « Encaissements » is now GROSS and avoirs have their own
+            card. They used to be silently subtracted inside it, which stopped working the moment the
+            statement below listed a refund as money leaving — the lines would not have summed to the total
+            printed above them. Net = Encaissements − Avoirs − Dépenses. */}
+        {/*
+          The four figures share ONE surface (`KpiGrid`), the same treatment the dashboard uses for the same
+          numbers — four separate `Card`s meant four borders, four shadows and four figures of equal weight,
+          and the two screens reporting identical money looked like two different products.
+
+          « Net » takes the accent: it is the *result* of the three beside it, which four identical cards had
+          no way of saying. The other three keep their semantic colour (encaissé positive, avoirs warning,
+          dépenses destructive) through the theme tokens rather than raw `emerald-600` / `amber-600`.
+        */}
+        <KpiGrid columns={4}>
+          <CaisseFigure label="Encaissements" hint="brut, hors avoirs" value={formatDT(cashIn)} tone="text-success" />
+          <CaisseFigure label="Avoirs remboursés" hint="rendus aux patients" value={formatDT(refunds)} tone="text-warning-ink" />
+          <CaisseFigure label="Dépenses" hint="sorties de caisse" value={formatDT(cashOut)} tone="text-destructive" />
+          <CaisseFigure
+            label="Net"
+            hint="encaissé − avoirs − dépenses"
+            value={formatDT(net)}
+            tone={net < 0 ? "text-destructive" : "text-primary"}
+          />
+        </KpiGrid>
+
+        {/* The « extrait » — the statement behind the four figures above. It sits above the expenses table
+            because the expenses are a subset of it; that table stays for its edit/delete actions, which
+            belong to the expense aggregate and not to a read-only movement line. */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <ArrowLeftRight className="h-5 w-5" />
+              Extrait de caisse
+              <Badge variant="secondary" className="ml-2">
+                {ledger?.totalCount ?? 0}
+              </Badge>
+            </CardTitle>
+            <CardDescription>
+              Tous les mouvements de la période, du plus ancien au plus récent — paiements de factures,
+              échéances de devis, avoirs remboursés et dépenses. Un mouvement annulé reste visible, barré,
+              et ne compte pas dans le solde.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="mb-4">
+              <Label htmlFor="caisse-search" className="sr-only">
+                Rechercher un mouvement
+              </Label>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id="caisse-search"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Rechercher un mouvement ou une dépense (libellé, patient, référence)…"
+                  className="pl-9"
+                />
+              </div>
+            </div>
+            {error && !loading ? (
+              <p className="py-8 text-center text-sm text-destructive">{error}</p>
+            ) : (
+              <>
+                <CaisseLedgerTable movements={ledger?.movements ?? []} loading={loading} />
+                {ledger && (
+                  <DataTablePagination
+                    page={ledger}
+                    onPageChange={setLedgerPageNumber}
+                    onPageSizeChange={setPageSize}
+                    loading={loading}
+                    label={["mouvement", "mouvements"]}
+                  />
+                )}
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Expenses table */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Wallet className="h-5 w-5" />
+              Dépenses du jour
+              <Badge variant="secondary" className="ml-2">
+                {expensePage.totalCount}
+              </Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {loading ? (
+              <div className="flex items-center justify-center py-12 text-muted-foreground">
+                <Loader2 className="h-5 w-5 animate-spin" />
+              </div>
+            ) : error ? (
+              <p className="py-12 text-center text-sm text-destructive">{error}</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Catégorie</TableHead>
+                      <TableHead className="text-right">Montant</TableHead>
+                      <TableHead>Mode</TableHead>
+                      <TableHead>Description</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {expenses.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={6} className="h-24 text-center">
+                          <p className="text-muted-foreground">
+                            {search.trim()
+                              ? "Aucune dépense ne correspond à votre recherche"
+                              : "Aucune dépense pour ce jour"}
+                          </p>
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      expenses.map((expense) => (
+                        <TableRow key={expense.id}>
+                          <TableCell className="text-muted-foreground">
+                            {format(parseISO(expense.expenseDate), "dd/MM/yyyy", { locale: fr })}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline">{expense.category}</Badge>
+                          </TableCell>
+                          <TableCell className="text-right font-medium text-foreground">
+                            {formatDT(expense.amount)}
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">{methodLabel(expense.method)}</TableCell>
+                          <TableCell className="max-w-xs truncate text-muted-foreground">
+                            {expense.description?.trim() ? expense.description : "—"}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex justify-end gap-2">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleEdit(expense)}
+                                className="h-8 gap-1"
+                              >
+                                <Pencil className="h-3 w-3" />
+                                Modifier
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleDelete(expense)}
+                                className="h-8 gap-1 text-destructive hover:text-destructive"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                                Supprimer
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+                <DataTablePagination
+                  page={expensePage}
+                  onPageChange={setExpensePageNumber}
+                  onPageSizeChange={setPageSize}
+                  loading={loading}
+                  label={["dépense", "dépenses"]}
+                />
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         <ExpenseFormModal
           open={modalOpen}
@@ -475,39 +464,38 @@ export default function CaissePage() {
           defaultDay={selectedDay}
           onSaved={loadData}
         />
-
         <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Confirmer la suppression</AlertDialogTitle>
-              <AlertDialogDescription>
-                Cette dépense
-                {expenseToDelete ? (
-                  <>
-                    {" "}
-                    (<span className="font-semibold">{expenseToDelete.category}</span> —{" "}
-                    {formatDT(expenseToDelete.amount)})
-                  </>
-                ) : null}{" "}
-                sera définitivement supprimée. Cette action est irréversible.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel disabled={deleting}>Annuler</AlertDialogCancel>
-              <AlertDialogAction
-                onClick={(e) => {
-                  e.preventDefault()
-                  confirmDelete()
-                }}
-                disabled={deleting}
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              >
-                {deleting ? "Suppression..." : "Supprimer"}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirmer la suppression</AlertDialogTitle>
+            <AlertDialogDescription>
+              Cette dépense
+              {expenseToDelete ? (
+                <>
+                  {" "}
+                  (<span className="font-semibold">{expenseToDelete.category}</span> —{" "}
+                  {formatDT(expenseToDelete.amount)})
+                </>
+              ) : null}{" "}
+              sera définitivement supprimée. Cette action est irréversible.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                confirmDelete()
+              }}
+              disabled={deleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? "Suppression..." : "Supprimer"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
         </AlertDialog>
-      </div>
+      </AppShell>
     </ClinicGuard>
   )
 }

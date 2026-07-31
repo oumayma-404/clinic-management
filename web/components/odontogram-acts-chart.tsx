@@ -131,12 +131,12 @@ export function OdontogramActsChart({ teeth, records, procedureTypes }: Odontogr
         <span
           className={cn(
             // Same geometry as the diagnosis chart's cell — the two tabs must draw the same mouth.
-            "flex h-9 w-7 items-center justify-center rounded-md border text-[10px] font-semibold",
+            "flex h-9 w-7 items-center justify-center rounded-md border text-2xs font-semibold",
             !acts && "border-border bg-background",
           )}
           style={acts ? { backgroundColor: fill, borderColor: fill } : undefined}
         />
-        <span className="mt-0.5 text-[9px] font-medium text-muted-foreground">{toothNum}</span>
+        <span className="mt-0.5 text-2xs font-medium text-muted-foreground">{toothNum}</span>
         {acts && (
           // One dot per act, mirroring the diagnosis cell's multiplicity indicator.
           <span className="mt-0.5 flex items-center gap-0.5">
@@ -148,7 +148,7 @@ export function OdontogramActsChart({ teeth, records, procedureTypes }: Odontogr
               />
             ))}
             {acts.length > 4 && (
-              <span className="text-[8px] font-medium text-muted-foreground">+{acts.length - 4}</span>
+              <span className="text-2xs font-medium text-muted-foreground">+{acts.length - 4}</span>
             )}
           </span>
         )}
@@ -211,7 +211,7 @@ export function OdontogramActsChart({ teeth, records, procedureTypes }: Odontogr
         {/* Same container and arch labels as the diagnosis chart. */}
         <div className="overflow-x-auto rounded-lg border border-border bg-card p-3">
           <div className="space-y-1.5">
-            <div className="text-center text-[10px] font-medium text-muted-foreground">Maxillaire (haut)</div>
+            <div className="text-center text-2xs font-medium text-muted-foreground">Maxillaire (haut)</div>
             <div className="flex justify-center gap-2">
               <div className="flex gap-0.5">{teeth.upperRight.map(renderTooth)}</div>
               <div className="w-px bg-border" />
@@ -227,7 +227,7 @@ export function OdontogramActsChart({ teeth, records, procedureTypes }: Odontogr
               <div className="w-px bg-border" />
               <div className="flex gap-0.5">{teeth.lowerLeft.map(renderTooth)}</div>
             </div>
-            <div className="text-center text-[10px] font-medium text-muted-foreground">Mandibule (bas)</div>
+            <div className="text-center text-2xs font-medium text-muted-foreground">Mandibule (bas)</div>
           </div>
         </div>
 

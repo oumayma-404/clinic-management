@@ -121,7 +121,7 @@ function NotesPanel({
         </span>
         <h2
           className={cn(
-            "text-[11px] font-semibold uppercase tracking-wide",
+            "text-2xs font-semibold uppercase tracking-wide",
             isAlert ? "text-amber-800 dark:text-amber-300" : "text-muted-foreground",
           )}
         >
@@ -204,7 +204,7 @@ export function PatientNotesStrip({ patient, records, onEdit }: PatientNotesStri
     >
       <span
         className={cn(
-          "mr-1.5 whitespace-nowrap text-[11px] font-medium tabular-nums",
+          "mr-1.5 whitespace-nowrap text-2xs font-medium tabular-nums",
           alert ? "text-amber-800/90 dark:text-amber-300/90" : "text-muted-foreground",
         )}
       >
@@ -213,7 +213,7 @@ export function PatientNotesStrip({ patient, records, onEdit }: PatientNotesStri
       {item.procedure && (
         <span
           className={cn(
-            "mr-1.5 text-[11px]",
+            "mr-1.5 text-2xs",
             alert ? "text-amber-800/75 dark:text-amber-300/70" : "text-muted-foreground/80",
           )}
         >

@@ -169,7 +169,7 @@ export function ActCatalogPicker({
         >
           {pt.name}
         </span>
-        {style && <span className="shrink-0 text-[10px] text-muted-foreground">{style.label}</span>}
+        {style && <span className="shrink-0 text-2xs text-muted-foreground">{style.label}</span>}
         <span className="w-[86px] shrink-0 text-right text-xs tabular-nums text-muted-foreground">
           {pt.defaultCost != null && pt.defaultCost > 0 ? formatDT(pt.defaultCost) : "—"}
         </span>
@@ -195,7 +195,7 @@ export function ActCatalogPicker({
           autoComplete="off"
           className="h-7 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
         />
-        <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
+        <span className="shrink-0 text-2xs tabular-nums text-muted-foreground">
           {matches.length}/{procedureTypes.length}
         </span>
       </div>
@@ -210,7 +210,7 @@ export function ActCatalogPicker({
         ) : (
           groups.map(({ label, items }) => (
             <div key={label}>
-              <p className="px-3 pb-0.5 pt-2 text-[9.5px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+              <p className="px-3 pb-0.5 pt-2 text-2xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
                 {label}
               </p>
               {items.map((pt) => renderRow(pt, matches.indexOf(pt)))}
@@ -230,22 +230,22 @@ export function ActCatalogPicker({
           <span className="min-w-0 flex-1 truncate">
             Enregistrer «&nbsp;<span className="font-medium">{trimmed}</span>&nbsp;» comme acte libre
           </span>
-          <span className="shrink-0 text-[10px] text-muted-foreground">sans tarif catalogue</span>
+          <span className="shrink-0 text-2xs text-muted-foreground">sans tarif catalogue</span>
         </button>
       )}
 
-      <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-card px-3 py-1.5 text-[11px] text-muted-foreground">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-card px-3 py-1.5 text-2xs text-muted-foreground">
         <span className="flex items-center gap-1">
-          <kbd className="rounded border border-b-2 px-1 text-[9px]">↑</kbd>
-          <kbd className="rounded border border-b-2 px-1 text-[9px]">↓</kbd>
+          <kbd className="rounded border border-b-2 px-1 text-2xs">↑</kbd>
+          <kbd className="rounded border border-b-2 px-1 text-2xs">↓</kbd>
           parcourir
           <span className="mx-0.5 opacity-50">·</span>
-          <kbd className="rounded border border-b-2 px-1 text-[9px]">↵</kbd>
+          <kbd className="rounded border border-b-2 px-1 text-2xs">↵</kbd>
           choisir
           {onCancel && (
             <>
               <span className="mx-0.5 opacity-50">·</span>
-              <kbd className="rounded border border-b-2 px-1 text-[9px]">esc</kbd>
+              <kbd className="rounded border border-b-2 px-1 text-2xs">esc</kbd>
               annuler
             </>
           )}

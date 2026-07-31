@@ -1716,7 +1716,10 @@ export function DocumentEditorContent() {
   }, [])
 
   return (
-    <div className="flex h-screen bg-background">
+    // `flex-1 min-h-0`, not `h-screen`: this renders inside `AppShell`'s `<main>`, which is already a bounded
+    // flex column of the viewport minus the header. Demanding a second full viewport here made the editor
+    // taller than its own container by exactly the header's height.
+    <div className="flex min-h-0 flex-1 bg-background">
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* AC-P3.17 — the two columns stack below `md:`. A fixed 420px form beside a preview does not fit a
             375px phone: the form was clipped and the preview unreachable. Stacked, the form is full-width and

@@ -336,7 +336,7 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
                     )}
                     {/* AC-P2.37: a colour the server offers but this map does not name still renders — with the
                         hex as its label — rather than appearing as an unlabelled swatch. */}
-                    <span className="text-[9px] text-center leading-tight text-muted-foreground">
+                    <span className="text-2xs text-center leading-tight text-muted-foreground">
                       {colorLabel(hex)}
                     </span>
                   </button>
@@ -349,7 +349,7 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
             <Label className="text-xs font-medium">Aperçu</Label>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <p className="text-[10px] font-medium text-muted-foreground">Agenda</p>
+                <p className="text-2xs font-medium text-muted-foreground">Agenda</p>
                 <div
                   className="rounded-md border-l-4 bg-card p-2 shadow-sm"
                   style={{
@@ -358,12 +358,12 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
                   }}
                 >
                   <p className="text-xs font-medium text-foreground">{name || "Nom de l'acte"}</p>
-                  <p className="text-[10px] text-muted-foreground">{duration ? `${duration} min` : "Durée"}</p>
+                  <p className="text-2xs text-muted-foreground">{duration ? `${duration} min` : "Durée"}</p>
                 </div>
               </div>
 
               <div className="space-y-1.5">
-                <p className="text-[10px] font-medium text-muted-foreground">Badge</p>
+                <p className="text-2xs font-medium text-muted-foreground">Badge</p>
                 <div className="flex items-center gap-2">
                   <div
                     className="h-2.5 w-2.5 rounded-full border border-border"

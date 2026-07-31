@@ -3,8 +3,7 @@
 import { useCallback, useEffect, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { ClinicGuard } from "@/components/clinic-guard"
-import { DashboardSidebar } from "@/components/dashboard-sidebar"
-import { DashboardHeader } from "@/components/dashboard-header"
+import { AppShell } from "@/components/app-shell"
 import { Button } from "@/components/ui/button"
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
 import { ApiError } from "@/lib/api/client"
@@ -58,54 +57,31 @@ export default function TreatmentPlanWorkspacePage() {
   // its own spinner over a page that has already failed, and the user would never see why.
   if (loading) {
     return (
-      <Shell>
-        <main className="flex flex-1 items-center justify-center">
-          <p className="text-muted-foreground">Chargement du plan de traitement…</p>
-        </main>
-      </Shell>
+      <AppShell width="none" gutter={false} mainClassName="flex items-center justify-center">
+        <p className="text-muted-foreground">Chargement du plan de traitement…</p>
+      </AppShell>
     )
   }
 
   if (error || !plan) {
     return (
-      <Shell>
-        <main className="flex flex-1 items-center justify-center">
-          <div className="text-center">
-            <h2 className="text-2xl font-semibold text-foreground">Plan introuvable</h2>
-            <p className="mt-2 text-muted-foreground">{error || "Le plan recherché n'existe pas."}</p>
-            <Button onClick={() => router.push("/treatment-plans")} className="mt-4">
-              Retour aux plans
-            </Button>
-          </div>
-        </main>
-      </Shell>
+      <AppShell width="none" gutter={false} mainClassName="flex items-center justify-center">
+        <div className="text-center">
+          <h2 className="text-2xl font-semibold text-foreground">Plan introuvable</h2>
+          <p className="mt-2 text-muted-foreground">{error || "Le plan recherché n'existe pas."}</p>
+          <Button onClick={() => router.push("/treatment-plans")} className="mt-4">
+            Retour aux plans
+          </Button>
+        </div>
+      </AppShell>
     )
   }
 
   return (
     <ClinicGuard>
-      <div className="flex h-screen bg-background">
-        <DashboardSidebar />
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <DashboardHeader />
-          <main className="flex-1 overflow-auto p-4 md:p-6">
-            <PlanWorkspace plan={plan} onChanged={load} />
-          </main>
-        </div>
-      </div>
+      <AppShell width="none">
+        <PlanWorkspace plan={plan} onChanged={load} />
+      </AppShell>
     </ClinicGuard>
-  )
-}
-
-/** The standard page chrome, minus ClinicGuard — used by the loading and not-found states. */
-function Shell({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="flex h-screen bg-background">
-      <DashboardSidebar />
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <DashboardHeader />
-        {children}
-      </div>
-    </div>
   )
 }

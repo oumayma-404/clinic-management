@@ -87,7 +87,7 @@ export function FilterChip({ label, active, onToggle, count, disabled = false }:
     >
       {label}
       {count !== undefined && (
-        <span className="font-mono text-[11px] tabular-nums opacity-75">{count}</span>
+        <span className="font-mono text-2xs tabular-nums opacity-75">{count}</span>
       )}
     </button>
   )

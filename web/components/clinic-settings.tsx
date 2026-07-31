@@ -567,7 +567,7 @@ export default function ClinicSettings() {
                 {clinicCode}
               </Badge>
             </div>
-            <p className="text-[10px] text-primary mt-1.5">
+            <p className="text-2xs text-primary mt-1.5">
               Communiquez ce code à vos collègues pour qu'ils rejoignent la clinique
             </p>
           </div>
@@ -722,7 +722,7 @@ export default function ClinicSettings() {
                     // Always show upload button when in edit mode
                     <label className="w-20 h-20 flex flex-col items-center justify-center border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-lg cursor-pointer hover:border-primary hover:bg-gradient-to-br hover:from-accent hover:to-indigo-50/20 dark:hover:to-indigo-950/20 transition-all group">
                       <Upload className="w-5 h-5 text-slate-400 group-hover:text-primary transition-colors" />
-                      <span className="text-[10px] text-slate-500 group-hover:text-primary font-medium transition-colors mt-1">
+                      <span className="text-2xs text-slate-500 group-hover:text-primary font-medium transition-colors mt-1">
                         {logoUrl ? "Modifier" : "Téléverser"}
                       </span>
                       <input type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
@@ -731,7 +731,7 @@ export default function ClinicSettings() {
                     // Show indicator that logo exists when not in edit mode
                     <div className="w-20 h-20 flex flex-col items-center justify-center border-2 border-primary/25 rounded-lg bg-accent/20">
                       <Building2 className="w-8 h-8 text-primary" />
-                      <span className="text-[8px] text-primary mt-1">Logo défini</span>
+                      <span className="text-2xs text-primary mt-1">Logo défini</span>
                     </div>
                   ) : (
                     <div className="text-xs text-muted-foreground italic">Aucun logo téléversé</div>
@@ -1187,7 +1187,7 @@ export default function ClinicSettings() {
                       <SelectItem value="Production">Production</SelectItem>
                     </SelectContent>
                   </Select>
-                  <p className="text-[11px] text-muted-foreground">
+                  <p className="text-2xs text-muted-foreground">
                     Le certificat qualifié et les identifiants TTN sont fournis côté serveur (dossier sécurisé
                     <code className="mx-1">.local/</code>), jamais saisis ici.
                   </p>

@@ -14,6 +14,7 @@ import { ApiError } from "@/lib/api/client"
 import { useDoctors } from "@/lib/hooks/use-doctors"
 import { useConnectivity } from "@/lib/connectivity/connectivity"
 import { useSession } from "@/lib/auth/session"
+import { isChromeLessPath } from "@/lib/nav"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 
@@ -31,12 +32,8 @@ const AUTO_OPEN_ONCE_KEY = "clinic:ai-chat-greeted"
  */
 const SPEECH_ENABLED_KEY = "clinic:ai-chat-speech"
 
-/**
- * Auth / onboarding routes the assistant must stay off. A path check is needed on top of the
- * session check: on /setup and /join a Cloud user IS authenticated (Auth0 session, no clinic yet),
- * and /change-password is a forced interstitial.
- */
-const HIDDEN_PATHS = ["/login", "/setup", "/join", "/change-password"]
+// The chrome-less route list moved to `lib/nav.ts` — the assistant and P2's bottom bar must agree on which
+// routes render no chrome, and two copies of that list is how they stop agreeing.
 
 interface AIChatProps {
   className?: string
@@ -75,10 +72,7 @@ export function AIChat({ className }: AIChatProps) {
 
   // The assistant has no business on screen before there is a session, or on the auth/onboarding
   // routes. Everything below keys off this so no work (and no doomed API call) happens while hidden.
-  const isHidden =
-    isSessionLoading ||
-    !user ||
-    HIDDEN_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`))
+  const isHidden = isSessionLoading || !user || isChromeLessPath(pathname)
 
   /** Drop the pending auto-collapse so the greeting timer never fights a deliberate open/close. */
   const cancelAutoCollapse = useCallback(() => {

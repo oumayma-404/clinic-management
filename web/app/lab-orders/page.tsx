@@ -14,8 +14,7 @@ import { format, parseISO } from "date-fns"
 import { fr } from "date-fns/locale"
 import { toast } from "sonner"
 import { Plus, Pencil, Trash2, Loader2, FlaskConical } from "lucide-react"
-import { DashboardHeader } from "@/components/dashboard-header"
-import { DashboardSidebar } from "@/components/dashboard-sidebar"
+import { AppShell } from "@/components/app-shell"
 import { ClinicGuard } from "@/components/clinic-guard"
 import { PageHeader } from "@/components/ui/page-header"
 import { Button } from "@/components/ui/button"
@@ -460,187 +459,177 @@ export default function LabOrdersPage() {
 
   return (
     <ClinicGuard>
-      <div className="flex h-screen bg-background">
-        <DashboardSidebar />
+      <AppShell contentClassName="space-y-6">
+        {/* Page Header */}
+        <div className="flex items-center justify-between">
+          <PageHeader
+            zone="Clinique"
+            title="Laboratoire"
+            subtitle="Bons de prothèse — travaux envoyés au laboratoire et leur étape."
+          />
 
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <DashboardHeader />
-
-          <main className="flex-1 overflow-y-auto p-4 md:p-6">
-            <div className="mx-auto max-w-7xl space-y-6">
-              {/* Page Header */}
-              <div className="flex items-center justify-between">
-                <PageHeader
-                  zone="Clinique"
-                  title="Laboratoire"
-                  subtitle="Bons de prothèse — travaux envoyés au laboratoire et leur étape."
-                />
-
-                <div className="flex flex-wrap items-end gap-2">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="lab-status" className="text-sm text-muted-foreground">
-                      Étape
-                    </Label>
-                    <Select value={statusFilter} onValueChange={setStatusFilter}>
-                      <SelectTrigger id="lab-status" className="w-44">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={ALL_STATUSES}>Toutes</SelectItem>
-                        {Object.entries(STATUS_LABELS).map(([value, label]) => (
-                          <SelectItem key={value} value={value}>
-                            {label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <Button onClick={handleAddNew} className="gap-2">
-                    <Plus className="h-4 w-4" />
-                    Nouveau bon
-                  </Button>
-                </div>
-              </div>
-
-              {/* Orders Table */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <FlaskConical className="h-5 w-5" />
-                    Bons de laboratoire
-                    <Badge variant="secondary" className="ml-2">
-                      {orderPage.totalCount}
-                    </Badge>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {loading ? (
-                    <div className="flex items-center justify-center py-12 text-muted-foreground">
-                      <Loader2 className="h-5 w-5 animate-spin" />
-                    </div>
-                  ) : error ? (
-                    <p className="py-12 text-center text-sm text-destructive">{error}</p>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <div className="mb-4">
-                        <Label htmlFor="lab-orders-search" className="sr-only">
-                          Rechercher un bon
-                        </Label>
-                        <Input
-                          id="lab-orders-search"
-                          value={search}
-                          onChange={(e) => setSearch(e.target.value)}
-                          placeholder="Rechercher un bon (prothésiste, description, patient)…"
-                        />
-                      </div>
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Patient</TableHead>
-                            <TableHead>Travail</TableHead>
-                            <TableHead>Prothésiste</TableHead>
-                            <TableHead>Dent</TableHead>
-                            <TableHead>Envoyé</TableHead>
-                            <TableHead>Prévu</TableHead>
-                            <TableHead>Reçu</TableHead>
-                            <TableHead>Coût</TableHead>
-                            <TableHead>Statut</TableHead>
-                            <TableHead className="text-right">Actions</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {orders.length === 0 ? (
-                            <TableRow>
-                              <TableCell colSpan={10} className="h-24 text-center">
-                                <p className="text-muted-foreground">Aucun bon de laboratoire</p>
-                              </TableCell>
-                            </TableRow>
-                          ) : (
-                            orders.map((order) => (
-                              <TableRow key={order.id}>
-                                <TableCell className="font-medium text-foreground">
-                                  {order.patientName ?? "—"}
-                                </TableCell>
-                                <TableCell>{order.workDescription}</TableCell>
-                                <TableCell className="text-muted-foreground">{order.prosthetist}</TableCell>
-                                <TableCell className="text-muted-foreground">{order.toothNumber ?? "—"}</TableCell>
-                                <TableCell className="text-muted-foreground">{formatDateFr(order.sentDate)}</TableCell>
-                                <TableCell className="text-muted-foreground">
-                                  {formatDateFr(order.expectedDate)}
-                                </TableCell>
-                                <TableCell className="text-muted-foreground">
-                                  {formatDateFr(order.receivedDate)}
-                                </TableCell>
-                                <TableCell className="text-muted-foreground">{formatCost(order.cost)}</TableCell>
-                                <TableCell>
-                                  <Badge variant={statusVariant(order.status)}>{statusLabel(order.status)}</Badge>
-                                </TableCell>
-                                <TableCell className="text-right">
-                                  <div className="flex items-center justify-end gap-2">
-                                    {/* AC-P2.40 — offer only the stages the server will accept from here. It
-                                        used to list all four unconditionally, so « Posé » → « Envoyé » looked
-                                        like a normal choice and (before the domain had any rules) silently
-                                        rewound a delivered prothèse. The current stage stays in the list as the
-                                        selected value; `allowedNextStatuses` comes from the domain's table, so
-                                        the client never re-derives it. A legacy row in an unmapped state gets an
-                                        empty list — the control is then disabled rather than offering a
-                                        transition that would be refused. */}
-                                    <select
-                                      aria-label="Changer le statut"
-                                      className={`${SELECT_CLASS} h-8 w-32`}
-                                      value={order.status}
-                                      disabled={
-                                        statusUpdatingId === order.id ||
-                                        (order.allowedNextStatuses?.length ?? 0) === 0
-                                      }
-                                      onChange={(e) => handleStatusChange(order, e.target.value)}
-                                    >
-                                      <option value={order.status}>{statusLabel(order.status)}</option>
-                                      {(order.allowedNextStatuses ?? []).map((s) => (
-                                        <option key={s} value={s}>
-                                          {statusLabel(s)}
-                                        </option>
-                                      ))}
-                                    </select>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => handleEdit(order)}
-                                      className="h-8 gap-1"
-                                    >
-                                      <Pencil className="h-3 w-3" />
-                                      Modifier
-                                    </Button>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => handleDelete(order)}
-                                      className="h-8 gap-1 text-destructive hover:text-destructive"
-                                    >
-                                      <Trash2 className="h-3 w-3" />
-                                      Supprimer
-                                    </Button>
-                                  </div>
-                                </TableCell>
-                              </TableRow>
-                            ))
-                          )}
-                        </TableBody>
-                      </Table>
-                      <DataTablePagination
-                        page={orderPage}
-                        onPageChange={setPage}
-                        onPageSizeChange={setPageSize}
-                        loading={loading}
-                        label={["bon", "bons"]}
-                      />
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="lab-status" className="text-sm text-muted-foreground">
+                Étape
+              </Label>
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger id="lab-status" className="w-44">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_STATUSES}>Toutes</SelectItem>
+                  {Object.entries(STATUS_LABELS).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-          </main>
+            <Button onClick={handleAddNew} className="gap-2">
+              <Plus className="h-4 w-4" />
+              Nouveau bon
+            </Button>
+          </div>
         </div>
+
+        {/* Orders Table */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <FlaskConical className="h-5 w-5" />
+              Bons de laboratoire
+              <Badge variant="secondary" className="ml-2">
+                {orderPage.totalCount}
+              </Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {loading ? (
+              <div className="flex items-center justify-center py-12 text-muted-foreground">
+                <Loader2 className="h-5 w-5 animate-spin" />
+              </div>
+            ) : error ? (
+              <p className="py-12 text-center text-sm text-destructive">{error}</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <div className="mb-4">
+                  <Label htmlFor="lab-orders-search" className="sr-only">
+                    Rechercher un bon
+                  </Label>
+                  <Input
+                    id="lab-orders-search"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Rechercher un bon (prothésiste, description, patient)…"
+                  />
+                </div>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Patient</TableHead>
+                      <TableHead>Travail</TableHead>
+                      <TableHead>Prothésiste</TableHead>
+                      <TableHead>Dent</TableHead>
+                      <TableHead>Envoyé</TableHead>
+                      <TableHead>Prévu</TableHead>
+                      <TableHead>Reçu</TableHead>
+                      <TableHead>Coût</TableHead>
+                      <TableHead>Statut</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {orders.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={10} className="h-24 text-center">
+                          <p className="text-muted-foreground">Aucun bon de laboratoire</p>
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      orders.map((order) => (
+                        <TableRow key={order.id}>
+                          <TableCell className="font-medium text-foreground">
+                            {order.patientName ?? "—"}
+                          </TableCell>
+                          <TableCell>{order.workDescription}</TableCell>
+                          <TableCell className="text-muted-foreground">{order.prosthetist}</TableCell>
+                          <TableCell className="text-muted-foreground">{order.toothNumber ?? "—"}</TableCell>
+                          <TableCell className="text-muted-foreground">{formatDateFr(order.sentDate)}</TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {formatDateFr(order.expectedDate)}
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {formatDateFr(order.receivedDate)}
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">{formatCost(order.cost)}</TableCell>
+                          <TableCell>
+                            <Badge variant={statusVariant(order.status)}>{statusLabel(order.status)}</Badge>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              {/* AC-P2.40 — offer only the stages the server will accept from here. It
+                                  used to list all four unconditionally, so « Posé » → « Envoyé » looked
+                                  like a normal choice and (before the domain had any rules) silently
+                                  rewound a delivered prothèse. The current stage stays in the list as the
+                                  selected value; `allowedNextStatuses` comes from the domain's table, so
+                                  the client never re-derives it. A legacy row in an unmapped state gets an
+                                  empty list — the control is then disabled rather than offering a
+                                  transition that would be refused. */}
+                              <select
+                                aria-label="Changer le statut"
+                                className={`${SELECT_CLASS} h-8 w-32`}
+                                value={order.status}
+                                disabled={
+                                  statusUpdatingId === order.id ||
+                                  (order.allowedNextStatuses?.length ?? 0) === 0
+                                }
+                                onChange={(e) => handleStatusChange(order, e.target.value)}
+                              >
+                                <option value={order.status}>{statusLabel(order.status)}</option>
+                                {(order.allowedNextStatuses ?? []).map((s) => (
+                                  <option key={s} value={s}>
+                                    {statusLabel(s)}
+                                  </option>
+                                ))}
+                              </select>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleEdit(order)}
+                                className="h-8 gap-1"
+                              >
+                                <Pencil className="h-3 w-3" />
+                                Modifier
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleDelete(order)}
+                                className="h-8 gap-1 text-destructive hover:text-destructive"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                                Supprimer
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+                <DataTablePagination
+                  page={orderPage}
+                  onPageChange={setPage}
+                  onPageSizeChange={setPageSize}
+                  loading={loading}
+                  label={["bon", "bons"]}
+                />
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         <LabOrderFormModal
           open={modalOpen}
@@ -649,33 +638,32 @@ export default function LabOrdersPage() {
           patients={patients}
           onSaved={loadOrders}
         />
-
         <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Êtes-vous sûr ?</AlertDialogTitle>
-              <AlertDialogDescription>
-                Le bon de{" "}
-                <span className="font-semibold">{orderToDelete?.workDescription}</span> sera définitivement
-                supprimé. Cette action est irréversible.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel disabled={deleting}>Annuler</AlertDialogCancel>
-              <AlertDialogAction
-                onClick={(e) => {
-                  e.preventDefault()
-                  confirmDelete()
-                }}
-                disabled={deleting}
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              >
-                {deleting ? "Suppression..." : "Supprimer"}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Êtes-vous sûr ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Le bon de{" "}
+              <span className="font-semibold">{orderToDelete?.workDescription}</span> sera définitivement
+              supprimé. Cette action est irréversible.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                confirmDelete()
+              }}
+              disabled={deleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? "Suppression..." : "Supprimer"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
         </AlertDialog>
-      </div>
+      </AppShell>
     </ClinicGuard>
   )
 }

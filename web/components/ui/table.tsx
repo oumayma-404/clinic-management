@@ -117,7 +117,7 @@ function TableHead({ className, ...props }: React.ComponentProps<"th">) {
       data-slot="table-head"
       className={cn(
         "h-9 px-3 text-left align-middle whitespace-nowrap",
-        "font-mono text-[10.5px] font-medium uppercase tracking-[0.07em] text-muted-foreground",
+        "font-mono text-2xs font-medium uppercase tracking-[0.07em] text-muted-foreground",
         "[&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]",
         className
       )}
@@ -179,7 +179,7 @@ function TableMeta({ className, children, ...props }: React.ComponentProps<"div"
       data-slot="table-meta"
       className={cn(
         "flex flex-wrap items-center justify-between gap-2 border-t px-3 py-2",
-        "font-mono text-[11px] text-muted-foreground",
+        "font-mono text-2xs text-muted-foreground",
         className
       )}
       {...props}

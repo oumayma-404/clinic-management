@@ -116,7 +116,7 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
       ]
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-accent via-white to-slate-50 dark:from-slate-950 dark:to-slate-900 flex items-center justify-center p-6">
+    <div className="min-h-dvh bg-gradient-to-br from-accent via-white to-slate-50 dark:from-slate-950 dark:to-slate-900 flex items-center justify-center p-6">
       <div className="w-full max-w-2xl">
         {/* Header */}
         <div className="text-center space-y-3 mb-8">

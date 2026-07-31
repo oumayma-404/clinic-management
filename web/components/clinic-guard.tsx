@@ -75,7 +75,7 @@ export function ClinicGuard({
   if (authLoading || clinicLoading) {
     return (
       fallback || (
-        <div className="min-h-screen flex items-center justify-center">
+        <div className="min-h-dvh flex items-center justify-center">
           <div className="text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
             <p className="text-muted-foreground">Chargement…</p>
@@ -89,7 +89,7 @@ export function ClinicGuard({
   // intact, so say so and offer a retry instead of bouncing to /login — which is what used to spin.
   if (!accessToken && tokenError === 'unavailable') {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-dvh flex items-center justify-center">
         <div className="text-center max-w-md px-4">
           <p className="text-lg font-medium mb-2">Connexion au serveur impossible</p>
           <p className="text-muted-foreground mb-6">
@@ -111,7 +111,7 @@ export function ClinicGuard({
   if (!accessToken) {
     return (
       fallback || (
-        <div className="min-h-screen flex items-center justify-center">
+        <div className="min-h-dvh flex items-center justify-center">
           <div className="text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
             <p className="text-muted-foreground">Redirection vers la connexion…</p>
@@ -133,7 +133,7 @@ export function ClinicGuard({
   // place instead of booting an authenticated member to the "Access Restricted" screen (AC-9).
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-dvh flex items-center justify-center">
         <div className="text-center max-w-md px-4">
           <p className="text-lg font-medium mb-2">Connexion au serveur impossible</p>
           <p className="text-muted-foreground mb-6">

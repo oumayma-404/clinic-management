@@ -1,8 +1,7 @@
 "use client"
 
 import { useParams, useRouter } from "next/navigation"
-import { DashboardHeader } from "@/components/dashboard-header"
-import { DashboardSidebar } from "@/components/dashboard-sidebar"
+import { AppShell } from "@/components/app-shell"
 import { ClinicGuard } from "@/components/clinic-guard"
 import { Button } from "@/components/ui/button"
 import { ArrowLeft } from "lucide-react"
@@ -50,17 +49,9 @@ export default function PatientFilesPage() {
   if (loading) {
     return (
       <ClinicGuard>
-        <div className="flex h-screen">
-          <DashboardSidebar />
-          <div className="flex-1 flex flex-col overflow-hidden">
-            <DashboardHeader />
-            <main className="flex-1 p-4 md:p-6">
-              <div className="flex items-center justify-center h-full">
-                <p className="text-muted-foreground">Chargement…</p>
-              </div>
-            </main>
-          </div>
-        </div>
+        <AppShell width="none" mainClassName="flex items-center justify-center">
+        <p className="text-muted-foreground">Chargement…</p>
+        </AppShell>
       </ClinicGuard>
     )
   }
@@ -76,30 +67,22 @@ export default function PatientFilesPage() {
 
   return (
     <ClinicGuard>
-      <div className="flex h-screen">
-        <DashboardSidebar />
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <DashboardHeader />
-          <main className="flex-1 overflow-y-auto p-4 md:p-6">
-            <div className="mx-auto max-w-7xl space-y-6">
-              {backButton}
+      <AppShell contentClassName="space-y-6">
+        {backButton}
 
-              {/* AC-P3.27 — an error state instead of the manager under the literal heading « Patient ». */}
-              {error ? (
-                <div role="status" className="rounded-lg border border-destructive/40 bg-destructive/5 p-6">
-                  <p className="font-medium text-foreground">Patient introuvable</p>
-                  <p className="mt-1 text-sm text-muted-foreground">{error}</p>
-                  <Button variant="outline" className="mt-4" onClick={() => void loadPatient()}>
-                    Réessayer
-                  </Button>
-                </div>
-              ) : (
-                <PatientFilesManager patientName={patientName} />
-              )}
-            </div>
-          </main>
-        </div>
-      </div>
+        {/* AC-P3.27 — an error state instead of the manager under the literal heading « Patient ». */}
+        {error ? (
+          <div role="status" className="rounded-lg border border-destructive/40 bg-destructive/5 p-6">
+            <p className="font-medium text-foreground">Patient introuvable</p>
+            <p className="mt-1 text-sm text-muted-foreground">{error}</p>
+            <Button variant="outline" className="mt-4" onClick={() => void loadPatient()}>
+              Réessayer
+            </Button>
+          </div>
+        ) : (
+          <PatientFilesManager patientName={patientName} />
+        )}
+      </AppShell>
     </ClinicGuard>
   )
 }

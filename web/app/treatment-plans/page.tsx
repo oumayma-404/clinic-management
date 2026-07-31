@@ -3,8 +3,7 @@
 import { useEffect, useState } from "react"
 import { ClinicGuard } from "@/components/clinic-guard"
 import { PageHeader } from "@/components/ui/page-header"
-import { DashboardSidebar } from "@/components/dashboard-sidebar"
-import { DashboardHeader } from "@/components/dashboard-header"
+import { AppShell } from "@/components/app-shell"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -66,78 +65,70 @@ export default function TreatmentPlansPage() {
 
   return (
     <ClinicGuard>
-      <div className="flex h-screen bg-background">
-        <DashboardSidebar />
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <DashboardHeader />
-          <main className="flex-1 overflow-auto p-4 md:p-6">
-            <div className="mx-auto max-w-7xl space-y-6">
-              <PageHeader
-                zone="Argent"
-                title="Plans de traitement &amp; devis"
-                subtitle="Plans de soins, devis et échéanciers de paiement."
-              />
+      <AppShell contentClassName="space-y-6">
+        <PageHeader
+          zone="Argent"
+          title="Plans de traitement &amp; devis"
+          subtitle="Plans de soins, devis et échéanciers de paiement."
+        />
 
-              {/* Filters */}
-              <Card>
-                <CardContent className="flex flex-wrap items-end gap-4 pt-6">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="from">Du</Label>
-                    <Input id="from" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="to">Au</Label>
-                    <Input id="to" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="status">Statut</Label>
-                    <Select value={status} onValueChange={setStatus}>
-                      <SelectTrigger id="status" className="w-48">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={ALL_STATUSES}>Tous</SelectItem>
-                        {Object.entries(PLAN_STATUS_LABELS).map(([value, label]) => (
-                          <SelectItem key={value} value={value}>
-                            {label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button onClick={applyFilters}>Filtrer</Button>
-                    <Button variant="outline" onClick={resetFilters}>Réinitialiser</Button>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* The acceptance window has no control of its own (it arrives by link), so it is stated explicitly —
-                  an invisible filter is how a user concludes their devis have disappeared. */}
-              {hasAcceptedWindow && (
-                <div role="status" className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/40 p-3 text-sm">
-                  <span className="min-w-0 flex-1">
-                    Devis acceptés {acceptedFrom ? `du ${formatDateFr(acceptedFrom)}` : ""}
-                    {acceptedTo ? ` au ${formatDateFr(acceptedTo)}` : ""}
-                  </span>
-                  <Button size="sm" variant="outline" onClick={resetFilters}>
-                    Afficher tous les devis
-                  </Button>
-                </div>
-              )}
-
-              <TreatmentPlansTable
-                from={fromIso}
-                to={toIso}
-                status={statusFilter}
-                acceptedFrom={acceptedFromIso}
-                acceptedTo={acceptedToIso}
-                reloadKey={reloadKey}
-              />
+        {/* Filters */}
+        <Card>
+          <CardContent className="flex flex-wrap items-end gap-4 pt-6">
+            <div className="space-y-1.5">
+              <Label htmlFor="from">Du</Label>
+              <Input id="from" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
             </div>
-          </main>
-        </div>
-      </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="to">Au</Label>
+              <Input id="to" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="status">Statut</Label>
+              <Select value={status} onValueChange={setStatus}>
+                <SelectTrigger id="status" className="w-48">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_STATUSES}>Tous</SelectItem>
+                  {Object.entries(PLAN_STATUS_LABELS).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex gap-2">
+              <Button onClick={applyFilters}>Filtrer</Button>
+              <Button variant="outline" onClick={resetFilters}>Réinitialiser</Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* The acceptance window has no control of its own (it arrives by link), so it is stated explicitly —
+            an invisible filter is how a user concludes their devis have disappeared. */}
+        {hasAcceptedWindow && (
+          <div role="status" className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/40 p-3 text-sm">
+            <span className="min-w-0 flex-1">
+              Devis acceptés {acceptedFrom ? `du ${formatDateFr(acceptedFrom)}` : ""}
+              {acceptedTo ? ` au ${formatDateFr(acceptedTo)}` : ""}
+            </span>
+            <Button size="sm" variant="outline" onClick={resetFilters}>
+              Afficher tous les devis
+            </Button>
+          </div>
+        )}
+
+        <TreatmentPlansTable
+          from={fromIso}
+          to={toIso}
+          status={statusFilter}
+          acceptedFrom={acceptedFromIso}
+          acceptedTo={acceptedToIso}
+          reloadKey={reloadKey}
+        />
+      </AppShell>
     </ClinicGuard>
   )
 }

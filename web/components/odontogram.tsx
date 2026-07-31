@@ -245,7 +245,7 @@ export function Odontogram({ patientId, dentition, onCreatePlan }: OdontogramPro
           <TabsContent value="diagnostics" className="mt-3 space-y-2">
         <div className="overflow-x-auto rounded-lg border border-border bg-card p-3">
           <div className="space-y-1.5">
-            <div className="text-center text-[10px] font-medium text-muted-foreground">Maxillaire (haut)</div>
+            <div className="text-center text-2xs font-medium text-muted-foreground">Maxillaire (haut)</div>
             <div className="flex justify-center gap-2">
               <div className="flex gap-0.5">
                 {teeth.upperRight.map((t) => (
@@ -277,7 +277,7 @@ export function Odontogram({ patientId, dentition, onCreatePlan }: OdontogramPro
                 ))}
               </div>
             </div>
-            <div className="text-center text-[10px] font-medium text-muted-foreground">Mandibule (bas)</div>
+            <div className="text-center text-2xs font-medium text-muted-foreground">Mandibule (bas)</div>
           </div>
         </div>
 
@@ -386,14 +386,14 @@ function ToothCell({ toothNum, entries, patientId, onChanged }: ToothCellProps) 
     <span className="flex flex-col items-center">
       <span
         className={cn(
-          "flex h-9 w-7 items-center justify-center rounded-md border text-[10px] font-semibold",
+          "flex h-9 w-7 items-center justify-center rounded-md border text-2xs font-semibold",
           style.box,
           latestIsDiagnosis && "border-2 border-dashed",
         )}
       >
         {latest?.surfaces ?? ""}
       </span>
-      <span className="mt-0.5 text-[9px] font-medium text-muted-foreground">{toothNum}</span>
+      <span className="mt-0.5 text-2xs font-medium text-muted-foreground">{toothNum}</span>
       {entries.length > 0 && (
         <span className="mt-0.5 flex items-center gap-0.5">
           {entries.slice(0, MAX_DOTS).map((e) => (
@@ -412,7 +412,7 @@ function ToothCell({ toothNum, entries, patientId, onChanged }: ToothCellProps) 
             />
           ))}
           {entries.length > MAX_DOTS && (
-            <span className="text-[8px] font-medium text-muted-foreground">+{entries.length - MAX_DOTS}</span>
+            <span className="text-2xs font-medium text-muted-foreground">+{entries.length - MAX_DOTS}</span>
           )}
         </span>
       )}
@@ -495,7 +495,7 @@ function ToothCell({ toothNum, entries, patientId, onChanged }: ToothCellProps) 
                   <span className="font-medium text-foreground">{conditionStyle(e.condition).label}</span>
                   <span
                     className={cn(
-                      "rounded px-1 py-0.5 text-[9px] font-medium",
+                      "rounded px-1 py-0.5 text-2xs font-medium",
                       isDiagnosis(e)
                         ? "bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-300"
                         : "bg-muted text-muted-foreground",
@@ -525,7 +525,7 @@ function ToothCell({ toothNum, entries, patientId, onChanged }: ToothCellProps) 
                      deleting it would erase the chart while its fiche still says the act was done. Saying so is the
                      point: before, these rows simply had no button and no explanation, which reads as "the app
                      won't let me fix my mistake". */
-                  <p className="mt-1.5 flex items-start gap-1.5 text-[11px] text-muted-foreground">
+                  <p className="mt-1.5 flex items-start gap-1.5 text-2xs text-muted-foreground">
                     <ClipboardList className="mt-px h-3 w-3 shrink-0" aria-hidden="true" />
                     <span>Acte réalisé — se corrige via sa fiche de soins, pas ici.</span>
                   </p>

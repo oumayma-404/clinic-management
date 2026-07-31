@@ -40,11 +40,11 @@ export function PageHeader({ zone, title, subtitle, actions, className }: PageHe
     <div className={cn("flex flex-wrap items-end justify-between gap-4", className)}>
       <div className="min-w-0">
         {zone && (
-          <p className="font-mono text-[10.5px] font-medium uppercase tracking-[0.1em] text-muted-foreground">
+          <p className="font-mono text-2xs font-medium uppercase tracking-[0.1em] text-muted-foreground">
             {zone}
           </p>
         )}
-        <h1 className="mt-1 text-[26px] font-semibold leading-tight tracking-tight text-foreground">{title}</h1>
+        <h1 className="mt-1 text-title font-semibold leading-tight tracking-tight text-foreground">{title}</h1>
         {subtitle && <p className="mt-1 max-w-[56ch] text-sm text-muted-foreground">{subtitle}</p>}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}

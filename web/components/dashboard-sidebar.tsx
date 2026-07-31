@@ -3,8 +3,9 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
-import { Calendar, CalendarClock, Users, Settings, LayoutDashboard, Stethoscope, Package, FileCheck, ChevronLeft, ChevronRight, UserCog, Receipt, ClipboardList, Pill, ClipboardCheck, ScrollText, HandCoins, Clock, FlaskConical, Wallet, BellRing } from "lucide-react"
-import type { LucideIcon } from "lucide-react"
+// `Stethoscope` is the brand mark in `brandHeader`, not a nav icon — it stays here after the nav data moved out.
+import { ChevronLeft, ChevronRight, Stethoscope } from "lucide-react"
+import { buildNavSections, type NavItem, type NavSection } from "@/lib/nav"
 import { useSidebar } from "@/contexts/sidebar-context"
 import { useSession } from "@/lib/auth/session"
 import { useClinicAccess } from "@/lib/hooks/use-clinic-access"
@@ -13,50 +14,8 @@ import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet"
 
-type NavItem = { name: string; href: string; icon: LucideIcon }
-type NavSection = { title: string; items: NavItem[] }
-
-// Daily-use sections. Config/catalog screens live in a separate "Configuration" group (built below with
-// role gating) so the everyday rail stays short. Mon profil moved to the header user menu; the read-only
-// /records and global /files shortcuts were removed (the patient page owns that data).
-const baseSections: NavSection[] = [
-  {
-    title: "Quotidien",
-    items: [
-      { name: "Tableau de bord", href: "/", icon: LayoutDashboard },
-      { name: "Rendez-vous", href: "/appointments", icon: Calendar },
-      { name: "RDV récurrents", href: "/recurring-series", icon: CalendarClock },
-      { name: "Salle d'attente", href: "/waiting-list", icon: Clock },
-      { name: "Patients", href: "/patients", icon: Users },
-    ],
-  },
-  {
-    title: "Clinique",
-    items: [
-      { name: "Documents", href: "/documents", icon: FileCheck },
-      { name: "Plans / Devis", href: "/treatment-plans", icon: ClipboardCheck },
-      { name: "Laboratoire", href: "/lab-orders", icon: FlaskConical },
-    ],
-  },
-  {
-    title: "Finances",
-    items: [
-      { name: "Factures", href: "/factures", icon: Receipt },
-      { name: "Caisse", href: "/caisse", icon: Wallet },
-      { name: "Créances", href: "/creances", icon: HandCoins },
-    ],
-  },
-  {
-    title: "Gestion",
-    items: [
-      { name: "Stock", href: "/stock", icon: Package },
-      // « Relances » (/recalls) is gone — the page was removed. The recall BACKEND is deliberately intact
-      // (RecallController, Features/Recall, the due-list query), so the worklist can be given a new home later
-      // without rebuilding it. Nothing here links to a route that no longer exists.
-      { name: "Rappels", href: "/rappels", icon: BellRing },
-    ],
-  },
-]
+// The nav model (sections, role gating, HIDDEN_PATHS) lives in `lib/nav.ts` — P2's bottom bar renders the same
+// destinations, and a second copy is how the two drift apart on exactly the device the bar exists for.
 
 export function DashboardSidebar() {
   const pathname = usePathname()
@@ -77,28 +36,7 @@ export function DashboardSidebar() {
 
   const isAdmin = user?.role === "admin"
 
-  // Configuration group: procedure catalog + admin-only reference catalogs + clinic settings. CNAM /
-  // médicaments / actes dentaires and Utilisateurs are all any-admin, in both modes.
-  //
-  // « Utilisateurs » used to carry an extra `mode === "local" &&` (AC-P2.28). Nothing else was mode-gated:
-  // the page itself only checks `role === "admin"`, and `UsersController` (list / status / role) works
-  // identically in Cloud — so a Cloud admin had no way to see who could reach their clinic's patient data, or
-  // to revoke a departed colleague. The one genuinely Local-only action inside, « Réinitialiser le mot de
-  // passe », is gated in `user-management.tsx` where it lives (AC-P2.29).
-  const configItems: NavItem[] = [
-    { name: "Types de procédures", href: "/procedure-types", icon: Stethoscope },
-    ...(isAdmin
-      ? [
-          { name: "Nomenclature CNAM", href: "/cnam-nomenclature", icon: ClipboardList },
-          { name: "Médicaments", href: "/medications", icon: Pill },
-          { name: "Actes dentaires", href: "/dental-acts", icon: ScrollText },
-        ]
-      : []),
-    ...(isAdmin ? [{ name: "Utilisateurs", href: "/users", icon: UserCog }] : []),
-    { name: "Paramètres", href: "/settings", icon: Settings },
-  ]
-
-  const sections: NavSection[] = [...baseSections, { title: "Configuration", items: configItems }]
+  const sections: NavSection[] = buildNavSections(isAdmin)
 
   // `collapsed` is passed rather than read from context: inside the mobile drawer the rail is always
   // expanded (there is room, and a phone has no hover for the collapsed tooltips), while the desktop rail
@@ -157,17 +95,18 @@ export function DashboardSidebar() {
   // `min-h-0` is load-bearing, not tidying. A flex item defaults to `min-height: auto`, which refuses to shrink
   // below its content — so `flex-1 overflow-y-auto` alone never scrolls: the nav just grows to fit all ~21 items
   // and pushes its container past the viewport instead. Both the desktop rail and the mobile drawer rely on it.
-  const navigation = (collapsed: boolean) => (
+  // `label` distinguishes the two landmarks this renders. A screen-reader rotator lists every <nav> on the page,
+  // and two both called « Navigation principale » are indistinguishable in that list — the user has to enter one
+  // to find out which it is. Only one is exposed at a time today (the rail is `display:none` below `md:`, the
+  // drawer unmounted above it), but P2 adds a third nav that IS concurrent with the rail.
+  const navigation = (collapsed: boolean, label: string) => (
     /*
      * `scrollbar-thin` matters on a short viewport. The nav is bounded, so on a 13" laptop nineteen destinations
      * still overflow and it still scrolls — but a full-width scrollbar sitting beside `<main>`'s reads as a second
      * *page* scrollbar, which is what made the app look broken. A thin overlay track reads as "this panel has
      * more", which is what it means.
      */
-    <nav
-      className="scrollbar-thin min-h-0 flex-1 overflow-y-auto px-3 py-3"
-      aria-label="Navigation principale"
-    >
+    <nav className="scrollbar-thin min-h-0 flex-1 overflow-y-auto px-3 py-3" aria-label={label}>
       <TooltipProvider>
         {sections.map((section) => (
           <div key={section.title} className="space-y-0.5 pb-1">
@@ -198,12 +137,14 @@ export function DashboardSidebar() {
       */}
       <aside
         className={cn(
-          "hidden md:flex h-screen flex-col overflow-hidden border-r border-border bg-card transition-all duration-300 relative",
+          // `h-dvh` tracks the page shell's own height (`AppShell`); the two MUST agree or the rail overflows
+          // the shell and the document grows a second scrollbar — which is the whole reason for the note above.
+          "hidden md:flex h-dvh flex-col overflow-hidden border-r border-border bg-card transition-all duration-300 relative",
           isCollapsed ? "w-16" : "w-64"
         )}
       >
         {brandHeader(isCollapsed)}
-        {navigation(isCollapsed)}
+        {navigation(isCollapsed, "Navigation principale")}
 
         {/* Toggle Button */}
         <div className="border-t border-border p-2">
@@ -227,11 +168,9 @@ export function DashboardSidebar() {
           click, focus trapping and focus restore are the primitive's, not hand-rolled (AC-P3.13/3.44).
           Opened from the header control; closed on navigation by the provider. */}
       <Sheet open={isMobileOpen} onOpenChange={setMobileOpen}>
-        <SheetContent
-          side="left"
-          className="w-72 max-w-[85vw] p-0 md:hidden"
-          aria-label="Navigation principale"
-        >
+        {/* No `aria-label` here: it would override `SheetTitle` as the dialog's accessible name AND repeat the
+            name of the <nav> inside it, so the drawer and its own contents announced identically. */}
+        <SheetContent side="left" className="w-72 max-w-[85vw] p-0 md:hidden">
           {/* Radix requires a title/description for the dialog's accessible name; the rail shows its own
               brand header, so these are screen-reader only. */}
           <SheetTitle className="sr-only">Navigation</SheetTitle>
@@ -242,7 +181,7 @@ export function DashboardSidebar() {
               absorbs a long list, rather than the brand header being pushed out of the drawer. */}
           <div className="flex h-full flex-col overflow-hidden">
             {brandHeader(false)}
-            {navigation(false)}
+            {navigation(false, "Navigation du menu")}
           </div>
         </SheetContent>
       </Sheet>

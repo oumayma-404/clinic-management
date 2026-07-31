@@ -281,7 +281,7 @@ export function DashboardHeader() {
               {unreadCount > 0 && (
                 <Badge
                   variant="destructive"
-                  className="absolute -right-1 -top-1 flex h-5 min-w-[1.25rem] items-center justify-center rounded-full px-1 text-[10px] leading-none"
+                  className="absolute -right-1 -top-1 flex h-5 min-w-[1.25rem] items-center justify-center rounded-full px-1 text-2xs leading-none"
                 >
                   {unreadCount > 99 ? "99+" : unreadCount}
                 </Badge>

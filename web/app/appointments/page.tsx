@@ -1,8 +1,7 @@
 "use client"
 
 import { useState, useCallback, useEffect } from "react"
-import { DashboardHeader } from "@/components/dashboard-header"
-import { DashboardSidebar } from "@/components/dashboard-sidebar"
+import { AppShell } from "@/components/app-shell"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Plus, RefreshCw, Calendar, Unlink } from "lucide-react"
@@ -271,140 +270,132 @@ export default function AppointmentsPage() {
 
   return (
     <ClinicGuard>
-      <div className="flex h-screen bg-background">
-      <DashboardSidebar />
-
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <DashboardHeader />
-
-        <main className="flex-1 overflow-hidden p-4">
-          <div className="mx-auto h-full max-w-[1400px] flex flex-col">
-            {/* View Tabs */}
-            <Tabs value={view} onValueChange={(v) => setView(v as "day" | "week" | "month")} className="flex-1 flex flex-col min-h-0">
-              <div className="flex items-center justify-between mb-3 flex-shrink-0">
-                <TabsList>
-                  <TabsTrigger value="day">Jour</TabsTrigger>
-                  <TabsTrigger value="week">Semaine</TabsTrigger>
-                  <TabsTrigger value="month">Mois</TabsTrigger>
-                </TabsList>
-                <div className="flex items-center gap-2">
-                  {isAdmin && (!isGoogleCalendarAuthorized ? (
-                    <Button
-                      onClick={handleAuthorizeGoogleCalendar}
-                      variant="outline"
-                      className="gap-2"
-                      size="sm"
-                      disabled={!internetReachable}
-                      title={!internetReachable ? "Connexion internet requise" : undefined}
-                    >
-                      <Calendar className="h-4 w-4" />
-                      Synchroniser avec Google Calendar
-                    </Button>
-                  ) : (
-                    <>
-                      <Button
-                        onClick={handleSyncFromGoogle}
-                        variant="outline"
-                        className="gap-2"
-                        size="sm"
-                        disabled={isSyncing || !internetReachable}
-                        title={!internetReachable ? "Connexion internet requise" : undefined}
-                      >
-                        <RefreshCw className={`h-4 w-4 ${isSyncing ? "animate-spin" : ""}`} />
-                        {isSyncing ? "Synchronisation…" : "Importer depuis Google"}
-                      </Button>
-                      {/* AC-P2.34 — beside « Importer depuis Google », behind an AlertDialog. Deliberately NOT
-                          gated on internetReachable: clearing our own stored token is a local DB write, and it
-                          is exactly what an admin needs when the connected account is wrong or unreachable. */}
-                      <Button
-                        onClick={() => setDisconnectOpen(true)}
-                        variant="outline"
-                        className="gap-2 text-destructive hover:text-destructive"
-                        size="sm"
-                        disabled={isDisconnecting}
-                      >
-                        <Unlink className="h-4 w-4" />
-                        Déconnecter Google
-                      </Button>
-                    </>
-                  ))}
-                  {isAdmin && !internetReachable && (
-                    <span className="text-xs text-amber-600 dark:text-amber-400">Connexion requise</span>
-                  )}
-                  <Select value={selectedDoctorId} onValueChange={setSelectedDoctorId}>
-                    <SelectTrigger className="h-9 w-[180px]">
-                      <SelectValue placeholder="Praticien" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Tous les praticiens</SelectItem>
-                      {doctors.filter((doc) => doc.id).map((doc) => (
-                        <SelectItem key={doc.id} value={doc.id!}>
-                          {doc.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Button onClick={() => setDialogOpen(true)} className="gap-2" size="sm">
-                    <Plus className="h-4 w-4" />
-                    Nouveau rendez-vous
+      {/* The one genuine `mainClassName` user: the calendar scrolls its own time grid, so the page
+          itself must not scroll — and the grid needs a bounded `h-full` flex column to size against. */}
+      <AppShell width="wide" mainClassName="overflow-hidden" contentClassName="h-full flex flex-col">
+        {/* View Tabs */}
+        <Tabs value={view} onValueChange={(v) => setView(v as "day" | "week" | "month")} className="flex-1 flex flex-col min-h-0">
+          <div className="flex items-center justify-between mb-3 flex-shrink-0">
+            <TabsList>
+              <TabsTrigger value="day">Jour</TabsTrigger>
+              <TabsTrigger value="week">Semaine</TabsTrigger>
+              <TabsTrigger value="month">Mois</TabsTrigger>
+            </TabsList>
+            <div className="flex items-center gap-2">
+              {isAdmin && (!isGoogleCalendarAuthorized ? (
+                <Button
+                  onClick={handleAuthorizeGoogleCalendar}
+                  variant="outline"
+                  className="gap-2"
+                  size="sm"
+                  disabled={!internetReachable}
+                  title={!internetReachable ? "Connexion internet requise" : undefined}
+                >
+                  <Calendar className="h-4 w-4" />
+                  Synchroniser avec Google Calendar
+                </Button>
+              ) : (
+                <>
+                  <Button
+                    onClick={handleSyncFromGoogle}
+                    variant="outline"
+                    className="gap-2"
+                    size="sm"
+                    disabled={isSyncing || !internetReachable}
+                    title={!internetReachable ? "Connexion internet requise" : undefined}
+                  >
+                    <RefreshCw className={`h-4 w-4 ${isSyncing ? "animate-spin" : ""}`} />
+                    {isSyncing ? "Synchronisation…" : "Importer depuis Google"}
                   </Button>
-                </div>
-              </div>
-
-              <TabsContent value="day" className="flex-1 min-h-0 mt-0">
-                <AppointmentCalendar
-                  reloadToken={refreshKey}
-                  view="day"
-                  selectedDate={selectedDate}
-                  onDateChange={setSelectedDate}
-                  onTimeSlotClick={handleTimeSlotClick}
-                  onAppointmentClick={handleAppointmentClick}
-                  showCancelled={showCancelled}
-                  showCompleted={showCompleted}
-                  onShowCancelledChange={setShowCancelled}
-                  onShowCompletedChange={setShowCompleted}
-                  onChanged={handleAppointmentUpdated}
-                  doctorId={doctorFilterId}
-                />
-              </TabsContent>
-
-              <TabsContent value="week" className="flex-1 min-h-0 mt-0">
-                <AppointmentCalendar
-                  reloadToken={refreshKey}
-                  view="week"
-                  selectedDate={selectedDate}
-                  onDateChange={setSelectedDate}
-                  onTimeSlotClick={handleTimeSlotClick}
-                  onAppointmentClick={handleAppointmentClick}
-                  showCancelled={showCancelled}
-                  showCompleted={showCompleted}
-                  onShowCancelledChange={setShowCancelled}
-                  onShowCompletedChange={setShowCompleted}
-                  onChanged={handleAppointmentUpdated}
-                  doctorId={doctorFilterId}
-                />
-              </TabsContent>
-
-              <TabsContent value="month" className="flex-1 min-h-0 mt-0">
-                <AppointmentCalendar
-                  reloadToken={refreshKey}
-                  view="month"
-                  selectedDate={selectedDate}
-                  onDateChange={setSelectedDate}
-                  onAppointmentClick={handleAppointmentClick}
-                  onSelectDay={handleSelectDay}
-                  showCancelled={showCancelled}
-                  showCompleted={showCompleted}
-                  onShowCancelledChange={setShowCancelled}
-                  onShowCompletedChange={setShowCompleted}
-                  onChanged={handleAppointmentUpdated}
-                  doctorId={doctorFilterId}
-                />
-              </TabsContent>
-            </Tabs>
+                  {/* AC-P2.34 — beside « Importer depuis Google », behind an AlertDialog. Deliberately NOT
+                      gated on internetReachable: clearing our own stored token is a local DB write, and it
+                      is exactly what an admin needs when the connected account is wrong or unreachable. */}
+                  <Button
+                    onClick={() => setDisconnectOpen(true)}
+                    variant="outline"
+                    className="gap-2 text-destructive hover:text-destructive"
+                    size="sm"
+                    disabled={isDisconnecting}
+                  >
+                    <Unlink className="h-4 w-4" />
+                    Déconnecter Google
+                  </Button>
+                </>
+              ))}
+              {isAdmin && !internetReachable && (
+                <span className="text-xs text-amber-600 dark:text-amber-400">Connexion requise</span>
+              )}
+              <Select value={selectedDoctorId} onValueChange={setSelectedDoctorId}>
+                <SelectTrigger className="h-9 w-[180px]">
+                  <SelectValue placeholder="Praticien" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Tous les praticiens</SelectItem>
+                  {doctors.filter((doc) => doc.id).map((doc) => (
+                    <SelectItem key={doc.id} value={doc.id!}>
+                      {doc.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button onClick={() => setDialogOpen(true)} className="gap-2" size="sm">
+                <Plus className="h-4 w-4" />
+                Nouveau rendez-vous
+              </Button>
+            </div>
           </div>
-        </main>
-      </div>
+
+          <TabsContent value="day" className="flex-1 min-h-0 mt-0">
+            <AppointmentCalendar
+              reloadToken={refreshKey}
+              view="day"
+              selectedDate={selectedDate}
+              onDateChange={setSelectedDate}
+              onTimeSlotClick={handleTimeSlotClick}
+              onAppointmentClick={handleAppointmentClick}
+              showCancelled={showCancelled}
+              showCompleted={showCompleted}
+              onShowCancelledChange={setShowCancelled}
+              onShowCompletedChange={setShowCompleted}
+              onChanged={handleAppointmentUpdated}
+              doctorId={doctorFilterId}
+            />
+          </TabsContent>
+
+          <TabsContent value="week" className="flex-1 min-h-0 mt-0">
+            <AppointmentCalendar
+              reloadToken={refreshKey}
+              view="week"
+              selectedDate={selectedDate}
+              onDateChange={setSelectedDate}
+              onTimeSlotClick={handleTimeSlotClick}
+              onAppointmentClick={handleAppointmentClick}
+              showCancelled={showCancelled}
+              showCompleted={showCompleted}
+              onShowCancelledChange={setShowCancelled}
+              onShowCompletedChange={setShowCompleted}
+              onChanged={handleAppointmentUpdated}
+              doctorId={doctorFilterId}
+            />
+          </TabsContent>
+
+          <TabsContent value="month" className="flex-1 min-h-0 mt-0">
+            <AppointmentCalendar
+              reloadToken={refreshKey}
+              view="month"
+              selectedDate={selectedDate}
+              onDateChange={setSelectedDate}
+              onAppointmentClick={handleAppointmentClick}
+              onSelectDay={handleSelectDay}
+              showCancelled={showCancelled}
+              showCompleted={showCompleted}
+              onShowCancelledChange={setShowCancelled}
+              onShowCompletedChange={setShowCompleted}
+              onChanged={handleAppointmentUpdated}
+              doctorId={doctorFilterId}
+            />
+          </TabsContent>
+        </Tabs>
 
       <CreateAppointmentDialog
         open={dialogOpen}
@@ -449,7 +440,7 @@ export default function AppointmentsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      </div>
+      </AppShell>
     </ClinicGuard>
   )
 }

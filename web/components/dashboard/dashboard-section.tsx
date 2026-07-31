@@ -44,10 +44,10 @@ export function DashboardSection({
         (« comparé à … »), which is precisely why it belongs here once instead of inside sixteen delta pills.
       */}
       <div className="flex flex-wrap items-baseline justify-between gap-2 border-b pb-2">
-        <h2 className="font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+        <h2 className="font-mono text-2xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
           {title}
         </h2>
-        {hint && <p className="font-mono text-[11px] text-muted-foreground">{hint}</p>}
+        {hint && <p className="font-mono text-2xs text-muted-foreground">{hint}</p>}
       </div>
 
       {error ? (

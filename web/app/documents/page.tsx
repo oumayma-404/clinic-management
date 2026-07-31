@@ -4,8 +4,7 @@ import { useState } from "react"
 import { Card } from "@/components/ui/card"
 import { FileText, Mail, FileBarChart, Shield } from "lucide-react"
 import { useRouter } from "next/navigation"
-import { DashboardHeader } from "@/components/dashboard-header"
-import { DashboardSidebar } from "@/components/dashboard-sidebar"
+import { AppShell } from "@/components/app-shell"
 import { ClinicGuard } from "@/components/clinic-guard"
 import { HonorairesLauncher } from "@/components/documents/honoraires-launcher"
 import { PageHeader } from "@/components/ui/page-header"
@@ -72,12 +71,7 @@ export default function DocumentsPage() {
 
   return (
     <ClinicGuard>
-      <div className="flex h-screen bg-background">
-        <DashboardSidebar />
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <DashboardHeader />
-          <main className="flex-1 overflow-y-auto p-4 md:p-6">
-          <div className="mx-auto max-w-7xl space-y-6">
+      <AppShell contentClassName="space-y-6">
         <PageHeader
           zone="Clinique"
           title="Documents médicaux"
@@ -145,10 +139,7 @@ export default function DocumentsPage() {
             )
           })}
         </div>
-          </div>
-        </main>
-      </div>
-      </div>
+      </AppShell>
       {/* FR-1: honoraires → patient picker → compliant invoice draft (no document editor) */}
       <HonorairesLauncher open={honorairesOpen} onOpenChange={setHonorairesOpen} />
     </ClinicGuard>

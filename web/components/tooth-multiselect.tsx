@@ -55,7 +55,7 @@ export function ToothMultiSelect({ value, onChange, disabled, isAdult }: ToothMu
                   type="button"
                   size="sm"
                   variant={value.includes(n) ? "default" : "outline"}
-                  className="h-7 w-9 p-0 text-[10px]"
+                  className="h-7 w-9 p-0 text-2xs"
                   onClick={() => toggle(n)}
                   // The number is the button's accessible name, but nothing said whether it was selected;
                   // aria-pressed is what makes this grid usable without seeing the fill colour.
@@ -78,7 +78,7 @@ export function ToothMultiSelect({ value, onChange, disabled, isAdult }: ToothMu
                   type="button"
                   size="sm"
                   variant={value.includes(n) ? "default" : "outline"}
-                  className="h-7 w-9 p-0 text-[10px]"
+                  className="h-7 w-9 p-0 text-2xs"
                   onClick={() => toggle(n)}
                   // The number is the button's accessible name, but nothing said whether it was selected;
                   // aria-pressed is what makes this grid usable without seeing the fill colour.

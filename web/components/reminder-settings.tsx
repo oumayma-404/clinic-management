@@ -322,11 +322,11 @@ export function ReminderSettings() {
 
   const secretBadge = (configured: boolean) =>
     configured ? (
-      <Badge variant="secondary" className="text-[10px] gap-1">
+      <Badge variant="secondary" className="text-2xs gap-1">
         <CheckCircle2 className="w-3 h-3 text-green-600" /> Configuré
       </Badge>
     ) : (
-      <Badge variant="outline" className="text-[10px]">
+      <Badge variant="outline" className="text-2xs">
         Non configuré
       </Badge>
     )
@@ -336,11 +336,11 @@ export function ReminderSettings() {
   const readinessBadge = (toggle: Toggle, status: ReminderEffectiveStatus) => {
     if (toggle !== "on") return null
     return status === "configured" ? (
-      <Badge variant="secondary" className="text-[10px] gap-1">
+      <Badge variant="secondary" className="text-2xs gap-1">
         <CheckCircle2 className="w-3 h-3 text-green-600" /> Prêt à envoyer
       </Badge>
     ) : (
-      <Badge variant="outline" className="text-[10px] gap-1 text-amber-600 border-amber-400">
+      <Badge variant="outline" className="text-2xs gap-1 text-amber-600 border-amber-400">
         <AlertTriangle className="w-3 h-3" /> Configuration incomplète
       </Badge>
     )
@@ -349,20 +349,20 @@ export function ReminderSettings() {
   const deliveryStatusBadge = (status: ReminderStatusDto["status"]) => {
     if (status === "sent") {
       return (
-        <Badge variant="secondary" className="text-[10px] gap-1">
+        <Badge variant="secondary" className="text-2xs gap-1">
           <CheckCircle2 className="w-3 h-3 text-green-600" /> Envoyé
         </Badge>
       )
     }
     if (status === "failed") {
       return (
-        <Badge variant="outline" className="text-[10px] gap-1 text-red-600 border-red-300">
+        <Badge variant="outline" className="text-2xs gap-1 text-red-600 border-red-300">
           <XCircle className="w-3 h-3" /> Échec
         </Badge>
       )
     }
     return (
-      <Badge variant="outline" className="text-[10px] gap-1 text-amber-600 border-amber-400">
+      <Badge variant="outline" className="text-2xs gap-1 text-amber-600 border-amber-400">
         <Clock className="w-3 h-3" /> En attente
       </Badge>
     )
@@ -479,20 +479,20 @@ export function ReminderSettings() {
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-medium">Connexion (Embedded Signup)</span>
                     {waStatus === "Connected" && whatsAppEffectiveStatus === "configured" ? (
-                      <Badge variant="secondary" className="text-[10px] gap-1">
+                      <Badge variant="secondary" className="text-2xs gap-1">
                         <CheckCircle2 className="w-3 h-3 text-green-600" /> Connecté
                       </Badge>
                     ) : waStatus === "Connected" ? (
                       // AC-2: OAuth is done but the resolved settings still can't send — warn instead of green.
-                      <Badge variant="outline" className="text-[10px] gap-1 text-amber-600 border-amber-400">
+                      <Badge variant="outline" className="text-2xs gap-1 text-amber-600 border-amber-400">
                         <AlertTriangle className="w-3 h-3" /> Connexion incomplète
                       </Badge>
                     ) : waStatus === "Error" ? (
-                      <Badge variant="outline" className="text-[10px] gap-1 text-red-600 border-red-300">
+                      <Badge variant="outline" className="text-2xs gap-1 text-red-600 border-red-300">
                         <AlertCircle className="w-3 h-3" /> Erreur
                       </Badge>
                     ) : (
-                      <Badge variant="outline" className="text-[10px]">
+                      <Badge variant="outline" className="text-2xs">
                         Non connecté
                       </Badge>
                     )}
@@ -539,7 +539,7 @@ export function ReminderSettings() {
                       </Button>
                     </>
                   )}
-                  <p className="text-[10px] text-muted-foreground">
+                  <p className="text-2xs text-muted-foreground">
                     Les champs ci-dessous restent disponibles comme méthode manuelle avancée.
                   </p>
                 </div>
@@ -666,7 +666,7 @@ export function ReminderSettings() {
                   disabled={saving}
                   className="h-8 text-sm"
                 />
-                <p className="text-[10px] text-muted-foreground">
+                <p className="text-2xs text-muted-foreground">
                   Séparez les paliers (heures) par des virgules. Vide = valeurs par défaut de l&apos;installation.
                 </p>
               </div>
@@ -684,7 +684,7 @@ export function ReminderSettings() {
                   rows={3}
                   className="text-sm"
                 />
-                <p className="text-[10px] text-muted-foreground">
+                <p className="text-2xs text-muted-foreground">
                   Variables : {"{patient}"}, {"{date}"}, {"{clinic}"}. Vide = message par défaut.
                 </p>
               </div>

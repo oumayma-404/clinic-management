@@ -14,8 +14,7 @@ import { useRouter } from "next/navigation"
 import { format } from "date-fns"
 import { fr } from "date-fns/locale"
 import { toast } from "sonner"
-import { DashboardHeader } from "@/components/dashboard-header"
-import { DashboardSidebar } from "@/components/dashboard-sidebar"
+import { AppShell } from "@/components/app-shell"
 import { ClinicGuard } from "@/components/clinic-guard"
 import { PageHeader } from "@/components/ui/page-header"
 import { Button } from "@/components/ui/button"
@@ -548,124 +547,114 @@ export default function RecurringSeriesPage() {
 
   return (
     <ClinicGuard>
-      <div className="flex h-screen bg-background">
-        <DashboardSidebar />
+      <AppShell contentClassName="space-y-6">
+        {/* Page Header */}
+        <div className="flex items-center justify-between">
+          <PageHeader
+            zone="Clinique"
+            title="Rendez-vous récurrents"
+            subtitle="Séries de rendez-vous répétés — planification et annulation."
+          />
 
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <DashboardHeader />
-
-          <main className="flex-1 overflow-y-auto p-4 md:p-6">
-            <div className="mx-auto max-w-7xl space-y-6">
-              {/* Page Header */}
-              <div className="flex items-center justify-between">
-                <PageHeader
-                  zone="Clinique"
-                  title="Rendez-vous récurrents"
-                  subtitle="Séries de rendez-vous répétés — planification et annulation."
-                />
-
-                <Button onClick={() => setDialogOpen(true)} className="gap-2">
-                  <Plus className="h-4 w-4" />
-                  Nouvelle série
-                </Button>
-              </div>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Repeat className="h-5 w-5" />
-                    Séries actives
-                    <Badge variant="secondary" className="ml-2">
-                      {seriesPage.totalCount}
-                    </Badge>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {loading ? (
-                    <div className="flex items-center justify-center py-12 text-muted-foreground">
-                      <Loader2 className="h-5 w-5 animate-spin" />
-                    </div>
-                  ) : error ? (
-                    <p className="py-12 text-center text-sm text-destructive">{error}</p>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <div className="mb-4">
-                        <Label htmlFor="series-search" className="sr-only">
-                          Rechercher une série
-                        </Label>
-                        <Input
-                          id="series-search"
-                          value={search}
-                          onChange={(e) => setSearch(e.target.value)}
-                          placeholder="Rechercher une série (patient, praticien, notes)…"
-                        />
-                      </div>
-                      {series.length === 0 ? (
-                        <p className="py-12 text-center text-muted-foreground">
-                          {debouncedSearch
-                            ? "Aucune série ne correspond à votre recherche"
-                            : "Aucune série récurrente"}
-                        </p>
-                      ) : (
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Patient</TableHead>
-                            <TableHead>Fréquence</TableHead>
-                            <TableHead>Intervalle</TableHead>
-                            <TableHead>Début</TableHead>
-                            <TableHead>Fin</TableHead>
-                            <TableHead>Rendez-vous</TableHead>
-                            <TableHead>Actif</TableHead>
-                            <TableHead className="text-right">Actions</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {series.map((s) => (
-                            <TableRow key={s.id}>
-                              <TableCell className="font-medium text-foreground">
-                                {s.patientName ?? "—"}
-                              </TableCell>
-                              <TableCell>{frequencyLabel(s.recurrencePattern)}</TableCell>
-                              <TableCell className="text-muted-foreground">{s.interval}</TableCell>
-                              <TableCell className="text-muted-foreground">{formatDateTime(s.startDate)}</TableCell>
-                              <TableCell className="text-muted-foreground">{formatEnd(s)}</TableCell>
-                              <TableCell className="text-muted-foreground">{s.appointmentCount}</TableCell>
-                              <TableCell>
-                                <Badge variant={s.isActive ? "default" : "secondary"}>
-                                  {s.isActive ? "Oui" : "Non"}
-                                </Badge>
-                              </TableCell>
-                              <TableCell className="text-right">
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => handleCancel(s)}
-                                  disabled={!s.isActive}
-                                  className="h-8 gap-1 text-destructive hover:text-destructive"
-                                >
-                                  Annuler la série
-                                </Button>
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                      )}
-                      <DataTablePagination
-                        page={seriesPage}
-                        onPageChange={setPage}
-                        onPageSizeChange={setPageSize}
-                        loading={loading}
-                        label={["série", "séries"]}
-                      />
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-          </main>
+          <Button onClick={() => setDialogOpen(true)} className="gap-2">
+            <Plus className="h-4 w-4" />
+            Nouvelle série
+          </Button>
         </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Repeat className="h-5 w-5" />
+              Séries actives
+              <Badge variant="secondary" className="ml-2">
+                {seriesPage.totalCount}
+              </Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {loading ? (
+              <div className="flex items-center justify-center py-12 text-muted-foreground">
+                <Loader2 className="h-5 w-5 animate-spin" />
+              </div>
+            ) : error ? (
+              <p className="py-12 text-center text-sm text-destructive">{error}</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <div className="mb-4">
+                  <Label htmlFor="series-search" className="sr-only">
+                    Rechercher une série
+                  </Label>
+                  <Input
+                    id="series-search"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Rechercher une série (patient, praticien, notes)…"
+                  />
+                </div>
+                {series.length === 0 ? (
+                  <p className="py-12 text-center text-muted-foreground">
+                    {debouncedSearch
+                      ? "Aucune série ne correspond à votre recherche"
+                      : "Aucune série récurrente"}
+                  </p>
+                ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Patient</TableHead>
+                      <TableHead>Fréquence</TableHead>
+                      <TableHead>Intervalle</TableHead>
+                      <TableHead>Début</TableHead>
+                      <TableHead>Fin</TableHead>
+                      <TableHead>Rendez-vous</TableHead>
+                      <TableHead>Actif</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {series.map((s) => (
+                      <TableRow key={s.id}>
+                        <TableCell className="font-medium text-foreground">
+                          {s.patientName ?? "—"}
+                        </TableCell>
+                        <TableCell>{frequencyLabel(s.recurrencePattern)}</TableCell>
+                        <TableCell className="text-muted-foreground">{s.interval}</TableCell>
+                        <TableCell className="text-muted-foreground">{formatDateTime(s.startDate)}</TableCell>
+                        <TableCell className="text-muted-foreground">{formatEnd(s)}</TableCell>
+                        <TableCell className="text-muted-foreground">{s.appointmentCount}</TableCell>
+                        <TableCell>
+                          <Badge variant={s.isActive ? "default" : "secondary"}>
+                            {s.isActive ? "Oui" : "Non"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleCancel(s)}
+                            disabled={!s.isActive}
+                            className="h-8 gap-1 text-destructive hover:text-destructive"
+                          >
+                            Annuler la série
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+                )}
+                <DataTablePagination
+                  page={seriesPage}
+                  onPageChange={setPage}
+                  onPageSizeChange={setPageSize}
+                  loading={loading}
+                  label={["série", "séries"]}
+                />
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         <NewSeriesDialog
           open={dialogOpen}
@@ -674,33 +663,32 @@ export default function RecurringSeriesPage() {
           procedureTypes={procedureTypes}
           onCreated={loadSeries}
         />
-
         <AlertDialog open={cancelOpen} onOpenChange={setCancelOpen}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Annuler toute la série ?</AlertDialogTitle>
-              <AlertDialogDescription>
-                Tous les rendez-vous à venir de la série
-                {cancelTarget?.patientName ? ` de ${cancelTarget.patientName}` : ""} seront annulés. Cette action
-                est irréversible.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel disabled={cancelling}>Retour</AlertDialogCancel>
-              <AlertDialogAction
-                onClick={(e) => {
-                  e.preventDefault()
-                  confirmCancel()
-                }}
-                disabled={cancelling}
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              >
-                {cancelling ? "Annulation..." : "Annuler la série"}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Annuler toute la série ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tous les rendez-vous à venir de la série
+              {cancelTarget?.patientName ? ` de ${cancelTarget.patientName}` : ""} seront annulés. Cette action
+              est irréversible.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={cancelling}>Retour</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                confirmCancel()
+              }}
+              disabled={cancelling}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {cancelling ? "Annulation..." : "Annuler la série"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
         </AlertDialog>
-      </div>
+      </AppShell>
     </ClinicGuard>
   )
 }

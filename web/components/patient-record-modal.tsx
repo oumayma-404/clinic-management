@@ -545,7 +545,7 @@ export function PatientRecordModal({
               {activeFlags.length > 0 && (
                 <div className="flex flex-wrap items-center gap-1.5">
                   {activeFlags.map((f) => (
-                    <Badge key={f.id} variant="destructive" className="text-[10px]">
+                    <Badge key={f.id} variant="destructive" className="text-2xs">
                       {f.description || f.flagType}
                     </Badge>
                   ))}
@@ -583,7 +583,7 @@ export function PatientRecordModal({
           {hiddenDentitionActs > 0 && (
             <div className="space-y-1.5">
               <Label>Autre dentition</Label>
-              <p className="text-[11px] text-amber-600 dark:text-amber-500">
+              <p className="text-2xs text-amber-600 dark:text-amber-500">
                 {hiddenDentitionActs} acte{hiddenDentitionActs > 1 ? "s" : ""} sur l&apos;autre dentition
                 (conservé{hiddenDentitionActs > 1 ? "s" : ""})
               </p>
@@ -664,7 +664,7 @@ export function PatientRecordModal({
                 type="button"
                 variant="outline"
                 size="sm"
-                className="h-6 px-2 text-[11px]"
+                className="h-6 px-2 text-2xs"
                 disabled={loading}
                 onClick={() => dispatch({ type: "selectMany", teeth: teethInQuadrants(upperQuadrants), additive: true })}
               >
@@ -674,7 +674,7 @@ export function PatientRecordModal({
                 type="button"
                 variant="outline"
                 size="sm"
-                className="h-6 px-2 text-[11px]"
+                className="h-6 px-2 text-2xs"
                 disabled={loading}
                 onClick={() => dispatch({ type: "selectMany", teeth: teethInQuadrants(lowerQuadrants), additive: true })}
               >
@@ -684,7 +684,7 @@ export function PatientRecordModal({
                 type="button"
                 variant="outline"
                 size="sm"
-                className="h-6 px-2 text-[11px]"
+                className="h-6 px-2 text-2xs"
                 disabled={loading}
                 onClick={() => dispatch({ type: "selectMany", teeth: viewTeeth, additive: true })}
               >
@@ -694,7 +694,7 @@ export function PatientRecordModal({
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="h-6 px-2 text-[11px]"
+                className="h-6 px-2 text-2xs"
                 disabled={loading || selection.length === 0}
                 onClick={() => dispatch({ type: "clearSelection" })}
               >
@@ -721,7 +721,7 @@ export function PatientRecordModal({
                   additive: true,
                 })
               }
-              className="flex w-full items-center gap-1.5 rounded-md border border-orange-300 bg-orange-50 px-2 py-1.5 text-left text-[11px] text-orange-800 hover:bg-orange-100 disabled:cursor-not-allowed dark:border-orange-900 dark:bg-orange-950/40 dark:text-orange-200"
+              className="flex w-full items-center gap-1.5 rounded-md border border-orange-300 bg-orange-50 px-2 py-1.5 text-left text-2xs text-orange-800 hover:bg-orange-100 disabled:cursor-not-allowed dark:border-orange-900 dark:bg-orange-950/40 dark:text-orange-200"
             >
               <Stethoscope className="h-3.5 w-3.5 shrink-0" />
               <span>
@@ -760,7 +760,7 @@ export function PatientRecordModal({
             )}
           </div>
 
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-2xs">
             {CONDITION_ORDER.filter((c) => c !== "Sain").map((c) => (
               <span key={c} className="flex items-center gap-1">
                 <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: conditionStyle(c).color }} />
@@ -879,7 +879,7 @@ export function PatientRecordModal({
             <div className="space-y-2">
               <Label className="text-xs">
                 Notes importantes
-                <span className="ml-2 text-[11px] text-amber-600 dark:text-amber-500">⚠ Mises en évidence</span>
+                <span className="ml-2 text-2xs text-amber-600 dark:text-amber-500">⚠ Mises en évidence</span>
               </Label>
               {importantNotes.map((note, index) => (
                 <div key={index} className="flex gap-2">

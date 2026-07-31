@@ -161,7 +161,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
       <div className="mt-0.5 flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
         <Badge
           variant="secondary"
-          className="border-0 bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-400 h-4 gap-0.5 px-1 text-[9px] leading-none"
+          className="border-0 bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-400 h-4 gap-0.5 px-1 text-2xs leading-none"
         >
           <CloudOff className="h-2.5 w-2.5" />
           non synchronisé
@@ -177,7 +177,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                 ? `Envoyer le rendez-vous de ${appointment.patientName} vers Google Agenda`
                 : "Connexion internet requise pour envoyer vers Google Agenda"
             }
-            className="inline-flex h-4 items-center gap-0.5 rounded bg-white/60 px-1 text-[9px] leading-none hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 dark:bg-background/60"
+            className="inline-flex h-4 items-center gap-0.5 rounded bg-white/60 px-1 text-2xs leading-none hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 dark:bg-background/60"
           >
             <UploadCloud className="h-2.5 w-2.5" />
             {/* AC-P3.49 — « Push » was the audit's own example. « Envoyer » at this size, with the full
@@ -444,7 +444,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
           <span
             className={cn(
               "font-semibold truncate flex-1 min-w-0",
-              isVerySmall ? "text-[10px] leading-[1.1]" : isSmall ? "text-xs leading-[1.2]" : "text-sm leading-[1.3]",
+              isVerySmall ? "text-2xs leading-[1.1]" : isSmall ? "text-xs leading-[1.2]" : "text-sm leading-[1.3]",
             )}
           >
             {appointment.patientName}
@@ -453,7 +453,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
             <div className="flex items-center gap-1.5 flex-shrink-0">
               <Badge
                 variant="secondary"
-                className="border-0 bg-white/50 dark:bg-background/50 text-[10px] h-4 leading-none px-1.5"
+                className="border-0 bg-white/50 dark:bg-background/50 text-2xs h-4 leading-none px-1.5"
               >
                 {durationMinutes}m
               </Badge>
@@ -463,7 +463,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
               {view === "day" && actsSummary && (
                 <Badge
                   variant="secondary"
-                  className="border-0 bg-white/50 dark:bg-background/50 text-[10px] h-4 leading-none px-1.5"
+                  className="border-0 bg-white/50 dark:bg-background/50 text-2xs h-4 leading-none px-1.5"
                 >
                   {actsSummary}
                 </Badge>
@@ -471,7 +471,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
               {view !== "day" && actsCount > 1 && (
                 <Badge
                   variant="secondary"
-                  className="border-0 bg-white/50 dark:bg-background/50 text-[10px] h-4 leading-none px-1.5"
+                  className="border-0 bg-white/50 dark:bg-background/50 text-2xs h-4 leading-none px-1.5"
                   title={actsSummary ?? undefined}
                 >
                   {actsCount} actes
@@ -600,7 +600,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
           onAppointmentClick?.(appointment)
         }}
         className={cn(
-          "flex w-full items-center gap-1 overflow-hidden rounded px-1 py-0.5 text-left text-[10px] leading-tight transition-[box-shadow,transform] duration-[160ms] ease-snap hover:shadow-sm active:scale-[0.97]",
+          "flex w-full items-center gap-1 overflow-hidden rounded px-1 py-0.5 text-left text-2xs leading-tight transition-[box-shadow,transform] duration-[160ms] ease-snap hover:shadow-sm active:scale-[0.97]",
           colorStyle.className,
         )}
         style={colorStyle.style}
@@ -683,7 +683,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                 <div className="flex min-h-0 flex-col gap-0.5 overflow-hidden">
                   {visible.map((appointment) => renderMonthChip(appointment))}
                   {overflow > 0 && (
-                    <span className="px-1 text-[10px] font-medium text-muted-foreground hover:text-foreground">
+                    <span className="px-1 text-2xs font-medium text-muted-foreground hover:text-foreground">
                       +{overflow} autres
                     </span>
                   )}

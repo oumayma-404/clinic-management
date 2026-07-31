@@ -1,8 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { DashboardHeader } from "@/components/dashboard-header"
-import { DashboardSidebar } from "@/components/dashboard-sidebar"
+import { AppShell } from "@/components/app-shell"
 import { ClinicGuard } from "@/components/clinic-guard"
 import { ProcedureTypesTable } from "@/components/procedure-types-table"
 import { ProcedureTypeFormModal } from "@/components/procedure-type-form-modal"
@@ -34,22 +33,8 @@ export default function ProcedureTypesPage() {
 
   return (
     <ClinicGuard>
-      <div className="flex h-screen bg-background">
-        <DashboardSidebar />
-        
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <DashboardHeader />
-          
-          <main className="flex-1 overflow-auto p-4">
-            <div className="mx-auto max-w-7xl">
-              <ProcedureTypesTable 
-                key={refreshKey}
-                onEdit={handleEdit} 
-                onAdd={handleAdd}
-              />
-            </div>
-          </main>
-        </div>
+      <AppShell>
+        <ProcedureTypesTable key={refreshKey} onEdit={handleEdit} onAdd={handleAdd} />
 
         <ProcedureTypeFormModal
           open={modalOpen}
@@ -57,7 +42,7 @@ export default function ProcedureTypesPage() {
           editingProcedure={editingProcedure}
           onSuccess={handleSuccess}
         />
-      </div>
+      </AppShell>
     </ClinicGuard>
   )
 }

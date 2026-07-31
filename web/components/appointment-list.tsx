@@ -82,7 +82,7 @@ export function AppointmentList() {
                       {(appointment.procedures ?? []).map((proc) => (
                         <span
                           key={proc.id}
-                          className="rounded bg-muted px-1.5 py-px text-[11px] text-muted-foreground"
+                          className="rounded bg-muted px-1.5 py-px text-2xs text-muted-foreground"
                         >
                           {proc.name}
                         </span>

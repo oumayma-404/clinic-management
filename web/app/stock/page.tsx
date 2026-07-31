@@ -1,8 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { DashboardHeader } from "@/components/dashboard-header"
-import { DashboardSidebar } from "@/components/dashboard-sidebar"
+import { AppShell } from "@/components/app-shell"
 import { ClinicGuard } from "@/components/clinic-guard"
 import { PageHeader } from "@/components/ui/page-header"
 import { StockTable } from "@/components/stock-table"
@@ -76,37 +75,27 @@ export default function StockPage() {
 
   return (
     <ClinicGuard>
-      <div className="flex h-screen bg-background">
-        <DashboardSidebar />
+      <AppShell contentClassName="space-y-6">
+        {/* Page Header */}
+        <div className="flex items-center justify-between">
+          <PageHeader zone="Clinique" title="Stock" subtitle="Fournitures, lots et seuils de réapprovisionnement." />
 
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <DashboardHeader />
-
-          <main className="flex-1 overflow-y-auto p-4 md:p-6">
-            <div className="mx-auto max-w-7xl space-y-6">
-              {/* Page Header */}
-              <div className="flex items-center justify-between">
-                <PageHeader zone="Clinique" title="Stock" subtitle="Fournitures, lots et seuils de réapprovisionnement." />
-
-                <Button onClick={handleAddNew} className="gap-2">
-                  <Plus className="h-4 w-4" />
-                  Ajouter un article
-                </Button>
-              </div>
-
-              {/* Stock Table */}
-              <StockTable
-                refreshKey={refreshKey}
-                onEdit={handleEdit}
-                highlightItemId={highlightItemId}
-                initialFilter={initialFilter}
-                // Remount when the arriving filter resolves, so StockTable's initial filter state actually takes
-                // effect — it seeds useState, which a re-render alone would not revisit.
-                key={initialFilter ?? "all"}
-              />
-            </div>
-          </main>
+          <Button onClick={handleAddNew} className="gap-2">
+            <Plus className="h-4 w-4" />
+            Ajouter un article
+          </Button>
         </div>
+
+        {/* Stock Table */}
+        <StockTable
+          refreshKey={refreshKey}
+          onEdit={handleEdit}
+          highlightItemId={highlightItemId}
+          initialFilter={initialFilter}
+          // Remount when the arriving filter resolves, so StockTable's initial filter state actually takes
+          // effect — it seeds useState, which a re-render alone would not revisit.
+          key={initialFilter ?? "all"}
+        />
 
         <StockItemFormModal
           open={modalOpen}
@@ -114,7 +103,7 @@ export default function StockPage() {
           editingItem={editingItem}
           onSaved={() => setRefreshKey((k) => k + 1)}
         />
-      </div>
+      </AppShell>
     </ClinicGuard>
   )
 }

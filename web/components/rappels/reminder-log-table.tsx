@@ -71,7 +71,7 @@ export function ReminderLogTable({
           {noChannelConfigured ? (
             <>
               <Badge className="bg-warning-wash text-warning">Aucun canal actif</Badge>
-              <p className="text-[15px] font-semibold">Les rappels ne sont pas encore activés</p>
+              <p className="text-base font-semibold">Les rappels ne sont pas encore activés</p>
               <p className="max-w-[46ch] text-sm text-muted-foreground">
                 Ni SMS ni WhatsApp n&apos;est configuré, donc aucun message ne part. Renseignez un canal pour
                 commencer à envoyer des rappels de rendez-vous.
@@ -84,7 +84,7 @@ export function ReminderLogTable({
             </>
           ) : isFiltered ? (
             <>
-              <p className="text-[15px] font-semibold">Aucun message ne correspond</p>
+              <p className="text-base font-semibold">Aucun message ne correspond</p>
               <p className="max-w-[46ch] text-sm text-muted-foreground">
                 Aucun envoi ne correspond à ces filtres. Élargissez la période ou retirez un filtre.
               </p>
@@ -96,7 +96,7 @@ export function ReminderLogTable({
             </>
           ) : (
             <>
-              <p className="text-[15px] font-semibold">Aucun message pour le moment</p>
+              <p className="text-base font-semibold">Aucun message pour le moment</p>
               <p className="max-w-[46ch] text-sm text-muted-foreground">
                 Les rappels partent automatiquement avant chaque rendez-vous, selon les délais configurés.
               </p>
@@ -123,7 +123,7 @@ export function ReminderLogTable({
             {["Patient", "Canal", "Destinataire", "Rendez-vous", "Prévu", "Statut"].map((h) => (
               <TableHead
                 key={h}
-                className="whitespace-nowrap font-mono text-[10.5px] font-medium uppercase tracking-[0.07em] text-muted-foreground"
+                className="whitespace-nowrap font-mono text-2xs font-medium uppercase tracking-[0.07em] text-muted-foreground"
               >
                 {h}
               </TableHead>
@@ -147,7 +147,7 @@ export function ReminderLogTable({
                 )}
               </TableCell>
               <TableCell>
-                <span className="font-mono text-[11px] tracking-[0.04em] text-muted-foreground">{row.channel}</span>
+                <span className="font-mono text-2xs tracking-[0.04em] text-muted-foreground">{row.channel}</span>
               </TableCell>
               <TableCell className="font-mono text-xs text-muted-foreground">{row.recipientMasked}</TableCell>
               <TableCell className="whitespace-nowrap tabular-nums">
