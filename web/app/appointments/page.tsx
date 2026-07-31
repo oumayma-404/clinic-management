@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback, useEffect } from "react"
+import { useState, useCallback, useEffect, useRef } from "react"
 import { AppShell } from "@/components/app-shell"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
@@ -31,12 +31,33 @@ import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { useDoctors } from "@/lib/hooks/use-doctors"
 import { useSession } from "@/lib/auth/session"
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select"
+import { ActiveFilterChip } from "@/components/ui/list-toolbar"
+import { useMediaQuery } from "@/lib/hooks/use-media-query"
 
 export default function AppointmentsPage() {
   // Week is the default: it is the span staff actually plan against, and a single day of a specialist practice's
   // calendar is mostly empty. Month view stays one click away, and clicking a day cell there still drops into Day
-  // view (handleSelectDay).
+  // view (handleSelectDay). ⚠️ Below `md:` the *initial* view becomes Jour instead — see `viewDecidedRef`.
   const [view, setView] = useState<"day" | "week" | "month">("week")
+  /**
+   * Has the view already been settled by something that outranks the narrow-screen default? (AC-28/AC-29)
+   *
+   * Three things set it: the user picking a tab, the dashboard drill-through forcing Mois, and the
+   * narrow-screen default itself the first time it applies.
+   *
+   * ⚠️ It exists because « Jour below `md:` » is an **initial value, not a rule**. Without it the default
+   * would re-assert on every `isNarrow` change — so rotating a phone would throw away the view the user had
+   * just chosen, and a « RDV honorés — Ce mois » drill-through opened on a phone would land on a single day
+   * instead of the month the card counted. `features/LEARNINGS.md`: a size heuristic must not be the sole
+   * gate on an affordance.
+   */
+  const viewDecidedRef = useRef(false)
+  // `md:` is 768px — the same boundary the nav rail, the card lists and the dialogs switch at.
+  const isNarrow = useMediaQuery("(max-width: 767px)")
+  const selectView = useCallback((next: "day" | "week" | "month") => {
+    viewDecidedRef.current = true
+    setView(next)
+  }, [])
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [selectedAppointment, setSelectedAppointment] = useState<AppointmentDto | null>(null)
@@ -75,10 +96,11 @@ export default function AppointmentsPage() {
   }, [])
 
   // Month view: clicking a day cell's empty area / "+N more" focuses that date in Day view (AC-4).
+  // Below `md:` the week strip lands here too — tapping a day in the density strip opens it.
   const handleSelectDay = useCallback((date: Date) => {
     setSelectedDate(date)
-    setView("day")
-  }, [])
+    selectView("day")
+  }, [selectView])
 
   const handleAppointmentCreated = useCallback(() => {
     setRefreshKey(prev => prev + 1)
@@ -191,14 +213,33 @@ export default function AppointmentsPage() {
 
     if (from && !Number.isNaN(Date.parse(from))) {
       setSelectedDate(new Date(`${from}T00:00:00`))
-      setView("month")
+      // `selectView`, not `setView`: this marks the view DECIDED, so the narrow-screen Jour default below
+      // cannot overwrite it. Without that, « RDV honorés — Ce mois » opened on a phone would land on one day.
+      selectView("month")
     }
 
     if (statuses.includes("cancelled")) setShowCancelled(true)
     if (statuses.includes("completed")) setShowCompleted(true)
 
     window.history.replaceState({}, "", "/appointments")
-  }, [])
+  }, [selectView])
+
+  /**
+   * Below `md:`, open on Jour (AC-28).
+   *
+   * ⚠️ Deliberately an effect keyed on `isNarrow` rather than a lazy `useState` initialiser: `useMediaQuery`
+   * is SSR-guarded and reports `false` on the server and on the first client render, so an initialiser would
+   * always read "wide" and never fire. The effect runs again once `matchMedia` has answered.
+   *
+   * One-shot via `viewDecidedRef`, which is what makes it *initial* rather than enforced — the drill-through
+   * above has already claimed the view by the time this can run, and once it applies, rotating the device
+   * leaves the user's view alone.
+   */
+  useEffect(() => {
+    if (viewDecidedRef.current || !isNarrow) return
+    viewDecidedRef.current = true
+    setView("day")
+  }, [isNarrow])
 
   // Already on this page: a same-route push doesn't remount, so react to the header's deep-link event.
   useEffect(() => {
@@ -274,14 +315,34 @@ export default function AppointmentsPage() {
           itself must not scroll — and the grid needs a bounded `h-full` flex column to size against. */}
       <AppShell width="wide" mainClassName="overflow-hidden" contentClassName="h-full flex flex-col">
         {/* View Tabs */}
-        <Tabs value={view} onValueChange={(v) => setView(v as "day" | "week" | "month")} className="flex-1 flex flex-col min-h-0">
-          <div className="flex items-center justify-between mb-3 flex-shrink-0">
-            <TabsList>
-              <TabsTrigger value="day">Jour</TabsTrigger>
-              <TabsTrigger value="week">Semaine</TabsTrigger>
-              <TabsTrigger value="month">Mois</TabsTrigger>
-            </TabsList>
-            <div className="flex items-center gap-2">
+        <Tabs
+          value={view}
+          onValueChange={(v) => selectView(v as "day" | "week" | "month")}
+          className="flex-1 flex flex-col min-h-0"
+        >
+          {/*
+            AC-31 — two rows, not one wrapping row.
+            The view switch and « Nouveau rendez-vous » share a fixed first row, so the primary action has the
+            same home at 320 px as at 1440 px; everything secondary (the admin Google controls, the praticien
+            filter, the active-filter chips) wraps freely underneath. Previously all of it shared one
+            `flex-wrap` row, which stacked to about five rows at 390 px and pushed the calendar off screen.
+          */}
+          <div className="mb-3 flex flex-shrink-0 flex-col gap-2">
+            <div className="flex items-center justify-between gap-2">
+              <TabsList>
+                <TabsTrigger value="day">Jour</TabsTrigger>
+                <TabsTrigger value="week">Semaine</TabsTrigger>
+                <TabsTrigger value="month">Mois</TabsTrigger>
+              </TabsList>
+              <Button onClick={() => setDialogOpen(true)} className="shrink-0 gap-2" size="sm">
+                <Plus className="h-4 w-4" />
+                {/* The label shortens rather than disappearing — an icon-only primary action on the busiest
+                    screen in the app is exactly the unlabelled-ghost-icon problem P3 spent a part removing. */}
+                <span className="hidden sm:inline">Nouveau rendez-vous</span>
+                <span className="sm:hidden">Nouveau</span>
+              </Button>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
               {isAdmin && (!isGoogleCalendarAuthorized ? (
                 <Button
                   onClick={handleAuthorizeGoogleCalendar}
@@ -338,10 +399,20 @@ export default function AppointmentsPage() {
                   ))}
                 </SelectContent>
               </Select>
-              <Button onClick={() => setDialogOpen(true)} className="gap-2" size="sm">
-                <Plus className="h-4 w-4" />
-                Nouveau rendez-vous
-              </Button>
+              {/*
+                AC-29 — a filter the user did not choose has to be visible and removable.
+
+                Two of the fifteen entries in `lib/dashboard-links.ts` arrive here with `?status=`, which flips
+                these toggles on. Without a chip the calendar simply shows more than usual with nothing on
+                screen saying why, and « Taux d'absence » lands on a list the user cannot un-filter without
+                hunting for a switch inside the calendar's own toolbar.
+              */}
+              {showCancelled && (
+                <ActiveFilterChip label="Annulés affichés" onRemove={() => setShowCancelled(false)} />
+              )}
+              {showCompleted && (
+                <ActiveFilterChip label="Terminés affichés" onRemove={() => setShowCompleted(false)} />
+              )}
             </div>
           </div>
 
