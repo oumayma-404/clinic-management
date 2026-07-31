@@ -305,6 +305,50 @@ check(
 );
 
 check(
+  "agenda-scroll",
+  "P5",
+  "The agenda's week grid scrolls its own container, and the overlay's maths still lines up",
+  "Two invariants that only a human eye would otherwise catch, and only on a narrow screen. (a) The week " +
+    "grid must not be CLIPPED — `overflow-x-hidden` on the calendar is what AC-P3.14 forbids, and it is the " +
+    "one place in the app that did it. (b) `HOUR_HEIGHT` must stay 48 and the week columns 96px: the " +
+    "appointment overlay is positioned by `(100% - 60px) / 7` against a `w-max` wrapper of 60 + 7×96, so the " +
+    "two numbers are an arithmetic contract. Change one and every block drifts sideways a few pixels per " +
+    "column — a rendering-glitch-shaped maths error.",
+  () => {
+    const file = ALL_FILES.find((f) => rel(f) === "components/appointment-calendar.tsx");
+    // Derived, not listed: if the calendar is ever renamed or split, this reports rather than silently
+    // passing on a file that no longer exists — the failure mode a hardcoded path hides.
+    if (!file) {
+      return [{ file: "components/appointment-calendar.tsx", line: 0, text: "missing", full: "the agenda component this check guards is gone — retarget or retire the check" }];
+    }
+
+    const src = read(file);
+    const hits = [];
+    const lines = src.split(/\r?\n/);
+    const inComment = commentMask(lines);
+
+    lines.forEach((line, i) => {
+      if (inComment[i]) return;
+      if (/\boverflow-x-hidden\b/.test(line)) {
+        hits.push({ file: rel(file), line: i + 1, text: "overflow-x-hidden", full: line.trim().slice(0, 110) });
+      }
+    });
+
+    // The contract itself. Both numbers are read from the source rather than assumed, so this fails on a
+    // change to EITHER side of `60 + 7 * 96 === wrapper width`.
+    const hourHeight = src.match(/const HOUR_HEIGHT = (\d+)/)?.[1];
+    if (hourHeight !== "48") {
+      hits.push({ file: rel(file), line: 0, text: `HOUR_HEIGHT = ${hourHeight ?? "?"}`, full: "must be 48 — rows taller than it make appointment blocks drift upward" });
+    }
+    const weekCol = src.match(/grid-cols-\[60px_repeat\(7,(\d+)px\)\]/)?.[1];
+    if (weekCol !== "96") {
+      hits.push({ file: rel(file), line: 0, text: `week column = ${weekCol ?? "?"}px`, full: "must be 96px — `(100% - 60px) / 7` over a 60+7×96 wrapper resolves to exactly that" });
+    }
+    return hits;
+  }
+);
+
+check(
   "header-orphans",
   "P2",
   "dashboard-header.tsx has no orphaned drawer-trigger symbols",

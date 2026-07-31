@@ -60,6 +60,19 @@ function openWindowFor(day: Date, hours: WorkingDay[] | null): { fromHour: numbe
 const HOUR_HEIGHT = 48
 // Minimum rendered height so a very short appointment still shows the patient name legibly (AC-4).
 const MIN_APPT_HEIGHT = 18
+
+/**
+ * The week grid's columns — **one definition, used by the header, the hour grid and the loading skeleton**,
+ * because three copies of a column template is three chances for the dates to sit over the wrong columns.
+ *
+ * ⚠️ The `96px` is not a taste choice, it is an **arithmetic contract with `weekBandWidthExpr`** (AC-30).
+ * Below `md:` the grid is wider than the viewport and scrolls, so the wrapper is `w-max`: its width is
+ * `60 + 7 × 96 = 732px`, and the overlay's `(100% - 60px) / 7` therefore resolves to exactly `96px`. Change
+ * one number without the other and every appointment block drifts sideways by a few pixels per column — the
+ * kind of wrong that looks like a rendering glitch rather than a maths error. At `md:` and up the wrapper is
+ * `w-full` and the columns are `1fr`, so both sides track the container and the contract holds for free.
+ */
+const WEEK_COLS = "grid-cols-[60px_repeat(7,96px)] md:grid-cols-[60px_repeat(7,minmax(0,1fr))]"
 // Month view: max appointment chips shown per day cell before collapsing the rest into "+N more" (AC-2).
 const MONTH_CELL_MAX_CHIPS = 3
 
@@ -319,7 +332,18 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
         }
       }
 
-      container.scrollTop = 8 * HOUR_HEIGHT // 8 AM at the top
+      /*
+       * 8 AM at the top — read from the DOM, not computed as `8 * HOUR_HEIGHT`.
+       *
+       * ⚠️ That arithmetic silently assumed the hour grid began at the scroll container's top. Since AC-30
+       * moved the day header INSIDE this scroller (it has to be, or it would not scroll sideways with its
+       * columns), the grid now starts one header below — so the old expression landed ~8 AM *minus the
+       * header* and the morning was cut off. Asking the 08:00 row where it actually is cannot drift again,
+       * whatever else is stacked above it. `offsetTop` is measured from the `relative` wrapper, which is the
+       * scroller's content origin, so it is already in `scrollTop` coordinates.
+       */
+      const morning = container.querySelector('[data-time-slot="08:00"]') as HTMLElement | null
+      container.scrollTop = morning ? morning.offsetTop : 8 * HOUR_HEIGHT
       return true
     }
 
@@ -680,7 +704,33 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                     {format(day, "d")}
                   </span>
                 </div>
-                <div className="flex min-h-0 flex-col gap-0.5 overflow-hidden">
+                {/*
+                  Below `md:` a month cell is about 45 px wide — a chip there is a coloured sliver with one or
+                  two characters of a patient's name, which is worse than no name at all because it reads as
+                  data. Dots say the one thing the month view is actually for at that size: *which days are
+                  busy*. The cell stays tappable and drops into Jour, where the names are legible.
+
+                  Capped at MONTH_CELL_MAX_CHIPS dots + a count, mirroring the chip branch, so a heavy day does
+                  not become an unreadable smear — the same reasoning as `plan-act-pips`' twelve-pip fallback.
+                */}
+                <div className="flex flex-wrap items-center gap-0.5 px-0.5 md:hidden" aria-hidden="true">
+                  {visible.map((appointment) => (
+                    <span
+                      key={appointment.id}
+                      className="h-1.5 w-1.5 rounded-full"
+                      style={{ backgroundColor: appointment.procedureColorHex || "#6C757D" }}
+                    />
+                  ))}
+                  {overflow > 0 && <span className="text-2xs text-muted-foreground">+{overflow}</span>}
+                </div>
+                {/* The dots are `aria-hidden`; this carries the accessible fact for the whole cell. */}
+                {dayAppointments.length > 0 && (
+                  <span className="sr-only md:hidden">
+                    {dayAppointments.length} rendez-vous
+                  </span>
+                )}
+
+                <div className="hidden min-h-0 flex-col gap-0.5 overflow-hidden md:flex">
                   {visible.map((appointment) => renderMonthChip(appointment))}
                   {overflow > 0 && (
                     <span className="px-1 text-2xs font-medium text-muted-foreground hover:text-foreground">
@@ -714,7 +764,9 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
             <Calendar className="h-4 w-4" />
             Aujourd&apos;hui
           </Button>
-          <div className="ml-2 text-xl font-semibold">
+          {/* `min-w-0` + `truncate`: « mercredi 12 novembre 2026 » is wider than a 390px phone, and an
+              un-truncated title is what forced the whole toolbar onto a fifth row (AC-31). */}
+          <div className="ml-2 min-w-0 truncate text-base font-semibold md:text-xl">
             {view === "week"
               ? `${format(weekDays[0], "d MMM", { locale: fr })} - ${format(weekDays[6], "d MMM yyyy", { locale: fr })}`
               : view === "month"
@@ -723,9 +775,39 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
           </div>
         </div>
 
-        <div className="flex items-center gap-4 flex-wrap">
+        <div className="flex w-full flex-wrap items-center gap-x-4 gap-y-2 md:w-auto">
+          {/*
+            The legend is REFERENCE, not a control, and four items of it is two rows on a phone — so below
+            `md:` it folds into a disclosure rather than being deleted. Hiding it outright would have been
+            simpler and wrong: the grey « hors horaires » shading has no other explanation anywhere, which is
+            the exact defect its legend entry was added to fix.
+          */}
+          <details className="w-full md:hidden">
+            <summary className="cursor-pointer touch-target text-sm text-muted-foreground">Légende</summary>
+            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+              <div className="flex items-center gap-2">
+                <div className="h-3 w-3 rounded bg-primary" />
+                <span className="text-muted-foreground">Planifié</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="h-3 w-3 rounded bg-green-500" />
+                <span className="text-muted-foreground">Terminé</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="h-3 w-3 rounded bg-gray-400" />
+                <span className="text-muted-foreground">Annulé</span>
+              </div>
+              {clinicHours && clinicHours.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <div className="h-3 w-3 rounded border bg-gray-100 dark:bg-muted/50" />
+                  <span className="text-muted-foreground">Hors horaires d&apos;ouverture</span>
+                </div>
+              )}
+            </div>
+          </details>
+
           {/* Status Legend */}
-          <div className="flex items-center gap-4 text-sm">
+          <div className="hidden items-center gap-4 text-sm md:flex">
             <div className="flex items-center gap-2">
               <div className="h-3 w-3 rounded bg-primary" />
               <span className="text-muted-foreground">Planifié</span>
@@ -748,8 +830,9 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
             )}
           </div>
 
-          {/* Filters */}
-          <div className="flex items-center gap-4 pl-4 border-l">
+          {/* Filters. ⚠️ The dividing border is `md:` only — on a wrapped row a lone `border-l` reads as a
+              rendering artefact rather than a separator between two groups. */}
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 md:border-l md:pl-4">
             <div className="flex items-center gap-2">
               <Filter className="h-4 w-4 text-muted-foreground" />
               <span className="text-sm font-medium text-muted-foreground">Afficher :</span>
@@ -811,13 +894,45 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
           renderMonthView()
         ) : (
         <div className="flex h-full flex-col min-h-0">
+          {/*
+            AC-30 — **one element scrolls both axes**, and everything else follows from that.
+
+            The week grid is the only wide content in the app that used to be clipped rather than scrollable
+            (`overflow-x-hidden`), which is what AC-P3.14 forbids. Making it scroll is not a class change,
+            for two reasons:
+
+            1. **The day header must be INSIDE this scroller.** It used to be a sibling above it, so scrolling
+               sideways would have left the dates sitting over the wrong columns. It is `sticky top-0` here
+               instead, which is the same result vertically and stays honest horizontally.
+            2. **A `sticky left-0` gutter only sticks to a scrollport that scrolls horizontally.** So the
+               obvious alternative — a horizontal scroller outside, a vertical one inside — cannot give a
+               sticky time column at all. Hence `overflow-auto` on this single element.
+
+            ⚠️ The inner wrapper below is load-bearing, not tidiness: the appointment overlay is positioned
+            with percentages (`(100% - 60px) / 7`), and a percentage resolves against the containing block's
+            **padding box** — the visible width, not the scrollable content width. With the overlay as a direct
+            child of this scroller, the moment the grid got wider than the viewport every block would land in
+            the wrong column, silently. The wrapper is `w-max`, so `100%` means *the grid*, and the `calc()`
+            strings — and with them the `HOUR_HEIGHT` invariant — need no change at all.
+          */}
           <div
+            ref={scrollContainerRef}
             className={cn(
-              "sticky top-0 z-10 grid border-b bg-white dark:bg-background flex-shrink-0",
-              view === "week" ? "grid-cols-[60px_repeat(7,minmax(0,1fr))]" : "grid-cols-[60px_1fr]",
+              "relative min-h-0 flex-1 overflow-auto transition-opacity duration-200 ease-snap",
+              refetching && "opacity-60",
             )}
           >
-            <div className="border-r bg-gray-50 dark:bg-muted" />
+          <div className={cn("relative", view === "week" ? "w-max min-w-full md:w-full" : "w-full")}>
+          <div
+            className={cn(
+              // z-50: above the sticky gutter (z-30) and the current-time overlay (z-40), both of which
+              // scroll under it.
+              "sticky top-0 z-50 grid border-b bg-white dark:bg-background",
+              view === "week" ? WEEK_COLS : "grid-cols-[60px_1fr]",
+            )}
+          >
+            {/* The corner cell is sticky on BOTH axes, so it stays over the time gutter as it scrolls. */}
+            <div className="sticky left-0 z-10 border-r bg-gray-50 dark:bg-muted" />
             {view === "week" ? (
               weekDays.map((day) => (
                 <div key={day.toISOString()} className="border-r py-2 text-center last:border-r-0 min-w-0">
@@ -853,14 +968,11 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
 
           {loading ? (
             // Skeleton rows at the real HOUR_HEIGHT, so the grid does not resize when the appointments land.
-            <div className="flex-1 overflow-hidden" role="status" aria-label="Chargement des rendez-vous">
+            <div role="status" aria-label="Chargement des rendez-vous">
               {Array.from({ length: 12 }).map((_, i) => (
                 <div
                   key={i}
-                  className={cn(
-                    "grid border-b",
-                    view === "week" ? "grid-cols-[60px_repeat(7,minmax(0,1fr))]" : "grid-cols-[60px_1fr]",
-                  )}
+                  className={cn("grid border-b", view === "week" ? WEEK_COLS : "grid-cols-[60px_1fr]")}
                   style={{ height: HOUR_HEIGHT }}
                 >
                   <div className="flex items-center justify-end border-r bg-gray-50 px-2 dark:bg-muted">
@@ -875,18 +987,12 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
               ))}
             </div>
           ) : (
-            <div
-              ref={scrollContainerRef}
-              className={cn(
-                "relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden transition-opacity duration-200 ease-snap",
-                refetching && "opacity-60",
-              )}
-            >
+            <>
               {/* Current time indicator line - overlay */}
               {isCurrentTimeVisible && currentTimePosition !== null && (
                 <>
                   <div
-                    className="absolute z-30 pointer-events-none"
+                    className="absolute z-40 pointer-events-none"
                     style={{
                       left: '60px',
                       right: '0',
@@ -899,7 +1005,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                   </div>
                   {/* Current time dot on time column */}
                   <div
-                    className="absolute z-30 pointer-events-none"
+                    className="absolute z-40 pointer-events-none"
                     style={{
                       left: '46px',
                       top: `${currentTimePosition - 4}px`,
@@ -910,7 +1016,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                 </>
               )}
               {/* Hour grid: time labels + empty clickable cells (gridlines + click-to-create). */}
-              <div className={cn("grid min-w-full", view === "week" ? "grid-cols-[60px_repeat(7,minmax(0,1fr))]" : "grid-cols-[60px_1fr]")}>
+              <div className={cn("grid", view === "week" ? WEEK_COLS : "grid-cols-[60px_1fr]")}>
                 {timeSlots.map((time) => {
                   const hour = Number.parseInt(time.split(":")[0])
                   // The label column has no single day in week view, so it reflects the focused date; each day
@@ -929,7 +1035,11 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                           repeating the number in a Tailwind class, as they used to. */}
                       <div
                         className={cn(
-                          "border-b border-r bg-gray-50 dark:bg-muted px-2 py-2 text-right leading-none",
+                          // `sticky left-0` keeps the hour visible while the week scrolls sideways (AC-30) —
+                          // a scrolled column with no time beside it is unreadable. z-30 puts it above the
+                          // appointment blocks (z-20) and below the current-time dot (z-40), which is drawn
+                          // at left:46px, i.e. inside this very column.
+                          "sticky left-0 z-30 border-b border-r bg-gray-50 dark:bg-muted px-2 py-2 text-right leading-none",
                           !isWorkingHours && "bg-gray-100/50 dark:bg-muted/50",
                         )}
                       >
@@ -975,8 +1085,9 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
               </div>
 
               {/* Appointment overlay (AC-4): each appointment rendered exactly once, positioned by its
-                  start minute and sized proportionally to its duration. Absolute children of the scroll
-                  container so they scroll with the grid; the empty cells above keep gridlines + clicks. */}
+                  start minute and sized proportionally to its duration. Absolute children of the `w-max`
+                  wrapper — NOT of the scroll container — so their percentage widths mean the grid rather
+                  than the viewport (see the AC-30 note above); the empty cells keep gridlines + clicks. */}
               {view === "week"
                 ? weekDays.map((day, dayIndex) =>
                     computeOverlapLanes(getAppointmentsForDay(day)).map(({ appointment, colIndex, colCount }) =>
@@ -992,8 +1103,10 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                       laneStyle(dayBandLeftExpr, dayBandWidthExpr, colIndex, colCount),
                     ),
                   )}
-            </div>
+            </>
           )}
+          </div>
+          </div>
         </div>
         )}
       </Card>
