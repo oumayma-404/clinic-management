@@ -30,7 +30,14 @@ export function ListToolbar({ search, children, className }: ListToolbarProps) {
   return (
     <div className={cn("flex flex-wrap items-center gap-2", className)}>
       {search && (
-        <div className="relative min-w-[190px] flex-1 sm:max-w-sm">
+        {/*
+          ⚠️ `min-w-[190px]` is `sm:` and up only. Unprefixed, it was a floor the search box could not go
+          below — and a flex child that cannot shrink is what pushes a page sideways. At 320 px the content
+          box is ~288 px, so the box plus any sibling filter overflowed the row, which is the « champs qui
+          débordent » the clinic reported. Below `sm:` the search takes a full row of its own and the filter
+          chips wrap underneath it, which is also the right shape for a thumb.
+        */}
+        <div className="relative w-full min-w-0 flex-1 sm:w-auto sm:min-w-[190px] sm:max-w-sm">
           <Search
             aria-hidden="true"
             className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
