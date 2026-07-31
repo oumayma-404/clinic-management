@@ -18,6 +18,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { MoreHorizontal, Plus, Loader2, ChevronRight } from "lucide-react"
+import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
@@ -204,7 +205,72 @@ export function TreatmentPlansTable({
       )}
 
       <div className={`rounded-md border overflow-x-auto${refreshing ? " opacity-60 transition-opacity" : ""}`}>
-        <Table>
+        {/* This table already used a DropdownMenu for its row actions, so the card's menu is the same content —
+            it is the template the other conversions followed rather than the other way round. */}
+        <CardList
+          className={CARDS_ONLY}
+          ariaLabel="Plans de traitement et devis"
+          items={plans}
+          getKey={(p) => p.id}
+          title={(p) => p.number ?? p.title}
+          subtitle={(p) => (showPatientColumn ? p.patientName : null)}
+          onSelect={(p) => openWorkspace(p)}
+          loading={loading}
+          status={(p) => (
+            <>
+              <Badge variant="secondary" className={planStatusBadgeClass(p.status)}>
+                {planStatusLabel(p.status)}
+              </Badge>
+              {isPlanBilled(p) && (
+                <Badge variant="outline" className="whitespace-nowrap">
+                  Facturé{p.linkedInvoiceNumber ? ` — ${p.linkedInvoiceNumber}` : ""}
+                </Badge>
+              )}
+            </>
+          )}
+          fields={(p) => [
+            { label: "Total", value: formatDT(p.totalPlanned) },
+            { label: "Encaissé", value: formatDT(p.amountPaid) },
+            { label: "Reste", value: formatDT(p.outstanding) },
+            { label: "Avancement", value: p.itemsTotal > 0 ? `${p.itemsDone}/${p.itemsTotal} actes` : null },
+            {
+              label: "Prochaine séance",
+              value: p.nextAppointmentAt ? formatDateFr(p.nextAppointmentAt) : null,
+            },
+          ]}
+          actions={(p) => {
+            const isDraft = p.status === "Draft"
+            return (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" disabled={busyId === p.id} aria-label="Actions du plan">
+                    <MoreHorizontal className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onSelect={() => openWorkspace(p)}>Ouvrir le plan</DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => handleDownloadPdf(p)}>
+                    Télécharger le devis (PDF)
+                  </DropdownMenuItem>
+                  {isDraft && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onSelect={() => openEdit(p)}>Modifier le brouillon</DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="text-destructive focus:text-destructive"
+                        onSelect={() => setDeleteTarget(p)}
+                      >
+                        Supprimer le brouillon
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )
+          }}
+          empty={isSearching ? "Aucun devis ne correspond à votre recherche." : "Aucun plan de traitement."}
+        />
+        <Table containerClassName={TABLE_ONLY}>
           <TableHeader>
             <TableRow>
               <TableHead>Numéro</TableHead>

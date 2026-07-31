@@ -29,7 +29,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Users, KeyRound, UserX, UserCheck, RefreshCw, Copy, Check } from "lucide-react"
+import { Users, KeyRound, UserX, UserCheck, RefreshCw, Copy, Check, MoreHorizontal } from "lucide-react"
+import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import {
   usersApi,
   USER_ROLES,
@@ -267,7 +274,99 @@ export function UserManagement() {
               <p className="py-8 text-center text-muted-foreground">Chargement des utilisateurs…</p>
             ) : (
               <div className="overflow-x-auto">
-                <Table>
+                {/*
+                  Two things this surface does differently.
+
+                  (a) The title falls back to the email. `fullName` renders as "-" in the table when blank,
+                      but a card titled "-" identifies nobody — and the email is what actually names the
+                      account.
+                  (b) The rôle `Select` stays a CONTROL, as the value of a labelled field. It is an action
+                      living in a data column, so moving it into the menu would turn a one-tap change into
+                      two and lose the current value from view; keeping it as a field keeps both.
+                */}
+                <CardList
+                  className={CARDS_ONLY}
+                  ariaLabel="Utilisateurs de la clinique"
+                  items={users}
+                  getKey={(u) => u.id}
+                  title={(u) => u.fullName || u.email || "Compte sans nom"}
+                  subtitle={(u) => (u.fullName ? u.email : null)}
+                  muted={(u) => !u.isActive}
+                  status={(u) => (
+                    <>
+                      {u.isActive ? (
+                        <Badge className="bg-green-600 hover:bg-green-600">Actif</Badge>
+                      ) : (
+                        <Badge variant="destructive">Inactif</Badge>
+                      )}
+                      {u.mustChangePassword && (
+                        <Badge variant="secondary" className="text-2xs">Doit changer le mot de passe</Badge>
+                      )}
+                    </>
+                  )}
+                  fields={(u) => [
+                    {
+                      label: "Rôle",
+                      value: knownRole(u.role) ? (
+                        <Select
+                          value={knownRole(u.role)!}
+                          onValueChange={(value) => setPending({ type: "role", user: u, role: value as UserRole })}
+                          disabled={working}
+                        >
+                          <SelectTrigger className="h-8 w-[150px] text-sm" aria-label="Rôle">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {USER_ROLES.map((role) => (
+                              <SelectItem key={role} value={role} className="text-sm">
+                                {USER_ROLE_LABELS_FR[role]}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <Badge variant="outline">{roleLabel(u.role)}</Badge>
+                      ),
+                    },
+                    { label: "Dernière connexion", value: formatDate(u.lastLoginAt) },
+                  ]}
+                  actions={(u) => {
+                    const isSelf = !!u.email && u.email === currentUser?.email
+                    return (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" aria-label={`Actions pour ${u.fullName || u.email}`}>
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          {canResetPasswords && (
+                            <DropdownMenuItem onSelect={() => setPending({ type: "reset", user: u })}>
+                              Réinitialiser le mot de passe
+                            </DropdownMenuItem>
+                          )}
+                          {u.isActive ? (
+                            <DropdownMenuItem
+                              className="text-destructive focus:text-destructive"
+                              disabled={isSelf}
+                              onSelect={() => setPending({ type: "status", user: u })}
+                            >
+                              Désactiver
+                            </DropdownMenuItem>
+                          ) : (
+                            <DropdownMenuItem onSelect={() => setPending({ type: "status", user: u })}>
+                              Réactiver
+                            </DropdownMenuItem>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )
+                  }}
+                  empty={
+                    debouncedSearch ? "Aucun utilisateur ne correspond à votre recherche" : "Aucun utilisateur"
+                  }
+                />
+                <Table containerClassName={TABLE_ONLY}>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Nom</TableHead>

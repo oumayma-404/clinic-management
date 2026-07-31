@@ -19,7 +19,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { Stethoscope, Pencil, Trash2, Clock, Plus, Coins, ListPlus, Loader2, Boxes } from "lucide-react"
+import { Stethoscope, Pencil, Trash2, Clock, Plus, Coins, ListPlus, Loader2, Boxes, MoreHorizontal } from "lucide-react"
+import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { ProcedureTypeMaterialsDialog } from "@/components/procedure-type-materials-dialog"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
 import type { ProcedureTypeDto } from "@/lib/api/types"
@@ -163,7 +170,60 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
             />
           </div>
           <div className={`overflow-x-auto${refreshing ? " opacity-60 transition-opacity" : ""}`}>
-            <Table>
+            {/* The colour column is decoration, not data — it becomes the card's accent bar rather than a
+                field labelled « Couleur » whose value is a swatch. */}
+            <CardList
+              className={CARDS_ONLY}
+              ariaLabel="Types de procédures"
+              items={procedures}
+              getKey={(p) => p.id}
+              title={(p) => p.name}
+              subtitle={(p) => p.description}
+              accent={(p) => p.colorHex}
+              fields={(p) => [
+                { label: "Durée", value: `${p.defaultDurationMinutes} min` },
+                {
+                  label: "Coût",
+                  value: p.defaultCost != null && p.defaultCost > 0 ? formatDT(p.defaultCost) : null,
+                },
+                {
+                  label: "Consommables",
+                  value:
+                    p.materials.length > 0
+                      ? `${p.materials.length} article${p.materials.length === 1 ? "" : "s"}`
+                      : null,
+                },
+              ]}
+              actions={
+                isAdmin
+                  ? (p) => (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" aria-label={`Actions pour ${p.name}`}>
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onSelect={() => onEdit(p)}>Modifier</DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => setMaterialsTarget(p)}>Consommables</DropdownMenuItem>
+                          <DropdownMenuItem
+                            className="text-destructive focus:text-destructive"
+                            onSelect={() => handleDelete(p)}
+                          >
+                            Supprimer
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )
+                  : undefined
+              }
+              empty={
+                isAdmin
+                  ? "Aucun type d'acte défini"
+                  : "Aucun type d'acte défini. Demandez à un administrateur d'en ajouter."
+              }
+            />
+            <Table containerClassName={TABLE_ONLY}>
               <TableHeader>
                 <TableRow>
                   <TableHead>Couleur</TableHead>

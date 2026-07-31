@@ -19,7 +19,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { ClipboardList, Pencil, Trash2, Plus, AlertTriangle, CheckCircle2 } from "lucide-react"
+import { ClipboardList, Pencil, Trash2, Plus, AlertTriangle, CheckCircle2, MoreHorizontal } from "lucide-react"
+import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { dentalActsApi } from "@/lib/api/dental-acts"
 import type { DentalActDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
@@ -152,7 +159,61 @@ export function DentalActsTable({ onEdit, onAdd, onChanged, reloadToken }: Denta
             />
           </div>
           <div className={`overflow-x-auto${refreshing ? " opacity-60 transition-opacity" : ""}`}>
-            <Table>
+            {/* Same shape as the CNAM nomenclature, plus a tarif. `coefficient` and `defaultFee` are passed
+                raw — the primitive drops a nullish value, so the « — » placeholders the table needs to keep
+                its columns aligned simply do not appear on a card (AC-17). */}
+            <CardList
+              className={CARDS_ONLY}
+              ariaLabel="Catalogue d'actes dentaires"
+              items={acts}
+              getKey={(a) => a.id}
+              title={(a) => a.designationFr}
+              subtitle={(a) => <span className="font-mono">{a.codeActe}</span>}
+              muted={(a) => !a.isActive}
+              status={(a) => (
+                <>
+                  {!a.isActive && <Badge variant="secondary">Inactif</Badge>}
+                  {a.requiresAccordPrealable && (
+                    <Badge variant="outline" className="border-primary/40 text-primary">
+                      Accord préalable
+                    </Badge>
+                  )}
+                  {a.isProvisional && (
+                    <Badge variant="outline" className="border-amber-400 text-amber-700 dark:text-amber-300">
+                      À vérifier
+                    </Badge>
+                  )}
+                </>
+              )}
+              fields={(a) => [
+                { label: "Tarif", value: a.defaultFee != null ? formatDT(a.defaultFee) : null },
+                { label: "Lettre clé", value: <Badge variant="outline">{a.lettreCle}</Badge> },
+                { label: "Coefficient", value: a.coefficient },
+                { label: "Catégorie", value: a.category },
+              ]}
+              actions={(a) => (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" aria-label={`Actions pour ${a.designationFr}`}>
+                      <MoreHorizontal className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onSelect={() => onEdit(a)}>Modifier</DropdownMenuItem>
+                    {a.isActive && (
+                      <DropdownMenuItem
+                        className="text-destructive focus:text-destructive"
+                        onSelect={() => setActToDelete(a)}
+                      >
+                        Désactiver
+                      </DropdownMenuItem>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+              empty="Aucun acte dans le catalogue"
+            />
+            <Table containerClassName={TABLE_ONLY}>
               <TableHeader>
                 <TableRow>
                   <TableHead>Code acte</TableHead>

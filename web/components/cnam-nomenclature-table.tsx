@@ -19,7 +19,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { ClipboardList, Pencil, Trash2, Plus, AlertTriangle, CheckCircle2 } from "lucide-react"
+import { ClipboardList, Pencil, Trash2, Plus, AlertTriangle, CheckCircle2, MoreHorizontal } from "lucide-react"
+import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { cnamNomenclatureApi } from "@/lib/api/cnam-nomenclature"
 import type { CnamNomenclatureEntryDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
@@ -152,7 +159,54 @@ export function CnamNomenclatureTable({ onEdit, onAdd, onChanged, reloadToken }:
             />
           </div>
           <div className={`overflow-x-auto${refreshing ? " opacity-60 transition-opacity" : ""}`}>
-            <Table>
+            {/* Title is the désignation, not the code: `codeActe` is the key you look an act UP by, but the
+                name is how you recognise it in a list. The code rides as a mono eyebrow. */}
+            <CardList
+              className={CARDS_ONLY}
+              ariaLabel="Nomenclature CNAM"
+              items={entries}
+              getKey={(e) => e.id}
+              title={(e) => e.designationFr}
+              subtitle={(e) => <span className="font-mono">{e.codeActe}</span>}
+              muted={(e) => !e.isActive}
+              status={(e) => (
+                <>
+                  {!e.isActive && <Badge variant="secondary">Inactif</Badge>}
+                  {e.isProvisional && (
+                    <Badge variant="outline" className="border-amber-400 text-amber-700 dark:text-amber-300">
+                      À vérifier
+                    </Badge>
+                  )}
+                </>
+              )}
+              fields={(e) => [
+                { label: "Lettre clé", value: <Badge variant="outline">{e.lettreCle}</Badge> },
+                { label: "Coefficient", value: e.coefficient },
+                { label: "Catégorie", value: e.category },
+              ]}
+              actions={(e) => (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" aria-label={`Actions pour ${e.designationFr}`}>
+                      <MoreHorizontal className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onSelect={() => onEdit(e)}>Modifier</DropdownMenuItem>
+                    {e.isActive && (
+                      <DropdownMenuItem
+                        className="text-destructive focus:text-destructive"
+                        onSelect={() => setEntryToDelete(e)}
+                      >
+                        Désactiver
+                      </DropdownMenuItem>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+              empty="Aucun acte dans la nomenclature"
+            />
+            <Table containerClassName={TABLE_ONLY}>
               <TableHeader>
                 <TableRow>
                   <TableHead>Code acte</TableHead>

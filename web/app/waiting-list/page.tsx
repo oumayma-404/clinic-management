@@ -40,7 +40,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { ClipboardList, Plus, Pencil, Trash2, UserPlus, Loader2 } from "lucide-react"
+import { ClipboardList, Plus, Pencil, Trash2, UserPlus, Loader2, MoreHorizontal } from "lucide-react"
+import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { CreateAppointmentDialog } from "@/components/create-appointment-dialog"
 import { cn } from "@/lib/utils"
 import { waitingListApi, type WaitingListPayload } from "@/lib/api/waiting-list"
@@ -335,7 +342,59 @@ export default function WaitingListPage() {
                     placeholder="Rechercher un patient, une note, un créneau…"
                   />
                 </div>
-                <Table>
+                {/* « Promouvoir » stays a visible button rather than sinking into the menu: it is the whole
+                    point of the salle d'attente and the one action taken dozens of times a day. */}
+                <CardList
+                  className={CARDS_ONLY}
+                  ariaLabel="Salle d'attente"
+                  items={entries}
+                  getKey={(e) => e.id}
+                  title={(e) => e.patientName ?? "Patient inconnu"}
+                  status={(e) => (
+                    <Badge variant={priorityBadgeVariant(e.priority)}>{priorityLabel(e.priority)}</Badge>
+                  )}
+                  fields={(e) => [
+                    { label: "Créneau souhaité", value: e.desiredTimeframe?.trim() },
+                    { label: "Note", value: e.note?.trim() },
+                    { label: "Ajouté le", value: formatAddedDate(e.createdAt) },
+                  ]}
+                  actions={(e) => (
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handlePromote(e)}
+                        disabled={promotingId === e.id}
+                        className="gap-1"
+                      >
+                        {promotingId === e.id ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <UserPlus className="h-3 w-3" />
+                        )}
+                        Promouvoir
+                      </Button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" aria-label={`Actions pour ${e.patientName ?? "ce patient"}`}>
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onSelect={() => handleEdit(e)}>Modifier</DropdownMenuItem>
+                          <DropdownMenuItem
+                            className="text-destructive focus:text-destructive"
+                            onSelect={() => setEntryToDelete(e)}
+                          >
+                            Retirer
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                  )}
+                  empty="La liste d'attente est vide"
+                />
+                <Table containerClassName={TABLE_ONLY}>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Patient</TableHead>

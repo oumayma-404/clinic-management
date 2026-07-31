@@ -22,6 +22,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Textarea } from "@/components/ui/textarea"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   Dialog,
@@ -599,7 +600,38 @@ export default function RecurringSeriesPage() {
                       : "Aucune série récurrente"}
                   </p>
                 ) : (
-                <Table>
+                <>
+                <CardList
+                  className={CARDS_ONLY}
+                  ariaLabel="Séries de rendez-vous récurrents"
+                  items={series}
+                  getKey={(s) => s.id}
+                  title={(s) => s.patientName ?? "Patient inconnu"}
+                  subtitle={(s) => frequencyLabel(s.recurrencePattern)}
+                  muted={(s) => !s.isActive}
+                  status={(s) => (
+                    <Badge variant={s.isActive ? "default" : "secondary"}>{s.isActive ? "Actif" : "Terminé"}</Badge>
+                  )}
+                  fields={(s) => [
+                    { label: "Début", value: formatDateTime(s.startDate) },
+                    { label: "Fin", value: formatEnd(s) },
+                    { label: "Intervalle", value: s.interval },
+                    { label: "Rendez-vous", value: s.appointmentCount },
+                  ]}
+                  actions={(s) =>
+                    s.isActive ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleCancel(s)}
+                        className="gap-1 text-destructive hover:text-destructive"
+                      >
+                        Annuler
+                      </Button>
+                    ) : null
+                  }
+                />
+                <Table containerClassName={TABLE_ONLY}>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Patient</TableHead>
@@ -643,6 +675,7 @@ export default function RecurringSeriesPage() {
                     ))}
                   </TableBody>
                 </Table>
+                </>
                 )}
                 <DataTablePagination
                   page={seriesPage}
