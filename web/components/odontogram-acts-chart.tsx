@@ -5,6 +5,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { cn } from "@/lib/utils"
 import { formatDateFr } from "@/lib/format"
 import type { DentalRecordDto, ProcedureTypeDto } from "@/lib/api/types"
+import { ToothArchLayout } from "@/components/tooth-arch-layout"
 
 /**
  * « Actes réalisés » — the read-only half of the odontogram: which teeth were worked on, and with which act.
@@ -180,7 +181,8 @@ export function OdontogramActsChart({ teeth, records, procedureTypes }: Odontogr
             onMouseEnter={() => setHoveredTooth(toothNum)}
             onMouseLeave={() => setHoveredTooth((t) => (t === toothNum ? null : t))}
             aria-label={`Dent ${toothNum} — ${acts.length} acte${acts.length > 1 ? "s" : ""} réalisé${acts.length > 1 ? "s" : ""}`}
-            className="rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            // 44px tappable area on a coarse pointer, painted size unchanged (AC-33).
+            className="touch-target rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {cell}
           </button>
@@ -208,32 +210,10 @@ export function OdontogramActsChart({ teeth, records, procedureTypes }: Odontogr
 
   return (
     <div className="space-y-3">
-        {/* Same container and arch labels as the diagnosis chart — including the AC-32 `mx-auto w-max`
-            wrapper, which is what keeps teeth 18–15 and 48–45 inside the scrollable region. See
-            `record-tooth-chart.tsx` for why `justify-center` cannot be used here. */}
-        <div className="overflow-x-auto rounded-lg border border-border bg-card p-3">
-          <div className="mx-auto w-max">
-          <div className="space-y-1.5">
-            <div className="text-center text-2xs font-medium text-muted-foreground">Maxillaire (haut)</div>
-            <div className="flex gap-2">
-              <div className="flex gap-0.5">{teeth.upperRight.map(renderTooth)}</div>
-              <div className="w-px bg-border" />
-              <div className="flex gap-0.5">{teeth.upperLeft.map(renderTooth)}</div>
-            </div>
-          </div>
-
-          <div className="my-2 border-t border-border" />
-
-          <div className="space-y-1.5">
-            <div className="flex gap-2">
-              <div className="flex gap-0.5">{teeth.lowerRight.map(renderTooth)}</div>
-              <div className="w-px bg-border" />
-              <div className="flex gap-0.5">{teeth.lowerLeft.map(renderTooth)}</div>
-            </div>
-            <div className="text-center text-2xs font-medium text-muted-foreground">Mandibule (bas)</div>
-          </div>
-          </div>
-        </div>
+        {/* Geometry from `ToothArchLayout`; `tappedTooth`/`hoveredTooth` stay in THIS parent, which is the
+            `476a2e3` contract — 32 cells a few pixels apart would otherwise stack a panel per tooth the
+            pointer crosses. The layout takes no open/hover state precisely so that cannot happen. */}
+        <ToothArchLayout teeth={teeth} renderTooth={renderTooth} />
 
         <p className="text-xs text-muted-foreground">
           Touchez ou survolez une dent colorée pour voir les actes réalisés. Vue en lecture seule — les actes

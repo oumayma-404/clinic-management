@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils"
 // authority for a tooth's dentition (it mirrors the backend `FdiTooth.IsAdult`), and this file used to carry
 // its own copy of the same four arrays.
 import { ADULT_TEETH, CHILD_TEETH } from "@/components/tooth-multiselect"
+import { ToothArchLayout } from "@/components/tooth-arch-layout"
 
 // How a tooth should paint on the chart (computed by the parent from the acts + the patient's odontogram).
 export interface ToothPaint {
@@ -137,7 +138,9 @@ export function RecordToothChart({ isAdult, paint, onToggleTooth, disabled, toot
         disabled={disabled}
         onClick={() => onToggleTooth(num)}
         title={toothTitle?.(num) ?? `Dent ${num}`}
-        className="group flex flex-col items-center focus:outline-none disabled:cursor-not-allowed"
+        // `touch-target` gives the tooth a 44px tappable area on a coarse pointer without changing a painted
+        // pixel (AC-33) — the same primitive P2 built, not a second mechanism.
+        className="touch-target group flex flex-col items-center focus:outline-none disabled:cursor-not-allowed"
       >
         {/* Movement hover gated behind `hover-hover:` (AC-11) — a tapped tooth kept the enlarged state. */}
         <span className={cn("relative rounded-md p-0.5 transition-all hover-hover:group-hover:scale-105", selected && "ring-2 ring-primary")}>
@@ -164,44 +167,8 @@ export function RecordToothChart({ isAdult, paint, onToggleTooth, disabled, toot
     )
   }
 
-  return (
-    <div className="overflow-x-auto rounded-lg border border-border bg-card p-3">
-      {/*
-        AC-32 — `w-max mx-auto`, never `justify-center`, inside a scroll container.
-
-        ⚠️ This is not a phone-only nicety. `justify-content: center` distributes overflow to **both** sides,
-        and the inline-start overflow is **not in the scrollable region** — so at 390px teeth 18–15 and 48–45
-        were unreachable by any means: not by scrolling, not by dragging, not at all. `w-max` sizes this block
-        to its content and `mx-auto` still centres it while there is room; once the content is wider than the
-        container the auto margins collapse to zero (they cannot go negative), so the arch starts at the
-        scroll origin and every tooth is reachable.
-
-        One wrapper rather than one per row, so the « Maxillaire »/« Mandibule » labels and the midline rule
-        share the arch's width instead of centring against the viewport and drifting off it when scrolled.
-      */}
-      <div className="mx-auto w-max">
-        {/* Upper jaw */}
-        <div className="space-y-1.5">
-          <div className="text-center text-2xs font-medium text-muted-foreground">Maxillaire (haut)</div>
-          <div className="flex gap-2">
-            <div className="flex gap-0.5">{teeth.upperRight.map(renderTooth)}</div>
-            <div className="w-px bg-border" />
-            <div className="flex gap-0.5">{teeth.upperLeft.map(renderTooth)}</div>
-          </div>
-        </div>
-
-        <div className="my-2 border-t border-border" />
-
-        {/* Lower jaw */}
-        <div className="space-y-1.5">
-          <div className="flex gap-2">
-            <div className="flex gap-0.5">{teeth.lowerRight.map(renderTooth)}</div>
-            <div className="w-px bg-border" />
-            <div className="flex gap-0.5">{teeth.lowerLeft.map(renderTooth)}</div>
-          </div>
-          <div className="text-center text-2xs font-medium text-muted-foreground">Mandibule (bas)</div>
-        </div>
-      </div>
-    </div>
-  )
+  // The geometry (scroll box, rows, midline, labels, the below-`md:` arch switch) lives in `ToothArchLayout`.
+  // Everything above — paint, selection, `disabled`, the native `title` — stays here, which is exactly the
+  // contract that lets the read-only summary reuse this chart. See the layout's own note.
+  return <ToothArchLayout teeth={teeth} renderTooth={renderTooth} />
 }

@@ -31,6 +31,7 @@ import { OdontogramActsChart } from "@/components/odontogram-acts-chart"
 // One source for the FDI quadrant layout — `tooth-multiselect` is the client-side authority for a tooth's
 // dentition (mirroring the backend `FdiTooth.IsAdult`), and this file used to carry a second copy.
 import { ADULT_TEETH, CHILD_TEETH } from "@/components/tooth-multiselect"
+import { ToothArchLayout } from "@/components/tooth-arch-layout"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 
@@ -231,48 +232,15 @@ export function Odontogram({ patientId, dentition, onCreatePlan }: OdontogramPro
           {/* The instruction line that stood here is gone: it repeated the card's own description almost word for
               word, so the same sentence was on screen twice and cost a third row. The card header keeps it. */}
           <TabsContent value="diagnostics" className="mt-3 space-y-2">
-        {/* AC-32 — the `mx-auto w-max` wrapper keeps teeth 18–15 and 48–45 inside the scrollable region;
-            `justify-center` pushed the inline-start overflow outside it, where nothing can reach it. The
-            reasoning is written out once, in `record-tooth-chart.tsx`. */}
-        <div className="overflow-x-auto rounded-lg border border-border bg-card p-3">
-          <div className="mx-auto w-max">
-          <div className="space-y-1.5">
-            <div className="text-center text-2xs font-medium text-muted-foreground">Maxillaire (haut)</div>
-            <div className="flex gap-2">
-              <div className="flex gap-0.5">
-                {teeth.upperRight.map((t) => (
-                  <ToothCell key={t} toothNum={t} entries={byTooth.get(t) ?? []} patientId={patientId} onChanged={load} />
-                ))}
-              </div>
-              <div className="w-px bg-border" />
-              <div className="flex gap-0.5">
-                {teeth.upperLeft.map((t) => (
-                  <ToothCell key={t} toothNum={t} entries={byTooth.get(t) ?? []} patientId={patientId} onChanged={load} />
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <div className="my-2 border-t border-border" />
-
-          <div className="space-y-1.5">
-            <div className="flex gap-2">
-              <div className="flex gap-0.5">
-                {teeth.lowerRight.map((t) => (
-                  <ToothCell key={t} toothNum={t} entries={byTooth.get(t) ?? []} patientId={patientId} onChanged={load} />
-                ))}
-              </div>
-              <div className="w-px bg-border" />
-              <div className="flex gap-0.5">
-                {teeth.lowerLeft.map((t) => (
-                  <ToothCell key={t} toothNum={t} entries={byTooth.get(t) ?? []} patientId={patientId} onChanged={load} />
-                ))}
-              </div>
-            </div>
-            <div className="text-center text-2xs font-medium text-muted-foreground">Mandibule (bas)</div>
-          </div>
-          </div>
-        </div>
+        {/* Geometry from `ToothArchLayout`. `ToothCell` keeps its own editor Popover and its per-cell state —
+            the layout takes no open/hover state, which is what stops one arch's worth of editors from being
+            addressable at once. */}
+        <ToothArchLayout
+          teeth={teeth}
+          renderTooth={(t) => (
+            <ToothCell key={t} toothNum={t} entries={byTooth.get(t) ?? []} patientId={patientId} onChanged={load} />
+          )}
+        />
 
             {/* The condition palette belongs to THIS chart. It used to sit outside the tabs, so all nine
                 conditions were also listed under « Actes réalisés » — a palette that view does not use. */}
@@ -423,7 +391,9 @@ function ToothCell({ toothNum, entries, patientId, onChanged }: ToothCellProps) 
         }
         // Movement hover gated behind `hover-hover:` per the policy in globals.css: a tap fires `:hover` and
         // leaves it applied, so on a tablet the tooth stayed enlarged and read as a stuck selection (AC-11).
-        className="group rounded-md transition-all hover-hover:hover:scale-105 focus:outline-none focus:ring-1 focus:ring-ring"
+        // `touch-target` gives a 44px tappable area on a coarse pointer without changing the painted cell
+        // (AC-33) — the same primitive P2 built.
+        className="touch-target group rounded-md transition-all hover-hover:hover:scale-105 focus:outline-none focus:ring-1 focus:ring-ring"
       >
         {box}
       </button>
