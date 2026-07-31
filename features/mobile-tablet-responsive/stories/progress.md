@@ -27,7 +27,7 @@ explicit path and never `git add -A`: the tree is not guaranteed to be quiet for
 | **P4** | Dialogs | ✅ **complete** | `2dc3be7` | All 8 steps. `dialog-max-w` + `sheet-vh` both enforced; only `arch-clipping` (P6) still pending |
 | **P5** | Agenda | ✅ **complete** | `028747b` `b775137` `5d6bb5b` `0690246` | AC-28…AC-31. `agenda-scroll` added in `b775137`, actually **enforced** only in `5d6bb5b` — see the note under the gate log |
 | **P6** | Odontogram | ✅ **complete** | `97fb588` `7895681` | AC-32…AC-35. `arch-clipping` enforced → **all 9 checks enforced, 0 pending**. AC-35 needed no code (DEV-9) |
-| **P7** | Platform | not-started | — | |
+| **P7** | Platform | 🟡 **partial — AC-42 timer + AC-43** | `52e91e6` | The inactivity **security hole** is closed and the network error is French + retryable. Dark mode, print, downloads and manifest/icons remain; **AC-36 is blocked on real raster assets** |
 | **P8** | LAN device trust | not-started | — | Needs physical iOS + Android devices |
 
 ## Quality gate log
@@ -48,6 +48,7 @@ explicit path and never `git add -A`: the tree is not guaranteed to be quiet for
 | **P5** (complete) | ✅ clean | ✅ exit 0 | ✅ all enforced pass, 1 pending (P6 only) | 2026-07-31 |
 | **P6** (AC-32 + step 5) | ✅ clean | ✅ exit 0 | ✅ **all 9 checks enforced and passing, 0 pending** | 2026-07-31 |
 | **P6** (complete) | ✅ clean | ✅ exit 0 | ✅ all 9 enforced and passing, 0 pending | 2026-07-31 |
+| **P7** (AC-42 timer + AC-43) | ✅ clean | ✅ exit 0 | ✅ all 9 enforced and passing, 0 pending | 2026-07-31 |
 
 ⚠️ **A freshly-added, freshly-passing check looks identical whether or not it is enforced — and that hid a
 false claim for one commit.** `b775137` added `agenda-scroll` and its own message called it enforced; `"P5"` was
@@ -543,6 +544,61 @@ tablet this feature is for.
 
 **AC-35 needed no code — see DEV-9.** The plan's step 4 rested on a premise that does not hold.
 
+### P7 — platform (PARTIAL: AC-42's timer + AC-43) — `52e91e6`
+
+**The inactivity timer was not enforcing anything.** It stored only the `setTimeout` handle, so the 30-minute
+limit existed only while a timer was *running*. A backgrounded or frozen tab — **a phone locked in a pocket,
+which is the case the limit exists for** — has its timers throttled or suspended, so the callback never fired
+and the session stayed open past the limit. And `reset()` re-armed the **full** limit on every event, so the
+first mousemove after coming back silently *extended* the session rather than ending it.
+
+**Wall-clock is now the authority; the timer is only a wake-up call.** `lastActivityAtMs` is the fact, `arm()`
+derives the delay from it, and every path — a real event, the tab becoming visible, the timer firing early —
+re-derives instead of assuming. A timer that fires late or not at all can now only **delay** the logout to the
+next wake-up, never skip it.
+⚠️ `visibilitychange` is on **`document`**, not `window`, so it cannot join the existing `keyof WindowEventMap`
+array — and it is **not activity**: returning to the tab re-checks the clock, never restarts it. That one
+listener is what closes the hole, because it is the first thing to run when a phone is unlocked.
+⚠️ **Local-only.** Cloud has no inactivity timer at all (Auth0 owns session lifetime), so this provider is the
+only place the rule exists — AC-42 should be read as Local-scoped.
+
+**A timeout remembers the screen, a deliberate logout does not** (AC-42). `/login` already honoured `returnTo`
+behind an open-redirect guard, so only the caller needed changing.
+
+**French and retryable (AC-43).** `client.ts` threw *"Network error: Unable to connect to the API. Please check
+if the API is running and CORS is configured correctly."* — English, and addressed to whoever deployed the app
+rather than the dentist reading it. Since `errors.ts` passes an `ApiError` message through **verbatim**, that
+string *was* the toast. It is now `NETWORK_ERROR_MESSAGE`, worded to match `connectivity.tsx`'s « Serveur
+injoignable » banner so the two ways the app can notice one outage do not describe it differently.
+⚠️ Keyed on a new **`ApiErrorCode.Network`**, not on `status === 0`: the client also raises `status: 0` for an
+unexpected throw, and offering « Réessayer » for a fault sends the user round a loop that cannot succeed.
+`showErrorToast` gained an optional `onRetry`, rendered **only** when `isNetworkError`.
+
+#### ⚠️ Still open in P7 — four items
+
+- **AC-38/AC-39 — dark mode.** The biggest remaining item. ⚠️ `attribute="class"` is **mandatory**:
+  next-themes defaults to `data-theme` and `globals.css:4` is class-based, so the default renders **none** of
+  the 336 `dark:` utilities *while looking correctly wired*. Document surfaces are exempt via a `.light` scope
+  (the two A4 previews, the PDF iframes, the CNAM BS1 overlay, the print surface, uploaded cachet/logo).
+  ⚠️ `status-tone.ts`'s `--warning-ink` exists *because* `--warning` at L 0.62 is ~3.5:1 on its own wash — a
+  dark pass must not "simplify" it away. P1 already put `suppressHydrationWarning` on `<html>` for this.
+- **AC-40 — print.** No `@media print` and no `print:` utility exists anywhere. ⚠️ While there:
+  `document-editor-content.tsx`'s `document.querySelector('style')?.textContent` grabs **the first `<style>`
+  in the document, whatever it is** — and prod Next ships a `<link>`, not a `<style>`.
+  **Deferred also because that file carries the parallel session's uncommitted work.**
+- **AC-41 — downloads.** Fixing `download.ts` alone covers **8 of 13** paths; five inline the dance or use
+  `file-saver`, one being the El Fatoora XML the spec names. ⚠️ `download.ts` revokes the object URL
+  **synchronously**, which kills a `window.open` navigation the same way it kills the iOS download.
+- **AC-36/AC-37 — manifest and icons.** ⚠️ **AC-36 is blocked on assets**: all four icons `layout.tsx`
+  declares do not exist, and authoring real raster icons is not something to fake with a placeholder.
+  `app/manifest.ts`, `theme-color` and `display: standalone` can land without them; AC-37's in-app back
+  affordance is independent.
+
+**Also deferred to the parallel session's files:** item 5's realtime re-subscribe lives in
+`lib/realtime/clinic-hub.ts`, which they hold uncommitted. ⚠️ Worth doing when free —
+`withAutomaticReconnect()` bare is **four attempts then `Disconnected` for good**, at `LogLevel.None`, so a
+permanent disconnect is completely silent.
+
 ## Deviations
 
 ### DEV-1: `/settings` and `/users` keep their content exemption
@@ -826,6 +882,14 @@ For `features/LEARNINGS.md` on completion:
   refuses `paint`, `disabled`, `entries` and every scrap of open/hover state — the three charts differ only in
   how they draw and react to one tooth, so the shared part is the geometry and nothing else. The temptation to
   hoist "just the disabled flag too" is what would have broken both contracts at once.
+- ⚠️ **A timeout enforced only by a running timer is not enforced.** `setTimeout` is a *hint* — a backgrounded,
+  frozen or suspended tab may never deliver it — so any deadline that matters must store the **wall-clock
+  instant** it was set from and re-derive on every wake-up. The failure mode here was silent and in the wrong
+  direction: the session stayed open *longer* than the policy, on exactly the device (a locked phone) the
+  policy exists for. Ask of any timer: *what happens if this callback simply never runs?*
+- **Distinguish « retry will work » from « retry cannot work » before offering a retry.** `status === 0` looked
+  like the network predicate and was not — it also covers an unexpected throw. A « Réessayer » on a fault is a
+  loop the user cannot win, so the retryable case earned its own code rather than borrowing a status.
 - **Keying touch rules to a breakpoint would have missed the target device.** `md:` is 768px; the tablet a
   dentist holds in landscape is 1180px. Anything about *fingers* keys on `(pointer: coarse)`, anything about
   *space* keys on width — and this feature needs both, separately.
