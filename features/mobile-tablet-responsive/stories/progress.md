@@ -27,7 +27,7 @@ explicit path and never `git add -A`: the tree is not guaranteed to be quiet for
 | **P4** | Dialogs | ✅ **complete** | `2dc3be7` | All 8 steps. `dialog-max-w` + `sheet-vh` both enforced; only `arch-clipping` (P6) still pending |
 | **P5** | Agenda | ✅ **complete** | `028747b` `b775137` `5d6bb5b` `0690246` | AC-28…AC-31. `agenda-scroll` added in `b775137`, actually **enforced** only in `5d6bb5b` — see the note under the gate log |
 | **P6** | Odontogram | ✅ **complete** | `97fb588` `7895681` | AC-32…AC-35. `arch-clipping` enforced → **all 9 checks enforced, 0 pending**. AC-35 needed no code (DEV-9) |
-| **P7** | Platform | 🟡 **partial — AC-42 timer + AC-43** | `52e91e6` | The inactivity **security hole** is closed and the network error is French + retryable. Dark mode, print, downloads and manifest/icons remain; **AC-36 is blocked on real raster assets** |
+| **P7** | Platform | 🟡 **partial — 6 of 8 ACs** | `52e91e6` `bbb9143` `50c54cd` | AC-37 · AC-38 · AC-39 · AC-41 (core) · AC-42 · AC-43 done. **AC-40 (print) remains**; **AC-36's icon assets remain**; AC-41's five inline paths + the realtime re-subscribe sit in files the parallel session holds |
 | **P8** | LAN device trust | not-started | — | Needs physical iOS + Android devices |
 
 ## Quality gate log
@@ -49,6 +49,8 @@ explicit path and never `git add -A`: the tree is not guaranteed to be quiet for
 | **P6** (AC-32 + step 5) | ✅ clean | ✅ exit 0 | ✅ **all 9 checks enforced and passing, 0 pending** | 2026-07-31 |
 | **P6** (complete) | ✅ clean | ✅ exit 0 | ✅ all 9 enforced and passing, 0 pending | 2026-07-31 |
 | **P7** (AC-42 timer + AC-43) | ✅ clean | ✅ exit 0 | ✅ all 9 enforced and passing, 0 pending | 2026-07-31 |
+| **P7** (dark mode) | ✅ clean | ✅ exit 0 | ✅ all 9 enforced and passing, 0 pending | 2026-07-31 |
+| **P7** (downloads · manifest · retour) | ✅ clean | ✅ exit 0 (`/manifest.webmanifest` emitted) | ✅ all 9 enforced and passing | 2026-07-31 |
 
 ⚠️ **A freshly-added, freshly-passing check looks identical whether or not it is enforced — and that hid a
 false claim for one commit.** `b775137` added `agenda-scroll` and its own message called it enforced; `"P5"` was
@@ -574,30 +576,59 @@ injoignable » banner so the two ways the app can notice one outage do not descr
 unexpected throw, and offering « Réessayer » for a fault sends the user round a loop that cannot succeed.
 `showErrorToast` gained an optional `onRetry`, rendered **only** when `isNetworkError`.
 
-#### ⚠️ Still open in P7 — four items
+**Dark mode — `bbb9143`.** ⚠️ `attribute="class"` is not optional and getting it wrong **fails silently**:
+next-themes defaults to `data-theme`, `globals.css` declares a class-based variant, so the default would write
+`data-theme="dark"`, make the toggle *appear* to work, report `resolvedTheme === "dark"` — and apply **none**
+of the 336 `dark:` utilities. Nothing errors; the page stays light.
+**AC-39's exemption needed two halves.** The variant now excludes `:is(.light, .light *)` — it has to live
+*there*, because `&:is(.dark *)` matches any descendant however deep, so a class on a wrapper could not stop
+it. And the palette **variables** need the other half: `.dark` sets `--background`/`--foreground` for its whole
+subtree, so `.light` is listed alongside `:root` to get the light values back. Custom properties resolve from
+the *nearest* ancestor that sets them, so a `.light` inside `.dark` wins for its subtree with no specificity
+games and without repeating fifty tokens.
+The control is a radio group in the **user menu**, not `/settings`: it is a per-device preference (dark on the
+chairside tablet, light at the desk) and `/settings` is shared clinic configuration. Bound to `theme`, not
+`resolvedTheme`, which would collapse « système » into whichever concrete theme the OS reports and tick the
+wrong row. Sonner needed its own `theme` prop — it renders in a portal and does not see the `.dark` class.
+⚠️ **The visual pass is AC-51's manual walk, not this commit.** The mechanism is verified by `tsc`/build; that
+all 336 utilities *look* right across 28 routes is exactly what the walk exists for.
 
-- **AC-38/AC-39 — dark mode.** The biggest remaining item. ⚠️ `attribute="class"` is **mandatory**:
-  next-themes defaults to `data-theme` and `globals.css:4` is class-based, so the default renders **none** of
-  the 336 `dark:` utilities *while looking correctly wired*. Document surfaces are exempt via a `.light` scope
-  (the two A4 previews, the PDF iframes, the CNAM BS1 overlay, the print surface, uploaded cachet/logo).
-  ⚠️ `status-tone.ts`'s `--warning-ink` exists *because* `--warning` at L 0.62 is ~3.5:1 on its own wash — a
-  dark pass must not "simplify" it away. P1 already put `suppressHydrationWarning` on `<html>` for this.
-- **AC-40 — print.** No `@media print` and no `print:` utility exists anywhere. ⚠️ While there:
+**Downloads, manifest, « Retour » — `50c54cd`.** The sync `revokeObjectURL` was a race that loses on iOS
+(a `blob:` download is handed to a viewer **asynchronously**, so revoking immediately invalidated the URL and
+the receipt never arrived, silently) and on `window.open` (the navigation has not begun when the next line
+runs). Now deferred 60 s. Three delivery paths: Web Share on a coarse pointer where `canShare({ files })`
+agrees, else a new tab — ⚠️ `<a download>` is **ignored** for `blob:` URLs by iOS Safari, so the anchor route
+silently does nothing there — else the classic anchor. ⚠️ Gated on `canShare({ files })` rather than the mere
+presence of `navigator.share`, which Android Chrome exposes while refusing files; an `AbortError` is the user's
+decision and does **not** fall through.
+`app/manifest.ts` ships with ⚠️ **`icons: []` deliberately** — see AC-36 below. « Retour » renders only under
+`(display-mode: standalone)`, the real state rather than a UA sniff, and **not** keyed on width: an installed
+app on a 1440 px desktop has no browser back button either.
+
+#### ⚠️ Still open in P7 — two items, plus what the parallel session blocks
+
+- **AC-36 — the icon assets.** ⚠️ **Blocked, not forgotten.** `layout.tsx` declares `/icon-light-32x32.png`,
+  `/icon-dark-32x32.png`, `/icon.svg` and `/apple-icon.png`; **none exists** — `public/` still holds only the
+  untouched `create-next-app` SVGs. `manifest.ts` therefore ships `icons: []` **on purpose**: listing files
+  that 404 would make the manifest look complete while the installed app shows a blank tile nobody can
+  explain, which is worse than not being installable. A manifest without `icons` is valid and browsers fall
+  back, so install already works. **Everything else in AC-36 is done** — this needs someone to produce real
+  raster assets, which should not be faked with a generated placeholder.
+- **AC-40 — print.** No `@media print` and no `print:` utility exists anywhere in the app; the only print CSS
+  is a string inside a `window.open` document. ⚠️ While there:
   `document-editor-content.tsx`'s `document.querySelector('style')?.textContent` grabs **the first `<style>`
-  in the document, whatever it is** — and prod Next ships a `<link>`, not a `<style>`.
-  **Deferred also because that file carries the parallel session's uncommitted work.**
-- **AC-41 — downloads.** Fixing `download.ts` alone covers **8 of 13** paths; five inline the dance or use
-  `file-saver`, one being the El Fatoora XML the spec names. ⚠️ `download.ts` revokes the object URL
-  **synchronously**, which kills a `window.open` navigation the same way it kills the iOS download.
-- **AC-36/AC-37 — manifest and icons.** ⚠️ **AC-36 is blocked on assets**: all four icons `layout.tsx`
-  declares do not exist, and authoring real raster icons is not something to fake with a placeholder.
-  `app/manifest.ts`, `theme-color` and `display: standalone` can land without them; AC-37's in-app back
-  affordance is independent.
+  in the document, whatever it is** — and prod Next ships a `<link>`, not a `<style>`, so the popup's styling
+  is effectively its inline attributes plus an Arial fallback.
+  **Also blocked:** that file carries the parallel session's uncommitted work.
 
-**Also deferred to the parallel session's files:** item 5's realtime re-subscribe lives in
-`lib/realtime/clinic-hub.ts`, which they hold uncommitted. ⚠️ Worth doing when free —
-`withAutomaticReconnect()` bare is **four attempts then `Disconnected` for good**, at `LogLevel.None`, so a
-permanent disconnect is completely silent.
+**Blocked on the parallel session's files** (all three uncommitted at the time of writing):
+- **AC-41's remaining five paths** — `document-editor-content.tsx` and `factures/invoices-table.tsx` inline the
+  object-URL dance or use `file-saver`; one of them is the El Fatoora XML the spec names. `download.ts` (the
+  shared core, 8 of 13 paths) is done. The two free inline sites are `mon-profil-content.tsx` and
+  `patient-files-manager.tsx`.
+- **The realtime re-subscribe** — `lib/realtime/clinic-hub.ts`. ⚠️ Worth doing as soon as it is free:
+  `withAutomaticReconnect()` bare is **four attempts then `Disconnected` for good**, at `LogLevel.None`, so a
+  permanent disconnect is completely silent.
 
 ## Deviations
 
@@ -890,6 +921,18 @@ For `features/LEARNINGS.md` on completion:
 - **Distinguish « retry will work » from « retry cannot work » before offering a retry.** `status === 0` looked
   like the network predicate and was not — it also covers an unexpected throw. A « Réessayer » on a fault is a
   loop the user cannot win, so the retryable case earned its own code rather than borrowing a status.
+- ⚠️ **A library default that is merely *wrong* rather than *invalid* fails silently.** next-themes'
+  `attribute="data-theme"` would have written a real attribute, made the toggle work and reported the right
+  `resolvedTheme` — while applying none of 336 class-based `dark:` utilities. Nothing to catch: no error, no
+  type failure, no check. When wiring a library to an existing convention, verify the *convention* (here:
+  `globals.css`'s variant selector) rather than trusting the library's default to match it.
+- **`revokeObjectURL` on the next line is a race, and it only loses where you cannot see it.** The synchronous
+  revoke worked on every desktop and broke exactly the two asynchronous consumers — iOS's blob viewer and
+  `window.open` — with no error either time. Handing a URL to something that will read it *later* means
+  revoking later too.
+- **An empty list can be the honest value.** `manifest.ts` ships `icons: []` because the four declared files do
+  not exist: listing them would have produced a manifest that passes every validator while installing a blank
+  tile. A placeholder would have hidden a real gap behind a green check.
 - **Keying touch rules to a breakpoint would have missed the target device.** `md:` is 768px; the tablet a
   dentist holds in landscape is 1180px. Anything about *fingers* keys on `(pointer: coarse)`, anything about
   *space* keys on width — and this feature needs both, separately.

@@ -86,7 +86,7 @@ graph TD
 | **P4** | Dialogs | AC-20…AC-27 | ✅ complete (`2dc3be7`) — `dialog-max-w` + `sheet-vh` enforced |
 | **P5** | Agenda | AC-28…AC-31 | ✅ complete (`028747b` `b775137` `0690246`) — `agenda-scroll` enforced |
 | **P6** | Odontogram | AC-32…AC-35 | ✅ complete (`97fb588` `7895681`) — `arch-clipping` enforced; AC-35 needed no code (DEV-9) |
-| **P7** | Platform | AC-36…AC-43 | 🟡 partial (`52e91e6`) — AC-42's timer + AC-43 done; dark mode, print, downloads, manifest remain |
+| **P7** | Platform | AC-36…AC-43 | 🟡 partial (`52e91e6` `bbb9143` `50c54cd`) — 6 of 8 ACs; **AC-40 print** + **AC-36 icon assets** remain |
 | **P8** | LAN device trust | AC-44…AC-46 | not-started |
 | — | Cross-cutting | AC-47…AC-51 | continuous |
 
