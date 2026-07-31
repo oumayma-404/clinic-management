@@ -82,7 +82,7 @@ graph TD
 | **P0** | Mechanical-check script (written first, see story note) | AC-50 | ✅ complete (`920571a`) |
 | **P1** | Foundations + `AppShell` | AC-1…AC-6, AC-36 (viewport) | ✅ complete (`de07bfb`) |
 | **P2** | Nav, touch, bottom token | AC-7…AC-12 | ✅ complete (`e11abc8`) |
-| **P3** | Tables → `CardList` | AC-13…AC-19 | 🟡 **partial — 3/19** (`25c97ae`, `ad533b0`) |
+| **P3** | Tables → `CardList` | AC-13…AC-19 | 🟡 **17/19 files** — `plan-workspace` + `patients/[id]` remain |
 | **P4** | Dialogs | AC-20…AC-27 | not-started |
 | **P5** | Agenda | AC-28…AC-31 | not-started |
 | **P6** | Odontogram | AC-32…AC-35 | not-started |

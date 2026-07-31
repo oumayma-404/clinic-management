@@ -18,7 +18,7 @@ It was left alone and excluded from every commit; staging was by explicit path t
 | **P0** | Mechanical-check script | ✅ **complete** | `920571a` | 8 checks; 4 still PENDING for later parts |
 | **P1** | Foundations + `AppShell` | ✅ **complete** | `de07bfb` | 24 files / 28 shells; see below |
 | **P2** | Nav, touch, bottom token | ✅ **complete** | `e11abc8` | Bottom bar, `--bottom-inset`, `coarse:`, EC-1 fixed |
-| **P3** | Tables → `CardList` | 🟡 **partial — 3 / 19 surfaces** | `25c97ae`, `ad533b0` | Plumbing + check done; **16 conversions remain**. `node scripts/check-responsive.mjs --strict --only=card-fallback` prints the exact worklist. Keep `"P3"` in `PENDING_PARTS` until it is empty |
+| **P3** | Tables → `CardList` | 🟡 **partial — 17 / 19 files** | `25c97ae` `ad533b0` `953a55a` `976b6e6` `e8b257c` `574fb3c` | **2 files remain**, both multi-table: `plan-workspace` (2) and `patients/[id]` (4). `node scripts/check-responsive.mjs --strict --only=card-fallback` prints them. Keep `"P3"` in `PENDING_PARTS` until it is empty |
 | **P4** | Dialogs | not-started | — | |
 | **P5** | Agenda | not-started | — | |
 | **P6** | Odontogram | not-started | — | |
@@ -34,6 +34,7 @@ It was left alone and excluded from every commit; staging was by explicit path t
 | **P1** | ✅ clean | ✅ clean | ✅ all enforced pass, 4 pending | 2026-07-31 |
 | **P2** | ✅ clean | ✅ clean | ✅ all enforced pass, 3 pending | 2026-07-31 |
 | **P3** (partial) | ✅ clean | ✅ clean | ✅ all enforced pass, 4 pending (`card-fallback` deliberately still pending) | 2026-07-31 |
+| **P3** (17/19) | ✅ clean | ✅ clean | ✅ all enforced pass, 4 pending | 2026-07-31 |
 
 ## Session log
 
@@ -194,23 +195,55 @@ each carries its reason, and a stale exemption naming a file that no longer rend
 is a link), `patients-table` (four icon buttons → one menu; « Non renseigné » removed per AC-17), and
 `medication-catalog-table` (the plain shape the two other admin catalogs share verbatim).
 
+**Converted (17 files, 19 tables):** receivables · patients · medication-catalog · cnam-nomenclature ·
+dental-acts · procedure-types · user-management · treatment-plans-table · waiting-list · recurring-series ·
+caisse-ledger · caisse dépenses · reminder-log · stock · invoices · lab-orders · patient-summary-modal.
+
+**Decisions worth not re-litigating**, each forced by the surface rather than chosen:
+
+| Surface | What it does differently, and why |
+|---|---|
+| `caisse-ledger` | **Exception 1.** `runningBalance` is not a card field — « Solde de la période » is a fact about a row's *position in an ordered list*, and a card is read on its own. A footer states the closing balance once. Entrée/Sortie collapse to one signed amount: two columns where one is always empty is how a *table* shows direction. |
+| `patient-summary-modal` | **Exception 3.** The table is **removed**, not hidden. Seven `min-w` columns summed ~760 px inside a dialog capped at 95vw with `overflow-x-hidden`, so the last columns were **clipped, not scrollable** — there is no width at which it worked, so a desktop copy would be a copy of the defect. |
+| `invoices` | A **draft has no number**, so the title falls back to patient + date. Both server-supplied gates (`canCancel`, `canCreateAvoir`) are passed through, never re-derived — this file already fixed that defect once. |
+| `lab-orders`, `user-management` | Their `<select>` stays a **control as a field's value**. Each is simultaneously the status display and the action; a menu would hide the current value and double the taps. |
+| `waiting-list` | « Promouvoir » stays a visible button — it is the point of the screen. |
+| `stock` | `itemRef` carries the low-stock deep-link target, so the notification still scrolls to the right card. The ref widened to `HTMLElement` and both trees set it via callback — one ref, no cast, only one tree ever mounted. |
+| `reminder-log` | `STRIPE` became a CSS-colour map so the row's 2 px rule and the card's accent read **one** source. `failureReason` stays in the card, as the file's own comment demands. |
+| `procedure-types` | The colour column is decoration → the card's accent, not a field whose value is a swatch. |
+| `patients` | « Non renseigné » removed — AC-17 omits an absent field rather than printing a placeholder. |
+
+Two hover-only affordances were also inlined as text while converting, because no touch device can reach a
+`title=`: stock's « périmé / expire bientôt » and the patient-files name tooltip.
+
 #### ⚠️ Resuming P3 — read this first
 
-**16 surfaces remain.** The worklist is not a list to maintain, it is a command:
+**2 files remain**, both multi-table and both genuinely intricate — which is why they were left whole rather
+than half-done:
+
+- **`components/treatment-plans/plan-workspace.tsx`** (2 tables). The échéancier is straightforward. The actes
+  table is **Exception 2**: rows are rendered by `plan-act-row.tsx`, « séance de N actes » is a grouping *of
+  rows* that must become a section header, and the selection checkbox + reorder controls are row-level and must
+  **not** go in the action menu. Convert in `plan-act-row.tsx`, not the workspace.
+- **`app/patients/[id]/page.tsx`** (4 tables: dossiers, rendez-vous, documents, fichiers). The dossiers' `Notes`
+  cell is an expand/collapse with its own `expandedNotes` state — `patient-summary-modal` now has a working
+  precedent for exactly that. The rendez-vous rows carry a per-procedure `borderLeft` → `accent`.
+
+The worklist is not a list to maintain, it is a command:
 
 ```bash
 cd web && node scripts/check-responsive.mjs --strict --only=card-fallback
 ```
 
-It prints every unconverted file with a line number, and shrinks by one each time a conversion lands. When it
-prints nothing, remove `"P3"` from `PENDING_PARTS` in the same script so the check becomes enforced.
+When it prints nothing, remove `"P3"` from `PENDING_PARTS` in the same script so the check becomes enforced.
 
 Per-surface card titles, the three argued exceptions and the four controls-in-a-data-column are all in
 [plan.md § Part P3](../plan.md#part-p3--tables-become-cards) — do **not** re-derive them.
 
-Every converted file is complete at file level; nothing is half-done. The conversion shape is three edits per
-file: import `CardList, CARDS_ONLY, TABLE_ONLY`, insert `<CardList className={CARDS_ONLY} …/>` immediately above
-the table, and add `containerClassName={TABLE_ONLY}` to the `<Table>`.
+The conversion shape is three edits per file: import `CardList, CARDS_ONLY, TABLE_ONLY`, insert
+`<CardList className={CARDS_ONLY} …/>` immediately above the table, and add `containerClassName={TABLE_ONLY}` to
+the `<Table>`. ⚠️ Where the table sits inside a ternary branch, the `CardList` becomes a second child of a slot
+that takes one — wrap both in a fragment (`recurring-series` needed this).
 
 ## Deviations
 
@@ -293,6 +326,12 @@ For `features/LEARNINGS.md` on completion:
   Class checks must anchor on a **class boundary** (start, whitespace, quote). ⚠️ The failure mode that matters
   is the other direction — a check that quietly stops matching — so after fixing it, prove it still catches a
   real violation by feeding it one. Done here with a throwaway probe file.
+- ⚠️ **A presence check passes as soon as the FIRST instance is fixed — count instead.** `card-fallback`
+  originally asked "does this file that renders `<Table>` also render `<CardList>`?". `plan-workspace` has two
+  tables and `patients/[id]` has four, so converting one would have turned the file green while the rest went on
+  scrolling sideways. It was two conversions away from reporting success over unfinished work — the exact
+  failure the guard-rot rule warns about, in its counting form rather than its listing form. Fixed to require
+  one card list *per table*.
 - **Keying touch rules to a breakpoint would have missed the target device.** `md:` is 768px; the tablet a
   dentist holds in landscape is 1180px. Anything about *fingers* keys on `(pointer: coarse)`, anything about
   *space* keys on width — and this feature needs both, separately.
