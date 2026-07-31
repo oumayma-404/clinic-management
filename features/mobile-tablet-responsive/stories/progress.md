@@ -25,7 +25,7 @@ explicit path and never `git add -A`: the tree is not guaranteed to be quiet for
 | **P2** | Nav, touch, bottom token | ✅ **complete** | `e11abc8` | Bottom bar, `--bottom-inset`, `coarse:`, EC-1 fixed |
 | **P3** | Tables → `CardList` | ✅ **complete — 19 / 19 files** | `25c97ae` `ad533b0` `953a55a` `976b6e6` `e8b257c` `574fb3c` `80fbb41` | `card-fallback` is out of `PENDING_PARTS` and **enforced**. Next part (P4) inherits `dialog-max-w` + `sheet-vh`, still pending |
 | **P4** | Dialogs | ✅ **complete** | `2dc3be7` | All 8 steps. `dialog-max-w` + `sheet-vh` both enforced; only `arch-clipping` (P6) still pending |
-| **P5** | Agenda | 🟡 **near-complete** | `028747b` `b775137` `5d6bb5b` | AC-29 · AC-30 · AC-31 done; AC-28 done **except its middle clause** — the Semaine density strip below `md:`. `agenda-scroll` added in `b775137`, actually **enforced** only in `5d6bb5b` — see the note under the gate log |
+| **P5** | Agenda | ✅ **complete** | `028747b` `b775137` `5d6bb5b` `0690246` | AC-28…AC-31. `agenda-scroll` added in `b775137`, actually **enforced** only in `5d6bb5b` — see the note under the gate log |
 | **P6** | Odontogram | not-started | — | |
 | **P7** | Platform | not-started | — | |
 | **P8** | LAN device trust | not-started | — | Needs physical iOS + Android devices |
@@ -45,6 +45,7 @@ explicit path and never `git add -A`: the tree is not guaranteed to be quiet for
 | **P5** (partial) | ✅ clean | ✅ exit 0 | ✅ all enforced pass, 1 pending (P6) | 2026-07-31 |
 | **P5** (calendar) | ✅ clean | ✅ exit 0 | ✅ all enforced pass, 2 pending — `agenda-scroll` added but **still PENDING** | 2026-07-31 |
 | **P5** (`agenda-scroll` enforced) | ✅ clean | ✅ exit 0 | ✅ all enforced pass, **1** pending (P6 only) | 2026-07-31 |
+| **P5** (complete) | ✅ clean | ✅ exit 0 | ✅ all enforced pass, 1 pending (P6 only) | 2026-07-31 |
 
 ⚠️ **A freshly-added, freshly-passing check looks identical whether or not it is enforced — and that hid a
 false claim for one commit.** `b775137` added `agenda-scroll` and its own message called it enforced; `"P5"` was
@@ -425,15 +426,30 @@ disclosure below `md:` **rather than being hidden** — the grey hors-horaires s
 anywhere, which is the defect its legend entry was added to fix; the filters' divider border is `md:`-only,
 because a lone `border-l` on a wrapped row reads as a rendering artefact.
 
-#### ⚠️ Still open in P5 — the Semaine density strip
+#### The Semaine density strip — `0690246`
 
-AC-28's middle clause: *« Semaine is a tappable 7-day density strip »* below `md:`. Not done.
+AC-28's last clause, and the end of P5.
 
-The scrolling week grid now serves the `md:`+ tablet range honestly, so this is specifically the **phone-width**
-answer — one row of seven day cells showing appointment density, tapping into Jour. `handleSelectDay` in
-`app/appointments/page.tsx` is already the right landing point (it calls `selectView("day")`, so it marks the
-view decided and the narrow default cannot fight it), and the month view's new dot rendering is the pattern to
-copy for density.
+Below `md:`, Semaine renders **seven tappable days with their density** instead of the time grid. The AC-30
+grid is honest from `md:` up; on a 320–390 px phone that same grid is a 732 px canvas read through a 320 px
+window, which is navigation rather than reading. The strip answers what a phone actually asks of a week —
+*which day do I need?* — and hands off to Jour.
+
+⚠️ **Seven rows, not seven columns (DEV-8).** « Strip » implies a horizontal band; seven cells across 320 px is
+~45 px each, which fits dots and nothing else — the same unreadable sliver the month chips became — and it
+would leave the rest of the screen blank, because the time grid is exactly what it replaces. Rows use the width
+the phone has, so each day carries its **count** and its **first appointment time** as well as the colour dots.
+
+⚠️ **A real render branch, not `md:hidden`.** A `display: none` scroll container reports `offsetTop: 0` for
+every row, so the 8 AM positioning and the current-time line would both compute against a zero-height layout
+and be wrong the moment the viewport crossed back to `md:`. Not rendering it means there is nothing to
+mis-measure — and `isNarrow` joined the scroll effect's dependencies, so crossing the breakpoint *mounts* the
+grid **and** positions it, rather than leaving it at midnight.
+
+**It reuses what already existed** rather than adding a path: `onSelectDay` → the page's `handleSelectDay`,
+which calls `selectView("day")` and therefore marks the view **decided**, so tapping a day cannot be undone by
+the narrow-screen Jour default re-asserting. The dots follow the month cells' shape — `aria-hidden` decoration,
+with the count as the accessible fact.
 
 #### Superseded — the previous session's AC-30 analysis (kept: it was correct)
 
@@ -532,6 +548,24 @@ accessible name. `leading` is additive, optional, and changes nothing for the ei
 **Impact:** one new optional prop on a shared primitive P3 itself authored. Classified as significant (it touches
 a file every converted surface imports) but implemented without asking, on the same reasoning as **DEV-2**: the
 plan's intent is unambiguous and the alternatives are all worse rather than merely different. Flagged for review.
+
+### DEV-8: the Semaine density « strip » is seven rows, not seven columns
+**Date:** 2026-07-31 · **Story:** 1 (P5) · **Category:** Technical · **Approved:** auto (see justification)
+
+**Original plan:** P5 step 3 / AC-28 — *"Semaine → a 7-day density **strip** below `md:`, tappable into a day."*
+
+**Actual implementation:** a vertical list of seven day rows — weekday + date, colour dots, the day's count and
+its first appointment time, each row tapping into Jour.
+
+**Justification:** the word implies a horizontal band, and that shape fails at the width it exists for. Seven
+cells across 320 px is ~45 px each, which holds dots and nothing else — precisely the unreadable sliver that
+made the month *chips* unusable and got them replaced with dots two commits earlier. Worse, it replaces the
+time grid, so a ~100 px band at the top would leave the rest of the screen empty. Rows use the width the phone
+actually has, which is what lets each day state a count and a first time rather than only a density.
+
+**Impact:** presentation only, inside one component; `onSelectDay` and the accessibility shape are unchanged.
+AC-28's testable content — *seven days, density, tappable into a day* — is met. Flagged because the plan named
+a shape and this is a different one.
 
 ### DEV-5: the bottom sheets are CSS on the existing primitive, not `vaul`
 **Date:** 2026-07-31 · **Story:** 1 (P4) · **Category:** Technical · **Approved:** **Yes — asked and confirmed**

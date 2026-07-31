@@ -84,8 +84,8 @@ graph TD
 | **P2** | Nav, touch, bottom token | AC-7…AC-12 | ✅ complete (`e11abc8`) |
 | **P3** | Tables → `CardList` | AC-13…AC-19 | ✅ complete (`80fbb41`) — 19/19 files, `card-fallback` enforced |
 | **P4** | Dialogs | AC-20…AC-27 | ✅ complete (`2dc3be7`) — `dialog-max-w` + `sheet-vh` enforced |
-| **P5** | Agenda | AC-28…AC-31 | 🟡 near-complete (`028747b` `b775137`) — only AC-28's Semaine density strip remains |
-| **P6** | Odontogram | AC-32…AC-35 | not-started |
+| **P5** | Agenda | AC-28…AC-31 | ✅ complete (`028747b` `b775137` `0690246`) — `agenda-scroll` enforced |
+| **P6** | Odontogram | AC-32…AC-35 | **next** — `arch-clipping` already reports 6 hits waiting for it |
 | **P7** | Platform | AC-36…AC-43 | not-started |
 | **P8** | LAN device trust | AC-44…AC-46 | not-started |
 | — | Cross-cutting | AC-47…AC-51 | continuous |
