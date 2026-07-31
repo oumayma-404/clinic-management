@@ -23,6 +23,10 @@
 #define HttpPort       "5000"
 #define HttpsPort      "5001"
 #define WebPort        "3000"
+; Cleartext LAN port serving ONLY the device-trust page. Must match Hosting:TrustPort in the API config
+; and the API's TrustPortGate.DefaultPort -- the page prints and QR-encodes its own address, so a mismatch
+; advertises a port nothing listens on.
+#define TrustPort      "5080"
 #define DbPort         "5432"
 #define DbName         "clinic_management"
 #define DbUser         "clinic_user"
@@ -80,8 +84,9 @@ Filename: "{sys}\sc.exe"; Parameters: "stop {#ServiceWeb}"; Flags: runhidden; Ru
 Filename: "{sys}\sc.exe"; Parameters: "delete {#ServiceApi}"; Flags: runhidden; RunOnceId: "DelApi"
 Filename: "{sys}\sc.exe"; Parameters: "delete {#ServiceWeb}"; Flags: runhidden; RunOnceId: "DelWeb"
 Filename: "{app}\postgres\bin\pg_ctl.exe"; Parameters: "unregister -N ""{#ServiceDb}"""; Flags: runhidden skipifdoesntexist; RunOnceId: "DelDb"
-; Remove the LAN firewall hole opened by OpenFirewall — otherwise it persists after uninstall (Finding 4).
+; Remove the LAN firewall holes opened by OpenFirewall — otherwise they persist after uninstall (Finding 4).
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Clinic Management HTTPS"""; Flags: runhidden; RunOnceId: "DelFwRule"
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Clinic Management Trust"""; Flags: runhidden; RunOnceId: "DelFwRuleTrust"
 
 [Code]
 { SW_HIDE is a built-in Inno Setup constant — do not redeclare it (duplicate-identifier compile error). }
@@ -331,7 +336,10 @@ begin
     '  "ConnectionStrings": { "DefaultConnection": "' + ConnStr + '" },' + #13#10 +
     '  "FileStorage": { "BasePath": "' + Files + '" },' + #13#10 +
     '  "Backup": { "PgDumpPath": "' + PgDump + '", "DefaultDestination": "", "TimeoutSeconds": 1800 },' + #13#10 +
-    '  "Hosting": { "HttpPort": {#HttpPort}, "HttpsPort": {#HttpsPort}, "WebPort": {#WebPort} },' + #13#10 +
+    // TrustPort is written explicitly rather than left to the API's own default: the firewall rule above
+    // opens {#TrustPort}, and a config that fell back to a different default would open a port nothing
+    // listens on while the page advertised a port the firewall blocks. One number, stated once, used by both.
+    '  "Hosting": { "HttpPort": {#HttpPort}, "HttpsPort": {#HttpsPort}, "WebPort": {#WebPort}, "TrustPort": {#TrustPort} },' + #13#10 +
     '  "Https": { "CertPath": "" }' + #13#10 +
     '}' + #13#10;
 
@@ -536,13 +544,21 @@ begin
   Exec(ExpandConstant('{sys}\sc.exe'), 'failure {#ServiceApi} reset= 60 actions= restart/5000', '', SW_HIDE, ewWaitUntilTerminated, Rc);
 end;
 
-{ Open only the HTTPS front-door port on the LAN firewall. }
+{ Open the HTTPS front door and the device-trust page on the LAN firewall -- and nothing else. }
 procedure OpenFirewall;
 var
   Rc: Integer;
 begin
   Exec(ExpandConstant('{sys}\netsh.exe'),
     'advfirewall firewall add rule name="Clinic Management HTTPS" dir=in action=allow protocol=TCP localport={#HttpsPort}',
+    '', SW_HIDE, ewWaitUntilTerminated, Rc);
+
+  // The device-trust page (P8). Cleartext on purpose and safe on purpose: a phone cannot be asked to fetch
+  // the certificate fix over the certificate it does not trust yet, so this one page has to be reachable
+  // without TLS. The API refuses every other path on this port (TrustPortGate), so what is exposed here is a
+  // CA's PUBLIC certificate, install instructions and a QR -- not the API. Removed again on uninstall.
+  Exec(ExpandConstant('{sys}\netsh.exe'),
+    'advfirewall firewall add rule name="Clinic Management Trust" dir=in action=allow protocol=TCP localport={#TrustPort}',
     '', SW_HIDE, ewWaitUntilTerminated, Rc);
 end;
 

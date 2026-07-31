@@ -366,6 +366,11 @@ try
     var httpsCertPassword = builder.Configuration["Https:CertPassword"];
     var httpPort = builder.Configuration.GetValue<int?>("Hosting:HttpPort") ?? 5000;
     var httpsPort = builder.Configuration.GetValue<int?>("Hosting:HttpsPort") ?? 5001;
+    // LAN device trust (P8, AC-44): a cleartext LAN port serving ONLY the trust page. It has to be cleartext
+    // and it has to be LAN-reachable, because a phone that does not trust our certificate yet cannot be asked
+    // to fetch the fix over that certificate. 0 switches the feature off.
+    var trustPort = builder.Configuration.GetValue<int?>("Hosting:TrustPort")
+                    ?? ClinicManagement.API.Startup.TrustPortGate.DefaultPort;
     // "generated" | "configured" | "cloud" — logged in the startup transport posture (S3 step 4).
     var certSource = "cloud";
 
@@ -404,6 +409,20 @@ try
             Log.Information("Local HTTPS certificate ready; CA exported to {CaCertPath} for client trust import.", generated.CaCertPath);
         }
 
+        // A trust port that collides with a real port would make TrustPortGate 404 the entire application on
+        // that port — the app would start and then answer nothing. Refuse at startup instead of shipping the
+        // outage (same fail-loud posture as a missing Https:CertPath above).
+        var proxiedWebPort = builder.Configuration.GetValue<int?>("Hosting:WebPort") ?? 3000;
+        if (trustPort > 0
+            && (trustPort == httpPort || trustPort == httpsPort || trustPort == proxiedWebPort))
+        {
+            StartupDiagnostics.ReportFatal(
+                $"Hosting:TrustPort ({trustPort}) doit être un port distinct de Hosting:HttpPort ({httpPort}), " +
+                $"Hosting:HttpsPort ({httpsPort}) et Hosting:WebPort ({proxiedWebPort}). " +
+                "Choisissez un port libre, ou mettez Hosting:TrustPort à 0 pour désactiver la page de confiance.");
+            return 1;
+        }
+
         var serverCertificate = new System.Security.Cryptography.X509Certificates.X509Certificate2(certPath, certPassword);
         builder.WebHost.ConfigureKestrel(kestrel =>
         {
@@ -413,6 +432,16 @@ try
             // LAN-facing surface is the HTTPS front door only.
             kestrel.ListenLocalhost(httpPort);
             kestrel.ListenAnyIP(httpsPort, listen => listen.UseHttps(serverCertificate));
+
+            // ⚠️ A SEPARATE cleartext LAN port for the trust page — deliberately NOT a widening of 5000.
+            // Read this together with TrustPortGate: a Kestrel listener is not scoped to a subset of routes,
+            // so this bind alone would publish EVERY endpoint in cleartext on the LAN, which is the exact
+            // exposure the loopback bind above exists to prevent. The gate middleware refuses everything
+            // except /api/trust on this port, and that is what keeps the two consistent.
+            if (trustPort > 0)
+            {
+                kestrel.ListenAnyIP(trustPort);
+            }
         });
         builder.Services.AddHttpsRedirection(options => options.HttpsPort = httpsPort);
     }
@@ -465,6 +494,26 @@ try
     // First in the pipeline so it also covers the proxied Next application in Local mode, where Kestrel is
     // the single browser-facing endpoint (security-hardening US-12 / AC-12.5).
     app.UseMiddleware<ClinicManagement.API.Middleware.SecurityHeadersMiddleware>();
+
+    // LAN device trust (P8, R-11): the cleartext trust port serves the trust page and NOTHING else.
+    // Placed here — after the security headers so the page still gets them, before everything else — so a
+    // request for any other path on that port dies before rate limiting, authentication, the controllers and
+    // the Next proxy have had any chance to answer it. This is the half that makes ListenAnyIP(trustPort)
+    // safe; see TrustPortGate for why the bind alone is not.
+    if (isLocalAuthMode && trustPort > 0)
+    {
+        app.Use(async (context, next) =>
+        {
+            if (ClinicManagement.API.Startup.TrustPortGate.ShouldRefuse(
+                    context.Connection.LocalPort, trustPort, context.Request.Path))
+            {
+                context.Response.StatusCode = StatusCodes.Status404NotFound;
+                return;
+            }
+
+            await next();
+        });
+    }
 
     // Before authentication: an unauthenticated flood must be refused as cheaply as possible, and the
     // anonymous auth endpoints (the brute-force surface) are gated on the client address, not on identity.

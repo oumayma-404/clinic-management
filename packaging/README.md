@@ -333,10 +333,18 @@ passwords with the hardware.
 
 | Port | Bind | Purpose | Firewall |
 |------|------|---------|----------|
-| `5001` | all interfaces (HTTPS) | Kestrel front door — the only browser-facing endpoint | **open (LAN)** |
+| `5001` | all interfaces (HTTPS) | Kestrel front door — the only browser-facing endpoint for the app | **open (LAN)** |
+| `5080` | all interfaces (**HTTP**) | Device-trust page only — `/api/trust`; every other path is refused on this port | **open (LAN)** |
 | `5000` | loopback | API plain HTTP (redirects to HTTPS) / internal BFF target | closed |
 | `3000` | loopback | Next web server (proxied by Kestrel) | closed |
 | `5432` | loopback | PostgreSQL | closed |
+
+`5080` is cleartext **by necessity**: a phone cannot be asked to download the fix for a certificate it does not
+trust over that same certificate. It is not a second door into the API — the application refuses every path
+except `/api/trust` on that port (`TrustPortGate`), so what it exposes is a CA's *public* certificate, install
+instructions and a QR of an address the LAN already broadcasts. Set `Hosting:TrustPort` to `0` in
+`appsettings.Production.json` to switch the page off entirely (staff phones then need the CA installed by hand,
+or by the client installer on a Windows PC).
 
 ## Client installer (`client/clinic-client.iss`)
 
@@ -356,6 +364,57 @@ Changer de serveur…** (AC-2.3). On the server PC, point it at `localhost` (AC-
 unreachable the shell shows a friendly **"Impossible de joindre le serveur de la clinique"** screen with
 **Réessayer** — never a blank page or raw browser error (AC-2.4). Re-running the client installer updates
 the shell in place (auto-update is out of scope).
+
+---
+
+## Phones & tablets — the device-trust page (AC-44 / AC-45)
+
+The client installer above covers **Windows PCs**. A phone or tablet has no installer, so it gets the CA from
+a page the server publishes for exactly that purpose.
+
+**The flow.** On the device, open **`http://<adresse-du-serveur>:5080/api/trust`**. The page is in French,
+works offline, and needs no login — it cannot require one, because the device has no way to log in until it
+trusts the server. It offers:
+
+- **iPhone / iPad** → a generated `.mobileconfig` profile. Tap it, then **Réglages → Profil téléchargé →
+  Installer**.
+- **Android** → the raw `ca.crt`, plus the Settings path for importing a CA certificate.
+- **A QR code** of the page's own LAN address, so the operator can open the page on the server PC and let staff
+  scan it instead of dictating an IP address.
+
+Once the certificate is trusted, the device uses the normal front door at `https://<adresse-du-serveur>:5001`.
+The trust page is not the application and never shows clinic data.
+
+> The `.mobileconfig` is **generated on request, never staged into the installer**. On a reinstall the CA is
+> reused; on a fresh install it is newly minted. A profile baked into a build artefact would install a root
+> that signs nothing.
+
+### When it does not work
+
+Four states, each with one action. The first is by far the most common.
+
+| Symptom | Cause | What to do |
+|---|---|---|
+| iPhone: profile installed, browser **still** warns | On iOS a profile-installed root is **inert until separately enabled**. This is an Apple design decision, not a bug, and nothing the server sends can flip the switch. | **Réglages → Général → Informations → Certificats de confiance** → enable the switch named after the clinic. |
+| Browser refuses to load and offers **no** "continue anyway" | **HSTS** is remembered for that host, so the browser will not let anyone click through. Only possible if an operator set `Security:EnableHsts` — it is **off by default** in Local mode for exactly this reason. | Clear site data for that address (or use another browser), install the CA, then reload. If it recurs, set `Security:EnableHsts` to `false`. |
+| It worked, then every device started warning again | **The server was reinstalled or `.local/` was cleared**, so a *new* CA was generated. Devices still trust the old one. | Remove the old profile/certificate on each device, then redo the trust page. The `.mobileconfig`'s identity is derived from the CA, so a new CA is correctly seen as a new profile rather than silently replacing the stale one. |
+| **CA is installed and correct, and HTTPS still fails** | ⚠️ **The server's IP changed** (new DHCP lease). The certificate's SANs are captured **when it is generated** and the certificate is then reused unchanged, so an address obtained later is not in it. The CA is fine; the *address* is not covered. | Give the server PC a **static IP or a reserved DHCP lease**, then reach it at that address. If the address must change, delete `api\.local\` and reprovision — which regenerates the CA, so every device must re-trust (row above). |
+
+⚠️ Two limits worth knowing before deploying: the certificate covers **IPv4 addresses only**, and there is
+**no `.local`/mDNS name** — devices must reach the server by IPv4 literal, or by a hostname the local network
+already resolves.
+
+### Certificate lifetime (AC-46 — open)
+
+The server leaf is minted for **5 years**. Apple refuses TLS server certificates valid for more than **398
+days** — but explicitly **exempts certificates that chain to a user-installed root**, which is precisely this
+case. That exemption is believed to apply here and **has not been verified on a physical iPhone**; treat it as
+open until it is.
+
+If it turns out not to hold, **do not simply shorten the leaf**: `EnsureServerCertificate` never checks expiry
+and the CA's private key is not persisted, so a short leaf would expire with nothing able to renew it, and
+re-provisioning regenerates the **CA** — breaking trust on every device (row 3 above). Shortening the lifetime
+therefore requires persisting the CA key and adding leaf-only renewal first.
 
 ---
 
@@ -415,6 +474,33 @@ previous install** (that second pass is the one most existing clinics will take)
       under `pgdata`) → the installer shows a French error and **aborts**; it does not report success.
 - [ ] **Mise hors service** — The decommissioning procedure above is understood and the five paths are on the
       operator's erase list.
+
+### Phones & tablets — device trust (P8, AC-44…AC-46)
+
+**Not CI-runnable, and not runnable in the development environment either.** Needs a **physical iPhone or
+iPad** and a **physical Android device** on the clinic LAN. Nothing substitutes: iOS's certificate-trust
+behaviour is the thing under test.
+
+- [ ] **AC-44** — From a phone on the LAN, `http://<server-ip>:5080/api/trust` loads **before** any certificate
+      is installed, in French, with no login.
+- [ ] **AC-44** — The QR on the page, scanned from a second device, opens the same page on that device.
+- [ ] **AC-44 (iOS)** — « iPhone / iPad » installs the profile; enabling it under **Certificats de confiance**
+      then makes `https://<server-ip>:5001` load with **no** interstitial.
+- [ ] **AC-44 (Android)** — « Android » downloads `ca.crt`; importing it as a CA certificate then makes
+      `https://<server-ip>:5001` load with no interstitial.
+- [ ] **AC-44 (Cloud)** — With `Auth:Mode=Cloud`, all four trust routes return **404**.
+- [ ] **R-11 (the security assertion — do not skip)** — On the trust port, every non-trust path is refused:
+      `curl -i http://<server-ip>:5080/api/auth/mode` → **404**, and likewise `/api/patients`, `/hangfire`, `/`.
+      Only `/api/trust*` answers. Confirm the app itself is still fully reachable on `5001`.
+- [ ] **Ports** — Firewall shows `5001` **and** `5080` inbound, and nothing else; `3000` / `5000` / `5432`
+      remain unreachable from the LAN.
+- [ ] **Uninstall** — Both firewall rules ("Clinic Management HTTPS" and "Clinic Management Trust") are gone.
+- [ ] **AC-45** — Walk the four failure states in the table above and confirm each stated action resolves it.
+      The DHCP row is the one most likely to be met in the field and the least likely to be guessed.
+- [ ] **AC-46 (open)** — On a **real iPhone**, confirm the 5-year leaf is accepted once the CA is trusted
+      (Apple's user-installed-root exemption). If it is rejected, **do not just shorten the leaf** — read the
+      lifetime note above first; the change needs CA-key persistence and leaf-only renewal, and without them a
+      short leaf expires with nothing able to renew it.
 
 ### Client installer (S7)
 

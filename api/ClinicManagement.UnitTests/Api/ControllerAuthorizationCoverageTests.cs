@@ -29,6 +29,19 @@ public class ControllerAuthorizationCoverageTests
                                      // Rate-limited like the other anonymous auth endpoints.
         "Connectivity.Get",          // non-sensitive online/offline poll (Local-only; 404s in Cloud)
         "GoogleCalendar.Callback",   // OAuth browser redirect back from Google — cannot carry a bearer
+
+        // --- LAN device trust (P8, AC-44). Local-only; all four 404 in Cloud. ---
+        // Anonymous by necessity, not by concession: a device cannot obtain a token until it trusts the
+        // server's certificate, and it cannot trust that certificate until it has fetched these — requiring
+        // auth here is a deadlock. Nothing served is a secret: a CA's PUBLIC certificate, the same bytes
+        // wrapped as an Apple profile, install instructions, and a QR of an address already broadcast on the
+        // LAN. The cleartext LAN exposure they gain is bounded to this prefix by TrustPortGate, which refuses
+        // every other path on the trust port — without it, binding that port would publish the whole
+        // cleartext API including Auth.Login.
+        "Trust.Page",                // the French instructions page (the only HTML this API serves)
+        "Trust.CaCertificate",       // .local/ca.crt — public CA cert, what Android imports
+        "Trust.AppleProfile",        // the same CA as an iOS .mobileconfig
+        "Trust.QrCode",              // PNG QR of this page's own LAN address
     };
 
     private static IReadOnlyCollection<string> AnonymousEndpoints()
