@@ -286,7 +286,18 @@ export function PatientsTable({ searchQuery, showFlaggedOnly, createdFrom, creat
                 </span>
               ) : null
             }
-            onSelect={(p) => handleOpenSummary(p)}
+            /*
+              Tapping the card opens the patient's FULL record, the same destination the desktop row click has
+              always had (`handleRowClick` → `/patients/{id}`). It used to open the résumé modal instead, so
+              the identical gesture led somewhere different depending on the width of the screen — and the
+              phone got the read-only summary, which is the lesser of the two: the full page is the one that
+              holds the fiches, the odontogramme, the documents, the factures and the devis.
+
+              `href` rather than `onSelect` so the card is a real link: long-press, « ouvrir dans un nouvel
+              onglet » and middle-click all behave. « Voir le résumé » stays in the ⋯ menu below, so nothing
+              is lost — and the desktop keeps its own résumé icon button.
+            */
+            href={(p) => `/patients/${p.id}`}
             fields={(p) => [
               { label: "Téléphone", value: p.phoneNumber },
               { label: "Email", value: p.email },
