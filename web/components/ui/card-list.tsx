@@ -54,6 +54,20 @@ interface CardListProps<T> {
   actions?: (item: T) => React.ReactNode
 
   /**
+   * The single action that IS the page's job, rendered full-width **below** the fields.
+   *
+   * ⚠️ The rule everywhere else is that every row action lives in `actions`' menu. This is the one sanctioned
+   * exception, and it exists because the header row cannot hold a labelled button: at 320 px a card is ~288 px,
+   * and « Promouvoir » plus a `⋯` trigger eats ~150 px of it, crushing the patient's name into two or three
+   * characters per line. Putting the verb on its own row gives it a real 44 px target and gives the name the
+   * width back.
+   *
+   * Use it only for the action a user opens the page to perform (promoting from the salle d'attente). Anything
+   * that is merely *available* belongs in the menu — a card with three buttons is a toolbar, not a list row.
+   */
+  primaryAction?: (item: T) => React.ReactNode
+
+  /**
    * A control that belongs to the **row itself** rather than to its action menu — a selection checkbox, the
    * reorder arrows. Rendered before the title and, like `actions`, above the stretched-title overlay.
    *
@@ -104,6 +118,7 @@ export function CardList<T>({
   status,
   fields,
   actions,
+  primaryAction,
   leading,
   accent,
   muted,
@@ -146,6 +161,7 @@ export function CardList<T>({
       {items.map((item) => {
         const accentColour = accent?.(item)
         const rowActions = actions?.(item)
+        const rowPrimary = primaryAction?.(item)
         const rowLeading = leading?.(item)
         const rowStatus = status?.(item)
         const rowSubtitle = subtitle?.(item)
@@ -242,6 +258,10 @@ export function CardList<T>({
                 ))}
               </dl>
             )}
+
+            {/* `relative z-10` for the same reason the action menu carries it: the heading's `after:inset-0`
+                overlay covers the whole card, and without this the button would be under it and untappable. */}
+            {rowPrimary && <div className="relative z-10 mt-3">{rowPrimary}</div>}
           </li>
         )
       })}

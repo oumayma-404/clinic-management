@@ -359,38 +359,40 @@ export default function WaitingListPage() {
                     { label: "Ajouté le", value: formatAddedDate(e.createdAt) },
                   ]}
                   actions={(e) => (
-                    <div className="flex items-center gap-1">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handlePromote(e)}
-                        disabled={promotingId === e.id}
-                        className="gap-1"
-                      >
-                        {promotingId === e.id ? (
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                        ) : (
-                          <UserPlus className="h-3 w-3" />
-                        )}
-                        Promouvoir
-                      </Button>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" aria-label={`Actions pour ${e.patientName ?? "ce patient"}`}>
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onSelect={() => handleEdit(e)}>Modifier</DropdownMenuItem>
-                          <DropdownMenuItem
-                            className="text-destructive focus:text-destructive"
-                            onSelect={() => setEntryToDelete(e)}
-                          >
-                            Retirer
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" aria-label={`Actions pour ${e.patientName ?? "ce patient"}`}>
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onSelect={() => handleEdit(e)}>Modifier</DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="text-destructive focus:text-destructive"
+                          onSelect={() => setEntryToDelete(e)}
+                        >
+                          Retirer
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
+                  /* Promoting is what this page is FOR, so it gets its own full-width row rather than sharing
+                     the header with the ⋯ trigger — together they took ~150px of a 288px card and left the
+                     patient's name three characters wide. */
+                  primaryAction={(e) => (
+                    <Button
+                      variant="outline"
+                      onClick={() => handlePromote(e)}
+                      disabled={promotingId === e.id}
+                      className="w-full gap-1"
+                    >
+                      {promotingId === e.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <UserPlus className="h-4 w-4" />
+                      )}
+                      Promouvoir en rendez-vous
+                    </Button>
                   )}
                   empty="La liste d'attente est vide"
                 />
