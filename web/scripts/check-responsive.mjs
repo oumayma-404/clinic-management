@@ -255,15 +255,30 @@ check(
     const hits = [];
     for (const file of tsx()) {
       const src = read(file);
-      if (!/<Table[\s>]/.test(src)) continue;
       const name = rel(file);
       if (CARD_FALLBACK_EXEMPT.has(name)) continue;
-      if (/<CardList[\s>]/.test(src)) continue;
+
+      /*
+       * COUNTS, not presence. A file can render several tables — `plan-workspace` has two and
+       * `patients/[id]` has four — and a presence test passes as soon as the FIRST one is converted, while
+       * the rest go on scrolling sideways. That is the exact shape of a check that reports success over
+       * unfinished work, so the rule is one card list per table.
+       *
+       * A file that legitimately holds a converted table plus an exempt one records the exempt one in
+       * CARD_FALLBACK_EXEMPT with a `#suffix` and is counted here by hand — `stock-table` is the only such
+       * case today (its movement history lives in a dialog).
+       */
+      const tables = (src.match(/<Table[\s>]/g) ?? []).length;
+      if (tables === 0) continue;
+      const cards = (src.match(/<CardList[\s>]/g) ?? []).length;
+      const exemptInFile = [...CARD_FALLBACK_EXEMPT.keys()].filter((k) => k.startsWith(`${name}#`)).length;
+      if (cards >= tables - exemptInFile) continue;
+
       hits.push({
         file: name,
         line: src.slice(0, src.search(/<Table[\s>]/)).split(/\r?\n/).length,
-        text: "<Table> with no <CardList>",
-        full: "add a CardList below `md:`, or add an argued entry to CARD_FALLBACK_EXEMPT",
+        text: `${tables} <Table>, ${cards} <CardList>${exemptInFile ? `, ${exemptInFile} exempt` : ""}`,
+        full: "every table needs a card list below `md:`, or an argued entry in CARD_FALLBACK_EXEMPT",
       });
     }
     // An exemption for a file that no longer renders a table is dead weight that will outlive its reason.
