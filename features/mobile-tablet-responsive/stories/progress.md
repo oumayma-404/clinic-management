@@ -24,7 +24,7 @@ explicit path and never `git add -A`: the tree is not guaranteed to be quiet for
 | **P1** | Foundations + `AppShell` | ✅ **complete** | `de07bfb` | 24 files / 28 shells; see below |
 | **P2** | Nav, touch, bottom token | ✅ **complete** | `e11abc8` | Bottom bar, `--bottom-inset`, `coarse:`, EC-1 fixed |
 | **P3** | Tables → `CardList` | ✅ **complete — 19 / 19 files** | `25c97ae` `ad533b0` `953a55a` `976b6e6` `e8b257c` `574fb3c` `80fbb41` | `card-fallback` is out of `PENDING_PARTS` and **enforced**. Next part (P4) inherits `dialog-max-w` + `sheet-vh`, still pending |
-| **P4** | Dialogs | not-started | — | |
+| **P4** | Dialogs | ✅ **complete** | `2dc3be7` | All 8 steps. `dialog-max-w` + `sheet-vh` both enforced; only `arch-clipping` (P6) still pending |
 | **P5** | Agenda | not-started | — | |
 | **P6** | Odontogram | not-started | — | |
 | **P7** | Platform | not-started | — | |
@@ -41,6 +41,7 @@ explicit path and never `git add -A`: the tree is not guaranteed to be quiet for
 | **P3** (partial) | ✅ clean | ✅ clean | ✅ all enforced pass, 4 pending (`card-fallback` deliberately still pending) | 2026-07-31 |
 | **P3** (17/19) | ✅ clean | ✅ clean | ✅ all enforced pass, 4 pending | 2026-07-31 |
 | **P3** (19/19) | ✅ clean | ✅ exit 0 | ✅ all enforced pass, **3** pending — `card-fallback` now enforced | 2026-07-31 |
+| **P4** | ✅ clean | ✅ exit 0 | ✅ all enforced pass, **1** pending (P6 only) | 2026-07-31 |
 
 ⚠️ **There is no lint gate in `web/`, and this was re-verified rather than assumed**: `npm run lint` fails with
 *"'eslint' is not recognized"* — the package is not installed, and `next.config.ts` disables linting during the
@@ -288,6 +289,74 @@ The conversion shape, for the next table anyone adds: import `CardList, CARDS_ON
 the `<Table>`. ⚠️ Where the table sits in a ternary branch, the `CardList` becomes a second child of a slot that
 takes one — wrap both in a fragment.
 
+### P4 — dialogs become sheets, and stay their own width — `2dc3be7`
+
+**The one idea the part turns on: Radix's dialog *is* the sheet primitive.** `ui/sheet.tsx` imports the very
+same `@radix-ui/react-dialog`, so the entire responsive behaviour is a **class list on the node that already
+exists** — `DialogContent` gained `mobile="bottom" | "sheet"` and `AlertDialogContent` reuses the exported
+constants. Three consequences, none of which the planned `vaul` route offers (**DEV-5**):
+
+- **AC-24 is true by construction, everywhere.** One element means crossing a breakpoint cannot remount and
+  cannot lose typed input. `vaul` has no centred-dialog mode, so any dialog using it needs a `useMediaQuery`
+  swap — exactly what AC-24 forbids.
+- **All 26 `AlertDialogContent` instances across 20 files were fixed by one edit.**
+- **R-12 evaporates** (no `vaul` 500 ms to override against `sheet.tsx`'s deliberate 300/200 `ease-panel`), and
+  there is no swipe channel for the dirty guard or the post-visit `handleLater` to have to cover.
+
+**The clamp (AC-20), 28 sites.** `edit-patient-dialog` asked for `max-w-4xl` and rendered at **512 px** on every
+desktop. ⚠️ Two sites build the class in a **template literal** (the two file previews); the check tokenises
+through the braces, so it sees them.
+
+**Everything moved to `md:`, including the base.** `sm:max-w-lg` → `md:max-w-lg`. An `sm:` override straddles
+640–767 px where the mobile sheet is still in force — two `max-w` utilities in different variants, twMerge keeps
+both, stylesheet order decides. That is the ambiguity AC-20 exists to remove, so **`dialog-max-w` now demands
+`md:` specifically** rather than "any prefix". Re-proved with a throwaway probe: it still catches an unprefixed
+token *and* an `sm:` one, and still passes both template-literal sites.
+
+**`DialogBody` (AC-21).** `flex-1` + ⚠️ **`min-h-0`** — a flex item's default `min-height: auto` refuses to
+shrink below its content, so without it the body pushes the footer off the bottom instead of scrolling, which is
+the AC-25 failure exactly. Header and footer sit **outside** the scroll container rather than being
+`position: sticky`, which iOS momentum scrolls past. It retired `edit-patient-dialog`'s
+`max-h-[calc(90vh-200px)]` — a magic number that guessed the chrome's height *and* guessed it in `vh`.
+
+**The dirty guard (AC-23).** `lib/hooks/use-dirty-guard.ts` + `ui/discard-changes-dialog.tsx`, wired into the
+five heavy forms. It wraps the **root** `onOpenChange`, because Radix funnels the ✕, `Escape` and the outside
+tap through that one function; the back gesture is the exception and gets its own history entry. Dirtiness is
+**observed** from `input`/`change` events inside the open content rather than declared per form (**DEV-7**).
+
+**Focus lands on the title, not the first field (AC-22).** Focusing an input raises the on-screen keyboard, so a
+sheet opened to be *read* lost half its viewport before the user asked to type anything.
+
+**Grids and popovers (AC-26).** 30 form grids became `grid-cols-1 sm:grid-cols-2`. The popover cap is **one line
+in the primitive** — `max-w-[calc(100vw-2rem)]` on `PopoverContent` — which reaches the two `w-[384px]` document
+pickers and every `w-80` at once, including files this part could not otherwise touch. ⚠️ It is a separate `cn`
+argument and a `max-w`, i.e. a *different* twMerge group from the callers' `w-*`, so it survives their override
+instead of racing it. The 7-column calendar header and the 5-column colour palette are deliberately untouched:
+AC-26 is about *form* grids, and one swatch per row is not a fix.
+
+**The post-visit prompt is a toast on touch (AC-27).** Keyed on `(pointer: coarse)`, **not a width** — a
+dentist's tablet in landscape is 1180 px, so a width test would leave the modal exactly where it hurts most.
+⚠️ Sonner's own dismiss *and* timeout are both wired to `handleLater`: without that the snooze is never written
+and the prompt returns on the very next 60-second poll, which is the defect the local `dismissed` flag exists to
+fix. It also suppresses itself while `data-sheet-open` or `data-scroll-locked` is on the body.
+
+#### Working alongside a concurrent session
+
+A parallel session (the liaison / document-email feature) was live in this tree for the whole of P4 and grew to
+~16 API files plus a dozen new ones. Three consequences worth recording, because they will recur:
+
+- **It broke the build mid-part.** Its half-applied edit in `plan-workspace.tsx` referenced `receipts`, a name
+  that exists only inside P4's own card-list `actions` closure — two `tsc` errors that were **not P4's**. Work
+  stopped uncommitted rather than finish someone else's feature; it resolved on its own and the tree went green.
+- **Two files hold both sets of changes.** `plan-workspace.tsx` and `invoices-table.tsx` carry the email feature
+  *and* P4's four `md:max-w-md` lines. Staging the whole file would have committed their work, so only P4's four
+  hunks were staged, via a filtered `git apply --cached --unidiff-zero`. ⚠️ Worth knowing this is possible: the
+  alternative was leaving the gate red at this commit, since those four unprefixed `max-w-md` are exactly what
+  `dialog-max-w` fails on.
+- **One fix rides in their file.** `send-document-email-dialog.tsx` is untracked and theirs; its
+  `sm:max-w-[560px] max-h-[90vh]` was the last hit in *both* P4 checks. The two-token conformance fix was applied
+  in the working tree but **left uncommitted** for its owner to carry with the file.
+
 ## Deviations
 
 ### DEV-1: `/settings` and `/users` keep their content exemption
@@ -353,6 +422,62 @@ accessible name. `leading` is additive, optional, and changes nothing for the ei
 a file every converted surface imports) but implemented without asking, on the same reasoning as **DEV-2**: the
 plan's intent is unambiguous and the alternatives are all worse rather than merely different. Flagged for review.
 
+### DEV-5: the bottom sheets are CSS on the existing primitive, not `vaul`
+**Date:** 2026-07-31 · **Story:** 1 (P4) · **Category:** Technical · **Approved:** **Yes — asked and confirmed**
+
+**Original plan:** P4 step 3 — *"Bottom sheets via `vaul` for the 26 `AlertDialogContent` confirmations and the
+light dialogs. Use `handleOnly` … and `repositionInputs`."*
+
+**Actual implementation:** no `vaul`. Radix's dialog **is** the sheet primitive — `ui/sheet.tsx` imports the very
+same `@radix-ui/react-dialog` — so the sheet presentation is a class list on the node that already exists.
+`DialogContent` gained a `mobile` prop (`"bottom"` | `"sheet"`) and `AlertDialogContent` reuses the same exported
+class constants.
+
+**Justification:** four things fall out of it that the `vaul` route does not give. (a) **AC-24 becomes true
+everywhere, not just for the six heavy dialogs** — there is one element, so crossing a breakpoint cannot
+remount and cannot lose typed input; `vaul` has no centred-dialog mode, so any dialog using it would have needed
+a `useMediaQuery` swap, which is exactly what AC-24 forbids. (b) **All 26 `AlertDialogContent` instances across
+20 files were fixed by one edit** instead of 20 conversions. (c) **R-12 disappears** — no `vaul` 500 ms default
+to override against `sheet.tsx`'s deliberate 300 in / 200 out on `ease-panel`. (d) **No swipe channel** for the
+dirty guard and the post-visit `handleLater` to each have to cover — step 8 names that bypass as a hazard.
+
+**Impact:** ⚠️ **AC-22's « in addition to swipe » is not met.** Dismissal is the ≥ 44 px control + `Escape` +
+outside tap + the back gesture. This is a real, accepted gap, recorded rather than quietly claimed — drag-to-
+dismiss needs `vaul` or a hand-rolled drag, and the user chose the CSS route knowing the cost.
+
+### DEV-6: `use-dirty-guard.ts` lives in `lib/hooks/`, not `hooks/`
+**Date:** 2026-07-31 · **Story:** 1 (P4) · **Category:** Technical · **Approved:** auto (trivial)
+
+**Original plan:** the story's file table says `web/hooks/use-dirty-guard.ts`.
+
+**Actual implementation:** `web/lib/hooks/use-dirty-guard.ts`.
+
+**Justification:** there is no `web/hooks/` directory. Every hook in this project is under `lib/hooks/`, including
+`use-media-query.ts` which P2 added for exactly this kind of need. The project convention wins over a plan's
+incidental path.
+
+**Impact:** none beyond the import path.
+
+### DEV-7: dirtiness is observed from DOM events, not declared per form
+**Date:** 2026-07-31 · **Story:** 1 (P4) · **Category:** Technical · **Approved:** auto (see justification)
+
+**Original plan:** P4 step 5 — *"Add a shared `useDirtyGuard` and wire it into the heavy sheets on every
+channel."* Silent on how dirtiness is determined.
+
+**Actual implementation:** the hook listens for `input`/`change` at the document, counting only events whose
+target is inside the open dialog content, rather than taking an `isDirty` boolean from each form.
+
+**Justification:** the declared version needs each of the five heavy forms to derive "has the user typed
+anything" from its own state — five implementations of one question, and every field added later is a chance to
+forget one, producing a guard that silently stops guarding. Observing the events is the browser telling us the
+user typed. ⚠️ It deliberately does **not** diff against initial values, so re-typing the original value still
+counts as dirty: that errs toward asking, and a needless confirm costs a tap while a missed one costs the
+visit's notes.
+
+**Impact:** one behaviour worth knowing — only the **root** `onOpenChange` and the « Annuler » buttons route
+through the guard. Every save path calls the raw `onOpenChange` prop, so a successful save closes without a
+prompt with no `markClean` bookkeeping to keep in step.
+
 ### DEV-4: the two patient lists stopped sorting their state array in place
 **Date:** 2026-07-31 · **Story:** 1 (P3) · **Category:** Technical · **Approved:** auto (trivial)
 
@@ -417,6 +542,22 @@ For `features/LEARNINGS.md` on completion:
   acts table's « Sélectionner tous les actes » lives in a `<TableHead>`, and a card list has no header row — so
   the conversion silently dropped it while every row-level control survived. Row-by-row review does not see this;
   the question to ask each table is *what is in the header, the footer and the caption?*
+- **When two presentations must share state, look for a primitive that is already both.** P4's plan called for
+  `vaul` bottom sheets, which would have meant a `useMediaQuery` swap and therefore a remount — the exact thing
+  AC-24 forbids. Radix's dialog and shadcn's `Sheet` turned out to be **the same import**, so the responsive
+  behaviour became a class list on one node: no second library, no remount, and 26 call sites fixed by one edit.
+  The question to ask before adding a dependency for a second presentation is *"is the thing I already have
+  capable of both?"*
+- ⚠️ **`min-h-0` is what makes a scrolling flex body work.** A flex item's default `min-height: auto` refuses to
+  shrink below its content, so a `flex-1 overflow-y-auto` body silently pushes the footer off screen instead of
+  scrolling. It looks like a sticky-footer bug and is a flexbox default.
+- **A cap belongs in a different tailwind-merge group from the thing it caps.** The popover fix is a `max-w` on
+  the primitive while callers set `w-*`: different groups, so it survives every override. Had it been a `w-*` it
+  would have raced them — the same collision AC-20 spent 28 sites fixing.
+- **Filtered staging is the answer to a shared file, not "commit it all" or "commit none".**
+  `git diff -U0 | awk '<keep matching hunks>' | git apply --cached --unidiff-zero` stages your hunks out of a
+  file that also holds someone else's uncommitted work. Without it the choice is committing their feature or
+  leaving your own gate red — here, four unprefixed `max-w-md` that `dialog-max-w` fails on.
 - **Keying touch rules to a breakpoint would have missed the target device.** `md:` is 768px; the tablet a
   dentist holds in landscape is 1180px. Anything about *fingers* keys on `(pointer: coarse)`, anything about
   *space* keys on width — and this feature needs both, separately.

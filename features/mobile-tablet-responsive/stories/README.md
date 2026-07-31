@@ -83,8 +83,8 @@ graph TD
 | **P1** | Foundations + `AppShell` | AC-1…AC-6, AC-36 (viewport) | ✅ complete (`de07bfb`) |
 | **P2** | Nav, touch, bottom token | AC-7…AC-12 | ✅ complete (`e11abc8`) |
 | **P3** | Tables → `CardList` | AC-13…AC-19 | ✅ complete (`80fbb41`) — 19/19 files, `card-fallback` enforced |
-| **P4** | Dialogs | AC-20…AC-27 | **next** |
-| **P5** | Agenda | AC-28…AC-31 | not-started |
+| **P4** | Dialogs | AC-20…AC-27 | ✅ complete (`2dc3be7`) — `dialog-max-w` + `sheet-vh` enforced |
+| **P5** | Agenda | AC-28…AC-31 | **next** |
 | **P6** | Odontogram | AC-32…AC-35 | not-started |
 | **P7** | Platform | AC-36…AC-43 | not-started |
 | **P8** | LAN device trust | AC-44…AC-46 | not-started |
