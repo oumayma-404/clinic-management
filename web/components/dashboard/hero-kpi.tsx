@@ -114,10 +114,13 @@ export function HeroKpi({
           )}
         </div>
 
+        {/* `text-4xl` is the point of the hero on a desktop; at 320 px a six-digit dinar figure at 36 px runs
+            past the card edge. One step down below `sm:` keeps it the largest thing on the screen without
+            being the thing that breaks it. */}
         {loading ? (
           <span className="mt-2 block h-11 w-44 animate-pulse rounded bg-white/20" aria-label="Chargement" />
         ) : (
-          <p className="mt-1.5 text-4xl font-bold tabular-nums tracking-tighter">{value}</p>
+          <p className="mt-1.5 text-3xl font-bold tabular-nums tracking-tighter sm:text-4xl">{value}</p>
         )}
 
         <p className="mt-2 text-xs opacity-75">

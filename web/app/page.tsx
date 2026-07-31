@@ -181,7 +181,8 @@ export default function DashboardPage() {
         {/* Title + the one filter row, above everything it scopes. */}
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-semibold text-foreground">Tableau de bord</h1>
+            {/* 30 px of title eats a fifth of a 320 px screen before any figure appears. */}
+            <h1 className="text-2xl font-semibold text-foreground md:text-3xl">Tableau de bord</h1>
             <p className="mt-1 text-sm text-muted-foreground">
               {PERIOD_LABELS[period]} — chaque chiffre ouvre le détail correspondant.
             </p>

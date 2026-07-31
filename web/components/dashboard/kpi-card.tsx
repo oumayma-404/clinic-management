@@ -111,8 +111,12 @@ export function KpiCard({
         // `bg-card` is load-bearing: the enclosing grid is `bg-border` showing through `gap-px`, so a cell that
         // does not paint its own background would render as a solid border block.
         "group relative block bg-card transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring hover:bg-accent/40",
-        isCompact ? "p-4" : "p-5",
-        wide && "sm:col-span-2",
+        // Padding steps down on a phone: at 320 px the grid gives each cell ~144 px, and `p-5` would spend
+        // 40 of them on air before the number starts.
+        isCompact ? "p-3 sm:p-4" : "p-4 sm:p-5",
+        // `col-span-2` at every width now that the base grid is two columns — it used to be `sm:` only
+        // because the base grid was one column, where spanning two was a no-op.
+        wide && "col-span-2",
         // An urgent figure gets a left accent rather than a tinted box: at this density a filled background on one
         // cell of a shared surface reads as a rendering fault, while a 2px edge reads as emphasis.
         variant === "urgent" && "before:absolute before:inset-y-0 before:left-0 before:w-[2px] before:bg-destructive",
@@ -135,7 +139,12 @@ export function KpiCard({
               variant === "urgent" ? "bg-destructive" : "bg-primary/70",
             )}
           />
-          <span className="min-w-0 truncate">{label}</span>
+          {/*
+            Wraps rather than truncates. In two phone columns « Nouveaux patients » and « Taux d'absence »
+            are wider than their cell, and a truncated KPI label is worse than a two-line one: « Nouveaux
+            pat… » names nothing, and the label IS the figure's name (the accessible label reads it out).
+          */}
+          <span className="min-w-0 [overflow-wrap:anywhere]">{label}</span>
         </p>
         {loading ? (
           <span className="block h-8 w-20 animate-pulse rounded bg-muted" aria-label="Chargement" />
@@ -143,7 +152,9 @@ export function KpiCard({
           <p
             className={cn(
               "font-semibold tabular-nums tracking-tight text-foreground",
-              isCompact ? "text-xl" : "text-2xl",
+              // One step down on a phone. « 1 840,000 DT » at `text-2xl` measures ~110 px against ~104 px of
+              // content box in a 320 px two-column cell — it would be the figure itself that overflows.
+              isCompact ? "text-lg sm:text-xl" : "text-xl sm:text-2xl",
               variant === "urgent" && "text-destructive",
             )}
           >

@@ -26,6 +26,11 @@ export function KpiGrid({ columns = 4, className, children }: KpiGridProps) {
     <div
       className={cn(
         "grid gap-px overflow-hidden rounded-xl border bg-border",
+        // TWO columns on a phone, not one. One figure per row turned the eight-figure dashboard into eight
+        // screens of scrolling, and « comment va le cabinet ? » is a question you answer by comparing figures
+        // — which you cannot do when only one is ever in view. Two fits at 320 px because `KpiCard` steps its
+        // padding and value size down in the same breakpoint (AC-47).
+        "grid-cols-2",
         "sm:grid-cols-2",
         columns === 3 && "xl:grid-cols-3",
         columns === 4 && "xl:grid-cols-4",
