@@ -56,7 +56,31 @@ one that makes a page *wrong* rather than merely dense.
 | 4 | `/patients` | Patients | designed |
 | 5 | `/patients/[id]` | Fiche patient | designed — carries all three reported defects |
 | 6 | `/documents` | Documents | designed |
-| 7–23 | see the artifact's queue view | Plans/Devis · Laboratoire · Factures · Caisse · Créances · Stock · Rappels · 3 catalogues · Utilisateurs · Paramètres · Mon profil · Fichiers patient · Auth (×4) | queued |
+| 7–23 | see the artifact's queue view | Plans/Devis · Laboratoire · Factures · Caisse · Créances · Stock · Rappels · 3 catalogues · Utilisateurs · Paramètres · Mon profil · Fichiers patient · Auth (×4) | swept — see below |
+
+## Implementation log
+
+| Page | Commit | What actually changed |
+|---|---|---|
+| 1 · Tableau de bord | `da238ec` | Two KPI columns below `sm:` (was one — eight figures were eight screens); padding, value size and hero size step down with it; KPI label wraps instead of truncating. |
+| 2 · RDV récurrents | `4096b58` | **Page needed nothing** — it already had full parity. Exposed that every `CardList` heading was `truncate`d across all 19 card surfaces; headings now wrap, subtitles `line-clamp-2`, field values wrap. |
+| 3 · Salle d'attente | `87e282c` | New `CardList.primaryAction` slot; « Promouvoir » moves out of the header row (it and the `⋯` took ~150 px of a 288 px card) onto its own full-width row. |
+| 4 · Patients | `e41e587` | **The reported overflow, found**: `ListToolbar` pinned the search box at an unprefixed `min-w-[190px]`. Now `sm:`-only; the search takes its own row below that. |
+| 5 · Fiche patient | `d877ecd` | Odontogram leads with treated-teeth chips, schema behind one tap; 7-tab strip becomes one scrolling row below `sm:` instead of four rows of chrome. |
+| 6–23 · sweep | `91e7d52` | A 44 px floor for data-entry controls in **one** CSS rule (56 controls across settings/reminders); doctors editor grid collapses; user-management role select full-width on the card side. |
+
+### What the sweep deliberately did not do
+
+Two files carry the last unprefixed `grid-cols-2` form grids — `document-editor-content.tsx` and
+`factures/invoices-table.tsx` — and **both are held uncommitted by a parallel session**. They are left
+untouched rather than edited under someone else's in-flight work. They are the only known remaining instances
+of that class.
+
+⚠️ **The gate could not go fully green, for a reason outside this work.** `tsc` reports errors in
+`appointment-calendar.tsx` (205 uncommitted insertions) and `agenda-phone-header.tsx` (untracked) — the
+agenda, which the user is redesigning separately, mid-refactor. Every file touched here typechecks clean and
+`npm run check:responsive` passes all ten checks, but `npm run build` cannot succeed until the agenda work
+lands.
 
 ## Defects the design fixes (verified in source, not inferred)
 
