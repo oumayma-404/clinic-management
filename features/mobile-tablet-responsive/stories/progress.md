@@ -11,6 +11,11 @@ before stopping.
 **Working tree note (start of session):** `features/landing-website/` was untracked and unrelated to this story.
 It was left alone and excluded from every commit; staging was by explicit path throughout.
 
+**Working tree note (P3-final session, 2026-07-31):** three more unrelated changes appeared in the tree *during*
+the session — `api/…/Services/LiaisonContent.cs`, `api/…/Services/PdfGenerationService.cs` (both modified) and
+`features/liaison-norms-and-document-email/` (untracked). None was touched or staged. ⚠️ This is why staging is by
+explicit path and never `git add -A`: the tree is not guaranteed to be quiet for the length of a part.
+
 ## Part status
 
 | Part | Covers | Status | Commit | Notes |
@@ -18,7 +23,7 @@ It was left alone and excluded from every commit; staging was by explicit path t
 | **P0** | Mechanical-check script | ✅ **complete** | `920571a` | 8 checks; 4 still PENDING for later parts |
 | **P1** | Foundations + `AppShell` | ✅ **complete** | `de07bfb` | 24 files / 28 shells; see below |
 | **P2** | Nav, touch, bottom token | ✅ **complete** | `e11abc8` | Bottom bar, `--bottom-inset`, `coarse:`, EC-1 fixed |
-| **P3** | Tables → `CardList` | 🟡 **partial — 17 / 19 files** | `25c97ae` `ad533b0` `953a55a` `976b6e6` `e8b257c` `574fb3c` | **2 files remain**, both multi-table: `plan-workspace` (2) and `patients/[id]` (4). `node scripts/check-responsive.mjs --strict --only=card-fallback` prints them. Keep `"P3"` in `PENDING_PARTS` until it is empty |
+| **P3** | Tables → `CardList` | ✅ **complete — 19 / 19 files** | `25c97ae` `ad533b0` `953a55a` `976b6e6` `e8b257c` `574fb3c` `80fbb41` | `card-fallback` is out of `PENDING_PARTS` and **enforced**. Next part (P4) inherits `dialog-max-w` + `sheet-vh`, still pending |
 | **P4** | Dialogs | not-started | — | |
 | **P5** | Agenda | not-started | — | |
 | **P6** | Odontogram | not-started | — | |
@@ -35,6 +40,16 @@ It was left alone and excluded from every commit; staging was by explicit path t
 | **P2** | ✅ clean | ✅ clean | ✅ all enforced pass, 3 pending | 2026-07-31 |
 | **P3** (partial) | ✅ clean | ✅ clean | ✅ all enforced pass, 4 pending (`card-fallback` deliberately still pending) | 2026-07-31 |
 | **P3** (17/19) | ✅ clean | ✅ clean | ✅ all enforced pass, 4 pending | 2026-07-31 |
+| **P3** (19/19) | ✅ clean | ✅ exit 0 | ✅ all enforced pass, **3** pending — `card-fallback` now enforced | 2026-07-31 |
+
+⚠️ **There is no lint gate in `web/`, and this was re-verified rather than assumed**: `npm run lint` fails with
+*"'eslint' is not recognized"* — the package is not installed, and `next.config.ts` disables linting during the
+build. `tsc --noEmit` + `npm run build` + `npm run check:responsive` are the whole automated gate, which is the
+reason P0 exists at all.
+
+⚠️ **A stale `.next` breaks the build at the page-data step, not at compile.** The first P3-final build printed
+`Cannot find module '../chunks/ssr/[turbopack]_runtime.js'` **after** « Compiled successfully » — a cache
+artefact, not a code defect. `rm -rf .next && npm run build` was clean. Do not start reading the diff for this.
 
 ## Session log
 
@@ -191,13 +206,14 @@ left AC-13 resting entirely on the deferred manual walk. It reflects over the so
 exclusions are the one thing the source cannot express** ("this table *is* a chart's accessible fallback"), so
 each carries its reason, and a stale exemption naming a file that no longer renders a table is itself reported.
 
-**Converted so far (3):** `creances/receivables-table` (no action cell — the row *is* the navigation, so the card
-is a link), `patients-table` (four icon buttons → one menu; « Non renseigné » removed per AC-17), and
-`medication-catalog-table` (the plain shape the two other admin catalogs share verbatim).
+**The first three**, whose shapes the rest followed: `creances/receivables-table` (no action cell — the row *is*
+the navigation, so the card is a link), `patients-table` (four icon buttons → one menu; « Non renseigné » removed
+per AC-17), and `medication-catalog-table` (the plain shape the two other admin catalogs share verbatim).
 
-**Converted (17 files, 19 tables):** receivables · patients · medication-catalog · cnam-nomenclature ·
+**Converted (19 files, 25 tables):** receivables · patients · medication-catalog · cnam-nomenclature ·
 dental-acts · procedure-types · user-management · treatment-plans-table · waiting-list · recurring-series ·
-caisse-ledger · caisse dépenses · reminder-log · stock · invoices · lab-orders · patient-summary-modal.
+caisse-ledger · caisse dépenses · reminder-log · stock · invoices · lab-orders · patient-summary-modal ·
+plan-workspace (2) · patients/[id] (4).
 
 **Decisions worth not re-litigating**, each forced by the surface rather than chosen:
 
@@ -212,38 +228,65 @@ caisse-ledger · caisse dépenses · reminder-log · stock · invoices · lab-or
 | `reminder-log` | `STRIPE` became a CSS-colour map so the row's 2 px rule and the card's accent read **one** source. `failureReason` stays in the card, as the file's own comment demands. |
 | `procedure-types` | The colour column is decoration → the card's accent, not a field whose value is a swatch. |
 | `patients` | « Non renseigné » removed — AC-17 omits an absent field rather than printing a placeholder. |
+| `plan-workspace` actes | **Exception 2.** « séance de N actes » is a **section header**, not a per-card badge; the tick box is `leading`; the reorder arrows are the « Ordre » field's value; the cards carry their own « Tout sélectionner ». The **only** converted surface whose action is a bare button rather than a menu — there is exactly one action per act, and hiding one button behind a menu costs a tap for nothing. |
+| `plan-workspace` échéancier | The **date is the title**, against « date last »: an échéance has no other identity. Takes the menu precisely because its actions are variable-length — « Encaisser » plus one « Reçu » per payment. |
+| `patients/[id]` dossiers | « Facturé » is the **status badge**, which also replaces the money cell's hover-only `title=`. « Reste » is **omitted** on an invoiced fiche rather than printed as « Facturé » — the facture owns that money. |
+| `patients/[id]` rendez-vous | `borderLeft` → `accent`, cancelled → `muted`. The notes are **untruncated** in the card: the table hid them behind a `title=` tooltip no finger can reach. |
 
 Two hover-only affordances were also inlined as text while converting, because no touch device can reach a
 `title=`: stock's « périmé / expire bientôt » and the patient-files name tooltip.
 
-#### ⚠️ Resuming P3 — read this first
+#### The last two files (19/19) — `80fbb41`
 
-**2 files remain**, both multi-table and both genuinely intricate — which is why they were left whole rather
-than half-done:
+Both multi-table, and left whole rather than half-done because the counting `card-fallback` check made a partial
+conversion visible rather than green.
 
-- **`components/treatment-plans/plan-workspace.tsx`** (2 tables). The échéancier is straightforward. The actes
-  table is **Exception 2**: rows are rendered by `plan-act-row.tsx`, « séance de N actes » is a grouping *of
-  rows* that must become a section header, and the selection checkbox + reorder controls are row-level and must
-  **not** go in the action menu. Convert in `plan-act-row.tsx`, not the workspace.
-- **`app/patients/[id]/page.tsx`** (4 tables: dossiers, rendez-vous, documents, fichiers). The dossiers' `Notes`
-  cell is an expand/collapse with its own `expandedNotes` state — `patient-summary-modal` now has a working
-  precedent for exactly that. The rendez-vous rows carry a per-procedure `borderLeft` → `accent`.
+**`plan-workspace.tsx` (2 tables).**
 
-The worklist is not a list to maintain, it is a command:
+- **Exception 2, resolved as a section header.** `actGroups` groups the acts by `scheduledAppointmentId` (only
+  where more than one act shares it) and renders « Séance de N actes · date » over the cards that belong to it;
+  the per-row badge is dropped from the card and kept in the table. ⚠️ A séance's acts are pulled to the séance's
+  **first** position instead of being left where plan order puts them. Plan order is otherwise preserved, but a
+  séance split across the order would print its header **twice, each time claiming a count larger than the cards
+  under it** — a header that lies about what it heads is worse than a reordered one.
+- **`CardList` gained `leading`.** The tick box is neither an action nor a field: it is the row's state *and* the
+  control that changes it, and « tick, tick, planifier ensemble » cannot open a menu three times. Additive and
+  optional; no existing caller changed. Logged as **DEV-3**.
+- **The reorder arrows are a field's value** (« Ordre »), the pattern `lab-orders` set with its status `<select>`.
+  Beside the title they would eat the désignation's only line at 320 px.
+- **The cards get their own « Tout sélectionner ».** A card list has no header row, so the table's select-all
+  checkbox had nowhere to live — without it, ticking eight acts on a phone is eight taps and the gesture the
+  selection exists for stops being worth making.
+- **The échéancier takes the date as its title** — an échéance has no other identity — and it is the one card here
+  that takes the **menu**, because its actions are the feature's only variable-length set: « Encaisser » plus one
+  « Reçu » **per payment**.
 
-```bash
-cd web && node scripts/check-responsive.mjs --strict --only=card-fallback
-```
+**`app/patients/[id]/page.tsx` (4 tables: dossiers, documents, rendez-vous, fichiers).**
 
-When it prints nothing, remove `"P3"` from `PENDING_PARTS` in the same script so the check becomes enforced.
+- The expand/collapse notes cell became **`DentalRecordNotes`**, one implementation behind both trees, with one
+  `expandedNotes` set so expanding on a phone sticks.
+- « Facturé » moves to the card's **status badge** — which is also what replaces the money cell's hover-only
+  `title=`, unreachable on touch. An invoiced fiche's « Reste » field is omitted rather than printed as
+  « Facturé »: the facture owns that money and the struck-through amount already says so.
+- The rendez-vous row's per-procedure `borderLeft` becomes the card **accent**, cancelled rows `muted`, and the
+  notes stop being truncated behind a `title=` tooltip.
+- `fileName` is the title, so AC-17's truncation is the primitive's; the full value is reached by tapping the
+  card, which opens the preview.
 
-Per-surface card titles, the three argued exceptions and the four controls-in-a-data-column are all in
-[plan.md § Part P3](../plan.md#part-p3--tables-become-cards) — do **not** re-derive them.
+**Three rules were shared rather than copied**, because two implementations of one rule is how the halves drift:
+`PlanActPrimaryAction` / `PlanActStateBadge` / `PlanActSelectionBox` / `PlanActReorderControls` (out of
+`plan-act-row.tsx`), **`appointmentVisitState`** (the end-of-visit + Cancelled/NoShow rule, which is subtle enough
+that a copy would rot), and **`openMedicalDocument`** (the retired-`honoraires` redirect). Both patient lists also
+stopped calling `.sort()` on their state array **in place** — harmless with one tree, two mutations per paint with
+two, and the two could disagree about order.
 
-The conversion shape is three edits per file: import `CardList, CARDS_ONLY, TABLE_ONLY`, insert
+Per-surface card titles, the three argued exceptions and the four controls-in-a-data-column are in
+[plan.md § Part P3](../plan.md#part-p3--tables-become-cards).
+
+The conversion shape, for the next table anyone adds: import `CardList, CARDS_ONLY, TABLE_ONLY`, put
 `<CardList className={CARDS_ONLY} …/>` immediately above the table, and add `containerClassName={TABLE_ONLY}` to
-the `<Table>`. ⚠️ Where the table sits inside a ternary branch, the `CardList` becomes a second child of a slot
-that takes one — wrap both in a fragment (`recurring-series` needed this).
+the `<Table>`. ⚠️ Where the table sits in a ternary branch, the `CardList` becomes a second child of a slot that
+takes one — wrap both in a fragment.
 
 ## Deviations
 
@@ -291,6 +334,39 @@ scope, adds an element) but implemented without asking, because the plan's *inte
 touch path" — is unambiguous and the literal version is unsafe rather than merely different. Flagged here for
 review.
 
+### DEV-3: `CardList` gained a `leading` slot
+**Date:** 2026-07-31 · **Story:** 1 (P3) · **Category:** Technical · **Approved:** auto (see justification)
+
+**Original plan:** P3, `plan-act-row.tsx` — *"The selection checkbox and reorder controls are row-level, **not**
+menu actions."* The plan states the constraint; it does not say where a row-level control lives on a card.
+
+**Actual implementation:** `CardList` gained an optional `leading?: (item: T) => React.ReactNode`, rendered
+before the title at `relative z-10` (the same escape from the stretched-title overlay that `actions` already
+uses). The acts card puts its tick box there; the reorder arrows became the « Ordre » field's value instead.
+
+**Justification:** the primitive had exactly two slots for a control — `actions`, which is the menu the constraint
+forbids, and `fields`, whose values are read left-to-right as data. With neither, the only way to keep the tick
+box was to nest it in `title`, which truncates and would put an interactive element inside the card's single
+accessible name. `leading` is additive, optional, and changes nothing for the eighteen existing callers.
+
+**Impact:** one new optional prop on a shared primitive P3 itself authored. Classified as significant (it touches
+a file every converted surface imports) but implemented without asking, on the same reasoning as **DEV-2**: the
+plan's intent is unambiguous and the alternatives are all worse rather than merely different. Flagged for review.
+
+### DEV-4: the two patient lists stopped sorting their state array in place
+**Date:** 2026-07-31 · **Story:** 1 (P3) · **Category:** Technical · **Approved:** auto (trivial)
+
+**Original plan:** silent — P3 converts tables, it says nothing about sorting.
+
+**Actual implementation:** `appointments.sort(…)` and `currentFiles.sort(…)`, both called inline in the JSX,
+became `appointmentsNewestFirst` / `filesNewestFirst` computed once from a copy.
+
+**Justification:** forced by the conversion rather than chosen. `.sort()` mutates, so those calls were sorting
+React state **in place during render**; with two trees rendering the same data it becomes two mutations per
+paint, and the card list and the table could disagree about order. Internal to the file, same output.
+
+**Impact:** none visible. Recorded because it is a behaviour-adjacent edit the plan did not ask for.
+
 ## Corrections to the plan's counts
 
 Measured during implementation; the plan's own numbers were themselves corrections to the spec's.
@@ -332,6 +408,15 @@ For `features/LEARNINGS.md` on completion:
   scrolling sideways. It was two conversions away from reporting success over unfinished work — the exact
   failure the guard-rot rule warns about, in its counting form rather than its listing form. Fixed to require
   one card list *per table*.
+- ⚠️ **`CardList` drops a field on an empty *value*, and a React element is never empty.** The dossiers' notes
+  field passes `<DentalRecordNotes …/>`, which renders `null` when there are no notes — and the card still drew
+  an « NOTES » label over nothing, because `isEmptyValue` sees an element object. AC-17's omission has to be
+  decided by the **caller**, from the data, not delegated to a component that renders nothing. Caught by reading
+  the diff, not by `tsc`: both branches type-check identically.
+- **A converted surface must be checked for what the table header carried, not only what the rows carried.** The
+  acts table's « Sélectionner tous les actes » lives in a `<TableHead>`, and a card list has no header row — so
+  the conversion silently dropped it while every row-level control survived. Row-by-row review does not see this;
+  the question to ask each table is *what is in the header, the footer and the caption?*
 - **Keying touch rules to a breakpoint would have missed the target device.** `md:` is 768px; the tablet a
   dentist holds in landscape is 1180px. Anything about *fingers* keys on `(pointer: coarse)`, anything about
   *space* keys on width — and this feature needs both, separately.
