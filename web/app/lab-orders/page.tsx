@@ -13,7 +13,14 @@ import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { format, parseISO } from "date-fns"
 import { fr } from "date-fns/locale"
 import { toast } from "sonner"
-import { Plus, Pencil, Trash2, Loader2, FlaskConical } from "lucide-react"
+import { Plus, Pencil, Trash2, Loader2, FlaskConical, MoreHorizontal } from "lucide-react"
+import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { AppShell } from "@/components/app-shell"
 import { ClinicGuard } from "@/components/clinic-guard"
 import { PageHeader } from "@/components/ui/page-header"
@@ -525,7 +532,73 @@ export default function LabOrdersPage() {
                     placeholder="Rechercher un bon (prothésiste, description, patient)…"
                   />
                 </div>
-                <Table>
+                {/*
+                  Patient + travail as title and subtitle: « Ben Ali » repeats across a busy list and
+                  « Couronne céramique » does not say whose, so neither identifies a bon on its own.
+
+                  ⚠️ The stage `<select>` stays a CONTROL, as a labelled field's value — it is the action this
+                  screen exists for, and it is also the status display. Putting it in the menu would hide the
+                  current stage AND make advancing it two taps. Its `allowedNextStatuses` gate is the server's,
+                  unchanged.
+                */}
+                <CardList
+                  className={CARDS_ONLY}
+                  ariaLabel="Bons de laboratoire"
+                  items={orders}
+                  getKey={(o) => o.id}
+                  title={(o) => o.patientName ?? "Patient inconnu"}
+                  subtitle={(o) => o.workDescription}
+                  status={(o) => <Badge variant={statusVariant(o.status)}>{statusLabel(o.status)}</Badge>}
+                  fields={(o) => [
+                    {
+                      label: "Stade",
+                      value: (
+                        <select
+                          aria-label="Changer le statut"
+                          className={`${SELECT_CLASS} h-8 w-36`}
+                          value={o.status}
+                          disabled={
+                            statusUpdatingId === o.id || (o.allowedNextStatuses?.length ?? 0) === 0
+                          }
+                          onChange={(e) => handleStatusChange(o, e.target.value)}
+                        >
+                          <option value={o.status}>{statusLabel(o.status)}</option>
+                          {(o.allowedNextStatuses ?? []).map((s) => (
+                            <option key={s} value={s}>
+                              {statusLabel(s)}
+                            </option>
+                          ))}
+                        </select>
+                      ),
+                    },
+                    { label: "Prothésiste", value: o.prosthetist },
+                    { label: "Dent", value: o.toothNumber },
+                    { label: "Coût", value: formatCost(o.cost) },
+                    { label: "Envoyé", value: formatDateFr(o.sentDate) },
+                    { label: "Prévu", value: formatDateFr(o.expectedDate) },
+                    { label: "Reçu", value: formatDateFr(o.receivedDate) },
+                  ]}
+                  actions={(o) => (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" aria-label={`Actions pour le bon de ${o.patientName ?? "ce patient"}`}>
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onSelect={() => handleEdit(o)}>Modifier</DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="text-destructive focus:text-destructive"
+                          onSelect={() => handleDelete(o)}
+                        >
+                          Supprimer
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
+                  empty="Aucun bon de laboratoire"
+                />
+                <Table containerClassName={TABLE_ONLY}>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Patient</TableHead>

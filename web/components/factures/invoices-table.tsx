@@ -21,7 +21,15 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { FileDown, Pencil, Trash2, Send, CreditCard, Ban, Plus, Loader2, Landmark, FileCode2, ReceiptText } from "lucide-react"
+import { FileDown, Pencil, Trash2, Send, CreditCard, Ban, Plus, Loader2, Landmark, FileCode2, ReceiptText, MoreHorizontal } from "lucide-react"
+import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import Link from "next/link"
 import { toast } from "sonner"
 import { invoicesApi } from "@/lib/api/invoices"
@@ -342,7 +350,137 @@ export function InvoicesTable({
       </div>
 
       <div className={`rounded-md border overflow-x-auto${refreshing ? " opacity-60 transition-opacity" : ""}`}>
-        <Table>
+        {/*
+          ⚠️ A draft has NO number — the table renders « — », which as a card title would identify nothing. The
+          title falls back to the patient and the date, which is what a draft actually is: someone's unbilled
+          work on a day. The nine icon buttons collapse into one menu; every gate stays exactly as the row had
+          it, including the two that come from the SERVER (`canCancel`, `canCreateAvoir`) rather than being
+          re-derived here.
+        */}
+        <CardList
+          className={CARDS_ONLY}
+          ariaLabel="Notes d'honoraires"
+          items={invoices}
+          getKey={(inv) => inv.id}
+          loading={loading}
+          muted={(inv) => inv.status === "Cancelled"}
+          title={(inv) =>
+            inv.number ?? `${inv.patientName ?? "Brouillon"} · ${formatDateFr(inv.createdAt)}`
+          }
+          subtitle={(inv) => (showPatientColumn && inv.number ? inv.patientName : null)}
+          onSelect={(inv) => setDetailInvoiceId(inv.id)}
+          status={(inv) => (
+            <>
+              <Badge variant="secondary" className={invoiceStatusBadgeClass(inv.status)}>
+                {invoiceStatusLabel(inv.status)}
+              </Badge>
+              {inv.status !== "Draft" && (
+                <Badge variant="secondary" className={eInvoiceStatusBadgeClass(inv.eInvoiceStatus)}>
+                  {eInvoiceStatusLabel(inv.eInvoiceStatus)}
+                </Badge>
+              )}
+              {inv.treatmentPlanId && (
+                <Badge variant="outline" className="whitespace-nowrap">
+                  Devis
+                </Badge>
+              )}
+            </>
+          )}
+          fields={(inv) => [
+            { label: "Total TTC", value: `${formatAmount(inv.totalTtc)} DT` },
+            {
+              label: "Encaissé",
+              value: (
+                <span className="inline-flex flex-col items-end">
+                  <span>{formatAmount(inv.amountCollected)} DT</span>
+                  {inv.creditedTotal > 0 && (
+                    <span className="text-xs text-primary">−{formatAmount(inv.creditedTotal)} avoir</span>
+                  )}
+                </span>
+              ),
+            },
+            { label: "Reste", value: `${formatAmount(inv.outstanding)} DT` },
+            {
+              label: "Date",
+              value: inv.issueDate ? formatDateFr(inv.issueDate) : formatDateFr(inv.createdAt),
+            },
+          ]}
+          actions={(inv) => {
+            const isBusy = busyId === inv.id
+            const isDraft = inv.status === "Draft"
+            const isPayable = inv.status === "Issued" || inv.status === "PartiallyPaid"
+            return (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" disabled={isBusy} aria-label="Actions de la facture">
+                    {isBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <MoreHorizontal className="h-4 w-4" />}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onSelect={() => setDetailInvoiceId(inv.id)}>Voir le détail</DropdownMenuItem>
+                  {isDraft && (
+                    <>
+                      <DropdownMenuItem onSelect={() => openEdit(inv)}>Modifier</DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => handleIssue(inv)}>Émettre</DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => handleIssueAndPay(inv)}>
+                        Émettre et encaisser
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                  {isPayable && (
+                    <DropdownMenuItem onSelect={() => setPaymentTarget(inv)}>
+                      Enregistrer un paiement
+                    </DropdownMenuItem>
+                  )}
+                  {inv.canCreateAvoir && (
+                    <DropdownMenuItem onSelect={() => openAvoir(inv)}>Établir un avoir</DropdownMenuItem>
+                  )}
+                  {!isDraft && eInvoicingEnabled && inv.canSubmitToElFatoora && (
+                    <DropdownMenuItem onSelect={() => handleSubmitEInvoice(inv)}>
+                      {inv.eInvoiceStatus === "Rejected" || inv.eInvoiceStatus === "Failed"
+                        ? "Renvoyer à El Fatoora"
+                        : internetReachable
+                          ? "Envoyer à El Fatoora"
+                          : "Mettre en file d'attente"}
+                    </DropdownMenuItem>
+                  )}
+                  {inv.hasSignedXml && (
+                    <DropdownMenuItem onSelect={() => handleDownloadArtifact(inv, "xml")}>
+                      Télécharger le TEIF signé
+                    </DropdownMenuItem>
+                  )}
+                  {inv.hasTtnReceipt && (
+                    <DropdownMenuItem onSelect={() => handleDownloadArtifact(inv, "receipt")}>
+                      Télécharger le reçu TTN
+                    </DropdownMenuItem>
+                  )}
+                  {!isDraft && (
+                    <DropdownMenuItem onSelect={() => handleDownloadPdf(inv)}>Télécharger le PDF</DropdownMenuItem>
+                  )}
+                  {(isDraft || inv.canCancel) && <DropdownMenuSeparator />}
+                  {isDraft && (
+                    <DropdownMenuItem
+                      className="text-destructive focus:text-destructive"
+                      onSelect={() => setDeleteTarget(inv)}
+                    >
+                      Supprimer
+                    </DropdownMenuItem>
+                  )}
+                  {inv.canCancel && (
+                    <DropdownMenuItem
+                      className="text-destructive focus:text-destructive"
+                      onSelect={() => setCancelTarget(inv)}
+                    >
+                      Annuler
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )
+          }}
+          empty={isSearching ? "Aucune facture ne correspond à votre recherche." : "Aucune facture."}
+        />
+        <Table containerClassName={TABLE_ONLY}>
           {/* Sticky: this list pages, so the columns are gone by row ten and « Reste » becomes an unlabelled
               column of money. The unit is stated once in the three money headers rather than on every cell. */}
           <TableHeader sticky>

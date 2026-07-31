@@ -5,7 +5,8 @@ import { RecordToothChart, type ToothPaint } from "./record-tooth-chart"
 import { isAdultTooth } from "@/components/tooth-multiselect"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+// The dental-records table is gone entirely (Exception 3) — this modal renders a card list at every width.
+import { CardList } from "@/components/ui/card-list"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -219,144 +220,111 @@ export function PatientSummaryModal({ open, onOpenChange, patient, dentalRecords
                 <p className="text-center text-muted-foreground py-8">Aucun dossier dentaire</p>
               ) : (
                 <div className="w-full">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="min-w-[100px]">Date</TableHead>
-                        <TableHead className="min-w-[120px]">Type d'acte</TableHead>
-                        {/* Dropped with the per-record dentition badge — it is a patient-level fact now. */}
-                        <TableHead className="min-w-[120px]">Dents</TableHead>
-                        <TableHead className="min-w-[80px]">Coût</TableHead>
-                        <TableHead className="min-w-[100px]">Montant payé</TableHead>
-                        <TableHead className="min-w-[90px]">Reste</TableHead>
-                        <TableHead className="min-w-[150px] max-w-[200px]">Notes</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {dentalRecords.map((record) => (
-                        <TableRow key={record.id}>
-                          <TableCell className="font-medium whitespace-nowrap">
-                            {formatDate(record.interventionDate)}
-                          </TableCell>
-                          <TableCell className="whitespace-nowrap">{record.procedureType}</TableCell>
-                          <TableCell>
-                            {record.toothNumbers.length > 0 ? (
-                              <div className="flex flex-wrap gap-1 max-w-[120px]">
-                                {record.toothNumbers.map((toothNum) => (
-                                  <Badge key={toothNum} variant="secondary" className="text-xs">
-                                    {toothNum}
-                                  </Badge>
-                                ))}
-                              </div>
+                  {/*
+                    ⚠️ Exception 3 — this surface adopts the card list at EVERY width, so the table is gone
+                    rather than hidden below `md:`.
+
+                    Its seven columns each carried an explicit `min-w-*` summing ~760px, inside a
+                    `DialogContent` capped at 95vw with `overflow-x-hidden` — so the last columns were
+                    CLIPPED, not scrollable. There was no width at which the table worked, which makes
+                    keeping a desktop copy of it a copy of the defect.
+                  */}
+                  <CardList
+                    ariaLabel="Dossiers dentaires du patient"
+                    items={dentalRecords}
+                    getKey={(r) => r.id}
+                    title={(r) => r.procedureType}
+                    subtitle={(r) => formatDate(r.interventionDate)}
+                    status={(r) =>
+                      r.toothNumbers.length > 0 ? (
+                        <>
+                          {r.toothNumbers.map((toothNum) => (
+                            <Badge key={toothNum} variant="secondary" className="text-xs">
+                              {toothNum}
+                            </Badge>
+                          ))}
+                        </>
+                      ) : null
+                    }
+                    fields={(r) => {
+                      const reste = Math.max(0, r.balance ?? r.cost - r.amountPaid)
+                      const hasNotes =
+                        (r.notes && r.notes.length > 0) || (r.importantNotes && r.importantNotes.length > 0)
+                      const isExpanded = expandedNotes.has(r.id)
+                      const totalNotesCount = (r.importantNotes?.length || 0) + (r.notes?.length || 0)
+                      return [
+                        { label: "Coût", value: formatDT(r.cost) },
+                        { label: "Payé", value: formatDT(r.amountPaid) },
+                        {
+                          label: "Reste",
+                          value:
+                            reste > 0 ? (
+                              <span className="font-semibold text-amber-600">{formatDT(reste)}</span>
                             ) : (
-                              <span className="text-muted-foreground text-sm">-</span>
-                            )}
-                          </TableCell>
-                          <TableCell className="whitespace-nowrap">{formatDT(record.cost)}</TableCell>
-                          <TableCell className="whitespace-nowrap">{formatDT(record.amountPaid)}</TableCell>
-                          <TableCell className="whitespace-nowrap">
-                            {(() => {
-                              const reste = Math.max(0, record.balance ?? (record.cost - record.amountPaid))
-                              return reste > 0
-                                ? <span className="font-semibold text-amber-600">{formatDT(reste)}</span>
-                                : <span className="text-muted-foreground">{formatDT(0)}</span>
-                            })()}
-                          </TableCell>
-                          <TableCell className="max-w-[200px]">
-                            {(() => {
-                              const hasNotes = (record.notes && record.notes.length > 0) || (record.importantNotes && record.importantNotes.length > 0)
-                              const isExpanded = expandedNotes.has(record.id)
-                              const totalNotesCount = (record.importantNotes?.length || 0) + (record.notes?.length || 0)
-
-                              if (!hasNotes) {
-                                return <span className="text-muted-foreground text-sm">-</span>
-                              }
-
-                              return (
-                                <div className="space-y-1">
-                                  {isExpanded ? (
-                                    <div className="space-y-2">
-                                      {record.importantNotes && record.importantNotes.length > 0 && (
-                                        <div className="space-y-1">
-                                          <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 mb-1">
-                                            Notes importantes :
-                                          </p>
-                                          <ul className="list-disc list-inside space-y-1 ml-2">
-                                            {record.importantNotes.map((note, idx) => (
-                                              <li key={idx} className="text-xs font-medium text-amber-900 dark:text-amber-100 bg-amber-50 dark:bg-amber-950/40 px-2 py-1 rounded border border-amber-200 dark:border-amber-800">
-                                                ⚠ {note}
-                                              </li>
-                                            ))}
-                                          </ul>
-                                        </div>
-                                      )}
-                                      {record.notes && record.notes.length > 0 && (
-                                        <div className="space-y-1">
-                                          {record.importantNotes && record.importantNotes.length > 0 && (
-                                            <p className="text-xs font-semibold text-muted-foreground mb-1">
-                                              Notes :
-                                            </p>
-                                          )}
-                                          <ul className="list-disc list-inside space-y-1 ml-2">
-                                            {record.notes.map((note, idx) => (
-                                              <li key={idx} className="text-sm text-foreground bg-muted/50 px-2 py-1 rounded">
-                                                {note}
-                                              </li>
-                                            ))}
-                                          </ul>
-                                        </div>
-                                      )}
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="h-6 text-xs text-muted-foreground hover:text-foreground"
-                                        onClick={(e) => {
-                                          e.stopPropagation()
-                                          setExpandedNotes(prev => {
-                                            const next = new Set(prev)
-                                            next.delete(record.id)
-                                            return next
-                                          })
-                                        }}
-                                      >
-                                        <ChevronUp className="h-3 w-3 mr-1" />
-                                        Réduire
-                                      </Button>
-                                    </div>
-                                  ) : (
-                                    <div className="space-y-1">
-                                      <div className="flex items-center gap-2">
-                                        <span className="text-sm text-muted-foreground">
-                                          {totalNotesCount} {totalNotesCount === 1 ? 'note' : 'notes'}
-                                        </span>
-                                        {record.importantNotes && record.importantNotes.length > 0 && (
-                                          <Badge variant="outline" className="text-xs bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800">
-                                            {record.importantNotes.length} importantes
-                                          </Badge>
-                                        )}
-                                      </div>
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="h-6 text-xs text-muted-foreground hover:text-foreground"
-                                        onClick={(e) => {
-                                          e.stopPropagation()
-                                          setExpandedNotes(prev => new Set(prev).add(record.id))
-                                        }}
-                                      >
-                                        <ChevronDown className="h-3 w-3 mr-1" />
-                                        Voir les notes
-                                      </Button>
-                                    </div>
-                                  )}
-                                </div>
-                              )
-                            })()}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                              <span className="text-muted-foreground">{formatDT(0)}</span>
+                            ),
+                        },
+                        // The expand/collapse survives the conversion — the notes are the reason this summary
+                        // is opened, and flattening them to a count would remove the only thing it adds.
+                        hasNotes && {
+                          label: "Notes",
+                          value: isExpanded ? (
+                            <div className="space-y-2 text-start">
+                              {r.importantNotes && r.importantNotes.length > 0 && (
+                                <ul className="list-inside list-disc space-y-1">
+                                  {r.importantNotes.map((note, idx) => (
+                                    <li
+                                      key={idx}
+                                      className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
+                                    >
+                                      ⚠ {note}
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                              {r.notes && r.notes.length > 0 && (
+                                <ul className="list-inside list-disc space-y-1">
+                                  {r.notes.map((note, idx) => (
+                                    <li key={idx} className="text-xs text-muted-foreground">
+                                      {note}
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 text-xs text-muted-foreground hover:text-foreground"
+                                onClick={() =>
+                                  setExpandedNotes((prev) => {
+                                    const next = new Set(prev)
+                                    next.delete(r.id)
+                                    return next
+                                  })
+                                }
+                              >
+                                <ChevronUp className="mr-1 h-3 w-3" />
+                                Réduire
+                              </Button>
+                            </div>
+                          ) : (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 text-xs text-muted-foreground hover:text-foreground"
+                              onClick={() => setExpandedNotes((prev) => new Set(prev).add(r.id))}
+                            >
+                              <ChevronDown className="mr-1 h-3 w-3" />
+                              {totalNotesCount} {totalNotesCount === 1 ? "note" : "notes"}
+                              {r.importantNotes && r.importantNotes.length > 0
+                                ? ` · ${r.importantNotes.length} importantes`
+                                : ""}
+                            </Button>
+                          ),
+                        },
+                      ]
+                    }}
+                  />
                 </div>
               )}
             </CardContent>
