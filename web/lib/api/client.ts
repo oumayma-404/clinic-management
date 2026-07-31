@@ -34,7 +34,29 @@ export const ApiErrorCode = {
    * Emitted by `AppointmentScheduling.SlotTakenCode`.
    */
   SlotTaken: 'slot_taken',
+  /**
+   * The request never reached the server — DNS, TLS, a dropped Wi-Fi link, the API not running. Client-side
+   * only: no backend emits it, because by definition nothing answered.
+   *
+   * It exists so a caller can tell « nous n'avons pas pu joindre le serveur » (worth a « Réessayer », the
+   * same request will very likely work in a moment) apart from a real refusal (retrying changes nothing).
+   * Branching on `status === 0` alone would also catch the CORS and unexpected-throw paths below, which are
+   * faults rather than transport failures. See `isNetworkError` in `lib/errors.ts`.
+   */
+  Network: 'network',
 } as const;
+
+/**
+ * What the user is told when the request never reached the server (AC-43).
+ *
+ * ⚠️ This replaced *"Network error: Unable to connect to the API. Please check if the API is running and CORS
+ * is configured correctly."* — English, and addressed to whoever deployed the app rather than to the dentist
+ * reading it. `lib/errors.ts` passes an `ApiError` message through **verbatim**, so that string was the one
+ * the toast actually showed. The wording matches `connectivity.tsx`'s « Serveur injoignable » banner, so the
+ * two ways the app can notice the same outage do not describe it differently.
+ */
+export const NETWORK_ERROR_MESSAGE =
+  "Impossible de joindre le serveur de la clinique. Vérifiez votre connexion au réseau local.";
 
 /** In-memory access-token cache — see `getAccessToken`. Module scope so every caller shares one token. */
 let cachedToken: { token: string; validUntilMs: number } | null = null;
@@ -164,12 +186,14 @@ async function handleRequest<T>(
       }
 
       if (err instanceof TypeError && err.message.includes('fetch')) {
-        throw new ApiError(0, 'Network error: Unable to connect to the API. Please check if the API is running and CORS is configured correctly.', err);
+        throw new ApiError(0, NETWORK_ERROR_MESSAGE, err, ApiErrorCode.Network);
       }
       if (err instanceof ApiError) {
         throw err;
       }
-      throw new ApiError(0, err instanceof Error ? err.message : 'An unexpected error occurred', err);
+      // Not a transport failure — something threw where nothing should. It keeps `status: 0` but NOT the
+      // network code, so « Réessayer » is not offered for a fault that retrying cannot fix.
+      throw new ApiError(0, err instanceof Error ? err.message : "Une erreur inattendue s'est produite.", err);
     }
   }
 }

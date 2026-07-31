@@ -1,5 +1,5 @@
 import { toast } from "sonner"
-import { ApiError } from "@/lib/api/client"
+import { ApiError, ApiErrorCode } from "@/lib/api/client"
 
 // Single French-first fallback used across the app when a thrown value carries no usable message.
 export const DEFAULT_ERROR_MESSAGE = "Une erreur inattendue s'est produite."
@@ -33,6 +33,18 @@ export function isForbiddenError(err: unknown): boolean {
 }
 
 /**
+ * True when the request never reached the server — the one failure class where **retrying is the right
+ * advice** (AC-43).
+ *
+ * ⚠️ Keyed on the `network` code, not on `status === 0`: the client also raises `status: 0` for an
+ * unexpected throw, and offering « Réessayer » for a fault would send the user round a loop that cannot
+ * succeed.
+ */
+export function isNetworkError(err: unknown): boolean {
+  return err instanceof ApiError && err.code === ApiErrorCode.Network
+}
+
+/**
  * How long an error toast stays. The global default (`app/layout.tsx`) is 4 s, which is right for a success
  * confirmation but not for a refusal: a success toast repeats something the screen already shows, while an
  * error toast is the *only* place the reason exists, and several of ours are full French sentences with a
@@ -41,7 +53,21 @@ export function isForbiddenError(err: unknown): boolean {
  */
 const ERROR_TOAST_DURATION_MS = 8000
 
-/** Show a single, non-blocking error toast for any thrown value (replaces `alert()` / silent swallows). */
-export function showErrorToast(err: unknown, fallback: string = DEFAULT_ERROR_MESSAGE): void {
-  toast.error(getErrorMessage(err, fallback), { duration: ERROR_TOAST_DURATION_MS })
+/**
+ * Show a single, non-blocking error toast for any thrown value (replaces `alert()` / silent swallows).
+ *
+ * Pass `onRetry` and a **transport** failure additionally gets a « Réessayer » action (AC-43). It is offered
+ * only for `isNetworkError`, never for a refusal: a 409 or a 403 will refuse identically the second time, and
+ * a retry button that cannot work is worse than none. Callers that have nothing to re-run simply omit it and
+ * the toast is unchanged.
+ */
+export function showErrorToast(
+  err: unknown,
+  fallback: string = DEFAULT_ERROR_MESSAGE,
+  onRetry?: () => void,
+): void {
+  toast.error(getErrorMessage(err, fallback), {
+    duration: ERROR_TOAST_DURATION_MS,
+    action: onRetry && isNetworkError(err) ? { label: "Réessayer", onClick: onRetry } : undefined,
+  })
 }
