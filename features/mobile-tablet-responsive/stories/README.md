@@ -73,15 +73,15 @@ graph TD
 
 | Story | Layer | Name | Status | Depends On |
 |-------|-------|------|--------|------------|
-| 1 | Full | [The app works, and looks finished, on every device](./story-1-mobile-tablet-responsive.md) | not-started | — |
+| 1 | Full | [The app works, and looks finished, on every device](./story-1-mobile-tablet-responsive.md) | in-progress | — |
 
 ### Part progress
 
 | Part | Covers | Spec ACs | Status |
 |------|--------|----------|--------|
-| **P0** | Mechanical-check script (written first, see story note) | AC-50 | not-started |
-| **P1** | Foundations + `AppShell` | AC-1…AC-6, AC-36 (viewport) | not-started |
-| **P2** | Nav, touch, bottom token | AC-7…AC-12 | not-started |
+| **P0** | Mechanical-check script (written first, see story note) | AC-50 | ✅ complete (`920571a`) |
+| **P1** | Foundations + `AppShell` | AC-1…AC-6, AC-36 (viewport) | ✅ complete (`de07bfb`) |
+| **P2** | Nav, touch, bottom token | AC-7…AC-12 | **next** |
 | **P3** | Tables → `CardList` | AC-13…AC-19 | not-started |
 | **P4** | Dialogs | AC-20…AC-27 | not-started |
 | **P5** | Agenda | AC-28…AC-31 | not-started |
