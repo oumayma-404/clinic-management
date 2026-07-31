@@ -25,7 +25,7 @@ explicit path and never `git add -A`: the tree is not guaranteed to be quiet for
 | **P2** | Nav, touch, bottom token | ✅ **complete** | `e11abc8` | Bottom bar, `--bottom-inset`, `coarse:`, EC-1 fixed |
 | **P3** | Tables → `CardList` | ✅ **complete — 19 / 19 files** | `25c97ae` `ad533b0` `953a55a` `976b6e6` `e8b257c` `574fb3c` `80fbb41` | `card-fallback` is out of `PENDING_PARTS` and **enforced**. Next part (P4) inherits `dialog-max-w` + `sheet-vh`, still pending |
 | **P4** | Dialogs | ✅ **complete** | `2dc3be7` | All 8 steps. `dialog-max-w` + `sheet-vh` both enforced; only `arch-clipping` (P6) still pending |
-| **P5** | Agenda | 🟡 **partial — 3 of 4 ACs** | `028747b` | AC-28 · AC-29 · AC-31 (page half) done. **AC-30 remains** and is a restructure, not a class change — two traps recorded below. `appointment-calendar.tsx` untouched |
+| **P5** | Agenda | 🟡 **near-complete** | `028747b` `b775137` | AC-29 · AC-30 · AC-31 done; AC-28 done **except its middle clause** — the Semaine density strip below `md:`. `agenda-scroll` check added and enforced |
 | **P6** | Odontogram | not-started | — | |
 | **P7** | Platform | not-started | — | |
 | **P8** | LAN device trust | not-started | — | Needs physical iOS + Android devices |
@@ -43,6 +43,7 @@ explicit path and never `git add -A`: the tree is not guaranteed to be quiet for
 | **P3** (19/19) | ✅ clean | ✅ exit 0 | ✅ all enforced pass, **3** pending — `card-fallback` now enforced | 2026-07-31 |
 | **P4** | ✅ clean | ✅ exit 0 | ✅ all enforced pass, **1** pending (P6 only) | 2026-07-31 |
 | **P5** (partial) | ✅ clean | ✅ exit 0 | ✅ all enforced pass, 1 pending (P6) | 2026-07-31 |
+| **P5** (calendar) | ✅ clean | ✅ exit 0 | ✅ all enforced pass, 1 pending (P6) — **`agenda-scroll` added, enforced** | 2026-07-31 |
 
 ⚠️ **There is no lint gate in `web/`, and this was re-verified rather than assumed**: `npm run lint` fails with
 *"'eslint' is not recognized"* — the package is not installed, and `next.config.ts` disables linting during the
@@ -378,7 +379,52 @@ the server *and* on the first client render, so an initialiser would always read
 Google controls, the praticien filter and the chips wrap underneath. The label shortens to « Nouveau » rather
 than going icon-only.
 
-#### ⚠️ Resuming P5 — AC-30 is a restructure, and here is why
+#### The calendar half — `b775137`
+
+The restructure the previous session analysed was carried out as designed. Both traps were real; neither
+needed re-deriving.
+
+**One element scrolls both axes.** `overflow-auto` on the single scroll container, the day header **moved
+inside** it as `sticky top-0`, and the time labels are `sticky left-0`. The nested alternative
+(horizontal outside, vertical inside) was rejected for the reason recorded below — a `sticky left-0` gutter
+only sticks to a scrollport that scrolls horizontally, so that arrangement cannot produce one at all.
+
+**The `w-max` wrapper is what keeps the overlay honest.** Grid *and* overlay are its children, so
+`(100% - 60px) / 7` measures the grid rather than the viewport. The `calc()` strings were **not touched**, which
+is exactly what preserved the `HOUR_HEIGHT` invariant.
+
+**`WEEK_COLS`** is now the one column template behind the header, the hour grid and the loading skeleton. Its
+`96px` is an **arithmetic contract**: `60 + 7 × 96 = 732`, so the overlay's expression resolves to exactly one
+column. The new check reads both numbers out of the source and fails if either moves.
+
+**One latent bug the move exposed and fixed:** `container.scrollTop = 8 * HOUR_HEIGHT` assumed the hour grid
+began at the scroller's top. With the header inside, that lands *8 AM minus the header* and cuts off the
+morning — it now asks the `08:00` row for its `offsetTop`. `currentTimePosition` needed no change: it already
+read `offsetTop`, which is measured from the new `relative` wrapper, i.e. already in `scrollTop` coordinates.
+
+**Z-order, settled:** blocks `z-20` → sticky gutter `z-30` → current-time line and dot `z-40` → sticky header
+`z-50`. The dot is drawn at `left: 46px`, i.e. *inside* the gutter, which is why it has to outrank it.
+
+**Month dots (AC-28).** A chip in a ~45 px month cell is a coloured sliver holding two characters of a name —
+worse than nothing, because it reads as data. Dots are `aria-hidden` with an `sr-only` count beside them, and
+the cell still drops into Jour where the names are legible.
+
+**Calendar toolbar (AC-31).** The range title truncates; the four-item legend folds into a « Légende »
+disclosure below `md:` **rather than being hidden** — the grey hors-horaires shading has no other explanation
+anywhere, which is the defect its legend entry was added to fix; the filters' divider border is `md:`-only,
+because a lone `border-l` on a wrapped row reads as a rendering artefact.
+
+#### ⚠️ Still open in P5 — the Semaine density strip
+
+AC-28's middle clause: *« Semaine is a tappable 7-day density strip »* below `md:`. Not done.
+
+The scrolling week grid now serves the `md:`+ tablet range honestly, so this is specifically the **phone-width**
+answer — one row of seven day cells showing appointment density, tapping into Jour. `handleSelectDay` in
+`app/appointments/page.tsx` is already the right landing point (it calls `selectView("day")`, so it marks the
+view decided and the narrow default cannot fight it), and the month view's new dot rendering is the pattern to
+copy for density.
+
+#### Superseded — the previous session's AC-30 analysis (kept: it was correct)
 
 **Do not** just delete `overflow-x-hidden` at `appointment-calendar.tsx:881` and add a `min-w`. Two things break
 silently, both found by reading the positioning maths rather than by any check:
@@ -620,6 +666,19 @@ For `features/LEARNINGS.md` on completion:
 - **A sticky offset only sticks to a scrollport that scrolls on that axis.** `sticky left-0` inside a
   vertically-scrolling child of a horizontally-scrolling parent does nothing. If you need both a sticky row and
   a sticky column, **one** element has to scroll both axes.
+- **Making a container scrollable can silently break what is positioned inside it — and the fix is a wrapper,
+  not a rewrite.** The agenda's whole AC-30 restructure came down to inserting one `relative w-max` div so the
+  overlay's percentages measure the grid instead of the viewport. The `calc()` strings, the `HOUR_HEIGHT`
+  invariant and every band expression stayed byte-identical. When a layout depends on maths you must not
+  disturb, look for the change that *moves the containing block* rather than the one that edits the maths.
+- ⚠️ **An arithmetic contract between two files needs a check, because neither side looks wrong alone.**
+  `HOUR_HEIGHT = 48` and `repeat(7, 96px)` are each perfectly reasonable numbers; only together do they satisfy
+  `(100% - 60px) / 7`. `agenda-scroll` reads both out of the source, so changing one is a failure rather than a
+  drift nobody sees until blocks are a few pixels off per column.
+- **Moving a sibling into a scroller invalidates every offset measured from that scroller.** `scrollTop =
+  8 * HOUR_HEIGHT` was correct only while the grid started at the container's top. Prefer asking the DOM where
+  a landmark actually is (`querySelector('[data-time-slot="08:00"]').offsetTop`) over arithmetic that encodes
+  an assumption about what is stacked above it.
 - **Keying touch rules to a breakpoint would have missed the target device.** `md:` is 768px; the tablet a
   dentist holds in landscape is 1180px. Anything about *fingers* keys on `(pointer: coarse)`, anything about
   *space* keys on width — and this feature needs both, separately.
