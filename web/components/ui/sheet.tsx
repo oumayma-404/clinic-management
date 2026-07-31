@@ -45,13 +45,6 @@ function SheetOverlay({
 }
 
 /**
- * How many sheets are open right now. A counter, not a boolean: `/rappels` mounts a settings sheet on a page
- * that also has the nav drawer, and a nested or overlapping pair must not have the first one to close clear the
- * flag while the second is still up.
- */
-let openSheetCount = 0
-
-/**
  * Marks `<body data-sheet-open>` while any sheet is on screen, so things OUTSIDE the sheet can react to it —
  * today the bottom nav bar, which hides rather than showing through under a full-screen sheet and sitting over
  * the sheet's own primary action (AC-8).
@@ -63,14 +56,31 @@ let openSheetCount = 0
  */
 function useMarkSheetOpen() {
   React.useEffect(() => {
-    openSheetCount += 1
     document.body.setAttribute("data-sheet-open", "")
+
     return () => {
-      openSheetCount -= 1
-      if (openSheetCount <= 0) {
-        openSheetCount = 0
-        document.body.removeAttribute("data-sheet-open")
-      }
+      /*
+       * ⚠️ Ask the DOM whether a sheet is still open — do NOT decrement a module-level counter.
+       *
+       * The counter this replaced could strand the flag permanently, and the symptom was severe and
+       * app-wide: `bottom-nav.tsx` hides on `[body[data-sheet-open]_&]`, so a stuck attribute removes the
+       * phone's ONLY navigation on every page at once, with nothing on screen explaining why. It survives
+       * client-side navigation, so the user cannot get out of it — only a full reload clears it.
+       *
+       * `openSheetCount` lived in module scope, which is exactly the state Fast Refresh throws away: edit any
+       * file while the nav drawer is open and the module re-evaluates with the count back at 0 while
+       * `<body data-sheet-open>` is still set — the unmount then decrements from 0, the `<= 0` guard clamps,
+       * and no one ever removes the attribute. A counter also cannot survive an unmount that skips cleanup.
+       *
+       * The DOM is the authority that cannot drift: if any sheet content is still mounted the flag must stay,
+       * and if none is, it must go. Deferred a frame because at cleanup time this sheet's own node is still
+       * being removed, so querying now would always find itself and never clear.
+       */
+      requestAnimationFrame(() => {
+        if (!document.querySelector('[data-slot="sheet-content"]')) {
+          document.body.removeAttribute("data-sheet-open")
+        }
+      })
     }
   }, [])
 }
