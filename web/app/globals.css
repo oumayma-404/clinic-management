@@ -317,6 +317,30 @@
    * ⚠️ Only for elements that can host a pseudo-element. `<input>` is void and cannot — those grow their own
    * height under `coarse:` instead, where paint and hit area are the same thing anyway.
    */
+  /*
+   * A 44 px floor for DATA-ENTRY controls on a finger — the companion to `.touch-target`, not a replacement.
+   *
+   * `.touch-target` overlays a hit area without repainting, which is right for the 32 px icon buttons in 22
+   * table rows: inflating those would inflate every row on a tablet. But an `<input>` is void and cannot host
+   * a pseudo-element, and for a text field the painted box IS the hit area — you tap where the caret goes.
+   *
+   * Applied here rather than at ~56 call sites because that is what the settings surfaces actually contain:
+   * `clinic-settings` alone has 29 controls at `h-7`/`h-8` (28–32 px), and `reminder-settings` another 22.
+   * Editing each one is 56 chances to miss one and no protection against the 57th being added tomorrow —
+   * whereas a rule keyed on the control's own `data-slot` covers every existing and future instance.
+   *
+   * Deliberately narrow: inputs, textareas and select triggers only. It does NOT touch `<button>` generally,
+   * because that is exactly the table-row-density regression `.touch-target` was written to avoid. A utility
+   * class still wins where a component sets its own larger height — this is a floor, not an override.
+   */
+  @media (pointer: coarse) {
+    input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),
+    textarea,
+    [data-slot="select-trigger"] {
+      min-height: 44px;
+    }
+  }
+
   @media (pointer: coarse) {
     .touch-target {
       position: relative;

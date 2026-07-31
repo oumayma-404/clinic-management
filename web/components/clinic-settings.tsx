@@ -825,7 +825,12 @@ export default function ClinicSettings() {
                       <div className="flex items-center justify-center w-7 h-7 rounded-full bg-primary text-white text-xs font-semibold shrink-0 mt-0.5">
                         {index + 1}
                       </div>
-                      <div className="flex-1 grid grid-cols-2 gap-2">
+                      {/* One field per line below `sm:` (rule 2 of the mobile pass). Two columns here left
+                          ~106px each once the row's 28px index bubble and gaps are taken out of a 288px card
+                          — a « Chirurgien-dentiste » select does not fit that, and the name input was too
+                          narrow to read what you had typed. `min-w-0` so a long value wraps instead of
+                          widening the grid. */}
+                      <div className="grid min-w-0 flex-1 grid-cols-1 gap-2 sm:grid-cols-2">
                         <div className="space-y-1">
                           <Label className="text-xs">Nom complet</Label>
                           <Input

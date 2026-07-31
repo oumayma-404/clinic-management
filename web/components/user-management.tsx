@@ -313,7 +313,11 @@ export function UserManagement() {
                           onValueChange={(value) => setPending({ type: "role", user: u, role: value as UserRole })}
                           disabled={working}
                         >
-                          <SelectTrigger className="h-8 w-[150px] text-sm" aria-label="Rôle">
+                          {/* Card side: a card field is label-left / value-right, so a fixed 150px control
+                              plus the « Rôle » label plus the gap overruns a 288px card. Full width here;
+                              the desktop table below keeps its 150px column. Also 44px, not 32 — this is a
+                              real control a secretary changes, not a read-out. */}
+                          <SelectTrigger className="min-h-11 w-full text-sm" aria-label="Rôle">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
