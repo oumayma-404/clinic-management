@@ -17,8 +17,8 @@ It was left alone and excluded from every commit; staging was by explicit path t
 |---|---|---|---|---|
 | **P0** | Mechanical-check script | ✅ **complete** | `920571a` | 8 checks; 4 still PENDING for later parts |
 | **P1** | Foundations + `AppShell` | ✅ **complete** | `de07bfb` | 24 files / 28 shells; see below |
-| **P2** | Nav, touch, bottom token | not-started | — | Next. Remove `"P2"` from `PENDING_PARTS` when it lands |
-| **P3** | Tables → `CardList` | not-started | — | |
+| **P2** | Nav, touch, bottom token | ✅ **complete** | `e11abc8` | Bottom bar, `--bottom-inset`, `coarse:`, EC-1 fixed |
+| **P3** | Tables → `CardList` | not-started | — | Next. Remove `"P3"` from `PENDING_PARTS` when it lands |
 | **P4** | Dialogs | not-started | — | |
 | **P5** | Agenda | not-started | — | |
 | **P6** | Odontogram | not-started | — | |
@@ -32,6 +32,7 @@ It was left alone and excluded from every commit; staging was by explicit path t
 | baseline (pre-P0) | ✅ clean | ✅ clean | n/a | 2026-07-30 |
 | **P0** | ✅ clean | ✅ clean | 2 failing (both P1's), 4 pending — **intended** | 2026-07-30 |
 | **P1** | ✅ clean | ✅ clean | ✅ all enforced pass, 4 pending | 2026-07-31 |
+| **P2** | ✅ clean | ✅ clean | ✅ all enforced pass, 3 pending | 2026-07-31 |
 
 ## Session log
 
@@ -104,6 +105,58 @@ redundant `aria-label` (which overrode its own `SheetTitle`) was removed.
 `HIDDEN_PATHS` / `isChromeLessPath`, hoisted out of `dashboard-sidebar.tsx` and `ai-chat.tsx`. P2's bottom bar
 consumes the same data; a second copy is how the two drift on exactly the device the bar exists for.
 
+### P2 — navigation, touch targets, the bottom edge
+
+**Bottom bar (`components/bottom-nav.tsx`).** Four destinations + « Plus », read from `lib/nav.ts` so it cannot
+drift from the rail. Mounted by `AppShell` as a **flex sibling of `<main>`, not `fixed`** — `<main className="flex-1">`
+then shrinks around it automatically, which is what EC-3's ~250px landscape content height needs, and it means
+the bar needs no z-index and no scroll compensation.
+
+**The header hamburger is gone**, superseding AC-P3.12's wording. « Plus » reuses `isMobileOpen`, so no third
+piece of sidebar state and AC-P3.18 still holds. `useSidebar()` and the `Menu` import were removed from
+`dashboard-header.tsx` — the `header-orphans` check exists precisely because `tsc` does not flag an unused
+destructured binding and lint is broken here.
+
+**One owner for the bottom edge.** `--bottom-bar-h` / `--bottom-inset` in `@theme`. Four things wanted that edge
+and each carried its own `bottom-4`, so they overlapped. The AI panel's **AC-P3.16 geometry is deliberately
+re-opened** and restated in terms of the token — the same 1rem gap, measured from above the bar, with the
+available height reduced by the same amount so the panel still ends 1rem below the header.
+
+**Toasts → `components/app-toaster.tsx`.** A client wrapper because `position` and `visibleToasts` are *props*,
+not CSS. ⚠️ sonner's own `mobileOffset` keys on a hardcoded **600px viewport width**, which is the wrong
+question — a 1180px iPad is the touch device and a 600px desktop window is not. On a coarse pointer:
+bottom-centre, above the token, capped at 3.
+
+**`coarse:` variant + `touch-target` utility.** Keyed on the **pointer**, not a breakpoint: an iPad landscape is
+1180px and still a gloved hand at the chair, so a `md:`-based rule would miss the device this feature is for.
+`touch-target` overlays a 44px pseudo-element and changes **no paint** — growing the controls would have grown
+every row of 22 tables on a tablet.
+
+⚠️ **Stacked list rows are the exception and grow their own height instead** (`coarse:py-3` on `SelectItem`,
+`DropdownMenuItem`, the sidebar nav row). A 44px overlay on adjacent rows in a vertical stack overlaps, and the
+overlap selects the wrong item — the opposite of the fix. `calendar.tsx` likewise raises `--cell-size` rather
+than overlaying, since its days are a 7-across grid.
+
+**Two hover rules, kept apart.** *Movement* hovers gated behind `hover-hover:` (4 sites). *Hover-revealed*
+affordances got the **opposite** treatment: the file-delete button and the logo/cachet overlays were the only way
+to perform those actions and did not exist at all on touch, so gating them behind `hover-hover:` would have made
+that permanent — the `features/LEARNINGS.md` « space-based UI gating can hide a required affordance entirely »
+failure. See DEV-2 for the image overlays.
+
+**EC-1 fixed — a live bug, not a hypothetical.** `SheetContent`'s `md:hidden` hid the drawer's *content* while
+Radix's overlay, scroll lock and focus trap stayed mounted, so rotating a tablet to landscape with the drawer
+open left the page untouchable with nothing on screen to explain it, escapable only by Escape. Closed with
+`lib/hooks/use-media-query.ts` — the first `matchMedia` in the codebase, SSR-guarded, and the narrow case that
+earns one.
+
+**`data-sheet-open` on `<body>`.** Written by `SheetContent` via a mount counter (a counter, not a boolean:
+`/rappels` has a settings sheet on a page that also has the nav drawer). A body attribute rather than context
+because the consumer — the bar — is not a descendant of the sheet, and Radix already communicates this way with
+`data-scroll-locked`. Deliberately **not** in `SidebarContext`, which is persistence-adjacent.
+
+**iOS focus zoom.** `Textarea` and `TimeField` gained `text-base md:text-sm`; `Input` already had the guard, so
+every notes field and every booking time input zoomed the page on focus and never zoomed back.
+
 ## Deviations
 
 ### DEV-1: `/settings` and `/users` keep their content exemption
@@ -127,6 +180,28 @@ a desktop"*.
 and one gutter/width rule governs every page that does not opt out. The difference is that the exemption is now
 two visible props plus a comment rather than a hand-rolled `<main>`. No visual change. If the two components are
 ever reworked to let the shell own their chrome, these props come off.
+
+### DEV-2: the two image-replace overlays become corner buttons on touch, not always-on overlays
+**Date:** 2026-07-31 · **Story:** 1 (P2) · **Category:** Technical · **Approved:** auto (see justification)
+
+**Original plan:** P2 step 7 — *"Revealed affordances get a real touch path: … `clinic-settings.tsx:713` and
+`mon-profil-content.tsx:186` (logo/cachet replace overlays)."*
+
+**Actual implementation:** each renders **two** controls — the existing full-bleed hover overlay, now gated to
+`hover-hover:`, plus a small always-visible corner button gated to `coarse:`.
+
+**Justification:** the literal reading — make the existing overlay always visible on touch — has two failures the
+plan's one-line description does not anticipate. The overlay is `absolute inset-0 bg-black/50`, so leaving it on
+would (a) permanently obscure the very logo or cachet it is previewing, and (b) turn the whole thumbnail into an
+**unconfirmed delete target**, so a stray tap while scrolling destroys a practitioner's signature image. The
+third-party file-delete case (`patient-files-manager.tsx:516`) *is* a small corner button already, so it simply
+inverts — the difference is the overlay geometry, not the rule.
+
+**Impact:** the action now exists on touch, which it did not before, without either regression. Two elements
+rather than one; both call the same handler and carry the same `aria-label`. Classified as significant (external
+scope, adds an element) but implemented without asking, because the plan's *intent* — "give the affordance a real
+touch path" — is unambiguous and the literal version is unsafe rather than merely different. Flagged here for
+review.
 
 ## Corrections to the plan's counts
 
@@ -154,6 +229,18 @@ For `features/LEARNINGS.md` on completion:
   dedent produced 2-space content in `documents/page.tsx`, whose JSX was already mis-indented before this session.
   Deriving the shift from the block's own minimum indent, then aligning the appended trailing block separately, is
   what made it correct.
+- **A JSX comment cannot lead a `&&` branch either** — the same trap that broke P1 recurred in P2 on
+  `sheet.tsx`'s `{showCloseButton && ( … )}`. The rule is: the comment goes *above* the expression, never inside
+  it. Recorded twice now because it cost a build both times.
+- **A regex lookbehind is the wrong anchor for a CSS class check.** P0's `hover-movement` check used
+  `(?<!hover-hover:)` and reported two correctly-gated classes as violations: in
+  `hover-hover:group-hover:scale-105` the inner `hover:scale-` is preceded by `group-`, so the lookbehind passed.
+  Class checks must anchor on a **class boundary** (start, whitespace, quote). ⚠️ The failure mode that matters
+  is the other direction — a check that quietly stops matching — so after fixing it, prove it still catches a
+  real violation by feeding it one. Done here with a throwaway probe file.
+- **Keying touch rules to a breakpoint would have missed the target device.** `md:` is 768px; the tablet a
+  dentist holds in landscape is 1180px. Anything about *fingers* keys on `(pointer: coarse)`, anything about
+  *space* keys on width — and this feature needs both, separately.
 
 ## Manual walk — the real acceptance gate (AC-51)
 
