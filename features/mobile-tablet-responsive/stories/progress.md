@@ -25,7 +25,7 @@ explicit path and never `git add -A`: the tree is not guaranteed to be quiet for
 | **P2** | Nav, touch, bottom token | ✅ **complete** | `e11abc8` | Bottom bar, `--bottom-inset`, `coarse:`, EC-1 fixed |
 | **P3** | Tables → `CardList` | ✅ **complete — 19 / 19 files** | `25c97ae` `ad533b0` `953a55a` `976b6e6` `e8b257c` `574fb3c` `80fbb41` | `card-fallback` is out of `PENDING_PARTS` and **enforced**. Next part (P4) inherits `dialog-max-w` + `sheet-vh`, still pending |
 | **P4** | Dialogs | ✅ **complete** | `2dc3be7` | All 8 steps. `dialog-max-w` + `sheet-vh` both enforced; only `arch-clipping` (P6) still pending |
-| **P5** | Agenda | 🟡 **near-complete** | `028747b` `b775137` | AC-29 · AC-30 · AC-31 done; AC-28 done **except its middle clause** — the Semaine density strip below `md:`. `agenda-scroll` check added and enforced |
+| **P5** | Agenda | 🟡 **near-complete** | `028747b` `b775137` `5d6bb5b` | AC-29 · AC-30 · AC-31 done; AC-28 done **except its middle clause** — the Semaine density strip below `md:`. `agenda-scroll` added in `b775137`, actually **enforced** only in `5d6bb5b` — see the note under the gate log |
 | **P6** | Odontogram | not-started | — | |
 | **P7** | Platform | not-started | — | |
 | **P8** | LAN device trust | not-started | — | Needs physical iOS + Android devices |
@@ -43,7 +43,18 @@ explicit path and never `git add -A`: the tree is not guaranteed to be quiet for
 | **P3** (19/19) | ✅ clean | ✅ exit 0 | ✅ all enforced pass, **3** pending — `card-fallback` now enforced | 2026-07-31 |
 | **P4** | ✅ clean | ✅ exit 0 | ✅ all enforced pass, **1** pending (P6 only) | 2026-07-31 |
 | **P5** (partial) | ✅ clean | ✅ exit 0 | ✅ all enforced pass, 1 pending (P6) | 2026-07-31 |
-| **P5** (calendar) | ✅ clean | ✅ exit 0 | ✅ all enforced pass, 1 pending (P6) — **`agenda-scroll` added, enforced** | 2026-07-31 |
+| **P5** (calendar) | ✅ clean | ✅ exit 0 | ✅ all enforced pass, 2 pending — `agenda-scroll` added but **still PENDING** | 2026-07-31 |
+| **P5** (`agenda-scroll` enforced) | ✅ clean | ✅ exit 0 | ✅ all enforced pass, **1** pending (P6 only) | 2026-07-31 |
+
+⚠️ **A freshly-added, freshly-passing check looks identical whether or not it is enforced — and that hid a
+false claim for one commit.** `b775137` added `agenda-scroll` and its own message called it enforced; `"P5"` was
+still in `PENDING_PARTS`, so a failure would have printed `PENDING` instead of failing the run. Two things
+concealed it: the probe used **`--strict`**, which bypasses `PENDING_PARTS` by design and therefore proves the
+check's *logic* while saying nothing about the gate acting on it; and a check with **zero hits prints `✓`**
+either way, because the pending state is only rendered on a check that is currently *failing*. Fixed in
+`5d6bb5b` and re-proved the right way — a deliberate `HOUR_HEIGHT` change now fails `npm run check:responsive`
+with **no flags**. The rule this yields: **prove a new check by breaking the source and running the gate exactly
+as CI would**, never with `--strict`.
 
 ⚠️ **There is no lint gate in `web/`, and this was re-verified rather than assumed**: `npm run lint` fails with
 *"'eslint' is not recognized"* — the package is not installed, and `next.config.ts` disables linting during the
