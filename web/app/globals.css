@@ -1,7 +1,21 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-@custom-variant dark (&:is(.dark *));
+/*
+ * `dark:` applies inside `.dark` — EXCEPT inside a `.light` island (AC-39).
+ *
+ * A `.light` subtree is a **document surface**: the two A4 previews, the PDF preview iframes, the CNAM BS1
+ * overlay, the print surface, and an uploaded cachet or logo. Those are not app chrome — they are pieces of
+ * paper. A « certificat médical » that renders white-on-black on screen and then prints black-on-white is
+ * showing the dentist something other than what the patient will receive, and a cachet is a scanned image
+ * whose background is white whatever the theme says.
+ *
+ * ⚠️ The exemption HAS to live in the variant. `.light` on a wrapper cannot otherwise stop a `dark:` utility
+ * on a descendant, because `&:is(.dark *)` matches *any* descendant of `.dark` however deeply nested — so a
+ * document surface inside a dark page would keep inverting no matter what class it carried.
+ */
+@custom-variant dark (&:is(.dark *):not(:is(.light, .light *)));
+
 
 /*
  * `hover-hover:` — only on devices with a real pointer.
@@ -51,7 +65,17 @@
  *   • `--radius` 0.5rem → 0.75rem: the "smooth". It flows to every `rounded-md/lg/xl` through the @theme map
  *     below, so buttons land at 10 px and surfaces at 12–16 px rather than a uniform tight 8.
  */
-:root {
+/*
+ * `.light` re-declares the light palette (AC-39) rather than repeating fifty tokens somewhere else.
+ *
+ * The `dark:` *utilities* are already exempted by the variant above, but the palette **variables** are not:
+ * `.dark` sets `--background`/`--foreground`/… for its whole subtree, and a document surface nested inside
+ * would inherit them. Listing `.light` alongside `:root` gives that island the light values back, and since
+ * custom properties resolve from the *nearest* ancestor that sets them, a `.light` inside `.dark` wins for
+ * its subtree without needing extra specificity.
+ */
+:root,
+.light {
   --background: oklch(0.975 0.008 215);
   --foreground: oklch(0.20 0.015 235);
   --card: oklch(1 0 0);

@@ -1,6 +1,7 @@
 "use client"
 
 import { Toaster } from "sonner"
+import { useTheme } from "next-themes"
 import { COARSE_POINTER_QUERY, useMediaQuery } from "@/lib/hooks/use-media-query"
 
 /**
@@ -25,9 +26,17 @@ import { COARSE_POINTER_QUERY, useMediaQuery } from "@/lib/hooks/use-media-query
  */
 export function AppToaster() {
   const isCoarse = useMediaQuery(COARSE_POINTER_QUERY)
+  const { resolvedTheme } = useTheme()
 
   return (
     <Toaster
+      /*
+       * sonner renders in its own portal with its own surface colours, so it does NOT pick the theme up from
+       * the `.dark` class the way the rest of the app does — left alone it stays light-on-light and the
+       * `richColors` variants lose their contrast. `resolvedTheme` rather than `theme`, because sonner needs
+       * a concrete light/dark and « système » is neither.
+       */
+      theme={resolvedTheme === "dark" ? "dark" : "light"}
       position={isCoarse ? "bottom-center" : "top-right"}
       offset={isCoarse ? { bottom: "calc(1rem + var(--bottom-inset))" } : undefined}
       visibleToasts={isCoarse ? 3 : 5}

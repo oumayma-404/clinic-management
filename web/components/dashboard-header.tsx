@@ -10,6 +10,8 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
@@ -23,11 +25,15 @@ import { appointmentsApi } from "@/lib/api/appointments"
 import { patientsApi } from "@/lib/api/patients"
 import type { NotificationDto, PatientDto } from "@/lib/api/types"
 import { cn } from "@/lib/utils"
-import { Bell, Search, LogOut, KeyRound, Loader2, UserCircle } from "lucide-react"
+import { Bell, Search, LogOut, KeyRound, Loader2, UserCircle, Monitor, Sun, Moon } from "lucide-react"
+import { useTheme } from "next-themes"
 
 export function DashboardHeader() {
   const { user, isLoading, mode, logout } = useSession()
   const router = useRouter()
+  // `theme` (the stored choice, including « système ») drives the radio; `resolvedTheme` would collapse
+  // système into whichever concrete theme the OS currently reports and tick the wrong row.
+  const { theme, setTheme } = useTheme()
   // No `useSidebar()` here any more: the drawer is opened from « Plus » in the bottom bar (AC-7), so the header
   // no longer touches sidebar state at all.
 
@@ -327,6 +333,31 @@ export function DashboardHeader() {
               <DropdownMenuItem onClick={() => router.push("/settings")} className="cursor-pointer">
                 Paramètres
               </DropdownMenuItem>
+
+              {/*
+                Thème (AC-38). In the user menu rather than /settings because it is a per-device preference,
+                not a clinic setting — the same practitioner wants dark on the chairside tablet and light on
+                the desk, and /settings is shared clinic configuration.
+
+                A radio group, not a toggle: « Système » is a real third choice, not the absence of the other
+                two, and it is the default.
+              */}
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">Thème</DropdownMenuLabel>
+              <DropdownMenuRadioGroup value={theme ?? "system"} onValueChange={setTheme}>
+                <DropdownMenuRadioItem value="system" className="cursor-pointer">
+                  <Monitor className="mr-2 h-4 w-4" />
+                  Système
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="light" className="cursor-pointer">
+                  <Sun className="mr-2 h-4 w-4" />
+                  Clair
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="dark" className="cursor-pointer">
+                  <Moon className="mr-2 h-4 w-4" />
+                  Sombre
+                </DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
               {mode === "local" && (
                 <DropdownMenuItem
                   onClick={() => router.push("/change-password")}

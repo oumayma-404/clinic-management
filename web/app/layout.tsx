@@ -7,6 +7,7 @@ import { CloudSessionProvider, LocalSessionProvider } from "@/lib/auth/session"
 import { ConnectivityProvider } from "@/lib/connectivity/connectivity"
 import { SidebarProvider } from "@/contexts/sidebar-context"
 import { AppToaster } from "@/components/app-toaster"
+import { ThemeProvider } from "@/components/theme-provider"
 import { AIChat } from "@/components/ai-chat"
 import { PRODUCT_NAME } from "@/lib/brand"
 import "./globals.css"
@@ -73,18 +74,22 @@ export default function RootLayout({
     */
     <html lang="fr" suppressHydrationWarning>
       <body className={`font-sans antialiased`}>
-        <SessionProvider>
-          <ConnectivityProvider>
-            <SidebarProvider>
-              {children}
-            </SidebarProvider>
-            {/* Inside ConnectivityProvider so it can gate on internet reachability (Local mode). */}
-            <AIChat />
-          </ConnectivityProvider>
-        </SessionProvider>
-        {/* Anchors bottom-centre and caps at 3 on a coarse pointer, clearing the bottom bar (AC-9). The
-            rationale, and the toast duration, live in the component. */}
-        <AppToaster />
+        {/* Outermost inside <body> (AC-38) so the theme class is settled before anything reads a colour —
+            including the toaster, which follows `resolvedTheme`. */}
+        <ThemeProvider>
+          <SessionProvider>
+            <ConnectivityProvider>
+              <SidebarProvider>
+                {children}
+              </SidebarProvider>
+              {/* Inside ConnectivityProvider so it can gate on internet reachability (Local mode). */}
+              <AIChat />
+            </ConnectivityProvider>
+          </SessionProvider>
+          {/* Anchors bottom-centre and caps at 3 on a coarse pointer, clearing the bottom bar (AC-9). The
+              rationale, and the toast duration, live in the component. */}
+          <AppToaster />
+        </ThemeProvider>
         <Analytics />
       </body>
     </html>
