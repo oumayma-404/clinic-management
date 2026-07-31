@@ -23,7 +23,14 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
-import { Package, Search, Pencil, Trash2, Loader2, AlertTriangle, Minus, Plus, History, Hourglass } from "lucide-react"
+import { Package, Search, Pencil, Trash2, Loader2, AlertTriangle, Minus, Plus, History, Hourglass, MoreHorizontal } from "lucide-react"
+import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
 import { stockApi, type StockMovementDto } from "@/lib/api/stock"
 import { formatDate, formatDateTime } from "@/lib/format"
@@ -74,7 +81,10 @@ export function StockTable({ refreshKey, onEdit, highlightItemId, initialFilter 
   const [historyTarget, setHistoryTarget] = useState<StockItemDto | null>(null)
   const [movements, setMovements] = useState<StockMovementDto[]>([])
   const [movementsLoading, setMovementsLoading] = useState(false)
-  const highlightRowRef = useRef<HTMLTableRowElement | null>(null)
+  // `HTMLElement`, not `HTMLTableRowElement`: the deep-link target is a `<tr>` above `md:` and an `<li>` card
+  // below it. Only one of the two trees is ever mounted, so one ref serves both — and `scrollIntoView` is on
+  // `HTMLElement`, so nothing here needs the narrower type.
+  const highlightRowRef = useRef<HTMLElement | null>(null)
   // Scroll to the deep-linked row only once per deep-link — reset when the target changes.
   const hasScrolledRef = useRef(false)
 
@@ -283,7 +293,80 @@ export function StockTable({ refreshKey, onEdit, highlightItemId, initialFilter 
             <p className="py-12 text-center text-sm text-destructive">{error}</p>
           ) : (
             <div className="overflow-x-auto">
-              <Table>
+              {/* ⚠️ `itemRef` carries the deep-link target across: a low-stock notification scrolls this list
+                  to one row, and on a phone the card IS that row. Without it the link would land at the top of
+                  an unscrolled list — which reads as the link being broken. */}
+              <CardList
+                className={CARDS_ONLY}
+                ariaLabel="Articles en stock"
+                items={items}
+                getKey={(i) => i.id}
+                title={(i) => i.name}
+                subtitle={(i) => i.supplier}
+                itemRef={(i) =>
+                  highlightItemId === i.id
+                    ? (el: HTMLLIElement | null) => {
+                        highlightRowRef.current = el
+                      }
+                    : undefined
+                }
+                status={(i) => (
+                  <>
+                    <Badge variant={i.isLowStock ? "destructive" : "default"} className="gap-1">
+                      {i.isLowStock && <AlertTriangle className="h-3 w-3" />}
+                      {i.currentStock} {i.unit}
+                    </Badge>
+                    <Badge variant="outline">{i.category}</Badge>
+                  </>
+                )}
+                fields={(i) => [
+                  {
+                    label: "Péremption",
+                    value: i.earliestExpiry ? (
+                      <span
+                        className={cn(
+                          "inline-flex items-center gap-1",
+                          i.hasExpiredStock
+                            ? "font-medium text-destructive"
+                            : i.isExpiringSoon
+                              ? "font-medium text-amber-700 dark:text-amber-400"
+                              : undefined,
+                        )}
+                      >
+                        {(i.hasExpiredStock || i.isExpiringSoon) && (
+                          <AlertTriangle className="h-3 w-3" aria-hidden="true" />
+                        )}
+                        {formatDate(i.earliestExpiry)}
+                        {/* The table put this in a `title=`, which no touch device can reach. */}
+                        {i.hasExpiredStock ? " · périmé" : i.isExpiringSoon ? " · expire bientôt" : ""}
+                      </span>
+                    ) : null,
+                  },
+                  { label: "Stock min.", value: i.minimumStockLevel },
+                ]}
+                actions={(i) => (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon" aria-label={`Actions pour ${i.name}`}>
+                        <MoreHorizontal className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onSelect={() => openAdjust(i, "consume")}>Sortie de stock</DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => openAdjust(i, "restock")}>Entrée de stock</DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => openHistory(i)}>Historique</DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => onEdit(i)}>Modifier</DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="text-destructive focus:text-destructive"
+                        onSelect={() => setItemToDelete(i)}
+                      >
+                        Supprimer
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+              />
+              <Table containerClassName={TABLE_ONLY}>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Nom de l'article</TableHead>
@@ -313,7 +396,13 @@ export function StockTable({ refreshKey, onEdit, highlightItemId, initialFilter 
                       return (
                       <TableRow
                         key={item.id}
-                        ref={isHighlighted ? highlightRowRef : undefined}
+                        ref={
+                          isHighlighted
+                            ? (el: HTMLTableRowElement | null) => {
+                                highlightRowRef.current = el
+                              }
+                            : undefined
+                        }
                         className={cn(isHighlighted && "bg-primary/10 ring-1 ring-inset ring-primary")}
                       >
                         <TableCell className="font-medium text-foreground">{item.name}</TableCell>

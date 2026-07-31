@@ -60,8 +60,14 @@ interface CardListProps<T> {
 
   /** Makes the title a button. Mutually exclusive with `href`. */
   onSelect?: (item: T) => void
-  /** Makes the title a link. Use for a row whose only behaviour is navigation. */
-  href?: (item: T) => string
+  /**
+   * Makes the title a link. Use for a row whose only behaviour is navigation.
+   *
+   * ⚠️ Returns `string | undefined` on purpose: a list can be *partly* navigable. The caisse statement is the
+   * case — a payment, an avoir and an échéance each open their own record, but an expense has no page to open,
+   * so its card is plain text rather than a link to nowhere.
+   */
+  href?: (item: T) => string | undefined
 
   /** For a row the page scrolls to — `stock-table`'s low-stock deep link keeps its target this way. */
   itemRef?: (item: T) => React.Ref<HTMLLIElement> | undefined

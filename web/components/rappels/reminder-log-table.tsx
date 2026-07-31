@@ -3,6 +3,7 @@
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
 import { cn } from "@/lib/utils"
 import { formatDateTime } from "@/lib/format"
 import type { ReminderDeliveryStatus, ReminderStatusDto } from "@/lib/api/reminder-settings"
@@ -115,7 +116,40 @@ export function ReminderLogTable({
       )}
       aria-busy={refreshing || undefined}
     >
-      <Table>
+      {/* ⚠️ `failureReason` stays IN the card, exactly as it stays in the row: it is the only thing that makes
+          a failure actionable, and the comment below records that a tooltip is unreachable on the tablet a
+          dentist actually holds. A card list would have been an easy place to lose it. */}
+      <CardList
+        className={CARDS_ONLY}
+        ariaLabel="Journal des rappels"
+        items={rows}
+        getKey={(r) => r.id}
+        title={(r) => r.patientName ?? "Patient inconnu"}
+        accent={(r) => STRIPE[r.status]}
+        status={(r) => (
+          <>
+            <Badge variant="secondary" className={STATUS_CLASS[r.status]}>
+              {STATUS_LABEL[r.status]}
+            </Badge>
+            {r.isRecall && (
+              <Badge variant="secondary" className="bg-muted text-muted-foreground">
+                relance
+              </Badge>
+            )}
+          </>
+        )}
+        subtitle={(r) =>
+          r.failureReason ? <span className="text-destructive">{r.failureReason}</span> : null
+        }
+        fields={(r) => [
+          { label: "Canal", value: <span className="font-mono text-2xs">{r.channel}</span> },
+          { label: "Destinataire", value: <span className="font-mono text-xs">{r.recipientMasked}</span> },
+          { label: "Rendez-vous", value: r.appointmentAt ? formatDateTime(r.appointmentAt) : null },
+          { label: "Prévu", value: formatDateTime(r.scheduledAt) },
+          { label: "Envoyé", value: r.sentAt ? formatDateTime(r.sentAt) : null },
+        ]}
+      />
+      <Table containerClassName={TABLE_ONLY}>
         <TableHeader>
           {/* Headers a step quieter than the data: mono, uppercase, muted. In the stock primitive they are
               `text-foreground`, i.e. as black as the values, so the eye cannot tell which is the content. */}
@@ -134,7 +168,11 @@ export function ReminderLogTable({
           {rows.map((row) => (
             <TableRow key={row.id} className="relative">
               <TableCell className="relative">
-                <span aria-hidden="true" className={cn("absolute inset-y-0 left-0 w-[2px]", STRIPE[row.status])} />
+                <span
+                  aria-hidden="true"
+                  className="absolute inset-y-0 left-0 w-[2px]"
+                  style={{ backgroundColor: STRIPE[row.status] }}
+                />
                 <span className="font-medium">{row.patientName ?? "Patient inconnu"}</span>
                 {/*
                   A recall row. Kept visible even though the feature is being retired: these messages really were
@@ -201,8 +239,16 @@ const STATUS_CLASS: Record<ReminderDeliveryStatus, string> = {
   failed: "bg-destructive-wash text-destructive",
 }
 
+/**
+ * The status stripe, as a CSS colour rather than a Tailwind class.
+ *
+ * It has two consumers now — the table row's 2px rule and the card's accent bar — and the card list paints its
+ * accent through `style`, since a card's accent can also be a per-row hex from the database. Keeping one map of
+ * colours and letting both read it beats a class map plus a parallel colour map that can disagree about what
+ * « failed » looks like.
+ */
 const STRIPE: Record<ReminderDeliveryStatus, string> = {
-  sent: "bg-success",
-  pending: "bg-warning",
-  failed: "bg-destructive",
+  sent: "var(--color-success)",
+  pending: "var(--color-warning)",
+  failed: "var(--color-destructive)",
 }

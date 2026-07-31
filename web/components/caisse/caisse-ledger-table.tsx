@@ -3,6 +3,7 @@
 import Link from "next/link"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
 import { ArrowDownLeft, ArrowUpRight, Ban, Receipt, CalendarClock, Undo2, Wallet } from "lucide-react"
 import { formatDT, formatDate } from "@/lib/format"
 import type { CaisseMovementDto, CaisseMovementKind } from "@/lib/api/types"
@@ -76,7 +77,71 @@ export function CaisseLedgerTable({ movements, loading = false }: CaisseLedgerTa
 
   return (
     <div className="rounded-md border overflow-x-auto">
-      <Table>
+      {/*
+        ⚠️ `runningBalance` is deliberately NOT a card field. It is « Solde de la période » — a fact about a
+        movement's *position in an ordered list*, not about the movement. A card can be read on its own, and a
+        running balance read on its own is a number with no referent. The period's closing balance is the last
+        row's, and it is already stated above the statement; a footer restates it once for the card list rather
+        than repeating a meaningless figure on every card.
+
+        Entrée/Sortie collapse into one signed « Montant » for the same reason: two columns where exactly one is
+        ever filled is a table's way of aligning direction, and a card shows direction with a sign and a colour.
+      */}
+      <CardList
+        className={CARDS_ONLY}
+        ariaLabel="Extrait de caisse"
+        items={movements}
+        getKey={(m) => `${m.kind}-${m.id}`}
+        muted={(m) => m.isVoided}
+        title={(m) => <span className={m.isVoided ? "line-through" : undefined}>{m.label}</span>}
+        href={(m) => kindHref(m) ?? undefined}
+        status={(m) => {
+          const Icon = KIND_ICONS[m.kind]
+          return (
+            <Badge variant="outline" className="gap-1 whitespace-nowrap">
+              <Icon className="h-3 w-3" aria-hidden="true" />
+              {KIND_LABELS[m.kind]}
+            </Badge>
+          )
+        }}
+        subtitle={(m) =>
+          m.isVoided ? (
+            <span className="flex items-center gap-1">
+              <Ban className="h-3 w-3" aria-hidden="true" />
+              Annulé
+              {m.voidReason ? ` — ${m.voidReason}` : ""}
+              {m.voidedByName ? ` (${m.voidedByName})` : ""}
+            </span>
+          ) : null
+        }
+        fields={(m) => [
+          {
+            label: m.direction === "In" ? "Entrée" : "Sortie",
+            value: (
+              <span
+                className={
+                  m.isVoided
+                    ? "line-through"
+                    : m.direction === "In"
+                      ? "font-medium text-emerald-600 dark:text-emerald-500"
+                      : "font-medium text-rose-600 dark:text-rose-500"
+                }
+              >
+                {formatDT(m.amount)}
+              </span>
+            ),
+          },
+          { label: "Date", value: formatDate(m.occurredOn) },
+          { label: "Patient", value: m.patientName },
+          { label: "Mode", value: m.method ? paymentMethodLabel(m.method) : null },
+        ]}
+      />
+      {movements.length > 0 && (
+        <p className="border-t px-3 py-2 text-2xs text-muted-foreground md:hidden">
+          Solde de la période : <span className="tabular-nums">{formatDT(movements[movements.length - 1].runningBalance)}</span>
+        </p>
+      )}
+      <Table containerClassName={TABLE_ONLY}>
         <TableHeader>
           <TableRow>
             <TableHead>Date</TableHead>

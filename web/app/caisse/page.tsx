@@ -38,7 +38,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { ArrowLeftRight, Loader2, Pencil, Plus, Search, Trash2, Wallet } from "lucide-react"
+import { ArrowLeftRight, Loader2, Pencil, Plus, Search, Trash2, Wallet, MoreHorizontal } from "lucide-react"
+import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { expensesApi, type ExpensePayload } from "@/lib/api/expenses"
 import { CaisseLedgerTable } from "@/components/caisse/caisse-ledger-table"
 import { DataTablePagination } from "@/components/ui/data-table-pagination"
@@ -380,7 +387,46 @@ export default function CaissePage() {
               <p className="py-12 text-center text-sm text-destructive">{error}</p>
             ) : (
               <div className="overflow-x-auto">
-                <Table>
+                {/* Title is the catégorie, not the description: the description is nullable and truncated, so
+                    it makes a poor identity, while every expense has a category. The amount leads the fields —
+                    it is what the row is about. */}
+                <CardList
+                  className={CARDS_ONLY}
+                  ariaLabel="Dépenses"
+                  items={expenses}
+                  getKey={(e) => e.id}
+                  title={(e) => e.category}
+                  subtitle={(e) => e.description?.trim()}
+                  fields={(e) => [
+                    { label: "Montant", value: <span className="font-medium">{formatDT(e.amount)}</span> },
+                    { label: "Date", value: format(parseISO(e.expenseDate), "dd/MM/yyyy", { locale: fr }) },
+                    { label: "Mode", value: methodLabel(e.method) },
+                  ]}
+                  actions={(e) => (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" aria-label={`Actions pour la dépense ${e.category}`}>
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onSelect={() => handleEdit(e)}>Modifier</DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="text-destructive focus:text-destructive"
+                          onSelect={() => handleDelete(e)}
+                        >
+                          Supprimer
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
+                  empty={
+                    search.trim()
+                      ? "Aucune dépense ne correspond à votre recherche"
+                      : "Aucune dépense pour ce jour"
+                  }
+                />
+                <Table containerClassName={TABLE_ONLY}>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Date</TableHead>
