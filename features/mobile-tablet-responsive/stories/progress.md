@@ -25,7 +25,7 @@ explicit path and never `git add -A`: the tree is not guaranteed to be quiet for
 | **P2** | Nav, touch, bottom token | ✅ **complete** | `e11abc8` | Bottom bar, `--bottom-inset`, `coarse:`, EC-1 fixed |
 | **P3** | Tables → `CardList` | ✅ **complete — 19 / 19 files** | `25c97ae` `ad533b0` `953a55a` `976b6e6` `e8b257c` `574fb3c` `80fbb41` | `card-fallback` is out of `PENDING_PARTS` and **enforced**. Next part (P4) inherits `dialog-max-w` + `sheet-vh`, still pending |
 | **P4** | Dialogs | ✅ **complete** | `2dc3be7` | All 8 steps. `dialog-max-w` + `sheet-vh` both enforced; only `arch-clipping` (P6) still pending |
-| **P5** | Agenda | not-started | — | |
+| **P5** | Agenda | 🟡 **partial — 3 of 4 ACs** | `028747b` | AC-28 · AC-29 · AC-31 (page half) done. **AC-30 remains** and is a restructure, not a class change — two traps recorded below. `appointment-calendar.tsx` untouched |
 | **P6** | Odontogram | not-started | — | |
 | **P7** | Platform | not-started | — | |
 | **P8** | LAN device trust | not-started | — | Needs physical iOS + Android devices |
@@ -42,6 +42,7 @@ explicit path and never `git add -A`: the tree is not guaranteed to be quiet for
 | **P3** (17/19) | ✅ clean | ✅ clean | ✅ all enforced pass, 4 pending | 2026-07-31 |
 | **P3** (19/19) | ✅ clean | ✅ exit 0 | ✅ all enforced pass, **3** pending — `card-fallback` now enforced | 2026-07-31 |
 | **P4** | ✅ clean | ✅ exit 0 | ✅ all enforced pass, **1** pending (P6 only) | 2026-07-31 |
+| **P5** (partial) | ✅ clean | ✅ exit 0 | ✅ all enforced pass, 1 pending (P6) | 2026-07-31 |
 
 ⚠️ **There is no lint gate in `web/`, and this was re-verified rather than assumed**: `npm run lint` fails with
 *"'eslint' is not recognized"* — the package is not installed, and `next.config.ts` disables linting during the
@@ -357,6 +358,59 @@ A parallel session (the liaison / document-email feature) was live in this tree 
   `sm:max-w-[560px] max-h-[90vh]` was the last hit in *both* P4 checks. The two-token conformance fix was applied
   in the working tree but **left uncommitted** for its owner to carry with the file.
 
+### P5 — the agenda (PARTIAL: AC-28 · AC-29 · AC-31) — `028747b`
+
+Everything landed is in **`app/appointments/page.tsx`**. `appointment-calendar.tsx` is **untouched**.
+
+**Jour is an initial value, not a rule (AC-28).** `viewDecidedRef` is claimed by whichever of three things
+speaks first — the user picking a tab, the drill-through forcing Mois, or the narrow default the first time it
+applies. That one-shot is what keeps a picked view across rotation; without it the default re-asserts on every
+`isNarrow` change and discards the view the user just chose (`features/LEARNINGS.md`: a size heuristic must not
+be the sole gate on an affordance).
+⚠️ It is an **effect**, not a lazy `useState` initialiser: `useMediaQuery` is SSR-guarded and reports `false` on
+the server *and* on the first client render, so an initialiser would always read "wide" and never fire.
+
+**The drill-through outranks it (AC-29).** `?from=` now calls `selectView`, which marks the view decided.
+
+**The two link-applied toggles are `ActiveFilterChip`s (AC-29)** — P3's primitive, not a second chip.
+
+**The toolbar is two rows (AC-31).** View switch + « Nouveau rendez-vous » on a fixed first row; the admin
+Google controls, the praticien filter and the chips wrap underneath. The label shortens to « Nouveau » rather
+than going icon-only.
+
+#### ⚠️ Resuming P5 — AC-30 is a restructure, and here is why
+
+**Do not** just delete `overflow-x-hidden` at `appointment-calendar.tsx:881` and add a `min-w`. Two things break
+silently, both found by reading the positioning maths rather than by any check:
+
+**1. The overlay's `100%` stops meaning the grid.** Appointment blocks are **absolute children of the scroll
+container** (`:878`), and `weekBandLeftExpr` / `weekBandWidthExpr` (`:344-345`) size them with
+`(100% - 60px) / 7`. A percentage resolves against the containing block's *padding box* — the **visible** width,
+not the scrollable content width. Today `overflow-x-hidden` makes those equal; the moment the grid is wider than
+the container they diverge and **every week block lands in the wrong column**. The fix is an inner
+`relative w-max min-w-full` wrapper holding the grid *and* the overlay, so `100%` is the grid's real width — the
+`calc()` strings themselves need no change, which is what keeps the `HOUR_HEIGHT` invariant intact.
+
+**2. The day header would desynchronise from its columns.** The 7-day header (`:814`) is a **sibling above** the
+scroll container, not inside it. Scroll the grid sideways and the dates stay put over the wrong columns. It has
+to move **inside the same scroller**, which then has to scroll **both** axes — because a `sticky left-0` time
+gutter only sticks to a scrollport that actually scrolls horizontally, so the nested
+horizontal-outside / vertical-inside arrangement cannot give a sticky gutter at all.
+
+Three behaviours must be re-verified after that move, because all three assume the grid starts at scroll 0:
+`container.scrollTop = 8 * HOUR_HEIGHT` (`:322`), `currentTimePosition` from `slotElement.offsetTop` (`:316`),
+and the header's own `sticky top-0`. Z-order also needs a pass: blocks are `z-20`, the current-time line and dot
+are `z-30`, and a sticky gutter has to sit **above the blocks but below the dot** (the dot is at `left: 46px`,
+i.e. inside the gutter).
+
+**Also still open:** the week **density strip** and the month **dots** (plan step 3), and the calendar's own
+toolbar — the 4-item legend + 2 switches at `appointment-calendar.tsx` (plan step 6; only the *page* toolbar was
+restructured).
+
+**No P5 check was added to `check-responsive.mjs`,** and `"P5"` was correctly never in `PENDING_PARTS`. The
+obvious candidate — "the calendar has no `overflow-x-hidden`" — would have to be written *with* AC-30, since
+today it would fail on work that has not been done. `HOUR_HEIGHT === 48` is worth pinning at the same time.
+
 ## Deviations
 
 ### DEV-1: `/settings` and `/users` keep their content exemption
@@ -558,6 +612,14 @@ For `features/LEARNINGS.md` on completion:
   `git diff -U0 | awk '<keep matching hunks>' | git apply --cached --unidiff-zero` stages your hunks out of a
   file that also holds someone else's uncommitted work. Without it the choice is committing their feature or
   leaving your own gate red — here, four unprefixed `max-w-md` that `dialog-max-w` fails on.
+- ⚠️ **A percentage in an absolutely-positioned overlay resolves against the VISIBLE box, not the scrollable
+  content.** The agenda's week blocks are sized `(100% - 60px) / 7` as children of a scroll container. That is
+  correct only while `overflow-x-hidden` keeps the two widths equal — allowing horizontal scroll would put every
+  block in the wrong column, with nothing failing and no check catching it. Before making any container
+  scrollable, ask what inside it is sized in percentages.
+- **A sticky offset only sticks to a scrollport that scrolls on that axis.** `sticky left-0` inside a
+  vertically-scrolling child of a horizontally-scrolling parent does nothing. If you need both a sticky row and
+  a sticky column, **one** element has to scroll both axes.
 - **Keying touch rules to a breakpoint would have missed the target device.** `md:` is 768px; the tablet a
   dentist holds in landscape is 1180px. Anything about *fingers* keys on `(pointer: coarse)`, anything about
   *space* keys on width — and this feature needs both, separately.
