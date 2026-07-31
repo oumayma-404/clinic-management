@@ -28,7 +28,7 @@ explicit path and never `git add -A`: the tree is not guaranteed to be quiet for
 | **P5** | Agenda | ✅ **complete** | `028747b` `b775137` `5d6bb5b` `0690246` | AC-28…AC-31. `agenda-scroll` added in `b775137`, actually **enforced** only in `5d6bb5b` — see the note under the gate log |
 | **P6** | Odontogram | ✅ **complete** | `97fb588` `7895681` | AC-32…AC-35. `arch-clipping` enforced → **all 9 checks enforced, 0 pending**. AC-35 needed no code (DEV-9) |
 | **P7** | Platform | 🟡 **partial — 6 of 8 ACs** | `52e91e6` `bbb9143` `50c54cd` | AC-37 · AC-38 · AC-39 · AC-41 (core) · AC-42 · AC-43 done. **AC-40 (print) remains**; **AC-36's icon assets remain**; AC-41's five inline paths + the realtime re-subscribe sit in files the parallel session holds |
-| **P8** | LAN device trust | not-started | — | Needs physical iOS + Android devices |
+| **P8** | LAN device trust | 🟡 **built — AC-44 · AC-45 done; AC-46 open** | `3ca0b17` | Trust page + listener + `TrustPortGate` + packaging + 4 documented failure states. **AC-46 cannot be closed here** — it needs a physical iPhone, and shortening the leaf to hedge it would be worse than the risk (see below) |
 
 ## Quality gate log
 
@@ -51,6 +51,34 @@ explicit path and never `git add -A`: the tree is not guaranteed to be quiet for
 | **P7** (AC-42 timer + AC-43) | ✅ clean | ✅ exit 0 | ✅ all 9 enforced and passing, 0 pending | 2026-07-31 |
 | **P7** (dark mode) | ✅ clean | ✅ exit 0 | ✅ all 9 enforced and passing, 0 pending | 2026-07-31 |
 | **P7** (downloads · manifest · retour) | ✅ clean | ✅ exit 0 (`/manifest.webmanifest` emitted) | ✅ all 9 enforced and passing | 2026-07-31 |
+| **P8** (backend) | n/a — no `web/` change | n/a | ✅ all 9 enforced and passing (run anyway, to prove it) | 2026-07-31 |
+
+**P8 is the story's only backend part, so it has its own gate row.** `dotnet build ClinicManagement.sln
+--no-incremental` → **0 errors, 57 warnings — byte-identical to the pre-P8 baseline**, and none of the 57 point
+at a file P8 added or changed (`CS8618` ×88 / `CS8602` ×12 / `CS8981` ×4 / `CS8604` ×4 / `CS8600` ×4 /
+`CS0618` ×2 occurrences, all pre-existing and untouched). The web gates are marked `n/a` rather than skipped:
+P8 changes no file under `web/`, and `npm run check:responsive` was run regardless to prove the frontend gate
+did not move.
+
+⚠️ **The test suite ran, and its result needs stating carefully.** `dotnet test` is blocked on this machine by
+Smart App Control, so the suite went through the recorded workaround (`dotnet build -p:OutDir=<scratch>` then
+`dotnet vstest`). P8's own tests — `TrustPortGateTests`, `AppleTrustProfileTests`,
+`ControllerAuthorizationCoverageTests` (both directions) and `CertificateProvisionerTests` (which covers the
+`LanAddresses` extraction) — are **33 passed, 0 failed**.
+
+The full suite is **1486 passed, 27 failed**, and *none of the 27 is P8's*. That is measured, not asserted: a
+detached `git worktree` at `HEAD` was built and run to get a clean baseline, and the two failure sets diff to
+
+- **24 failures already present at `HEAD`** — a pre-existing red baseline (catalog/search/paging handler tests
+  and three tenant-isolation list tests). Nobody had noticed because every earlier part of this story was
+  frontend-only and never ran the backend suite.
+- **3 further failures** in the working tree, all `LiaisonRenderContentTests` — the parallel session's
+  in-flight `LiaisonContent.cs`, which P8 does not touch.
+- **0 failures introduced by P8**, and none fixed by it.
+
+The 24-test `HEAD` baseline is a real finding and is **out of P8's scope** — it belongs to whoever owns the
+paging/search work, and is recorded here so the next person does not re-derive it. Do not read a green P8 as a
+green suite.
 
 ⚠️ **A freshly-added, freshly-passing check looks identical whether or not it is enforced — and that hid a
 false claim for one commit.** `b775137` added `agenda-scroll` and its own message called it enforced; `"P5"` was
@@ -629,6 +657,71 @@ app on a 1440 px desktop has no browser back button either.
 - **The realtime re-subscribe** — `lib/realtime/clinic-hub.ts`. ⚠️ Worth doing as soon as it is free:
   `withAutomaticReconnect()` bare is **four attempts then `Disconnected` for good**, at `LogLevel.None`, so a
   permanent disconnect is completely silent.
+
+### P8 — LAN device trust (AC-44 · AC-45 done, AC-46 open)
+
+Taken out of order: P7's last two ACs are both blocked on files or assets that are not mine to produce, and P8
+had unblocked work. It is the story's **only backend part**.
+
+**What landed.**
+
+1. **`GET /api/trust`** (`TrustController`) — a French, self-contained instructions page plus three assets:
+   `ca.crt` (DER, what Android imports), `profile.mobileconfig` (the same DER wrapped for iOS), and `qr.png`.
+   Local-only through the same runtime `IsLocalMode(...) → NotFound()` gate `ConnectivityController` uses; four
+   `[AllowAnonymous]` actions. Routes sit under `/api/` because the YARP catch-all forwards everything else to
+   Next, and the assets are returned as `File(...)` because this host has no `UseStaticFiles`.
+2. **A third Kestrel listener** on `Hosting:TrustPort` (5080, `0` disables), plain HTTP. It has to be cleartext:
+   a device cannot be asked to fetch the fix for a certificate over that certificate.
+3. **`TrustPortGate`** — see the finding below; this is the part that makes (2) safe.
+4. **`LanAddresses`** — one answer to "which addresses is this server reachable at", now shared by the
+   certificate's SANs and the page that advertises an address.
+5. **Packaging** — the installer opens `5080` (and removes the rule on uninstall), writes `TrustPort` into
+   `appsettings.Production.json` explicitly, and `packaging/README.md` gains the mobile flow, a **four**-row
+   failure-state table and an operator checklist block.
+6. **Tests** — `TrustPortGateTests` (10 cases), `AppleTrustProfileTests` (8), and the four new actions added to
+   `ControllerAuthorizationCoverageTests.ExpectedAnonymous` with a reviewed comment.
+
+**⚠️ The finding: the plan's step 1, implemented literally, would have reopened Phase 4's Finding 2.**
+Step 1 says to add `kestrel.ListenAnyIP(trustPort)`. But **a Kestrel listener is not scoped to a subset of
+routes** — every endpoint the app maps answers on every port it binds. That bind *alone* therefore publishes
+the entire cleartext API on the LAN, `POST /api/auth/login` included, which is precisely the exposure the
+comment three lines above it explains is why `Hosting:HttpPort` stays on `ListenLocalhost`. The plan is not
+wrong — its own **R-11** states the requirement ("trust port serves *only* the Local-only trust controller") —
+it just never says by what mechanism, and the naive reading is unsafe. `TrustPortGate` is that mechanism:
+a middleware placed after the security headers and before everything else, refusing any path outside
+`/api/trust` **on that port only** (the restriction is one-way; the front door still serves the whole app).
+It matches on `StartsWithSegments`, not text, so `/api/trusted-devices` cannot slip through on a prefix.
+Startup additionally **refuses** a trust port colliding with the HTTP/HTTPS/web ports — that misconfiguration
+would make the gate 404 the entire application on a live port, which is an outage that starts silently.
+
+**⚠️ AC-46 is left open deliberately, and "shorten the leaf" is the wrong hedge.** `CertificateProvisioner`
+mints a 5-year leaf; Apple caps TLS server certificates at 398 days but exempts certificates chaining to a
+**user-installed root**, which is exactly this case. The exemption should hold — but that is a judgement, not a
+verification, and verification needs a physical iPhone. What makes the decision easy is that the plan's
+fallback is **not safely implementable as a standalone change**: `TryLoadExisting` checks only that the PFX
+opens, never its expiry, and the CA's **private key is never persisted** (only the public `ca.crt` is exported).
+So a 398-day leaf would expire in ~13 months with nothing able to renew it, and the only available
+regeneration path re-mints the **CA**, which breaks trust on every device that already installed it. Shortening
+the lifetime therefore requires CA-key persistence plus leaf-only renewal first — real work, outside P8. The
+5-year leaf stays, the reasoning is in `packaging/README.md`, and AC-46 stays open rather than being quietly
+claimed.
+
+**⚠️ The fourth failure state the spec does not name (plan step 5, now documented).** SANs are captured from
+`Dns.GetHostAddresses` **at generation time** and the certificate is then reused idempotently, so a **DHCP
+lease change** gives the server an address the certificate does not claim — and HTTPS fails on every device
+*even though the CA is correctly installed*, which is the most confusing possible symptom. Fix is a static or
+reserved lease. Also documented: **IPv4 only, no `.local`/mDNS**. And a precision the spec's first state gets
+slightly wrong — the HSTS block only bites if an operator set `Security:EnableHsts`, which defaults to
+**false** in Local mode.
+
+**Smaller decisions worth keeping.** The `.mobileconfig`'s two UUIDs are **derived from the CA** rather than
+random: iOS keys a profile on its UUID, so random ones would let a second download stack a second root nobody
+can tell apart, while derivation makes a re-download replace in place *and* makes a regenerated CA correctly
+read as a new profile — which is what the stale-CA failure state depends on. The page's CSS lives in its own
+non-interpolated constant because CSS is almost all braces and escaping every pair inside an interpolated raw
+string is a transformation that silently corrupts the rules if one pair is missed.
+
+**Not done.** AC-46 (needs hardware). Everything else in P8 is complete.
 
 ## Deviations
 
