@@ -25,8 +25,9 @@ import { appointmentsApi } from "@/lib/api/appointments"
 import { patientsApi } from "@/lib/api/patients"
 import type { NotificationDto, PatientDto } from "@/lib/api/types"
 import { cn } from "@/lib/utils"
-import { Bell, Search, LogOut, KeyRound, Loader2, UserCircle, Monitor, Sun, Moon } from "lucide-react"
+import { Bell, Search, LogOut, KeyRound, Loader2, UserCircle, Monitor, Sun, Moon, ArrowLeft } from "lucide-react"
 import { useTheme } from "next-themes"
+import { useMediaQuery } from "@/lib/hooks/use-media-query"
 
 export function DashboardHeader() {
   const { user, isLoading, mode, logout } = useSession()
@@ -34,6 +35,13 @@ export function DashboardHeader() {
   // `theme` (the stored choice, including « système ») drives the radio; `resolvedTheme` would collapse
   // système into whichever concrete theme the OS currently reports and tick the wrong row.
   const { theme, setTheme } = useTheme()
+  /*
+   * True only when the app is running installed (AC-37). `display-mode: standalone` is the media query the
+   * manifest's own `display` field drives, so this reads the real state rather than sniffing the user agent.
+   * ⚠️ Not `useMediaQuery` with a width — this has nothing to do with size: an installed app on a 1440px
+   * desktop also has no browser back button.
+   */
+  const isStandalone = useMediaQuery("(display-mode: standalone)")
   // No `useSidebar()` here any more: the drawer is opened from « Plus » in the bottom bar (AC-7), so the header
   // no longer touches sidebar state at all.
 
@@ -206,6 +214,24 @@ export function DashboardHeader() {
         thumb can reach it. Two openers for one drawer would just be two things to keep in step. */}
     <header className="flex h-16 items-center justify-between gap-2 border-b border-border bg-card px-4 md:px-6">
       <div className="flex min-w-0 flex-1 items-center gap-2 md:gap-4">
+        {/*
+          In-app « Retour » (AC-37).
+          `display: standalone` — what makes the installed app feel native — also removes the browser's own
+          back button, so without this there is no way back from a patient's file except the nav drawer. It is
+          shown only in standalone mode: in a normal tab the browser's back button already exists and a second
+          one beside it is noise.
+        */}
+        {isStandalone && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => router.back()}
+            aria-label="Retour"
+            className="shrink-0"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+        )}
         <div ref={searchBoxRef} className="relative w-full min-w-0 max-w-md">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <input
