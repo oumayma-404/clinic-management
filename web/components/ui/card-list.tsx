@@ -189,11 +189,17 @@ export function CardList<T>({
                     `after:absolute after:inset-0` stretches the title over the whole card, so the card is one big
                     tap target while remaining a single real button/link in the accessibility tree. The action
                     menu below carries `relative z-10` to sit above that overlay.
+
+                    ⚠️ The heading WRAPS; it must never be `truncate`. A card's heading is almost always an
+                    identity — a patient, a supplier, a document — and « Mohamed Ali Ben Romdh… » is not a
+                    weaker label, it is a different person. Truncation was survivable on a desktop table where
+                    the column was wide; in a 320 px card it clips names constantly. `overflow-wrap: anywhere`
+                    keeps the long ones inside the card without ever hiding a character.
                   */}
                   {rowHref ? (
                     <Link
                       href={rowHref}
-                      className="truncate font-medium text-foreground outline-none after:absolute after:inset-0"
+                      className="min-w-0 font-medium text-foreground outline-none [overflow-wrap:anywhere] after:absolute after:inset-0"
                     >
                       {heading}
                     </Link>
@@ -201,17 +207,19 @@ export function CardList<T>({
                     <button
                       type="button"
                       onClick={() => onSelect(item)}
-                      className="truncate text-start font-medium text-foreground outline-none after:absolute after:inset-0"
+                      className="min-w-0 text-start font-medium text-foreground outline-none [overflow-wrap:anywhere] after:absolute after:inset-0"
                     >
                       {heading}
                     </button>
                   ) : (
-                    <span className="truncate font-medium text-foreground">{heading}</span>
+                    <span className="min-w-0 font-medium text-foreground [overflow-wrap:anywhere]">{heading}</span>
                   )}
                   {rowStatus}
                 </div>
+                {/* Two lines, not one: a subtitle is a description (« Détartrage + 2 obturations ») rather
+                    than an identity, so clamping is fair — but one line lost most of them. */}
                 {rowSubtitle && (
-                  <p className={cn("mt-0.5 truncate text-sm text-muted-foreground", interactive && "pe-2")}>
+                  <p className={cn("mt-0.5 line-clamp-2 text-sm text-muted-foreground", interactive && "pe-2")}>
                     {rowSubtitle}
                   </p>
                 )}
@@ -227,7 +235,9 @@ export function CardList<T>({
                     <dt className="shrink-0 font-mono text-2xs uppercase tracking-[0.07em] text-muted-foreground">
                       {f.label}
                     </dt>
-                    <dd className="min-w-0 text-end text-sm text-foreground">{f.value}</dd>
+                    <dd className="min-w-0 text-end text-sm text-foreground [overflow-wrap:anywhere]">
+                      {f.value}
+                    </dd>
                   </div>
                 ))}
               </dl>
