@@ -16,7 +16,7 @@ It was left alone and excluded from every commit; staging was by explicit path t
 | Part | Covers | Status | Commit | Notes |
 |---|---|---|---|---|
 | **P0** | Mechanical-check script | ✅ **complete** | `920571a` | 8 checks; 4 still PENDING for later parts |
-| **P1** | Foundations + `AppShell` | ✅ **complete** | `<P1>` | 24 files / 28 shells; see below |
+| **P1** | Foundations + `AppShell` | ✅ **complete** | `de07bfb` | 24 files / 28 shells; see below |
 | **P2** | Nav, touch, bottom token | not-started | — | Next. Remove `"P2"` from `PENDING_PARTS` when it lands |
 | **P3** | Tables → `CardList` | not-started | — | |
 | **P4** | Dialogs | not-started | — | |
