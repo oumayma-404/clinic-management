@@ -14,6 +14,7 @@ import { useAppointments } from "@/lib/hooks/use-appointments"
 import { googleCalendarApi } from "@/lib/api/google-calendar"
 import { ApiError } from "@/lib/api/client"
 import { useConnectivity } from "@/lib/connectivity/connectivity"
+import { useMediaQuery } from "@/lib/hooks/use-media-query"
 import { useSession } from "@/lib/auth/session"
 import type { AppointmentDto } from "@/lib/api/types"
 import { cn, parseDurationToMinutes } from "@/lib/utils"
@@ -258,6 +259,9 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const [currentTime, setCurrentTime] = useState(new Date())
   const [currentTimePosition, setCurrentTimePosition] = useState<number | null>(null)
+  // `md:` — the same boundary the rest of this feature splits devices at. Semaine swaps to the density strip
+  // below it (AC-28); Jour and Mois are unaffected.
+  const isNarrow = useMediaQuery("(max-width: 767px)")
 
   // Update current time every minute
   useEffect(() => {
@@ -351,7 +355,9 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
       const timer = setTimeout(positionScroll, 150)
       return () => clearTimeout(timer)
     }
-  }, [view, selectedDate, loading, isCurrentTimeVisible])
+    // `isNarrow` is a dependency because the week time grid is not rendered at all below `md:` — crossing the
+    // breakpoint mounts it for the first time, and without a re-run it would sit at midnight instead of 8 AM.
+  }, [view, selectedDate, loading, isCurrentTimeVisible, isNarrow])
 
   // All appointments starting on the given day (already status-filtered). Each is rendered exactly
   // once by the overlay below (AC-4), replacing the old per-hour-slot duplication.
@@ -640,6 +646,84 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
   // dimmed, today is highlighted, each cell lists its appointments as chips with a "+N more" overflow,
   // and clicking a cell's empty area / "+N more" navigates to Day view for that date. No time-of-day
   // layout, current-time line, or scroll-centering (day/week only).
+  /**
+   * Semaine below `md:` — seven tappable days with their density, instead of the time grid (AC-28).
+   *
+   * The scrolling week grid built for AC-30 is honest from `md:` up: seven 96px columns, a sticky gutter and
+   * a sticky header. On a 320–390px phone the same grid is a 732px canvas you read through a 320px window,
+   * which is navigation, not reading. This answers the question a phone actually asks of a week — *which day
+   * do I need?* — and hands off to Jour, where the hours are legible.
+   *
+   * ⚠️ **Seven rows, not seven columns.** « Strip » in the plan implies a horizontal band, and that was tried
+   * on paper first: seven cells across 320px is ~45px each, which fits dots and nothing else — the same
+   * unreadable sliver the month chips became — and it would leave the rest of the screen blank, since the
+   * time grid is exactly what it replaces. Rows use the width the phone has, so each day can carry its count
+   * and its first appointment time as well as the colour dots. Logged as DEV-8.
+   *
+   * Accessibility follows the month cells: **dots are `aria-hidden` decoration, the count is the fact.**
+   */
+  const renderWeekStrip = () => (
+    <ul className="divide-y overflow-y-auto" aria-label="Semaine — choisissez un jour">
+      {weekDays.map((day) => {
+        const dayAppointments = getAppointmentsForDay(day).sort(
+          (a, b) => new Date(a.appointmentDateTime).getTime() - new Date(b.appointmentDateTime).getTime(),
+        )
+        const visible = dayAppointments.slice(0, MONTH_CELL_MAX_CHIPS)
+        const overflow = dayAppointments.length - visible.length
+        const first = dayAppointments[0]
+
+        return (
+          <li key={day.toISOString()}>
+            <button
+              type="button"
+              onClick={() => onSelectDay?.(day)}
+              className="flex w-full items-center gap-3 px-3 py-3 text-start transition-colors hover-hover:hover:bg-accent/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+            >
+              <span className="flex w-10 shrink-0 flex-col items-center gap-0.5">
+                <span className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">
+                  {format(day, "EEE", { locale: fr })}
+                </span>
+                <span
+                  className={cn(
+                    "inline-flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold",
+                    isToday(day) ? "bg-primary text-white shadow-md" : "text-foreground",
+                  )}
+                >
+                  {format(day, "d")}
+                </span>
+              </span>
+
+              <span className="min-w-0 flex-1">
+                {dayAppointments.length === 0 ? (
+                  <span className="text-sm text-muted-foreground">Aucun rendez-vous</span>
+                ) : (
+                  <>
+                    <span className="flex flex-wrap items-center gap-1" aria-hidden="true">
+                      {visible.map((appointment) => (
+                        <span
+                          key={appointment.id}
+                          className="h-2 w-2 rounded-full"
+                          style={{ backgroundColor: appointment.procedureColorHex || "#6C757D" }}
+                        />
+                      ))}
+                      {overflow > 0 && <span className="text-2xs text-muted-foreground">+{overflow}</span>}
+                    </span>
+                    <span className="mt-0.5 block truncate text-sm text-foreground">
+                      {dayAppointments.length} rendez-vous
+                      {first && ` · dès ${format(new Date(first.appointmentDateTime), "HH:mm")}`}
+                    </span>
+                  </>
+                )}
+              </span>
+
+              <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+            </button>
+          </li>
+        )
+      })}
+    </ul>
+  )
+
   const renderMonthView = () => (
     <div className="flex h-full flex-col min-h-0">
       <div className="grid grid-cols-7 border-b bg-white dark:bg-background flex-shrink-0">
@@ -892,6 +976,12 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
       <Card className="flex-1 overflow-hidden shadow-sm min-h-0">
         {view === "month" ? (
           renderMonthView()
+        ) : view === "week" && isNarrow ? (
+          /* ⚠️ A real branch, not `md:hidden` on the grid. A hidden (`display:none`) scroll container reports
+             `offsetTop: 0` for every row, so the 8 AM positioning and the current-time line would both compute
+             against a zero-height layout and be wrong the moment the viewport crossed back to `md:`. Not
+             rendering it means there is nothing to mis-measure, and the scroll effect re-runs on `isNarrow`. */
+          renderWeekStrip()
         ) : (
         <div className="flex h-full flex-col min-h-0">
           {/*
