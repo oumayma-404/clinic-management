@@ -1,7 +1,8 @@
 # Story 1: The app works, and looks finished, on every device
 
 **Status:** APPROVED
-**Story Status:** in-progress — **P0, P1 and P2 complete** (`920571a`, `de07bfb`, `e11abc8`). See [progress.md](./progress.md).
+**Story Status:** in-progress — **P0, P1, P2 complete; P3 partial (3/19 surfaces)**
+(`920571a`, `de07bfb`, `e11abc8`, `25c97ae`, `ad533b0`). See [progress.md](./progress.md).
 **Layer:** Full — 7 of 8 parts are frontend-only; **P8** touches the API and packaging
 **Depends On:** None
 **Blocks:** None

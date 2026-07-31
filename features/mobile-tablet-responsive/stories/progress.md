@@ -18,7 +18,7 @@ It was left alone and excluded from every commit; staging was by explicit path t
 | **P0** | Mechanical-check script | ✅ **complete** | `920571a` | 8 checks; 4 still PENDING for later parts |
 | **P1** | Foundations + `AppShell` | ✅ **complete** | `de07bfb` | 24 files / 28 shells; see below |
 | **P2** | Nav, touch, bottom token | ✅ **complete** | `e11abc8` | Bottom bar, `--bottom-inset`, `coarse:`, EC-1 fixed |
-| **P3** | Tables → `CardList` | not-started | — | Next. Remove `"P3"` from `PENDING_PARTS` when it lands |
+| **P3** | Tables → `CardList` | 🟡 **partial — 3 / 19 surfaces** | `25c97ae`, `ad533b0` | Plumbing + check done; **16 conversions remain**. `node scripts/check-responsive.mjs --strict --only=card-fallback` prints the exact worklist. Keep `"P3"` in `PENDING_PARTS` until it is empty |
 | **P4** | Dialogs | not-started | — | |
 | **P5** | Agenda | not-started | — | |
 | **P6** | Odontogram | not-started | — | |
@@ -33,6 +33,7 @@ It was left alone and excluded from every commit; staging was by explicit path t
 | **P0** | ✅ clean | ✅ clean | 2 failing (both P1's), 4 pending — **intended** | 2026-07-30 |
 | **P1** | ✅ clean | ✅ clean | ✅ all enforced pass, 4 pending | 2026-07-31 |
 | **P2** | ✅ clean | ✅ clean | ✅ all enforced pass, 3 pending | 2026-07-31 |
+| **P3** (partial) | ✅ clean | ✅ clean | ✅ all enforced pass, 4 pending (`card-fallback` deliberately still pending) | 2026-07-31 |
 
 ## Session log
 
@@ -156,6 +157,60 @@ because the consumer — the bar — is not a descendant of the sheet, and Radix
 
 **iOS focus zoom.** `Textarea` and `TimeField` gained `text-base md:text-sm`; `Input` already had the guard, so
 every notes field and every booking time input zoomed the page on focus and never zoomed back.
+
+### P3 — tables become cards (PARTIAL: 3 of 19 surfaces)
+
+**`components/ui/card-list.tsx`.** A **replacement**, not a reflow. The obvious `display:block` version strips the
+implicit row/cell roles in every browser, so a screen reader reads « Ben Salah 45,000 12/03 Payée » with no idea
+which number is the money — not an acceptable trade on 22 surfaces, several of them clinical and financial. Each
+card is a **description list**: `<dt>` carries the column name the `<th>` used to, `<dd>` the value.
+
+The card is **one** interactive element — the title, stretched over the whole card by `after:absolute
+after:inset-0`, with the action menu at `relative z-10` above it. A clickable container full of buttons would
+either swallow the menu's taps or nest a menu inside a button.
+
+⚠️ **AC-17 is enforced in the primitive, not at 19 call sites** — a field whose value is nullish or blank is
+dropped. `0` and `false` are deliberately kept: a zero balance is a fact, not an absence.
+
+**`Table` gained `containerClassName`.** The scroll container was a hardcoded inner div no caller could address,
+so "the table is absent below `md:`" was literally unsatisfiable — hiding the `<table>` leaves its scrolling
+wrapper behind. `CARDS_ONLY` / `TABLE_ONLY` are exported beside `CardList` so a call site reads as one decision.
+
+**`ActiveFilterChip`** (AC-19), deliberately **not** a variant of `FilterChip`. That one is a *toggle*
+(`aria-pressed`, the control **is** the filter); this is a *statement plus a dismiss*. It exists because a card
+list has no header row, so a filtered list and a short list look identical — and nine dashboard links land on a
+filtered list the user did not choose.
+
+**`DataTablePagination`** now derives its `id` from `useId()`. A page renders two pagers once the card list and
+the table are both present, and duplicate ids make `htmlFor` point at whichever the browser finds first.
+
+**New `card-fallback` check (P3), derived not hand-listed.** P3 had no mechanical check at all, which would have
+left AC-13 resting entirely on the deferred manual walk. It reflects over the source — every file rendering
+`<Table>` must render `<CardList>` — so a table added next month is covered the day it is written. The **5
+exclusions are the one thing the source cannot express** ("this table *is* a chart's accessible fallback"), so
+each carries its reason, and a stale exemption naming a file that no longer renders a table is itself reported.
+
+**Converted so far (3):** `creances/receivables-table` (no action cell — the row *is* the navigation, so the card
+is a link), `patients-table` (four icon buttons → one menu; « Non renseigné » removed per AC-17), and
+`medication-catalog-table` (the plain shape the two other admin catalogs share verbatim).
+
+#### ⚠️ Resuming P3 — read this first
+
+**16 surfaces remain.** The worklist is not a list to maintain, it is a command:
+
+```bash
+cd web && node scripts/check-responsive.mjs --strict --only=card-fallback
+```
+
+It prints every unconverted file with a line number, and shrinks by one each time a conversion lands. When it
+prints nothing, remove `"P3"` from `PENDING_PARTS` in the same script so the check becomes enforced.
+
+Per-surface card titles, the three argued exceptions and the four controls-in-a-data-column are all in
+[plan.md § Part P3](../plan.md#part-p3--tables-become-cards) — do **not** re-derive them.
+
+Every converted file is complete at file level; nothing is half-done. The conversion shape is three edits per
+file: import `CardList, CARDS_ONLY, TABLE_ONLY`, insert `<CardList className={CARDS_ONLY} …/>` immediately above
+the table, and add `containerClassName={TABLE_ONLY}` to the `<Table>`.
 
 ## Deviations
 
