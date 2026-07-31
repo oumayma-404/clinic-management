@@ -1,5 +1,6 @@
 "use client"
 
+import { useId } from "react"
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -42,6 +43,7 @@ export function DataTablePagination({
   loading = false,
   label = ["résultat", "résultats"],
 }: DataTablePaginationProps) {
+  const pageSizeId = useId()
   const { page: current, pageSize, totalCount, totalPages } = page
 
   if (totalPages <= 1 && !onPageSizeChange) {
@@ -73,7 +75,10 @@ export function DataTablePagination({
       <div className="flex items-center gap-4">
         {onPageSizeChange && (
           <div className="flex items-center gap-2">
-            <label className="text-sm text-muted-foreground" htmlFor="page-size">
+            {/* A generated id, not the literal "page-size": a page may now render two pagers (the card list
+                and the table are two trees), and duplicate ids make `htmlFor` point at whichever the browser
+                happens to find first. */}
+            <label className="text-sm text-muted-foreground" htmlFor={pageSizeId}>
               Par page
             </label>
             <Select
@@ -81,7 +86,7 @@ export function DataTablePagination({
               onValueChange={(value) => onPageSizeChange(Number(value))}
               disabled={loading}
             >
-              <SelectTrigger id="page-size" className="h-8 w-[72px]">
+              <SelectTrigger id={pageSizeId} className="h-8 w-[72px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

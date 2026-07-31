@@ -218,6 +218,66 @@ check(
   () => scanLines(tsx(), /"flex justify-center\b/)
 );
 
+/**
+ * The 5 surfaces that render a `<Table>` and deliberately do NOT get a card fallback.
+ *
+ * This is the one place a literal list is unavoidable: the source can tell you a file renders a table, but not
+ * that the table *is* a chart's accessible fallback. Each entry therefore carries the reason it is here — an
+ * exclusion without one is how an allow-list turns into a place to hide work.
+ */
+const CARD_FALLBACK_EXEMPT = new Map([
+  [
+    "components/dashboard/collected-trend-chart.tsx",
+    "2 columns, and the table IS the chart's accessible fallback — cards would be a fallback for a fallback",
+  ],
+  [
+    "components/cnam-letter-values-card.tsx",
+    "a form in a table: the value cell is an editable <Input> with a per-row save, not a value to read",
+  ],
+  [
+    "components/factures/invoice-detail-modal.tsx",
+    "4 read-only line columns inside a dialog that already fits — nothing to escape from",
+  ],
+  [
+    "components/stock-table.tsx#mouvements",
+    "the movement-history table lives in its own dialog at 4 columns; the main stock table IS converted",
+  ],
+]);
+
+check(
+  "card-fallback",
+  "P3",
+  "Every table surface has a card fallback below `md:`",
+  "A `<Table>` with no `<CardList>` beside it is a 6-to-10 column grid on a 320px phone — the defect the whole " +
+    "part exists to remove. Derived from the source rather than a checklist: a table added next month is " +
+    "covered the day it is written, which a hand-maintained list could never be.",
+  () => {
+    const hits = [];
+    for (const file of tsx()) {
+      const src = read(file);
+      if (!/<Table[\s>]/.test(src)) continue;
+      const name = rel(file);
+      if (CARD_FALLBACK_EXEMPT.has(name)) continue;
+      if (/<CardList[\s>]/.test(src)) continue;
+      hits.push({
+        file: name,
+        line: src.slice(0, src.search(/<Table[\s>]/)).split(/\r?\n/).length,
+        text: "<Table> with no <CardList>",
+        full: "add a CardList below `md:`, or add an argued entry to CARD_FALLBACK_EXEMPT",
+      });
+    }
+    // An exemption for a file that no longer renders a table is dead weight that will outlive its reason.
+    for (const [name, reason] of CARD_FALLBACK_EXEMPT) {
+      const base = name.split("#")[0];
+      const f = ALL_FILES.find((x) => rel(x) === base);
+      if (!f || !/<Table[\s>]/.test(read(f))) {
+        hits.push({ file: name, line: 0, text: "stale exemption", full: `no longer renders a table — ${reason}` });
+      }
+    }
+    return hits;
+  }
+);
+
 check(
   "header-orphans",
   "P2",

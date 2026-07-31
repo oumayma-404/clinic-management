@@ -16,11 +16,24 @@ import { cn } from "@/lib/utils"
  * <p>`rounded-[inherit]` takes the wrapper's own radius, so the white surface follows a rounded border instead of
  * squaring off its corners over it (and resolves to 0 when the wrapper has no radius).</p>
  */
-function Table({ className, ...props }: React.ComponentProps<"table">) {
+function Table({
+  className,
+  containerClassName,
+  ...props
+}: React.ComponentProps<"table"> & {
+  /**
+   * Classes for the scroll container, which is otherwise unreachable from a call site.
+   *
+   * This exists for one reason: below `md:` the table must be **absent**, not merely narrow (AC-13/AC-14), and
+   * the element that has to disappear is this wrapper — hiding the `<table>` alone would leave its scrolling
+   * container behind. Pass `TABLE_ONLY` from `ui/card-list` alongside a `<CardList className={CARDS_ONLY}>`.
+   */
+  containerClassName?: string
+}) {
   return (
     <div
       data-slot="table-container"
-      className="relative w-full overflow-x-auto rounded-[inherit] bg-card"
+      className={cn("relative w-full overflow-x-auto rounded-[inherit] bg-card", containerClassName)}
     >
       <table
         data-slot="table"

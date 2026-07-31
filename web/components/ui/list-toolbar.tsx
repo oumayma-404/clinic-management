@@ -1,7 +1,7 @@
 "use client"
 
 import type { ReactNode } from "react"
-import { Search } from "lucide-react"
+import { Search, X } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 
@@ -91,5 +91,40 @@ export function FilterChip({ label, active, onToggle, count, disabled = false }:
         <span className="font-mono text-2xs tabular-nums opacity-75">{count}</span>
       )}
     </button>
+  )
+}
+
+interface ActiveFilterChipProps {
+  /** What the filter is doing, phrased as a fact: « Statut : Payée », « Signalés seulement ». */
+  label: string
+  /** Clears this one filter. */
+  onRemove: () => void
+}
+
+/**
+ * An **active filter, with a way off it** (AC-19).
+ *
+ * <p>Deliberately not a variant of `FilterChip`. That one is a <b>toggle</b> — `aria-pressed`, pressed-vs-not,
+ * and the control is the filter itself. This one is a <b>statement plus a dismiss</b>: it says a filter is
+ * applied and offers to remove it, which is a different affordance and a different thing to announce.</p>
+ *
+ * <p>It exists because of the card conversion. A table announces its own filtering — you can see the column and
+ * the missing rows — but a card list has no header row, so a filtered list and a short list look identical, and
+ * nine dashboard links land on a filtered list without the user having chosen the filter. « Aucun résultat » on a
+ * screen with no visible filter is a bug report waiting to happen.</p>
+ */
+export function ActiveFilterChip({ label, onRemove }: ActiveFilterChipProps) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full border border-primary bg-accent py-1 ps-3 pe-1 text-sm text-accent-foreground">
+      {label}
+      <button
+        type="button"
+        onClick={onRemove}
+        aria-label={`Retirer le filtre : ${label}`}
+        className="touch-target inline-flex size-5 items-center justify-center rounded-full text-muted-foreground transition-colors hover-hover:hover:bg-background hover-hover:hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <X className="size-3.5" aria-hidden="true" />
+      </button>
+    </span>
   )
 }
