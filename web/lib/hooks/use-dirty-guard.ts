@@ -48,6 +48,9 @@ export function useDirtyGuard(
 ): DirtyGuard {
   const dirty = useRef(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
+  // Read through a ref by the history effect below, which must not re-subscribe when the caller re-renders.
+  const onOpenChangeRef = useRef(onOpenChange)
+  onOpenChangeRef.current = onOpenChange
 
   // Reset on every open: the previous session's typing must not make a freshly opened dialog dirty.
   useEffect(() => {
@@ -100,6 +103,14 @@ export function useDirtyGuard(
    *
    * ⚠️ On a *clean* dialog back must still close it, which is what the whole app already expects from a
    * phone. So this runs the same guarded path rather than only firing when dirty.
+   *
+   * ⚠️ **Keyed on `open` alone, and the callback is read through a ref.** Every call site passes an inline
+   * arrow, so an `onOpenChange` dependency re-ran this on every *parent* re-render — and the teardown's
+   * `history.back()` fires `popstate` asynchronously, after the re-run has installed a fresh listener, which
+   * then catches its own event and closes a clean dialog. It broke the `?addRecord=1&appointmentId=…`
+   * deep-link (`app/patients/[id]/page.tsx`): that opens the fiche while the page is still finishing its
+   * phase-2 reads, so a re-render was guaranteed within a tick of the dialog opening. A dialog opened by hand
+   * on an idle page survived, which is why it read as "only the deep link is broken".
    */
   useEffect(() => {
     if (!open) return
@@ -113,7 +124,7 @@ export function useDirtyGuard(
         setConfirmOpen(true)
         return
       }
-      onOpenChange(false)
+      onOpenChangeRef.current(false)
     }
 
     window.addEventListener("popstate", onPop)
@@ -121,7 +132,7 @@ export function useDirtyGuard(
       window.removeEventListener("popstate", onPop)
       if (window.history.state?.dialogGuard) window.history.back()
     }
-  }, [open, onOpenChange])
+  }, [open])
 
   const confirmDiscard = useCallback(() => {
     dirty.current = false
