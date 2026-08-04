@@ -3,7 +3,6 @@
 import { useState, useCallback, useEffect, useRef } from "react"
 import { AppShell } from "@/components/app-shell"
 import { Button } from "@/components/ui/button"
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Plus, RefreshCw, Calendar, Unlink } from "lucide-react"
 import {
   AlertDialog,
@@ -33,6 +32,19 @@ import { useSession } from "@/lib/auth/session"
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select"
 import { ActiveFilterChip } from "@/components/ui/list-toolbar"
 import { useMediaQuery } from "@/lib/hooks/use-media-query"
+import { cn } from "@/lib/utils"
+
+/**
+ * The three agenda views, in one place.
+ *
+ * <p>Named rather than inlined because the phone's own segmented control (`AgendaPhoneHeader`) renders the same
+ * three, and a second hand-written list is how the two drift into disagreeing about what « Semaine » is called.</p>
+ */
+const AGENDA_VIEWS = [
+  { value: "day" as const, label: "Jour" },
+  { value: "week" as const, label: "Semaine" },
+  { value: "month" as const, label: "Mois" },
+]
 
 export default function AppointmentsPage() {
   // Week is the default: it is the span staff actually plan against, and a single day of a specialist practice's
@@ -58,6 +70,31 @@ export default function AppointmentsPage() {
     viewDecidedRef.current = true
     setView(next)
   }, [])
+
+  /**
+   * The cross-fade that replaces the remount.
+   *
+   * Collapsing three `<TabsContent>` calendars into one (below) removed the only thing that visually marked a
+   * view switch — the rebuild. A prop change swaps three very different geometries in a single frame, which
+   * reads as a glitch rather than as a transition, so 150 ms of opacity stands in for it.
+   *
+   * ⚠️ The fade class has to land in the **same commit that swaps the view**, which is why this is a
+   * render-phase update (legal in React, and StrictMode-safe — unlike mutating a ref during render) rather than
+   * an effect. From an effect the new grid paints fully opaque for a frame and *then* dips: a flicker, i.e. the
+   * exact artefact the fade exists to remove. The rAF below clears it once that opacity-0 frame has actually
+   * been painted, giving `transition-opacity` two values to animate between.
+   */
+  const [shownView, setShownView] = useState(view)
+  const [viewFading, setViewFading] = useState(false)
+  if (shownView !== view) {
+    setShownView(view)
+    setViewFading(true)
+  }
+  useEffect(() => {
+    if (!viewFading) return
+    const frame = window.requestAnimationFrame(() => setViewFading(false))
+    return () => window.cancelAnimationFrame(frame)
+  }, [viewFading])
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [selectedAppointment, setSelectedAppointment] = useState<AppointmentDto | null>(null)
@@ -314,12 +351,21 @@ export default function AppointmentsPage() {
       {/* The one genuine `mainClassName` user: the calendar scrolls its own time grid, so the page
           itself must not scroll — and the grid needs a bounded `h-full` flex column to size against. */}
       <AppShell width="wide" mainClassName="overflow-hidden" contentClassName="h-full flex flex-col">
-        {/* View Tabs */}
-        <Tabs
-          value={view}
-          onValueChange={(v) => selectView(v as "day" | "week" | "month")}
-          className="flex-1 flex flex-col min-h-0"
-        >
+        {/*
+          ⚠️ A plain `<div>`, not `<Tabs>` — and that is a correctness fix, not tidying.
+
+          Once the three `<TabsContent>` panels were collapsed into the single always-mounted calendar below,
+          `<Tabs>` had no panels left to own. Radix still emits `aria-controls` on every `TabsTrigger`, pointing
+          at panel ids that no longer render, so all three desktop triggers advertised a relationship to nothing
+          — a screen reader follows the reference and finds no element. Keeping the component only for its
+          styling meant keeping a broken ARIA contract for it.
+
+          The replacement is the pattern the other two segmented controls in the app already use — the
+          dashboard's `PeriodSelector` and, since this pass, the agenda's own phone header: `role="group"` plus
+          `aria-pressed` on real buttons. That describes what this control actually is (three toggles that
+          rescope one persistent view) rather than a tab set that lost its tabs.
+        */}
+        <div className="flex flex-1 flex-col min-h-0">
           {/*
             AC-31 — two rows, not one wrapping row.
             The view switch and « Nouveau rendez-vous » share a fixed first row, so the primary action has the
@@ -328,12 +374,38 @@ export default function AppointmentsPage() {
             `flex-wrap` row, which stacked to about five rows at 390 px and pushed the calendar off screen.
           */}
           <div className="mb-3 flex flex-shrink-0 flex-col gap-2">
-            <div className="flex items-center justify-between gap-2">
-              <TabsList>
-                <TabsTrigger value="day">Jour</TabsTrigger>
-                <TabsTrigger value="week">Semaine</TabsTrigger>
-                <TabsTrigger value="month">Mois</TabsTrigger>
-              </TabsList>
+            {/* Below `md:` this row is replaced by the agenda's own segmented control + the labelled floating
+                action (AgendaPhoneHeader / the FAB at the end of this file). Rendering both would put two view
+                switchers on one phone screen. */}
+            <div className="hidden items-center justify-between gap-2 md:flex">
+              {/* Same paint as the `TabsList` it replaces — a `bg-muted` track with a `bg-background` pill on
+                  the active view — so nothing about the desktop toolbar changes visually. */}
+              <div
+                role="group"
+                aria-label="Vue de l'agenda"
+                className="inline-flex h-9 w-fit items-center justify-start rounded-lg bg-muted p-[3px] text-muted-foreground"
+              >
+                {AGENDA_VIEWS.map(({ value, label }) => {
+                  const selected = view === value
+                  return (
+                    <button
+                      key={value}
+                      type="button"
+                      aria-pressed={selected}
+                      onClick={() => selectView(value)}
+                      className={cn(
+                        "inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 rounded-md border border-transparent px-2.5 py-1 text-sm font-medium whitespace-nowrap transition-[color,background-color,box-shadow] duration-150 ease-snap",
+                        "focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-1",
+                        selected
+                          ? "bg-background font-semibold text-primary shadow-sm dark:bg-input/40"
+                          : "hover:text-foreground",
+                      )}
+                    >
+                      {label}
+                    </button>
+                  )
+                })}
+              </div>
               <Button onClick={() => setDialogOpen(true)} className="shrink-0 gap-2" size="sm">
                 <Plus className="h-4 w-4" />
                 {/* The label shortens rather than disappearing — an icon-only primary action on the busiest
@@ -342,7 +414,13 @@ export default function AppointmentsPage() {
                 <span className="sm:hidden">Nouveau</span>
               </Button>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
+            {/*
+              Desktop/tablet only. Below `md:` the agenda shows the appointments and nothing else: the Google
+              Calendar connect/sync controls and the praticien filter are administrative, not things a dentist
+              reaches for while looking at today on a phone — and at 390 px this row is what crowded the view.
+              Both stay fully available from `md:` up, and neither is duplicated on the phone header.
+            */}
+            <div className="hidden flex-wrap items-center gap-2 md:flex">
               {isAdmin && (!isGoogleCalendarAuthorized ? (
                 <Button
                   onClick={handleAuthorizeGoogleCalendar}
@@ -384,7 +462,7 @@ export default function AppointmentsPage() {
                 </>
               ))}
               {isAdmin && !internetReachable && (
-                <span className="text-xs text-amber-600 dark:text-amber-400">Connexion requise</span>
+                <span className="text-xs text-warning-ink">Connexion requise</span>
               )}
               <Select value={selectedDoctorId} onValueChange={setSelectedDoctorId}>
                 <SelectTrigger className="h-9 w-[180px]">
@@ -416,57 +494,93 @@ export default function AppointmentsPage() {
             </div>
           </div>
 
-          <TabsContent value="day" className="flex-1 min-h-0 mt-0">
+          {/*
+            ⚠️ **ONE calendar, rendered outside `TabsContent`.**
+
+            It used to be three — one per `<TabsContent>` — and Radix unmounts inactive content, so *every view
+            switch destroyed and rebuilt the calendar*. That is not a re-render, it is a remount: `useAppointments`
+            loses `hasLoadedRef` so the full skeleton flashes on every single tap, the clinic-status fetch fires
+            again, `monthsAhead` resets, and the scroll position — the one thing a 24-hour grid must keep — is
+            gone. Jour ⇄ Semaine ⇄ Mois is the most-used control on the screen, and each press paid for a cold
+            start.
+
+            The three prop sets were verified equivalent before collapsing them: only two props differed, and
+            neither is read by the view that omitted it. `onSelectDay` was absent on Jour (nothing in Jour calls
+            it) and `onTimeSlotClick` absent on Mois (Mois has no hour cells) — so passing both to one instance
+            changes no behaviour. `<Tabs>` stays purely for the desktop `TabsList`.
+          */}
+          <div
+            className={cn(
+              "flex-1 min-h-0 transition-opacity duration-150 ease-snap",
+              viewFading ? "opacity-0" : "opacity-100",
+            )}
+          >
             <AppointmentCalendar
               reloadToken={refreshKey}
-              view="day"
+              view={view}
               selectedDate={selectedDate}
               onDateChange={setSelectedDate}
               onTimeSlotClick={handleTimeSlotClick}
               onAppointmentClick={handleAppointmentClick}
-              showCancelled={showCancelled}
-              showCompleted={showCompleted}
-              onShowCancelledChange={setShowCancelled}
-              onShowCompletedChange={setShowCompleted}
-              onChanged={handleAppointmentUpdated}
-              doctorId={doctorFilterId}
-            />
-          </TabsContent>
-
-          <TabsContent value="week" className="flex-1 min-h-0 mt-0">
-            <AppointmentCalendar
-              reloadToken={refreshKey}
-              view="week"
-              selectedDate={selectedDate}
-              onDateChange={setSelectedDate}
-              onTimeSlotClick={handleTimeSlotClick}
-              onAppointmentClick={handleAppointmentClick}
-              showCancelled={showCancelled}
-              showCompleted={showCompleted}
-              onShowCancelledChange={setShowCancelled}
-              onShowCompletedChange={setShowCompleted}
-              onChanged={handleAppointmentUpdated}
-              doctorId={doctorFilterId}
-            />
-          </TabsContent>
-
-          <TabsContent value="month" className="flex-1 min-h-0 mt-0">
-            <AppointmentCalendar
-              reloadToken={refreshKey}
-              view="month"
-              selectedDate={selectedDate}
-              onDateChange={setSelectedDate}
-              onAppointmentClick={handleAppointmentClick}
+              /*
+               * Semaine and Mois both navigate to a day.
+               *
+               * ⚠️ This prop was once missing on Semaine, and the symptom was silent: `renderWeekStrip` — the
+               * phone's whole Semaine view — is a list of seven day buttons calling `onSelectDay?.(day)`, so
+               * with the prop absent every row was tappable, pressed, highlighted, and did **nothing**. An
+               * optional callback that a whole view depends on has no way to complain about not being passed;
+               * one instance is one fewer place to forget it.
+               */
               onSelectDay={handleSelectDay}
               showCancelled={showCancelled}
               showCompleted={showCompleted}
               onShowCancelledChange={setShowCancelled}
               onShowCompletedChange={setShowCompleted}
               onChanged={handleAppointmentUpdated}
+              onViewChange={selectView}
               doctorId={doctorFilterId}
             />
-          </TabsContent>
-        </Tabs>
+          </div>
+        </div>
+
+      {/*
+        The agenda's create action below `md:`, where the toolbar row above is hidden. « Nouveau rendez-vous »
+        keeps a stable home at every width (AC-31).
+
+        ⚠️ **Labelled, not a bare `+`.** The toolbar button it replaces carries an explicit note that its label
+        *shortens rather than disappearing*, because an icon-only primary action on the busiest screen in the app
+        is the unlabelled-ghost-icon problem P3 spent a whole part removing. A plain `+` circle would have walked
+        straight back into it, so this is an extended floating action instead.
+
+        `--bottom-inset` is the global bottom nav plus the home indicator, so the action clears navigation.
+
+        ⚠️ **Centred, and that is a collision fix, not a preference.** This used to be `right-4` at exactly
+        `bottom-[calc(1rem+var(--bottom-inset))]` — the *byte-identical* anchor `ai-chat.tsx` gives its minimised
+        launcher, at `z-50` against this `z-40`. So the assistant's 56 px Bot circle sat permanently on top of the
+        right-hand end of this pill, which is what made « Nouveau RDV » look misplaced. The comment that used to
+        live here claimed the shared offset was why "the three never stack": sharing an offset is precisely how
+        they stack. The centre is free, and it also reads correctly — the page's own action sits above the nav it
+        belongs to, while the global assistant keeps its corner.
+
+        A bottom-centre toast can still pass over this for its four seconds (`app-toaster.tsx` anchors there on a
+        coarse pointer). That is left alone deliberately: a transient toast over a floating action is ordinary
+        mobile behaviour — it already happened to the AI launcher — whereas a button permanently under another
+        button is a defect.
+
+        The wrapper, rather than positioning classes on the `Button`: `ui/button.tsx` applies
+        `active:scale-[0.97]`, so the press transform and a centring `-translate-x-1/2` would be arguing over the
+        same property. `pointer-events-none` on the full-width strip keeps it from swallowing taps meant for the
+        agenda underneath; the button re-enables them for itself.
+      */}
+      <div className="pointer-events-none fixed inset-x-0 bottom-[calc(1rem+var(--bottom-inset))] z-40 flex justify-center md:hidden">
+        <Button
+          onClick={() => setDialogOpen(true)}
+          className="pointer-events-auto gap-2 rounded-full shadow-lg"
+        >
+          <Plus className="h-4 w-4" />
+          Nouveau RDV
+        </Button>
+      </div>
 
       <CreateAppointmentDialog
         open={dialogOpen}

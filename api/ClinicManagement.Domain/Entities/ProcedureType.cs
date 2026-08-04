@@ -1,6 +1,7 @@
 using ClinicManagement.Domain.Common;
 using ClinicManagement.Domain.ValueObjects;
 using ClinicManagement.Domain.Enums;
+using ClinicManagement.Domain.Services;
 
 namespace ClinicManagement.Domain.Entities;
 
@@ -12,6 +13,21 @@ public class ProcedureType : AggregateRoot<Guid>
     public decimal? DefaultCost { get; private set; }
     public ColorHex Color { get; private set; }
     public string? Description { get; private set; }
+    /// <summary>
+    /// The clinical discipline this act belongs to (« Endodontie », « Prothèse fixe »); null = unfiled.
+    /// <para>
+    /// Open text, canonicalised through <see cref="ProcedureTypeCategories.Normalize"/> on every write — see that
+    /// class for why an open set is the right call here and what keeps it from shredding into spelling variants.
+    /// </para>
+    /// <para>
+    /// ⚠️ This is what <c>Description</c> used to hold. <c>ProcedureTypeCatalogSeed</c> passed each row's category
+    /// into the constructor's <c>description</c> slot for want of anywhere better, so every seeded clinic had
+    /// « Endodontie » sitting in a field its own form labels « Description (optionnel) » — read as a grouping hint
+    /// by the act picker, which had to document that it was not allowed to trust it. The `AddProcedureTypeCategory`
+    /// migration moves those values here and clears the descriptions it took them from.
+    /// </para>
+    /// </summary>
+    public string? Category { get; private set; }
     /// <summary>Odontogram state a dental act of this procedure produces (null = no tooth-state change). Editable.</summary>
     public ToothCondition? ResultingCondition { get; private set; }
     public bool IsActive { get; private set; }
@@ -39,7 +55,8 @@ public class ProcedureType : AggregateRoot<Guid>
         ColorHex color,
         string? description = null,
         decimal? defaultCost = null,
-        ToothCondition? resultingCondition = null)
+        ToothCondition? resultingCondition = null,
+        string? category = null)
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new ArgumentException("Name cannot be null or empty", nameof(name));
@@ -63,9 +80,23 @@ public class ProcedureType : AggregateRoot<Guid>
         DefaultCost = defaultCost;
         Color = color;
         Description = description?.Trim();
+        Category = ProcedureTypeCategories.Normalize(category);
         ResultingCondition = resultingCondition == ToothCondition.Sain ? null : resultingCondition;
         IsActive = true;
         CreatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Files the act under a discipline, or unfiles it when <paramref name="category"/> is blank.
+    /// <para>
+    /// Blank means <c>null</c>, not <c>""</c>: « unfiled » has to be one value, or a category filter and the
+    /// grouped catalogue would each have to know about two spellings of nothing.
+    /// </para>
+    /// </summary>
+    public void UpdateCategory(string? category)
+    {
+        Category = ProcedureTypeCategories.Normalize(category);
+        UpdatedAt = DateTime.UtcNow;
     }
 
     public void UpdateResultingCondition(ToothCondition? resultingCondition)

@@ -3,6 +3,7 @@
 import type { TreatmentPlanItemDto } from "@/lib/api/types"
 import { cn } from "@/lib/utils"
 import { planItemState, type PlanItemState } from "./plan-next-action"
+import { itemWorkflowInk } from "./treatment-plan-labels"
 import { PlanProgressBar } from "./plan-progress-bar"
 
 /**
@@ -58,7 +59,7 @@ export function PlanActPips({ items, done, total, className }: PlanActPipsProps)
           <i
             key={item.id}
             className="h-2.5 w-2.5 shrink-0 rounded-full"
-            style={PIP_STYLE[planItemState(item)]}
+            style={pipStyle(planItemState(item))}
           />
         ))}
       </span>
@@ -74,22 +75,32 @@ export function PlanActPips({ items, done, total, className }: PlanActPipsProps)
 }
 
 /**
- * Per-état pip treatment. Each state is distinguishable by *form* as well as hue — filled, thick ring, thin ring —
- * so the meaning never rests on colour alone.
+ * The **form** half of a pip — filled, thick ring, thin ring — so an état is distinguishable without colour and
+ * the visual weight tracks how much attention it deserves: réalisé is solid, the two live états carry a full
+ * ring, and « à planifier » is the faintest outline.
  *
- * <p>Inline styles rather than Tailwind arbitrary values (`shadow-[inset_0_0_0_2px_…]`), deliberately. The ring
- * widths differ per state and one of them needs a palette colour, which in Tailwind v4 means
- * `var(--color-amber-500)` — v3's `theme(colors.amber.500)` resolves to nothing and would render an *invisible*
- * pip rather than an obviously broken one. A four-entry style map has no such failure mode and needs no build to
- * confirm. The colours are still theme tokens, so dark mode follows for free.</p>
+ * <p>⚠️ The **colour** half is deliberately not here. It comes from `itemWorkflowInk`, which reads the same
+ * `ITEM_WORKFLOW_TONE` the badges do, so one état has exactly one colour across the whole plan area. This map
+ * used to carry both, and the two drifted on all four états — including a hard-coded `oklch(0.77 0.16 70)` for
+ * « à enregistrer » that matched no token and would have been left behind by any palette edit.</p>
+ *
+ * <p>Still an inline `boxShadow` rather than a Tailwind arbitrary value: the ring widths differ per état, and a
+ * `shadow-[inset_0_0_0_2px_var(--warning-ink)]` built by interpolation is a class Tailwind never sees in the
+ * source scan — it renders as *nothing*, i.e. an invisible pip rather than an obviously broken one.</p>
  */
-const PIP_STYLE: Record<PlanItemState, React.CSSProperties> = {
-  done: { backgroundColor: "var(--primary)" },
-  scheduled: { boxShadow: "inset 0 0 0 2px var(--primary)" },
-  // The séance has passed with no fiche — the one état that is overdue rather than merely pending, so it borrows
-  // the amber the workflow badge already uses for « À enregistrer » instead of the primary.
-  "to-record": { boxShadow: "inset 0 0 0 2px oklch(0.77 0.16 70)" },
-  "to-schedule": { boxShadow: "inset 0 0 0 1.5px var(--border)" },
+const PIP_RING: Record<PlanItemState, number | "fill"> = {
+  done: "fill",
+  scheduled: 2,
+  // The séance has passed with no fiche — the one état that is overdue rather than merely pending, which is why
+  // its tone is `active` and its ink the workflow badge's amber.
+  "to-record": 2,
+  "to-schedule": 1.5,
+}
+
+function pipStyle(state: PlanItemState): React.CSSProperties {
+  const ink = itemWorkflowInk(state)
+  const ring = PIP_RING[state]
+  return ring === "fill" ? { backgroundColor: ink } : { boxShadow: `inset 0 0 0 ${ring}px ${ink}` }
 }
 
 /** The pip legend, for surfaces that show pips without the workspace's own état badges beside them. */
@@ -105,7 +116,7 @@ export function PlanActPipsLegend({ className }: { className?: string }) {
         ] as [PlanItemState, string][]
       ).map(([state, label]) => (
         <span key={state} className="flex items-center gap-1.5">
-          <i className="h-2.5 w-2.5 shrink-0 rounded-full" style={PIP_STYLE[state]} aria-hidden="true" />
+          <i className="h-2.5 w-2.5 shrink-0 rounded-full" style={pipStyle(state)} aria-hidden="true" />
           {label}
         </span>
       ))}

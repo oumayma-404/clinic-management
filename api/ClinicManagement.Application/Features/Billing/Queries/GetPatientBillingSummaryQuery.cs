@@ -89,13 +89,25 @@ public class GetPatientBillingSummaryQueryHandler
             var invoiceOutstanding = InvoiceCalculator.RoundMoney(invoices.Sum(i => i.Outstanding));
             var installmentOutstanding = InvoiceCalculator.RoundMoney(plans.Sum(p => p.Outstanding));
 
-            DateTime? oldestOverdue = plans
+            var overdueInstallmentDates = plans
                 .SelectMany(p => p.Installments)
                 // Compared by CALENDAR DAY, not instant. Due dates are stored at midnight, so `DueDate < now`
                 // made an échéance overdue from 00:00 on its own due date — a full day early. It is late only
                 // once its day has passed. Matches GetPatientsToRecallQuery, which already truncates.
                 .Where(i => !i.IsPaid && i.DueDate.Date < clinicToday)
-                .Select(i => (DateTime?)i.DueDate)
+                .Select(i => i.DueDate);
+
+            // The invoice track dates the debt too (J7). « Solde patient » carried the same plan-only blind spot
+            // « Créances » did: a patient whose only debt is an unpaid note d'honoraires showed a balance with no
+            // « depuis quand » beside it. A note is payable on issue, so its issue date is when the debt started
+            // — and unlike the receivables list this read already holds the invoices, so no extra query is needed.
+            var unpaidInvoiceDates = invoices
+                .Where(i => i.Outstanding > 0m && i.IssueDate.HasValue)
+                .Select(i => i.IssueDate!.Value);
+
+            DateTime? oldestOverdue = overdueInstallmentDates
+                .Concat(unpaidInvoiceDates)
+                .Select(d => (DateTime?)d)
                 .DefaultIfEmpty(null)
                 .Min();
 

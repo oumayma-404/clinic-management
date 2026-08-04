@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Configuration;
 using MediatR;
+using ClinicManagement.Application.Common.Authorization;
 using ClinicManagement.Application.Features.Auth.Commands;
 using ClinicManagement.Application.Features.Clinics.Commands;
 using ClinicManagement.API.Models;
@@ -18,6 +19,10 @@ namespace ClinicManagement.API.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/auth")]
+// Authenticated-but-role-less: every bootstrap action below is explicitly [AllowAnonymous] (and on the
+// coverage guard's reviewed allow-list); the class policy is what makes a *future* action here fail closed
+// instead of inheriting the anonymity of its neighbours.
+[Authorize(Policy = AuthorizationPolicies.Authenticated)]
 public class AuthController : ApiControllerBase
 {
     private readonly IMediator _mediator;
@@ -182,7 +187,10 @@ public class AuthController : ApiControllerBase
     /// Authenticated: the current user sets a new password (verifying the current one). Used
     /// for the forced change after an admin reset and for voluntary changes (AC-5.2).
     /// </summary>
-    [Authorize]
+    // No method policy: the class's `Authenticated` is exactly right, and deliberately so. A user forced to
+    // change their password after an admin reset may not have a role in the JWT yet (Cloud writes it to
+    // app_metadata only once the clinic is joined), so requiring one here would lock them out of the very
+    // screen that unblocks them. A bare `[Authorize]` said the same thing while looking like an omission.
     [HttpPost("change-password")]
     public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequest request)
     {

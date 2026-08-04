@@ -59,4 +59,30 @@ public sealed record ResolvedReminderSettings
         !string.IsNullOrWhiteSpace(WhatsAppPhoneNumberId) &&
         !string.IsNullOrWhiteSpace(WhatsAppTemplateName) &&
         !string.IsNullOrWhiteSpace(WhatsAppAccessToken);
+
+    // Outbound email (SMTP) — carries generated documents to a patient or a confrère.
+    public string? SmtpHost { get; init; }
+    public int SmtpPort { get; init; }
+    public bool SmtpUseTls { get; init; } = true;
+    public string? SmtpUsername { get; init; }
+    public string? SmtpPassword { get; init; }
+    public string? SmtpFromAddress { get; init; }
+    public string? SmtpFromName { get; init; }
+
+    /// <summary>
+    /// Whether the email channel can actually send (host + port + a from-address). Single source of truth for
+    /// "email is sendable", read by the sender, by the admin effective-status surface, and by the queue command
+    /// so an unsendable clinic is refused at the click rather than queued into a row that can only fail.
+    /// <para>
+    /// A username/password is deliberately <b>not</b> required: an unauthenticated relay on a clinic LAN is a
+    /// real deployment, and demanding credentials would make it unreachable. A rotated key whose ciphertext no
+    /// longer decrypts surfaces as a null <see cref="SmtpPassword"/>, which the SMTP handshake then rejects —
+    /// the same degradation the other two channels have.
+    /// </para>
+    /// </summary>
+    [MemberNotNullWhen(true, nameof(SmtpHost), nameof(SmtpFromAddress))]
+    public bool EmailConfigured =>
+        !string.IsNullOrWhiteSpace(SmtpHost) &&
+        SmtpPort > 0 &&
+        !string.IsNullOrWhiteSpace(SmtpFromAddress);
 }

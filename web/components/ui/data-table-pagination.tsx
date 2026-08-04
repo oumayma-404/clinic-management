@@ -72,7 +72,16 @@ export function DataTablePagination({
           : `${firstRow}–${lastRow} sur ${totalCount} ${noun}`}
       </p>
 
-      <div className="flex items-center gap-4">
+      {/*
+        `flex-wrap` here is what stops nine pages scrolling sideways.
+
+        Neither inner group can shrink — « Par page » and « Page 1 sur 3 » are non-wrapping text and the four
+        buttons are `shrink-0` — so the row's minimum is ~374 px. Inside a `CardContent`'s `px-6` on a 390 px
+        phone there are only ~310 px, and because `<main>` is `overflow-y-auto` its `overflow-x` computes to
+        `auto`: the whole page content area picked up a horizontal scroll and « Dernière page » sat off-screen.
+        This pager renders on 16 surfaces, so it was the single most widespread source of sideways scroll.
+      */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         {onPageSizeChange && (
           <div className="flex items-center gap-2">
             {/* A generated id, not the literal "page-size": a page may now render two pagers (the card list
@@ -101,7 +110,20 @@ export function DataTablePagination({
         )}
 
         {totalPages > 1 && (
-          <div className="flex items-center gap-1">
+          /*
+           * `coarse:gap-3` is a wrong-action fix, not spacing taste.
+           *
+           * These four buttons are painted 32 px (`h-8 w-8`) but `buttonVariants` gives every button
+           * `touch-target`, whose overlay is a minimum of 44 px — so each hit area extends 6 px past its own
+           * edge on both sides, while `gap-1` leaves only 4 px between them. Neighbours therefore overlap by
+           * 8 px, both overlays are `position: relative` with `z-index: auto`, and **the later sibling paints
+           * last and wins the hit test**. Tapping the right edge of « Page précédente » fires « Page suivante ».
+           *
+           * That is a wrong-action bug on every paged list in the app, and it is the same failure `ui/select.tsx`
+           * documents and avoids by growing `SelectItem` instead of overlaying it. 12 px of gap clears the two
+           * 6 px overhangs exactly, so no overlay reaches its neighbour. On a mouse this emits nothing.
+           */
+          <div className="flex items-center gap-1 coarse:gap-3">
             <span className="mr-2 text-sm text-muted-foreground">
               Page {current} sur {totalPages}
             </span>

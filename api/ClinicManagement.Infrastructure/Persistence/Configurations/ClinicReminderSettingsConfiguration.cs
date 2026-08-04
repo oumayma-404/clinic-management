@@ -36,9 +36,19 @@ public class ClinicReminderSettingsConfiguration : IEntityTypeConfiguration<Clin
         builder.Property(s => s.LeadTimeHours).HasMaxLength(200);
         builder.Property(s => s.MessageTemplateBody).HasColumnType("text");
 
+        // Outbound email (SMTP) — the channel that delivers generated documents. Lengths mirror the sibling
+        // channels: identity fields bounded, the URL-ish host at 255, the address at the RFC's 320.
+        builder.Property(s => s.SmtpHost).HasMaxLength(255);
+        builder.Property(s => s.SmtpPort);
+        builder.Property(s => s.SmtpUseTls);
+        builder.Property(s => s.SmtpUsername).HasMaxLength(320);
+        builder.Property(s => s.SmtpFromAddress).HasMaxLength(320);
+        builder.Property(s => s.SmtpFromName).HasMaxLength(200);
+
         // Data-Protection ciphertext — opaque, variable length.
         builder.Property(s => s.SmsApiKeyEncrypted).HasColumnType("text");
         builder.Property(s => s.WhatsAppAccessTokenEncrypted).HasColumnType("text");
+        builder.Property(s => s.SmtpPasswordEncrypted).HasColumnType("text");
 
         // WhatsApp Embedded-Signup connection metadata (additive, nullable — manual/existing rows default).
         builder.Property(s => s.WhatsAppBusinessAccountId).HasMaxLength(100);

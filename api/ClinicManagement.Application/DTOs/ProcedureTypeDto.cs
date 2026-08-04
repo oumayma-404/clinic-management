@@ -8,6 +8,11 @@ public class ProcedureTypeDto
     public decimal? DefaultCost { get; set; }
     public string ColorHex { get; set; } = string.Empty;
     public string? Description { get; set; }
+    /// <summary>
+    /// Clinical discipline (« Endodontie », « Prothèse fixe »); null = unfiled, which the UI groups last under
+    /// « Sans catégorie ». Open text canonicalised on write — see <c>ProcedureTypeCategories</c>.
+    /// </summary>
+    public string? Category { get; set; }
     /// <summary>Resulting odontogram state (ToothCondition name) a dental act of this procedure produces; null = none.</summary>
     public string? ResultingCondition { get; set; }
     public bool IsActive { get; set; }
@@ -46,6 +51,7 @@ public static class ProcedureTypeMappingExtensions
             DefaultCost = procedureType.DefaultCost,
             ColorHex = procedureType.Color.Value,
             Description = procedureType.Description,
+            Category = procedureType.Category,
             ResultingCondition = procedureType.ResultingCondition?.ToString(),
             IsActive = procedureType.IsActive,
             Materials = procedureType.Materials

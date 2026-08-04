@@ -1,10 +1,11 @@
 "use client"
 
 import {
-  CalendarPlus, CheckCircle2, ClipboardCheck, FilePlus2, ReceiptText, Ban, Wallet,
+  CalendarPlus, CheckCircle2, ClipboardCheck, FilePlus2, ReceiptText, Ban, Wallet, History,
 } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 import type { TreatmentPlanDto } from "@/lib/api/types"
+import { EmptyState } from "@/components/ui/empty-state"
 import { formatDT, formatDateFr } from "@/lib/format"
 
 /** One entry in the plan's « Parcours » feed. A null date sorts last (see the invoice note below). */
@@ -35,7 +36,20 @@ export function PlanTimeline({ plan }: { plan: TreatmentPlanDto }) {
   const entries = buildEntries(plan)
 
   if (entries.length === 0) {
-    return <p className="px-4 py-8 text-center text-sm text-muted-foreground">Aucun événement.</p>
+    /*
+     * Practically unreachable — « Devis créé » is unconditional, so this needs `createdAt` to be missing — but a
+     * bare « Aucun événement. » would have been the wrong answer if it ever showed. The feed is derived from the
+     * plan's own fields, so nothing here is missing because it has not loaded; it is missing because nothing has
+     * happened, and the empty state should say which.
+     */
+    return (
+      <EmptyState
+        icon={History}
+        size="compact"
+        title="Aucun événement"
+        description="Le parcours se remplit tout seul : acceptation, séances planifiées, actes réalisés et paiements encaissés."
+      />
+    )
   }
 
   return (

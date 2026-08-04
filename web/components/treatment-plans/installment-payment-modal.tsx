@@ -12,10 +12,20 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner"
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
 import { ApiError } from "@/lib/api/client"
+import { showErrorToast } from "@/lib/errors"
 import type { InstallmentDto } from "@/lib/api/types"
-import { formatDT, formatDateFr, todayLocalIso } from "@/lib/format"
+import { formatAmount, formatDT, formatDateFr, parseAmountInput, todayLocalIso } from "@/lib/format"
 import { downloadBlob } from "@/lib/download"
+import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
+import { DiscardChangesDialog } from "@/components/ui/discard-changes-dialog"
 import { PAYMENT_METHODS, paymentMethodLabel } from "@/components/factures/invoice-labels"
+import {
+  CHEQUE_METHOD,
+  ChequeFields,
+  EMPTY_CHEQUE_FIELDS,
+  chequePaymentFields,
+  type ChequeFieldsValue,
+} from "@/components/factures/cheque-fields"
 
 interface InstallmentPaymentModalProps {
   open: boolean
@@ -47,15 +57,23 @@ export function InstallmentPaymentModal({ open, onOpenChange, planId, installmen
   const [amount, setAmount] = useState("")
   const [method, setMethod] = useState<string>("Cash")
   const [paidOn, setPaidOn] = useState("")
+  const [cheque, setCheque] = useState<ChequeFieldsValue>(EMPTY_CHEQUE_FIELDS)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const conflictStreak = useRef(0)
 
+  // Money being entered is not discarded by a stray tap on the overlay (J9). This dialog is a `mobile="bottom"`
+  // sheet, so on a phone the strip above it is a live dismiss target sitting over an amount being keyed in.
+  const guard = useDirtyGuard(open, onOpenChange)
+
   useEffect(() => {
     if (!open || !installment) return
-    setAmount(installment.outstanding > 0 ? String(installment.outstanding) : "")
+    // Through `formatAmount`, never `String(...)`: the raw number prints « 45.5 » where this product prints
+    // « 45,500 ». The grouping space it emits is stripped again by `parseAmountInput`.
+    setAmount(installment.outstanding > 0 ? formatAmount(installment.outstanding) : "")
     setMethod("Cash")
     setPaidOn(todayLocalIso())
+    setCheque(EMPTY_CHEQUE_FIELDS)
     setError(null)
   }, [open, installment])
 
@@ -64,7 +82,7 @@ export function InstallmentPaymentModal({ open, onOpenChange, planId, installmen
     if (!planId || !installment) return
     setError(null)
 
-    const parsedAmount = Number(amount)
+    const parsedAmount = parseAmountInput(amount)
     if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
       setError("Le montant doit être supérieur à 0.")
       return
@@ -84,6 +102,7 @@ export function InstallmentPaymentModal({ open, onOpenChange, planId, installmen
         amount: parsedAmount,
         method,
         paidOn: new Date(paidOn).toISOString(),
+        ...chequePaymentFields(method, cheque),
       })
 
       // The receipt is per-PAYMENT now, so find the row we just created rather than the échéance total —
@@ -98,7 +117,10 @@ export function InstallmentPaymentModal({ open, onOpenChange, planId, installmen
             treatmentPlansApi
               .downloadInstallmentReceipt(currentPlanId, currentInstallmentId, newPayment.id)
               .then((blob) => downloadBlob(blob, `recu-echeance-${newPayment.id.slice(0, 8)}.pdf`))
-              .catch((e) => toast.error(e instanceof Error ? e.message : "Échec du téléchargement du reçu."))
+              // `showErrorToast`: this fires from inside another toast's action, so the dialog is already gone
+              // and this message is the only trace of the failure — it needs the 8-second life, not the 4 the
+              // hand-rolled `toast.error` inherited from the success default.
+              .catch((e) => showErrorToast(e, "Échec du téléchargement du reçu."))
           },
         },
       } : undefined)
@@ -112,7 +134,9 @@ export function InstallmentPaymentModal({ open, onOpenChange, planId, installmen
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <>
+    {/* Only the ROOT and « Annuler » route through the guard — the save path calls the raw prop (§ 5). */}
+    <Dialog open={open} onOpenChange={guard.onOpenChange}>
       <DialogContent className="md:max-w-md">
         <DialogHeader>
           <DialogTitle>Enregistrer un paiement</DialogTitle>
@@ -129,11 +153,13 @@ export function InstallmentPaymentModal({ open, onOpenChange, planId, installmen
             <Label htmlFor="amount">
               Montant (DT) <span className="text-destructive">*</span>
             </Label>
+            {/* `text` + `inputMode="decimal"`, never `type="number"` (J8): a number input refuses the comma this
+                product prints with, and a rejected keystroke returns an EMPTY value — so the amount looked typed
+                and the submit sent nothing. The numeric keypad still appears on a phone. */}
             <Input
               id="amount"
-              type="number"
-              min="0"
-              step="0.001"
+              type="text"
+              inputMode="decimal"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               disabled={loading}
@@ -157,6 +183,16 @@ export function InstallmentPaymentModal({ open, onOpenChange, planId, installmen
             </Select>
           </div>
 
+          {/* L8 — an échéancier settled with a book of post-dated cheques is the archetypal case this exists for. */}
+          {method === CHEQUE_METHOD && (
+            <ChequeFields
+              idPrefix="installment-payment"
+              value={cheque}
+              onChange={setCheque}
+              disabled={loading}
+            />
+          )}
+
           <div className="space-y-1.5">
             <Label htmlFor="paidOn">Date</Label>
             <Input
@@ -169,7 +205,7 @@ export function InstallmentPaymentModal({ open, onOpenChange, planId, installmen
           </div>
 
           <DialogFooter className="gap-2">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
+            <Button type="button" variant="outline" onClick={() => guard.onOpenChange(false)} disabled={loading}>
               Annuler
             </Button>
             <Button type="submit" disabled={loading}>
@@ -179,5 +215,7 @@ export function InstallmentPaymentModal({ open, onOpenChange, planId, installmen
         </form>
       </DialogContent>
     </Dialog>
+    <DiscardChangesDialog guard={guard} />
+    </>
   )
 }

@@ -88,4 +88,76 @@ public class CnamVlcTests
         var vlc = new CnamLetterValue(Guid.NewGuid(), Guid.NewGuid(), "CD", 7m);
         Assert.True(vlc.IsProvisional);
     }
+
+    // ===================== K10 — the DTO carries what the convention says =====================
+    //
+    // The startup pass corrects only rows untouched since seeding (DEV-4), so a value an admin edited is
+    // deliberately left alone — which means the divergence has to be VISIBLE or it is simply lost. These three
+    // fields are what let `/cnam-nomenclature` offer the correction instead of applying it behind their back.
+
+    // ⚠️ Exercised through the QUERY HANDLER, not `CnamEntryMapper` directly — the mapper is `internal` and this
+    // project has no `InternalsVisibleTo` (the same reason `CnamBs1BulletinRendererTests` uses reflection). Going
+    // through the public seam is the better test anyway: it is the shape `/cnam-nomenclature` actually receives.
+    private async Task<IReadOnlyList<ClinicManagement.Application.DTOs.CnamLetterValueDto>> ReadLetterValues(
+        params CnamLetterValue[] stored)
+    {
+        _repo.Setup(r => r.GetAllLetterValuesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(stored);
+
+        var handler = new GetCnamLetterValuesQueryHandler(
+            _repo.Object, NullLogger<GetCnamLetterValuesQueryHandler>.Instance);
+        var result = await handler.Handle(new GetCnamLetterValuesQuery(), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        return result.Value!.ToList();
+    }
+
+    [Theory] // [K10] For a lettre clé the convention settles, the DTO states the figure, the source and the cadence.
+    [InlineData("CD", 30.000)]
+    [InlineData("CDS", 45.000)]
+    [InlineData("D", 3.000)]
+    public async Task Dto_Carries_The_Convention_Value_For_A_Settled_Lettre_Cle(string lettreCle, double expected)
+    {
+        // A stored value deliberately DIFFERENT from the convention's — i.e. the case the prompt exists for.
+        var dto = (await ReadLetterValues(new CnamLetterValue(Guid.NewGuid(), ClinicId, lettreCle, 1m))).Single();
+
+        Assert.Equal((decimal)expected, dto.ConventionValue);
+        Assert.False(string.IsNullOrWhiteSpace(dto.ConventionSource));
+        Assert.Equal(ClinicManagement.Domain.Services.CnamConventionTariffs.RevisionIntervalYears,
+            dto.ConventionRevisionIntervalYears);
+        // The stored value is untouched — the DTO reports what the convention says, it does not overwrite.
+        Assert.Equal(1m, dto.Value);
+    }
+
+    [Theory] // [K10] A lettre clé the convention does not settle carries all three fields NULL, together.
+    [InlineData("VD")]
+    [InlineData("RD")]
+    [InlineData("ZZ")]
+    public async Task Dto_Convention_Fields_Are_Null_Together_For_An_Unsettled_Lettre_Cle(string lettreCle)
+    {
+        var dto = (await ReadLetterValues(new CnamLetterValue(Guid.NewGuid(), ClinicId, lettreCle, 10m))).Single();
+
+        // Null together and not merely null-ish: a source with no value to attribute would read on screen as
+        // provenance for the clinic's OWN figure, which is the opposite of what it says.
+        Assert.Null(dto.ConventionValue);
+        Assert.Null(dto.ConventionSource);
+        Assert.Null(dto.ConventionRevisionIntervalYears);
+    }
+
+    [Fact] // [K10] The update command's response carries them too — it is what the screen re-renders on « Appliquer ».
+    public async Task Update_Response_Carries_The_Convention_Fields()
+    {
+        var vlc = new CnamLetterValue(Guid.NewGuid(), ClinicId, "CD", 7m);
+        _repo.Setup(r => r.GetLetterValueByIdAsync(vlc.Id, It.IsAny<CancellationToken>())).ReturnsAsync(vlc);
+
+        var handler = new UpdateCnamLetterValueCommandHandler(
+            _repo.Object, _clinicResolver.Object, _uow.Object, NullLogger<UpdateCnamLetterValueCommandHandler>.Instance);
+        var result = await handler.Handle(
+            new UpdateCnamLetterValueCommand { Id = vlc.Id, Value = 30.000m }, CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        // Projected in the mapper rather than at each call site, so the read and this response cannot disagree
+        // about what the convention says — and after applying it, the prompt must stop showing.
+        Assert.Equal(30.000m, result.Value!.ConventionValue);
+        Assert.Equal(30.000m, result.Value!.Value);
+    }
 }

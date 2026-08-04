@@ -6,6 +6,7 @@ using ClinicManagement.Application.Features.WaitingList.Commands;
 using ClinicManagement.Application.Features.WaitingList.Queries;
 
 using ClinicManagement.Domain.Common;
+using ClinicManagement.Application.Common.Authorization;
 
 namespace ClinicManagement.API.Controllers;
 
@@ -15,7 +16,7 @@ namespace ClinicManagement.API.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/waiting-list")]
-[Authorize]
+[Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
 public class WaitingListController : ApiControllerBase
 {
     private readonly IMediator _mediator;

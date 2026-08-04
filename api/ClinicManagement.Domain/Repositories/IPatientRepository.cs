@@ -70,6 +70,20 @@ public sealed record RecallCandidate(
     string? RecallReason,
     DateTime? LastRecallContactedAt);
 
+/// <summary>
+/// One existing patient reduced to the four things that answer « do we already have this person? » (L5 import).
+///
+/// <para>A projection and not a <see cref="Patient"/> on purpose: a duplicate check over an arriving file of 3 000
+/// rows needs the clinic's whole identity index in one read, and materialising every aggregate — with its flags and
+/// both history collections — to compare a name is the § 9.6 full-scan in a new place.</para>
+/// </summary>
+public sealed record PatientIdentity(
+    Guid Id,
+    string FirstName,
+    string LastName,
+    DateTime DateOfBirth,
+    string? PhoneNumber);
+
 public interface IPatientRepository
 {
     Task<Patient?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
@@ -151,6 +165,23 @@ public interface IPatientRepository
         DateTime anchorOnOrBeforeUtc,
         DateTime nowUtc,
         IReadOnlyCollection<Guid>? alwaysIncludePatientIds = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The clinic's whole patient-identity index, for the CSV import's duplicate check (L5).
+    ///
+    /// <para>One read for the file rather than one query per row: the import's own matching then runs in memory,
+    /// where it can also compare a row against the <b>other rows of the same file</b> — a spreadsheet that lists
+    /// somebody twice is at least as common as one that re-lists an existing patient, and no per-row database query
+    /// can see that.</para>
+    ///
+    /// <para>⚠️ <b>Archived patients are included.</b> An archived record is still that person's file, and
+    /// « archived » is precisely how a practice parks someone who may return. Creating a second row for them is the
+    /// one mistake this product cannot undo — <c>Patient</c> has no merge and no soft delete — so the check has to
+    /// see them.</para>
+    /// </summary>
+    Task<IReadOnlyList<PatientIdentity>> GetIdentitiesAsync(
+        Guid clinicId,
         CancellationToken cancellationToken = default);
 
     /// <summary>Counts everything attached to a patient, so a refusal can name what actually blocks it.</summary>

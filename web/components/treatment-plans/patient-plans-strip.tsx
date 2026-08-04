@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { ArrowRight, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
-import { ApiError } from "@/lib/api/client"
+import { showErrorToast } from "@/lib/errors"
 import type { TreatmentPlanDto } from "@/lib/api/types"
 import { formatDT, formatDateFr } from "@/lib/format"
 import { planStatusLabel, planStatusBadgeClass, planNextActionLabel } from "./treatment-plan-labels"
@@ -60,7 +60,10 @@ export function PatientPlansStrip({ plans, onOpen, onChanged }: PatientPlansStri
       toast.success("Devis accepté")
       onChanged?.()
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Échec de l'acceptation.")
+      // `showErrorToast`, not a hand-rolled `toast.error`: the 8-second error duration and the network-only
+      // « Réessayer » live there, and this toast is raised on the patient page where a 4-second refusal can be
+      // pushed off screen by the next one before it is read.
+      showErrorToast(err, "Échec de l'acceptation.")
     } finally {
       setAccepting(false)
     }
@@ -115,8 +118,12 @@ export function PatientPlansStrip({ plans, onOpen, onChanged }: PatientPlansStri
           re-derives as visit times pass. Everything on line 2 is context for it.
         */}
         <span className="ml-auto flex items-center gap-2">
+          {/* `bg-warning-ink`, not `bg-amber-500`. This dot marks the « à enregistrer » état, which the badge
+              renders with `--warning-ink` and the pip now does too — three ambers for one état meant the band,
+              the row badge and the pip were each a slightly different colour for the same fact, and only one of
+              them followed the palette. */}
           {next.kind === "record" && (
-            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" aria-hidden="true" />
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-warning-ink" aria-hidden="true" />
           )}
           <span className="text-base font-semibold">{planHeadline(plan)}</span>
         </span>
@@ -177,15 +184,16 @@ export function PatientPlansStrip({ plans, onOpen, onChanged }: PatientPlansStri
           </>
         )}
 
-        {/* Omitted for a lone plan rather than rendered as a dead « 0 autre ». */}
+        {/* Omitted for a lone plan rather than rendered as a dead « 0 autre ».
+
+            A real `Button variant="link"`, not a bare styled `<button>`: the hand-rolled one was ~16 px tall
+            with no padding, well under the 44 px touch floor, so on a phone it sat between two other tap
+            targets and was effectively unhittable. `size="sm"` paints the same small text while the shared
+            `touch-target` utility raises the hit area on a coarse pointer without changing what is drawn. */}
         {plans.length > 1 && (
-          <button
-            type="button"
-            onClick={onOpen}
-            className="ml-auto text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
-          >
+          <Button variant="link" size="sm" onClick={onOpen} className="ml-auto h-auto px-0 text-xs">
             Tous les plans
-          </button>
+          </Button>
         )}
       </div>
     </section>
@@ -226,9 +234,28 @@ function StatusChips({
   className?: string
 }) {
   return (
-    <span className={`flex flex-wrap items-center gap-1 ${className ?? ""}`}>
+    /*
+     * `gap-2` and a padded button, because these chips are adjacent tap targets.
+     *
+     * Each was a bare `<button>` wrapping a `<Badge>` — a ~20 px target — with `gap-1` (4 px) between them in a
+     * row that wraps. On a phone, tapping « 2 terminés » regularly landed on « 1 annulé » beside it. They all
+     * call the same `onOpen`, so a mis-tap was harmless *today*; that is exactly the kind of latent defect that
+     * becomes a real one the moment a chip gets its own destination.
+     *
+     * `py-1` on the button rather than `touch-target`: these sit side by side, and a 44 px overlay on a 20 px
+     * control overhangs its neighbour by 12 px each side and the later sibling wins the hit test — the failure
+     * this codebase now documents in several places. Real padding plus a wider gap keeps paint and hit area
+     * honest.
+     */
+    <span className={`flex flex-wrap items-center gap-2 ${className ?? ""}`}>
       {counts.map(({ status, count }) => (
-        <button key={status} type="button" onClick={onOpen} aria-label={`${count} plan${count > 1 ? "s" : ""} ${planStatusLabel(status).toLowerCase()}`}>
+        <button
+          key={status}
+          type="button"
+          onClick={onOpen}
+          className="-my-1 rounded-full py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label={`${count} plan${count > 1 ? "s" : ""} ${planStatusLabel(status).toLowerCase()}`}
+        >
           <Badge variant="secondary" className={`${planStatusBadgeClass(status)} hover:brightness-95`}>
             {count} {planStatusLabel(status).toLowerCase()}
           </Badge>

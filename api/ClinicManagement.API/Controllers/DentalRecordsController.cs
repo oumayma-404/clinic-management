@@ -10,7 +10,7 @@ namespace ClinicManagement.API.Controllers;
 
 [ApiController]
 [Route("api/patients/{patientId}/dental-records")]
-[Authorize]
+[Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
 public class DentalRecordsController : ApiControllerBase
 {
     private readonly IMediator _mediator;

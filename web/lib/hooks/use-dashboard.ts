@@ -13,7 +13,12 @@ import { getErrorMessage } from '@/lib/errors';
  * <p>`refetching` is separate from `loading` so a period change can hold the previous render at reduced opacity
  * instead of blanking the page — no skeleton flash, no layout jump.</p>
  */
-export function useDashboard(period: DashboardPeriodKey) {
+/**
+ * @param doctorId L9 — narrows the **Argent** section to one practitioner. ⚠️ Dépenses, Net and Créances stay
+ *   clinic-wide even then (an expense has no practitioner), and the response says so through
+ *   `money.clinicWideOutgoings` so the page can label them.
+ */
+export function useDashboard(period: DashboardPeriodKey, doctorId?: string) {
   const [data, setData] = useState<DashboardDto | null>(null);
   const [loading, setLoading] = useState(true);
   const [refetching, setRefetching] = useState(false);
@@ -26,7 +31,7 @@ export function useDashboard(period: DashboardPeriodKey) {
         else setLoading(true);
         setError(null);
 
-        setData(await dashboardApi.get(period));
+        setData(await dashboardApi.get(period, doctorId));
       } catch (err) {
         // The figure is left as-is on a refetch failure rather than wiped: a stale number with a visible error is
         // more useful than an empty dashboard, and « — » must keep meaning "no value", not "the request failed".
@@ -36,7 +41,7 @@ export function useDashboard(period: DashboardPeriodKey) {
         setRefetching(false);
       }
     },
-    [period],
+    [period, doctorId],
   );
 
   useEffect(() => {

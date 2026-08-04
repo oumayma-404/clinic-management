@@ -17,7 +17,7 @@ namespace ClinicManagement.API.Controllers;
 // by a top-level navigation from Google and cannot present a bearer token). Per-clinic connection binding
 // (feature cloud-security-and-tenant-isolation, #4) replaces the former single global token/calendar.
 [ApiController]
-[Authorize]
+[Authorize(Policy = AuthorizationPolicies.AdminOnly)]
 [Route("api/[controller]")]
 public class GoogleCalendarController : ApiControllerBase
 {
@@ -130,6 +130,11 @@ public class GoogleCalendarController : ApiControllerBase
     /// Get sync status for the caller's clinic (is Google Calendar connected + is its token valid).
     /// </summary>
     [HttpGet("status")]
+    // The one action here that is not integration *administration*. Every role's agenda reads it on mount to
+    // decide whether to render the « non synchronisé » badge, so gating it with its admin-only siblings would
+    // put a 403 on every reception page load and silently switch the badge off for the people who watch it.
+    // It returns whether the secrets are *present*, never their values.
+    [Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
     public async Task<IActionResult> GetSyncStatus(CancellationToken cancellationToken)
     {
         var clientId = _configuration["GoogleCalendar:ClientId"];

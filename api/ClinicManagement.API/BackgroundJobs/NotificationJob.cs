@@ -1,4 +1,5 @@
 using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
@@ -26,6 +27,7 @@ public class NotificationJob
     private readonly IConfiguration _configuration;
     private readonly IReadOnlyDictionary<NotificationType, IReminderChannelSender> _senders;
     private readonly INotificationGenerator _notificationGenerator;
+    private readonly IAuditActorProvider _auditActor;
     private readonly ILogger<NotificationJob> _logger;
 
     public NotificationJob(
@@ -38,6 +40,7 @@ public class NotificationJob
         IConfiguration configuration,
         IEnumerable<IReminderChannelSender> senders,
         INotificationGenerator notificationGenerator,
+        IAuditActorProvider auditActor,
         ILogger<NotificationJob> logger)
     {
         _notificationRepository = notificationRepository;
@@ -49,6 +52,7 @@ public class NotificationJob
         _configuration = configuration;
         _senders = senders.ToDictionary(s => s.Channel);
         _notificationGenerator = notificationGenerator;
+        _auditActor = auditActor;
         _logger = logger;
     }
 
@@ -58,6 +62,10 @@ public class NotificationJob
     [AutomaticRetry(Attempts = 3)]
     public async Task ProcessPendingNotifications()
     {
+        // I6: a job has no token, so without naming itself every row it writes would read « Tâche automatique »
+        // with no clue which one. The declaration happens before anything is saved — see IAuditActorProvider.RunAs.
+        _auditActor.RunAs(nameof(NotificationJob));
+
         // AC-5: the server (not a LAN client) is the source of truth for internet egress. Offline ⇒ send
         // nothing, leave rows Pending, and do NOT touch the retry count — the offline skip is free.
         if (!await _internetProbe.IsInternetReachableAsync())
@@ -69,8 +77,12 @@ public class NotificationJob
         // AC-P4.31 — bounded, like EInvoiceOutboxJob. The scan was unbounded against a table nothing had ever
         // purged, so one backlog could make a single tick run for minutes while holding this job's
         // [DisableConcurrentExecution] lock and starving every later tick.
+        //
+        // L3a — and bounded **per clinic** as well. The batch cap alone was not enough: it is an oldest-first
+        // scan with no clinic dimension, so on a shared install one practice's backlog owned every tick.
         var batchSize = RemindersConfig.DispatchBatchSize(_configuration);
-        var pendingNotifications = await _notificationRepository.GetPendingNotificationsAsync(batchSize);
+        var perClinicBound = RemindersConfig.PerClinicDispatchBound(_configuration);
+        var pendingNotifications = await _notificationRepository.GetDueForDispatchAsync(batchSize, perClinicBound);
         var maxRetries = RemindersConfig.MaxRetries(_configuration);
 
         foreach (var notification in pendingNotifications)
@@ -86,8 +98,76 @@ public class NotificationJob
             }
         }
 
+        await ReviewBlockedRowsAsync(batchSize);
         await PurgeExpiredRowsAsync();
     }
+
+    /// <summary>
+    /// L3a — the other half of the <c>Blocked</c> status: rows parked because their channel could not send are
+    /// returned to the queue once it can.
+    ///
+    /// <para>Without this the status would be a one-way door, and the original comment it replaces —
+    /// « so it sends once the operator configures the channel » — would have been made false by the fix. It runs
+    /// <b>after</b> the dispatch loop and is bounded by the same batch size, so recovering a large backlog costs
+    /// a tick at a time rather than one very long tick; the rows it unblocks are dispatched by the next tick,
+    /// which is also what keeps this pass from re-entering the sender.</para>
+    ///
+    /// <para>A failure here is swallowed for the same reason the purge's is: losing a housekeeping pass must not
+    /// stop reminders going out.</para>
+    /// </summary>
+    private async Task ReviewBlockedRowsAsync(int batchSize)
+    {
+        try
+        {
+            var blocked = await _notificationRepository.GetBlockedForReviewAsync(batchSize);
+            var unblocked = 0;
+
+            foreach (var notification in blocked)
+            {
+                if (!_senders.ContainsKey(notification.Type))
+                {
+                    // No sender implements this channel at all (a legacy Email row): nothing an operator can
+                    // configure will change that, so it stays parked rather than cycling every minute.
+                    continue;
+                }
+
+                var settings = await _settingsProvider.ResolveAsync(notification.ClinicId);
+                if (!settings.EnabledChannels.Contains(notification.Type) || !IsSendable(notification.Type, settings))
+                {
+                    continue;
+                }
+
+                if (notification.Unblock())
+                {
+                    await SaveAsync(notification);
+                    unblocked++;
+                }
+            }
+
+            if (unblocked > 0)
+            {
+                _logger.LogInformation(
+                    "Returned {Unblocked} blocked reminder(s) to the queue: their channel is sendable again.",
+                    unblocked);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to review blocked reminder rows.");
+        }
+    }
+
+    /// <summary>
+    /// Can this channel send right now? Reads the resolved settings' own <c>*Configured</c> predicates — the
+    /// same single source of truth the senders, the enqueue gate and the admin effective-status badge use, so
+    /// « why is this row blocked? » and « why will it not send? » can never be different answers.
+    /// </summary>
+    private static bool IsSendable(NotificationType channel, ResolvedReminderSettings settings) => channel switch
+    {
+        NotificationType.SMS => settings.SmsConfigured,
+        NotificationType.WhatsApp => settings.WhatsAppConfigured,
+        _ => false,
+    };
 
     /// <summary>
     /// AC-P4.32 — drops terminal rows past the retention window. This table had <b>no</b> purge of any kind, so
@@ -122,10 +202,10 @@ public class NotificationJob
     {
         if (!_senders.TryGetValue(notification.Type, out var sender))
         {
-            // No sender for this channel (e.g. a legacy Email row) — nothing to do; leave it Pending.
-            _logger.LogDebug(
-                "No reminder sender for channel {Channel}; leaving notification {NotificationId} pending.",
-                notification.Type, notification.Id);
+            // No sender for this channel (e.g. a legacy Email row). L3a — **park it, don't leave it Pending.**
+            // Nothing an operator does makes this row sendable, and while Pending it sat at the front of an
+            // oldest-first, batch-capped scan consuming a slot on every tick for ever.
+            await BlockAsync(notification, $"Canal « {ChannelLabel(notification.Type)} » non pris en charge");
             return;
         }
 
@@ -140,6 +220,20 @@ public class NotificationJob
                 || appointment.Status == AppointmentStatus.NoShow)
             {
                 await FailAsync(notification, "Rendez-vous annulé ou introuvable — rappel non envoyé");
+                return;
+            }
+
+            // L3b — and never send one that states the WRONG DAY. The body and ScheduledFor are frozen at
+            // enqueue, so any writer that moves an appointment without re-enqueuing leaves a row announcing the
+            // old moment; the status check above cannot see that, because a moved appointment is still active.
+            //
+            // This is the backstop that makes every *future* write-path omission harmless. It is not a
+            // substitute for the write paths themselves — those void and re-enqueue, so the patient still gets a
+            // reminder — which is why this outcome is a recorded failure and not a silent drop.
+            if (ReminderMessage.AnnouncesStaleMoment(notification.Message, appointment.AppointmentDateTime))
+            {
+                await FailAsync(notification, "Rendez-vous déplacé — rappel obsolète, non envoyé");
+                await SurfaceStaleAsync(notification, appointment.AppointmentDateTime);
                 return;
             }
         }
@@ -167,13 +261,12 @@ public class NotificationJob
         var settings = await _settingsProvider.ResolveAsync(notification.ClinicId);
 
         // A channel disabled (per-clinic toggle or install default) after this row was enqueued must not send.
-        // Treat it like NotConfigured: send nothing and leave the row Pending (no Failed spam) — same contract
-        // as a channel with missing credentials.
+        // L3a — it is **parked**, not left Pending. The row survives and records why (both original intentions),
+        // and ReviewBlockedRowsAsync puts it back if the channel is switched on again.
         if (!settings.EnabledChannels.Contains(notification.Type))
         {
-            _logger.LogDebug(
-                "Channel {Channel} is not enabled for notification {NotificationId}; leaving it pending.",
-                notification.Type, notification.Id);
+            await BlockAsync(
+                notification, $"Canal « {ChannelLabel(notification.Type)} » désactivé pour cette clinique");
             return;
         }
 
@@ -208,8 +301,13 @@ public class NotificationJob
                 break;
 
             case ReminderSendOutcome.NotConfigured:
-                // Channel enabled but credentials/template missing → send nothing, no Failed spam. The row
-                // stays Pending so it sends once the operator configures the channel.
+                // Channel enabled but credentials/template missing → send nothing, no Failed spam. L3a: the row
+                // is **parked** rather than left Pending. It still sends once the operator configures the
+                // channel (ReviewBlockedRowsAsync unblocks it), which was the original intention — it simply
+                // stops occupying a slot in every dispatch batch until then.
+                await BlockAsync(
+                    notification,
+                    $"Canal « {ChannelLabel(notification.Type)} » non configuré — identifiants manquants");
                 break;
         }
     }
@@ -218,6 +316,19 @@ public class NotificationJob
     {
         _logger.LogWarning("Reminder {NotificationId} failed permanently: {Error}", notification.Id, error);
         notification.MarkAsFailed(error);
+        await SaveAsync(notification);
+    }
+
+    /// <summary>
+    /// L3a — parks a row that cannot be sent for a reason no retry can change, recording the French reason the
+    /// « Rappels » page shows. Non-terminal: never purged, and returned to the queue by
+    /// <see cref="ReviewBlockedRowsAsync"/>.
+    /// </summary>
+    private async Task BlockAsync(Notification notification, string reason)
+    {
+        _logger.LogInformation(
+            "Reminder {NotificationId} blocked: {Reason}", notification.Id, reason);
+        notification.MarkAsBlocked(reason);
         await SaveAsync(notification);
     }
 
@@ -258,6 +369,26 @@ public class NotificationJob
             _logger.LogError(
                 ex, "Failed to surface the delivery failure of reminder {NotificationId}.", notification.Id);
         }
+    }
+
+    /// <summary>
+    /// L3b — tells the staff that a queued reminder was dropped because the visit moved under it.
+    ///
+    /// <para>Surfaced, unlike the cancelled/no-show void: that one suppresses a message for a visit that is not
+    /// happening and <c>AppointmentCancelledAsync</c> has already announced it. This one means a patient who is
+    /// still expected got <b>no</b> reminder, which nothing else in the product would say.</para>
+    /// </summary>
+    private async Task SurfaceStaleAsync(Notification notification, DateTime currentAppointmentUtc)
+    {
+        var patient = notification.PatientId.HasValue
+            ? await _patientRepository.GetByIdAsync(notification.PatientId.Value)
+            : null;
+
+        await SurfaceFailureAsync(
+            notification,
+            patient?.GetFullName() ?? UnknownPatientName,
+            $"Rendez-vous déplacé au {ReminderMessage.FormatAppointmentMoment(currentAppointmentUtc)} — "
+                + "le rappel en attente annonçait une autre date");
     }
 
     /// <summary>

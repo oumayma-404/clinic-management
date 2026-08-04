@@ -18,6 +18,11 @@ public class UpdateProcedureTypeCommand : IRequest<Result<ProcedureTypeDto>>
     public decimal? DefaultCost { get; set; }
     public string? ColorHex { get; set; }
     public string? Description { get; set; }
+    /// <summary>
+    /// Clinical discipline. <b>Tri-state, like every other field here</b>: omit to leave it alone, <c>""</c> to
+    /// unfile the act, a label to file it. Canonicalised by the entity, so an unknown label is a new category.
+    /// </summary>
+    public string? Category { get; set; }
     /// <summary>When provided, sets the resulting odontogram state ("" clears it).</summary>
     public string? ResultingCondition { get; set; }
 }
@@ -143,6 +148,13 @@ public class UpdateProcedureTypeCommandHandler : IRequestHandler<UpdateProcedure
             if (request.Description != null)
             {
                 procedureType.UpdateDescription(request.Description);
+            }
+
+            // Update the discipline if provided ("" unfiles the act) — the same null-means-unchanged /
+            // empty-means-clear tri-state every other field of this command uses.
+            if (request.Category != null)
+            {
+                procedureType.UpdateCategory(request.Category);
             }
 
             // Update resulting odontogram state if provided ("" clears it).

@@ -32,6 +32,12 @@ public class TreatmentPlanCreationAcceptanceTests
     private readonly Mock<ICurrentClinicResolver> _clinicResolver = new();
     private readonly Mock<IUnitOfWork> _uow = new();
 
+    // L9 — the attribution dependencies, arranged to reproduce this test's ORIGINAL behaviour: an empty roster and
+    // no caller doctor means `PractitionerAttribution.Resolve` finds no candidate and the aggregate stays
+    // unattributed, exactly as before the column existed. Attribution has its own tests; these are not repurposed.
+    private readonly Mock<IDoctorRepository> _doctors = new();
+    private readonly Mock<IClinicContext> _clinicContext = new();
+
     /// <summary>The plan the handler staged, captured so the tests can assert on the aggregate itself.</summary>
     private TreatmentPlan? _saved;
 
@@ -49,11 +55,14 @@ public class TreatmentPlanCreationAcceptanceTests
         // rather than from a count is what keeps it gapless when an early plan is cancelled.
         _plans.Setup(r => r.GetMaxSequenceForYearAsync(ClinicId, It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(4);
+        _doctors.Setup(r => r.GetByClinicIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<Doctor>());
+        _clinicContext.Setup(c => c.GetUserId()).Returns((string?)null);
     }
 
     private CreateTreatmentPlanCommandHandler Handler() => new(
-        _plans.Object, _patients.Object, _dentalActs.Object, _clinicResolver.Object, _uow.Object,
-        NullLogger<CreateTreatmentPlanCommandHandler>.Instance);
+        _plans.Object, _patients.Object, _dentalActs.Object, _clinicResolver.Object, _doctors.Object,
+        _clinicContext.Object, _uow.Object, NullLogger<CreateTreatmentPlanCommandHandler>.Instance);
 
     private static CreateTreatmentPlanCommand Command(
         List<TreatmentPlanItemRequest>? items = null,

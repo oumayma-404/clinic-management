@@ -121,6 +121,19 @@ export interface DashboardMoneyDto {
   /** **Gross** encaissements — refunds are `refunds`, not netted in here. */
   collected: PeriodComparison;
   invoiced: PeriodComparison;
+
+  /**
+   * L9 — true when a practitioner filter is active, in which case **Dépenses, Net and Créances remain clinic-wide**.
+   * An expense has no practitioner (rent and salaries belong to the practice), so a narrowed « Net » would be one
+   * dentist's income minus everybody's costs. The UI must label those lines, never present them as that person's.
+   */
+  clinicWideOutgoings?: boolean;
+
+  /**
+   * L9 — true when `collected` counts **invoice payments only**, because a practitioner filter is active and
+   * échéance collections are not attributable in this slice. Stated rather than silently mixed.
+   */
+  collectedInvoicesOnly?: boolean;
   /** Avoirs refunded in the window. */
   refunds: PeriodComparison;
   expenses: PeriodComparison;
@@ -239,6 +252,13 @@ export interface InvoiceDto {
   patientName?: string | null;
   dentalRecordId?: string | null;
   appointmentId?: string | null;
+  /**
+   * L9 — which practitioner earned this note. **Null is a real answer** (a historical row, or one raised with no
+   * practitioner in scope) and must render as « non attribué », never as the clinic.
+   */
+  doctorId?: string | null;
+  /** The practitioner's name, resolved server-side beside the id — the row must not do a lookup per invoice. */
+  doctorName?: string | null;
   /** The devis this note was bridged from (devis→facture), or null for a standalone note. */
   treatmentPlanId?: string | null;
   number?: string | null;
@@ -388,6 +408,50 @@ export interface CnamInfo {
   assurePostalCode?: string | null;
   maladeLien?: string | null;
   maladeLienRang?: string | null;
+  /**
+   * Dependants the insured person declares — the input to the annual-ceiling barème (L10). Not derivable from
+   * `maladeLien`: that says how *this* patient relates to the insured person, while the ceiling depends on the
+   * household's size, and the other dependants may not be patients of this clinic at all.
+   */
+  dependantCount?: number | null;
+  /**
+   * The household's real annual ceiling when somebody knows it — always beats the computed barème, whose amounts are
+   * sourced rather than officially confirmed. Also where the dependent-parent / disabled-child / pregnancy
+   * supplements land, since each turns on a fact this product does not record.
+   */
+  annualCeilingOverride?: number | null;
+}
+
+/**
+ * « Plafond annuel CNAM » for one patient in one clinic year (L10) — the ceiling, what this clinic consumed of it,
+ * and what is left.
+ *
+ * ⚠️ **Every figure is an estimate, for two independent reasons**, and both arrive as fields so the caveat lives
+ * beside the number rather than as each screen's own wording: `ceilingIsDefault` (the barème behind it is sourced,
+ * not officially confirmed) and `seesThisClinicOnly` (the clinic can only count the acts *it* performed, so
+ * `remaining` is an **upper bound**).
+ */
+export interface CnamCeilingDto {
+  year: number;
+  ceiling: number;
+  /** The household part of a *computed* ceiling. Null when an override was used — an override replaces the derivation, it does not adjust it. */
+  baseCeiling?: number | null;
+  /** The soins-dentaires-externes allowance included in a computed ceiling. Null for an override, same reason. */
+  dentalAllowance?: number | null;
+  dependantCount: number;
+  /** True when `ceiling` came from the built-in barème rather than from a figure somebody recorded. */
+  ceilingIsDefault: boolean;
+  /** Reimbursement this clinic's issued invoices represent in the year, counting only acts that consume the ceiling. */
+  consumed: number;
+  /** Reimbursement for acts that do **not** consume it (prothèse). Reported, never silently dropped. */
+  horsPlafond: number;
+  /** `max(0, ceiling − consumed)` — floored, because a ceiling has no negative remainder. */
+  remaining: number;
+  exhausted: boolean;
+  /** Always true today: it is what makes `remaining` an upper bound. */
+  seesThisClinicOnly: boolean;
+  /** Invoices the consumption was computed over — so « 0,000 consommé » can be told from « nothing billed yet ». */
+  invoiceCount: number;
 }
 
 // A CNAM dental nomenclature entry (DB-backed, global reference data from GET /api/cnam-nomenclature).
@@ -410,6 +474,19 @@ export interface CnamLetterValueDto {
   lettreCle: string;
   value: number;
   isProvisional: boolean;
+
+  // What the CNAM dentist convention currently in force says, so `/cnam-nomenclature` can offer the correction
+  // instead of applying it behind an admin's back. The server corrects only rows untouched since seeding; a value
+  // an admin has edited is deliberately left alone, which is exactly why the divergence has to be visible here.
+  //
+  // ⚠️ All three are **null together** for a lettre clé the convention text did not settle (Vd/Rd). Render that as
+  // « non fixée par la convention », never as a figure — a null is « we do not know ».
+  /** The dinar value the convention in force fixes for this lettre clé, if it fixes one. */
+  conventionValue: number | null;
+  /** The arrêté + JORT reference, shown beside the prompt so an admin can check the primary text. */
+  conventionSource: string | null;
+  /** How often the convention revises the lettres clés (SMIG/CPI) — so the next staleness is expected. */
+  conventionRevisionIntervalYears: number | null;
 }
 
 // A medication catalog entry (DB-backed, global reference data from GET /api/medications). Used by the
@@ -447,7 +524,16 @@ export interface PatientDto {
   email?: string | null;
   /** Null when the patient gave none. Such a patient receives no reminder and no relance. */
   phoneNumber?: string | null;
+  /**
+   * Chronic conditions and known allergies — free text, and the two most safety-critical strings on the record.
+   *
+   * ⚠️ On update these are **tri-state like `notes`**: omit to leave unchanged, send `""` to clear. The edit dialog
+   * used to send `.trim() || undefined` for both while its neighbours three lines above sent `.trim()`, and
+   * `JSON.stringify` drops `undefined` — so an allergy typed on the wrong patient could not be removed by anyone.
+   * Send `""`, never `undefined`, when the intent is to clear.
+   */
   medicalHistory?: string;
+  /** @see medicalHistory — same tri-state, same reason. */
   allergies?: string;
   emergencyContactName?: string;
   emergencyContactPhone?: string;
@@ -463,13 +549,18 @@ export interface PatientDto {
   notes?: string | null;
   /** Same as `notes` but rendered highlighted at the top of the patient's file. */
   importantNotes?: string | null;
+  /**
+   * The postal address. ⚠️ Tri-state on update, and `null` is **not** the same as omitting the key: send `null` to
+   * clear the stored address, omit it to leave it alone. `undefined` used to be sent for both, so emptying the four
+   * address boxes silently did nothing.
+   */
   address?: {
     street: string;
     city: string;
     state: string;
     zipCode: string;
     country: string;
-  };
+  } | null;
   insuranceInfo?: {
     provider: string;
     policyNumber: string;
@@ -541,6 +632,15 @@ export interface ProcedureTypeDto {
   defaultCost?: number;
   colorHex: string;
   description?: string;
+  /**
+   * Clinical discipline the act is filed under (« Endodontie », « Prothèse fixe »); null/absent = unfiled, which
+   * the catalogue and both act pickers group last under « Sans catégorie ».
+   *
+   * ⚠️ This is what `description` used to carry: the backend catalog seed had nowhere to put a category, so it
+   * wrote each act's discipline into the description slot. Anything reading `description` as a grouping key is
+   * looking at the old workaround — read `category`.
+   */
+  category?: string | null;
   /** ToothCondition name this procedure produces on the odontogram, or null. */
   resultingCondition?: string | null;
   isActive: boolean;
@@ -832,6 +932,25 @@ export interface CaisseSummaryDto {
   refunds: number;
   cashOut: number;
   net: number;
+  /**
+   * `cashIn` split by payment method (L8 slice B) — la caisse's « dont espèces », so the drawer can be separated
+   * from a post-dated cheque nobody has banked.
+   *
+   * ⚠️ **Σ `amount` === `cashIn`**, held by construction server-side (the breakdown is a `GROUP BY` sibling of the
+   * very SUM that produces `cashIn`, not a grouping of the « extrait »'s rows — those include voided payments).
+   * All four methods are always present in enum order, zeros included: « Espèces 0,000 » is a true statement about
+   * the drawer, and an absent row is not a statement at all.
+   */
+  cashInByMethod: CaisseMethodTotalDto[];
+}
+
+/** One line of `CaisseSummaryDto.cashInByMethod`. */
+export interface CaisseMethodTotalDto {
+  /** The storage key — also the value `caisseLedger`'s `method` filter takes, so there is one spelling of « Cheque ». */
+  method: string;
+  /** The French label, built server-side so the client holds no second copy of it. */
+  label: string;
+  amount: number;
 }
 
 /** Which ledger a caisse movement came from. Mirrors the backend `CaisseMovementKind`. */
@@ -867,6 +986,19 @@ export interface CaisseMovementDto {
   isVoided: boolean;
   voidReason?: string | null;
   voidedByName?: string | null;
+  /**
+   * Cheque identity (L8) — present only when the movement was paid by cheque, and null for a cheque recorded
+   * before the fields existed. What turns « Chèque · 450,000 » into a line naming the paper somebody still has to
+   * take to the bank.
+   */
+  chequeNumber?: string | null;
+  /** @see chequeNumber */
+  chequeBankName?: string | null;
+  /**
+   * The day the cheque may be presented — ⚠️ **not** `occurredOn`. A post-dated cheque is received (and appears in
+   * the till) on the day it is handed over; the money only arrives on this date.
+   */
+  chequeDueDate?: string | null;
   /** Cumulative net **across the shown window only** — it opens at zero, it is not an account balance. */
   runningBalance: number;
 }
@@ -900,6 +1032,72 @@ export interface CaisseLedgerDto {
    * ⚠️ Each movement keeps the `runningBalance` it had in the **unfiltered, unpaged** window — « Solde de la
    * période » is a fact about where the till stood after that movement, not about the current page or search.
    */
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  totalPages: number;
+}
+
+/** Which ledger a held cheque came from. Same two names as `CaisseMovementKind`'s money-in kinds, on purpose. */
+export type ChequeSourceKind = 'InvoicePayment' | 'InstallmentPayment';
+
+/**
+ * Which bucket a cheque falls into, as of the clinic's own today. Computed **server-side** and carried on the row,
+ * so a cheque cannot be listed under one heading and counted under another.
+ */
+export type ChequeBucket = 'Overdue' | 'DueSoon' | 'Later' | 'Undated';
+
+/** One cheque the clinic is holding, from either payment ledger. */
+export interface ChequeDto {
+  /** The payment row's id — a `Payment` or an `InstallmentPayment`, per `kind`. */
+  id: string;
+  kind: ChequeSourceKind;
+  bucket: ChequeBucket;
+  amount: number;
+  /** The day the cheque was handed over — **not** the day it can be banked. */
+  receivedOn: string;
+  /** The day it may be presented. Null when nobody recorded one: a counted case, never a dropped row. */
+  dueDate?: string | null;
+  chequeNumber?: string | null;
+  bankName?: string | null;
+  /** The note d'honoraires or devis number the cheque paid, when it has one. */
+  reference?: string | null;
+  patientId?: string | null;
+  patientName?: string | null;
+  /** The aggregate to open — the invoice, or the devis for an échéance. */
+  targetId: string;
+}
+
+export interface ChequeBucketDto {
+  count: number;
+  amount: number;
+}
+
+/**
+ * Counts and totals per bucket, over **every** matching cheque rather than over the current page — the same rule
+ * `ReceivablesPageDto.totalOutstanding` follows. The four buckets partition the set, so their counts sum to
+ * `totalCount` and their amounts sum to `total.amount`.
+ */
+export interface ChequeGroupsDto {
+  overdue: ChequeBucketDto;
+  dueSoon: ChequeBucketDto;
+  later: ChequeBucketDto;
+  /** No due date recorded — its own counted group, because it is the cheque nobody would ever chase. */
+  undated: ChequeBucketDto;
+  total: ChequeBucketDto;
+}
+
+/**
+ * « Chèques à encaisser » (L8 slice B) — every cheque the clinic holds, over both payment ledgers, soonest-due
+ * first with undated ones last.
+ *
+ * ⚠️ **A cheque leaves this list only by being voided.** The product records the *receipt* of a cheque, not its
+ * clearing at the bank, so one presented last year is still listed. That is why the buckets above the list carry
+ * the counts and why the order is by due date: the actionable set is « en retard », not « exists ».
+ */
+export interface ChequesDueDto {
+  items: ChequeDto[];
+  groups: ChequeGroupsDto;
   page: number;
   pageSize: number;
   totalCount: number;

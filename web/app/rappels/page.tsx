@@ -6,7 +6,10 @@ import { SlidersHorizontal } from "lucide-react"
 import { AppShell } from "@/components/app-shell"
 import { ClinicGuard } from "@/components/clinic-guard"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet"
+import { KpiGrid } from "@/components/dashboard/kpi-grid"
 import { DataTablePagination } from "@/components/ui/data-table-pagination"
 import { ReminderLogTable } from "@/components/rappels/reminder-log-table"
 import { ReminderSettings } from "@/components/reminder-settings"
@@ -88,7 +91,7 @@ export default function RappelsPage() {
    */
   useEffect(() => {
     const incoming = new URLSearchParams(window.location.search).get("status")
-    if (incoming === "sent" || incoming === "pending" || incoming === "failed") {
+    if (incoming === "sent" || incoming === "pending" || incoming === "failed" || incoming === "blocked") {
       setStatus(incoming)
       window.history.replaceState({}, "", "/rappels")
     }
@@ -131,6 +134,16 @@ export default function RappelsPage() {
     () => [
       { key: "sent", label: "Envoyés aujourd'hui", value: data?.sentToday, tone: "success" as const },
       { key: "pending", label: "En attente", value: data?.pending, tone: "warning" as const },
+      /*
+       * L3a — « Bloqués » is the counter this page was missing, and the reason a whole install's queue could stop
+       * sending with nothing on any screen to say so. A blocked row is not waiting its turn: it needs a setting
+       * changed, and the reason is printed on the row itself.
+       *
+       * It is a counter rather than a banner because it is a figure of the same kind as the other three, and
+       * because zero is the normal reading — a banner that is absent 99 % of the time is a banner nobody learns
+       * to look for.
+       */
+      { key: "blocked", label: "Bloqués", value: data?.blocked, tone: "blocked" as const },
       // Several days, not today: a send that failed at 23:00 must still be counted the next morning.
       { key: "failed", label: "Échecs (7 j)", value: data?.failedRecent, tone: "destructive" as const },
     ],
@@ -162,11 +175,19 @@ export default function RappelsPage() {
           )}
         </div>
 
-        {/* Counters: one shared surface with hairlines, the KpiGrid idiom — not three bordered cards. */}
-        <div className="grid grid-cols-1 gap-px overflow-hidden rounded-xl border bg-border sm:grid-cols-3">
+        {/*
+          Counters on the shared `KpiGrid` surface — the same object « Factures » and la caisse draw their
+          figures on. This grid was hand-rolled from the identical `gap-px bg-border` idiom but WITHOUT
+          `shadow-sm`, which is how the widest surface on the page ended up flatter than the cards below it;
+          and its value was `font-[650] tracking-[-0.01em]` where la caisse's was `font-semibold
+          tracking-tight` — two hand-tuned near-misses for the same treatment.
+        */}
+        {/* Four columns now, and `sm:grid-cols-2` before them: four figures at 320 px would be four 80 px
+            columns, and « Envoyés aujourd'hui » does not fit in one. Two-up on a phone, four-up from `lg:`. */}
+        <KpiGrid columns={4} className="sm:grid-cols-2 lg:grid-cols-4">
           {counters.map((c) => (
-            <div key={c.key} className="flex flex-col gap-0.5 bg-card px-4 py-3">
-              <span className="flex items-center gap-2 text-xs text-muted-foreground">
+            <div key={c.key} className="flex flex-col gap-0.5 bg-card p-4">
+              <span className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
                 <i aria-hidden="true" className={cn("size-1.5 shrink-0 rounded-full", TONE_DOT[c.tone])} />
                 {c.label}
               </span>
@@ -175,10 +196,13 @@ export default function RappelsPage() {
               ) : (
                 <span
                   className={cn(
-                    "text-2xl font-[650] tabular-nums tracking-[-0.01em]",
-                    // Only the failure counter can turn red, and only when non-zero: it is the one
-                    // actionable figure here. A red zero would raise an alarm about nothing.
+                    "text-2xl font-semibold tabular-nums tracking-tight",
+                    // Only the two actionable counters can colour up, and only when non-zero: a red or amber
+                    // zero would raise an alarm about nothing. « Bloqués » is amber, not red — nothing failed,
+                    // a setting is missing — but it is emphasised, because a non-zero here means messages are
+                    // not going out at all.
                     c.tone === "destructive" && c.value > 0 && "text-destructive",
+                    c.tone === "blocked" && c.value > 0 && "text-warning-ink",
                   )}
                 >
                   {c.value.toLocaleString("fr-TN")}
@@ -186,11 +210,13 @@ export default function RappelsPage() {
               )}
             </div>
           ))}
-        </div>
+        </KpiGrid>
 
         {/* ListToolbar: only what NARROWS the list. Counted chips, so an active filter is visible as a
             state rather than having to be read out of a changing button label. */}
         <div className="flex flex-wrap items-center gap-2 border-b pb-3">
+          {/* `touch-target` gives each chip a 44px hit area on a finger without repainting it — these are ~28px
+              tall, and this page is read on the tablet at the desk (AC-10). */}
           {STATUS_CHIPS.map((chip) => (
             <button
               key={chip.value}
@@ -198,7 +224,7 @@ export default function RappelsPage() {
               aria-pressed={status === chip.value}
               onClick={() => setFilter(setStatus)(chip.value)}
               className={cn(
-                "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm transition-colors",
+                "touch-target inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm transition-colors",
                 status === chip.value
                   ? "border-primary bg-accent font-semibold text-accent-foreground"
                   : "border-border text-muted-foreground hover:bg-accent/50",
@@ -211,32 +237,36 @@ export default function RappelsPage() {
             </button>
           ))}
 
-          <select
-            className="rounded-lg border bg-transparent px-2 py-1.5 text-sm"
-            value={channel}
-            onChange={(e) => setFilter(setChannel)(e.target.value as ChannelFilter)}
-            aria-label="Canal"
-          >
-            <option value="all">Tous les canaux</option>
-            <option value="SMS">SMS</option>
-            <option value="WhatsApp">WhatsApp</option>
-          </select>
+          {/* The shared primitives, not a raw `<select>` and two raw `<input type="date">`. These were the only
+              controls in the app rendering with browser-default chrome — a native dropdown arrow and a native
+              date widget sitting beside shadcn fields — and they carried neither the focus ring nor the 44px
+              coarse-pointer floor the primitives already own. */}
+          <Select value={channel} onValueChange={(v) => setFilter(setChannel)(v as ChannelFilter)}>
+            <SelectTrigger size="sm" className="w-44" aria-label="Canal">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Tous les canaux</SelectItem>
+              <SelectItem value="SMS">SMS</SelectItem>
+              <SelectItem value="WhatsApp">WhatsApp</SelectItem>
+            </SelectContent>
+          </Select>
 
           <span className="flex items-center gap-1.5">
-            <input
+            <Input
               type="date"
               value={from}
               onChange={(e) => setFilter(setFrom)(e.target.value)}
               aria-label="Du"
-              className="rounded-lg border bg-transparent px-2 py-1.5 text-sm tabular-nums"
+              className="h-8 w-auto tabular-nums"
             />
             <span className="text-xs text-muted-foreground">au</span>
-            <input
+            <Input
               type="date"
               value={to}
               onChange={(e) => setFilter(setTo)(e.target.value)}
               aria-label="Au"
-              className="rounded-lg border bg-transparent px-2 py-1.5 text-sm tabular-nums"
+              className="h-8 w-auto tabular-nums"
             />
           </span>
         </div>
@@ -262,7 +292,14 @@ export default function RappelsPage() {
         second implementation of all of it, which is how the two would drift.
         */}
         <Sheet open={configOpen} onOpenChange={setConfigOpen}>
-        <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-xl">
+        {/*
+          ⚠️ The scroll belongs to an INNER wrapper, never to `SheetContent` itself. `ui/sheet.tsx` pins its ✕ at
+          `absolute top-4 right-4` against the content element, so scrolling the content scrolls the close button
+          out of the viewport — and `ReminderSettings` is a 768-line form. On a phone, with no Escape key, that
+          leaves an overlay tap as the only way out of a full-height sheet. `min-h-0` is what lets a flex child
+          actually shrink and scroll instead of growing past its parent.
+        */}
+        <SheetContent side="right" className="w-full sm:max-w-xl">
           <SheetHeader>
             <SheetTitle>Canaux de rappel</SheetTitle>
             <SheetDescription>
@@ -270,7 +307,7 @@ export default function RappelsPage() {
               l&apos;installation.
             </SheetDescription>
           </SheetHeader>
-          <div className="px-4 pb-6">
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
             <ReminderSettings />
           </div>
         </SheetContent>
@@ -284,6 +321,9 @@ const TONE_DOT = {
   success: "bg-success",
   warning: "bg-warning",
   destructive: "bg-destructive",
+  // Same amber as « En attente » — a blocked row has not failed, it is waiting on a setting. The label and the
+  // reason on each row carry the distinction; a fourth hue would imply a fourth kind of severity.
+  blocked: "bg-warning",
 } as const
 
 /**
@@ -301,6 +341,9 @@ const STATUS_CHIPS: {
   { value: "all", label: "Tous", count: () => undefined },
   { value: "sent", label: "Envoyés", count: (d) => d?.sentToday },
   { value: "pending", label: "En attente", count: (d) => d?.pending },
+  // L3a — the filter that turns the counter into a worklist: « 12 bloqués » is only useful if one tap lists
+  // which twelve, with the reason on each row.
+  { value: "blocked", label: "Bloqués", count: (d) => d?.blocked },
   { value: "failed", label: "Échecs", count: (d) => d?.failedRecent },
 ]
 

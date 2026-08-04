@@ -11,6 +11,19 @@ public class InvoicePdfData
 
     // Patient + document header
     public string PatientName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The patient's address on one line, or null when they have none (J10).
+    /// <para>
+    /// ⚠️ Deliberately <b>optional, and never a validation blocker</b>. Code TVA art. 18 § II requires the
+    /// client's address only for clients subject to the déclaration d'existence — businesses, not a private
+    /// patient — so a note d'honoraires for a walk-in is complete without it. It is here because it is useful
+    /// (a printed note is what a patient files, forwards to an insurer, or attaches to a CNAM claim), and the
+    /// render model previously had no patient address at all. A patient with none simply renders one line fewer.
+    /// </para>
+    /// </summary>
+    public string? PatientAddress { get; set; }
+
     public string Number { get; set; } = string.Empty;
     public DateTime IssueDate { get; set; }
 

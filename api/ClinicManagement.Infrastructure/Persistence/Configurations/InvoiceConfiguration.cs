@@ -102,5 +102,24 @@ public class InvoiceConfiguration : IEntityTypeConfiguration<Invoice>
 
         builder.HasIndex(i => new { i.ClinicId, i.IssueDate });
         builder.HasIndex(i => i.PatientId);
+
+        // L9 attribution — who earned this. A real FK to `Doctors`, not a bare Guid column: before L9 the only FK
+        // to that table in the entire model was `Appointment.DoctorId`, and `WaitingListEntry.PreferredDoctorId`
+        // demonstrates the cost of the bare form — nothing stopped it holding an id from another clinic, or one
+        // that no longer exists.
+        //
+        // ⚠️ `SetNull`, matching `Appointment.DoctorId`: deleting a practitioner must leave the money and the
+        // clinical record intact and merely unattributed. `Cascade` here would delete invoices when a dentist
+        // leaves the practice, and `Restrict` would make removing them impossible.
+        builder.HasOne(x => x.Doctor)
+            .WithMany()
+            .HasForeignKey(x => x.DoctorId)
+            .IsRequired(false)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        // Indexed for the practitioner filter on /factures and on the dashboard's Argent section — the only two
+        // readers, and both filter on it.
+        builder.HasIndex(x => x.DoctorId);
+
     }
 }

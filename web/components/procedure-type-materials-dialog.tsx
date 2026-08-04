@@ -6,12 +6,22 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
-import { Loader2, Plus, Trash2 } from "lucide-react"
+import { Check, ChevronsUpDown, Loader2, Plus, Trash2 } from "lucide-react"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
 import { stockApi } from "@/lib/api/stock"
 import { getErrorMessage } from "@/lib/errors"
+import { cn } from "@/lib/utils"
+import { stockCategoryLabel, stockUnitLabel } from "@/components/stock-item-form-modal"
 import type { ProcedureTypeDto, StockItemDto } from "@/lib/api/types"
 
 interface ProcedureTypeMaterialsDialogProps {
@@ -47,6 +57,8 @@ export function ProcedureTypeMaterialsDialog({
   const [rows, setRows] = useState<MaterialRow[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /** Index of the row whose article picker is open, or null. One at a time — they are separate Popovers. */
+  const [openPickerIndex, setOpenPickerIndex] = useState<number | null>(null)
 
   const open = !!procedureType
 
@@ -133,7 +145,10 @@ export function ProcedureTypeMaterialsDialog({
 
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!next) onOpenChange(false) }}>
-      <DialogContent className="max-h-[85dvh] overflow-y-auto md:max-w-lg">
+      {/* No `max-h-[85dvh] overflow-y-auto`: `ui/dialog.tsx`'s base already declares `max-h-[90dvh]` and the
+          scroll (plus their `md:` counterparts). This copy was unprefixed AND diverged to 85 — two dialogs in
+          the app capping at different heights for no stated reason. */}
+      <DialogContent className="md:max-w-lg">
         <DialogHeader>
           <DialogTitle>
             Consommables{procedureType ? ` — ${procedureType.name}` : ""}
@@ -164,26 +179,83 @@ export function ProcedureTypeMaterialsDialog({
               <div key={index} className="flex items-end gap-2">
                 <div className="min-w-0 flex-1 space-y-2">
                   <Label htmlFor={`material-item-${index}`}>Article</Label>
-                  <Select
-                    value={row.stockItemId}
-                    onValueChange={(value) => patchRow(index, { stockItemId: value })}
+                  {/*
+                    A searchable Popover+Command, the pattern `create-appointment-dialog.tsx` established. It
+                    replaces a plain `<Select>` holding the clinic's ENTIRE stock catalogue with no way to
+                    filter it — unusable past a couple of dozen articles, which is a normal stockroom.
+
+                    `modal` is required: the parent Dialog disables pointer events outside its content, so a
+                    non-modal Popover portalled to <body> inherits `pointer-events: none` and its options can
+                    only be reached by keyboard.
+                  */}
+                  <Popover
+                    open={openPickerIndex === index}
+                    onOpenChange={(next) => setOpenPickerIndex(next ? index : null)}
+                    modal
                   >
-                    <SelectTrigger id={`material-item-${index}`}>
-                      <SelectValue placeholder="Choisir un article" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {availableFor(index).map((item) => (
-                        <SelectItem key={item.id} value={item.id}>
-                          {item.name} ({item.unit})
-                        </SelectItem>
-                      ))}
-                      {/* An item that has since been removed from the catalogue must still render, or saving
-                          an unrelated line would silently drop it from the list. */}
-                      {row.stockItemId !== "" && !items.some((i) => i.id === row.stockItemId) && (
-                        <SelectItem value={row.stockItemId}>{itemName(row.stockItemId)}</SelectItem>
-                      )}
-                    </SelectContent>
-                  </Select>
+                    <PopoverTrigger asChild>
+                      <Button
+                        id={`material-item-${index}`}
+                        type="button"
+                        variant="outline"
+                        role="combobox"
+                        aria-expanded={openPickerIndex === index}
+                        className="h-9 w-full justify-between font-normal"
+                      >
+                        <span className={cn("truncate", !row.stockItemId && "text-muted-foreground")}>
+                          {row.stockItemId ? itemName(row.stockItemId) : "Choisir un article"}
+                        </span>
+                        <ChevronsUpDown className="ms-2 h-4 w-4 shrink-0 opacity-50" aria-hidden="true" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent
+                      className="p-0"
+                      align="start"
+                      style={{ width: "var(--radix-popover-trigger-width)" }}
+                    >
+                      <Command>
+                        <CommandInput placeholder="Rechercher un article…" />
+                        <CommandList>
+                          <CommandEmpty>Aucun article trouvé.</CommandEmpty>
+                          <CommandGroup>
+                            {availableFor(index).map((item) => (
+                              <CommandItem
+                                key={item.id}
+                                /* The searchable text: the category is French at display time
+                                   (`stockCategoryLabel`), so « protection » finds a PPE article. */
+                                value={`${item.name} ${stockUnitLabel(item.unit)} ${stockCategoryLabel(item.category)}`}
+                                onSelect={() => {
+                                  patchRow(index, { stockItemId: item.id })
+                                  setOpenPickerIndex(null)
+                                }}
+                              >
+                                <Check
+                                  className={cn(
+                                    "me-2 h-4 w-4 shrink-0",
+                                    row.stockItemId === item.id ? "opacity-100" : "opacity-0",
+                                  )}
+                                />
+                                <span className="min-w-0 flex-1 truncate">
+                                  {item.name} ({stockUnitLabel(item.unit)})
+                                </span>
+                                <span className="ms-2 shrink-0 text-2xs text-muted-foreground">
+                                  {stockCategoryLabel(item.category)}
+                                </span>
+                              </CommandItem>
+                            ))}
+                            {/* An item that has since left the catalogue must still be listed and selected, or
+                                saving an unrelated line would silently drop it from the material list. */}
+                            {row.stockItemId !== "" && !items.some((i) => i.id === row.stockItemId) && (
+                              <CommandItem value={itemName(row.stockItemId)} onSelect={() => setOpenPickerIndex(null)}>
+                                <Check className="me-2 h-4 w-4 shrink-0 opacity-100" />
+                                {itemName(row.stockItemId)}
+                              </CommandItem>
+                            )}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
                 </div>
 
                 <div className="w-24 space-y-2">

@@ -5,12 +5,16 @@ using ClinicManagement.Application.Features.Dashboard;
 using ClinicManagement.Application.Features.Dashboard.Commands;
 using ClinicManagement.Application.Features.Dashboard.Queries;
 using Microsoft.AspNetCore.Authorization;
+using ClinicManagement.Application.Common.Authorization;
 
 namespace ClinicManagement.API.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize]
+// Its Argent section *is* the clinic's revenue, and its Activité section is the practice's throughput — the
+// two figures a secretary must not be able to read. The preferences pair below is gated with it rather than
+// one step looser: they configure this screen, and a role that cannot open it has nothing to configure.
+[Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
 public class DashboardController : ApiControllerBase
 {
     private readonly IMediator _mediator;
@@ -30,11 +34,17 @@ public class DashboardController : ApiControllerBase
     /// have been computed by different rules. The retired <c>GET stats</c> endpoint took six boundary parameters from
     /// the client instead.
     /// </param>
+    /// <param name="doctorId">
+    /// L9 — narrow the <b>Argent</b> section to one practitioner. ⚠️ Dépenses, Net and Créances stay clinic-wide
+    /// even then (an expense has no practitioner), and the response flags that so the client can label them —
+    /// see <c>DashboardMoneyDto.ClinicWideOutgoings</c>.
+    /// </param>
     [HttpGet]
     public async Task<ActionResult<DashboardDto>> GetDashboard(
-        [FromQuery] DashboardPeriodKey period = DashboardPeriodKey.Month)
+        [FromQuery] DashboardPeriodKey period = DashboardPeriodKey.Month,
+        [FromQuery] Guid? doctorId = null)
     {
-        var result = await _mediator.Send(new GetDashboardQuery { Period = period });
+        var result = await _mediator.Send(new GetDashboardQuery { Period = period, DoctorId = doctorId });
 
         if (result.IsFailure)
         {

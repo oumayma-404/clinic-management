@@ -32,4 +32,36 @@ public class CaisseSummaryDto
 
     /// <summary><c>CashIn − Refunds − CashOut</c>.</summary>
     public decimal Net { get; set; }
+
+    /// <summary>
+    /// <see cref="CashIn"/> split by payment method — la caisse's « dont espèces » (L8 slice B). Without it four
+    /// scalars summed across every method meant the owner could not separate the notes physically in the drawer
+    /// from a post-dated cheque nobody has banked, which is the one distinction a till is closed against.
+    ///
+    /// <para>
+    /// ⚠️ <b>Σ <see cref="CaisseMethodTotalDto.Amount"/> == <see cref="CashIn"/></b>, and that holds by
+    /// construction: the two repository reads behind it are <c>GROUP BY</c> siblings of the very SUMs that produce
+    /// <c>CashIn</c>. It is deliberately <b>not</b> derived from the « extrait »'s movement rows — those include
+    /// voided payments, so a breakdown summed from them would quietly disagree with the total above it.
+    /// </para>
+    /// <para>
+    /// All four methods are always present, in enum order, zeros included. A stable four-row shape is what lets
+    /// « Espèces » stay on screen on a day the clinic happened to take only cheques — which is exactly the day the
+    /// drawer figure is worth reading. Money <b>out</b> is not broken down: an expense's method is already on its
+    /// own row in the dépenses table, and the question this answers is about money in that has not cleared.
+    /// </para>
+    /// </summary>
+    public List<CaisseMethodTotalDto> CashInByMethod { get; set; } = new();
+}
+
+/// <summary>One line of <see cref="CaisseSummaryDto.CashInByMethod"/>.</summary>
+public class CaisseMethodTotalDto
+{
+    /// <summary>The <c>PaymentMethod</c> name (<c>Cash</c>/<c>Cheque</c>/<c>Card</c>/<c>Transfer</c>) — the value the « extrait »'s <c>method</c> filter takes.</summary>
+    public string Method { get; set; } = string.Empty;
+
+    /// <summary>The French label, built server-side through <c>PaymentMethodLabels</c> so the client cannot hold a second copy of it.</summary>
+    public string Label { get; set; } = string.Empty;
+
+    public decimal Amount { get; set; }
 }

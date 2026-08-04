@@ -22,6 +22,14 @@ public interface IUserRepository
     Task<User?> GetByEmailAsync(string email, CancellationToken cancellationToken = default);
     /// <summary>True if any user exists. Used to close first-run setup once the first admin is created.</summary>
     Task<bool> AnyUserExistsAsync(CancellationToken cancellationToken = default);
+    /// <summary>
+    /// How many of the clinic's accounts are waiting for an admin to activate them (I5) — inactive and never
+    /// logged in. A count rather than a filter on the list read, and deliberately **not** narrowed by the search
+    /// term: it is the figure above the table, describing the whole clinic, so an admin who filtered for one name
+    /// must still see that someone is waiting. Counting the loaded page instead would read « 0 en attente »
+    /// whenever the pending colleagues sort onto page 2.
+    /// </summary>
+    Task<int> CountPendingActivationAsync(Guid clinicId, CancellationToken cancellationToken = default);
     Task AddAsync(User entity, CancellationToken cancellationToken = default);
     void Update(User entity);
     void Remove(User entity);

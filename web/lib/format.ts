@@ -30,6 +30,32 @@ export function formatAmount(amount: number | null | undefined): string {
 }
 
 /**
+ * A dinar amount **as the user typed it**, as a number — the single authority for reading a money field.
+ *
+ * <p>Every money input in this app is `type="text" inputMode="decimal"`, not `type="number"`, and that pairing
+ * is the fix rather than a preference. This product prints « 120,500 » everywhere; a `type="number"` input
+ * **refuses a comma**, and when the browser rejects a keystroke `e.target.value` comes back **empty** — so the
+ * dentist typed an amount, saw a filled field, and the submit sent nothing. `step="0.01"` compounded it by
+ * making the millime unreachable on the very field that seeds every invoice line. `inputMode="decimal"` still
+ * raises the numeric keypad on a phone, so nothing is lost.</p>
+ *
+ * <p>Accepted: a comma or a dot as the decimal mark, and any whitespace as grouping — including the
+ * **non-breaking** and narrow-no-break spaces `Intl.NumberFormat("fr-TN")` itself emits, which is what a user
+ * pastes back after copying a figure out of this app (« 1 200,500 » → `1200.5`).</p>
+ *
+ * <p>⚠️ Returns **`NaN`** for anything malformed rather than a plausible-looking number: a bare « , », a double
+ * separator (« 1,2,3 »), a dot-grouped « 1.200,500 ». Truncating those to `1.2` would be worse than refusing
+ * them — it is a wrong amount that looks deliberate. Callers must keep their own `> 0` validation, which
+ * `NaN` fails; this function never throws.</p>
+ */
+export function parseAmountInput(value: string): number {
+  const normalized = value.replace(/\s/g, "").replace(/,/g, ".");
+  // At least one digit, at most one decimal point. Anything else is a typo, not an amount.
+  if (!/^-?(\d+(\.\d*)?|\.\d+)$/.test(normalized)) return Number.NaN;
+  return Number.parseFloat(normalized);
+}
+
+/**
  * Round a dinar amount to the millime (3 decimals), away from zero — mirroring the backend's single rounding
  * authority (`InvoiceCalculator.RoundMoney`, `decimal(18,3)`). Apply it to any client-side money arithmetic
  * before displaying or sending a total, so float noise (110.001 × 3 = 330.00299999…) never surfaces.
@@ -73,10 +99,27 @@ export function formatFileSize(bytes: number | null | undefined): string {
  * actually having. The server-side counterpart is `ClinicClock.ClinicToday`.
  */
 export function todayLocalIso(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(
-    now.getDate(),
-  ).padStart(2, "0")}`;
+  return toLocalIso(new Date())
+}
+
+/**
+ * The same `YYYY-MM-DD`, for a date that is **not** today — the helper {@link todayLocalIso} now delegates to.
+ *
+ * It exists for the other half of the same defect. `todayLocalIso` fixed the *pre-fill*; this fixes the
+ * *round-trip*. Reopening a stored record ran `new Date(record.interventionDate).toISOString().split("T")[0]`,
+ * which converts to **UTC** first — so a fiche whose stored instant lands past midnight UTC reopens showing the
+ * *previous* calendar day, and re-saving then writes that wrong day back. A date input round-tripped through UTC
+ * is not the date the user chose.
+ *
+ * Local-calendar accessors for the same reason as its neighbour: the string must be the day the viewer is
+ * actually having. Returns `""` for an unparseable date rather than `"NaN-NaN-NaN"`, so a bad value leaves the
+ * input visibly unset instead of filling it with a plausible-looking string.
+ */
+export function toLocalIso(date: Date): string {
+  if (Number.isNaN(date.getTime())) return ""
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
+    date.getDate(),
+  ).padStart(2, "0")}`
 }
 
 /**

@@ -1,12 +1,10 @@
 using ClinicManagement.Application.Common.Interfaces;
-using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Features.Documents;
 using ClinicManagement.Application.Features.Documents.Commands;
 using ClinicManagement.Application.Features.Documents.Queries;
 using MediatR;
 using Microsoft.Extensions.Logging;
 using Hangfire;
-using System.Text.Json;
 
 namespace ClinicManagement.API.BackgroundJobs;
 
@@ -14,21 +12,28 @@ public class PdfGenerationJob
 {
     private readonly IPdfGenerationService _pdfService;
     private readonly IMediator _mediator;
+    private readonly IAuditActorProvider _auditActor;
     private readonly ILogger<PdfGenerationJob> _logger;
 
     public PdfGenerationJob(
         IPdfGenerationService pdfService,
         IMediator mediator,
+        IAuditActorProvider auditActor,
         ILogger<PdfGenerationJob> logger)
     {
         _pdfService = pdfService;
         _mediator = mediator;
+        _auditActor = auditActor;
         _logger = logger;
     }
 
     [AutomaticRetry(Attempts = 3)]
     public async Task GenerateAndAttachPdfAsync(Guid documentId, CancellationToken cancellationToken = default)
     {
+        // I6: a job has no token, so without naming itself every row it writes would read « Tâche automatique »
+        // with no clue which one. The declaration happens before anything is saved — see IAuditActorProvider.RunAs.
+        _auditActor.RunAs(nameof(PdfGenerationJob));
+
         try
         {
             _logger.LogInformation("Starting PDF generation for document {DocumentId}", documentId);
@@ -45,39 +50,9 @@ public class PdfGenerationJob
 
             var document = documentResult.Value;
 
-            // Parse content JSON
-            var content = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(document.ContentJson) 
-                ?? new Dictionary<string, JsonElement>();
-
-            // Flatten to string values once, then reuse for both the content dict and the snapshot fields.
-            var contentStrings = content.ToDictionary(
-                kvp => kvp.Key,
-                kvp => kvp.Value.ValueKind == JsonValueKind.String
-                    ? kvp.Value.GetString() ?? ""
-                    : JsonSerializer.Serialize(kvp.Value)); // Properly serialize JSON arrays/objects to string
-
-            // Build PDF data from document
-            var pdfData = new MedicalDocumentPdfData
-            {
-                DocumentType = document.DocumentType,
-                DocumentDate = document.DocumentDate,
-                PatientName = document.PatientName,
-                PatientAge = document.PatientAge,
-                ClinicName = document.ClinicName,
-                ClinicAddress = document.ClinicAddress,
-                ClinicPhone = document.ClinicPhone,
-                DoctorName = document.DoctorName,
-                DoctorSpecialty = document.DoctorSpecialty,
-                RecipientDoctorName = document.RecipientDoctorName,
-                RecipientDoctorSpecialty = document.RecipientDoctorSpecialty,
-                // Part C (FR-3.3 / FR-6.1): the cachet/ordre/city snapshotted at creation, read from
-                // ContentJson so this unauthenticated job renders them without a live doctor/clinic lookup.
-                ClinicCity = contentStrings.GetValueOrDefault(PractitionerRenderSnapshot.ClinicCityKey),
-                DoctorOrdreNumber = contentStrings.GetValueOrDefault(PractitionerRenderSnapshot.DoctorOrdreNumberKey),
-                DoctorCachetKey = contentStrings.GetValueOrDefault(PractitionerRenderSnapshot.DoctorCachetKeyKey),
-                DoctorCachetContentType = contentStrings.GetValueOrDefault(PractitionerRenderSnapshot.DoctorCachetContentTypeKey),
-                Content = contentStrings
-            };
+            // Shared with the document-email queue command so both render the same bytes for a given document
+            // (Part C snapshot fields included) — see MedicalDocumentPdfMapping.
+            var pdfData = MedicalDocumentPdfMapping.ToPdfData(document);
 
             // Generate PDF from structured data
             var pdfBytes = await _pdfService.GeneratePdfFromDocumentDataAsync(pdfData, cancellationToken);

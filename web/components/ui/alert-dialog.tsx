@@ -77,7 +77,10 @@ function AlertDialogHeader({
   return (
     <div
       data-slot="alert-dialog-header"
-      className={cn("flex shrink-0 flex-col gap-2 text-center sm:text-left", className)}
+      // `md:`, not `sm:` — `ui/dialog.tsx` states the rule: the presentation switches at `md:`, so a header
+      // keyed on `sm:` leaves 640–767px (an iPad mini portrait is 744px) rendering a bottom sheet wearing a
+      // desktop left-aligned header.
+      className={cn("flex shrink-0 flex-col gap-2 text-center md:text-left", className)}
       {...props}
     />
   )
@@ -91,7 +94,9 @@ function AlertDialogFooter({
     <div
       data-slot="alert-dialog-footer"
       className={cn(
-        "flex shrink-0 flex-col-reverse gap-2 sm:flex-row sm:justify-end",
+        // `md:` for the same reason as the header, plus full-width stacked buttons below it: a phone footer
+        // whose actions are two shrink-to-fit buttons side by side puts the destructive one in the thumb's path.
+        "flex shrink-0 flex-col-reverse gap-2 md:flex-row md:justify-end [&>*]:w-full md:[&>*]:w-auto",
         className
       )}
       {...props}
@@ -125,13 +130,28 @@ function AlertDialogDescription({
   )
 }
 
+/**
+ * The confirm button of an `AlertDialog`.
+ *
+ * <p>⚠️ It takes a `variant` because the default one is <b>wrong for most of this app's uses</b>. Stock shadcn
+ * renders `buttonVariants()` — the *primary* button — so every destructive confirm has to remember
+ * `className="bg-destructive …"` at the call site. Two already forgot: « Désactiver cet utilisateur ? » and
+ * « Détacher la fiche » both shipped with a blue confirm sitting beside an outline « Retour », so the
+ * irreversible option read as the recommended one. A prop cannot be mistyped and cannot be forgotten silently —
+ * a reviewer sees `variant="destructive"` or its absence.</p>
+ *
+ * <p>Focus itself is already safe: Radix auto-focuses `AlertDialogCancel`, so Enter never confirms by default.</p>
+ */
 function AlertDialogAction({
   className,
+  variant = "default",
   ...props
-}: React.ComponentProps<typeof AlertDialogPrimitive.Action>) {
+}: React.ComponentProps<typeof AlertDialogPrimitive.Action> & {
+  variant?: "default" | "destructive"
+}) {
   return (
     <AlertDialogPrimitive.Action
-      className={cn(buttonVariants(), className)}
+      className={cn(buttonVariants({ variant }), className)}
       {...props}
     />
   )

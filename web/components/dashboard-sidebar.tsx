@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils"
 // `Stethoscope` is the brand mark in `brandHeader`, not a nav icon — it stays here after the nav data moved out.
 import { ChevronLeft, ChevronRight, Stethoscope } from "lucide-react"
 import { buildNavSections, type NavItem, type NavSection } from "@/lib/nav"
+import { zoneForSectionTitle, type Zone } from "@/lib/zones"
 import { useSidebar } from "@/contexts/sidebar-context"
 import { useSession } from "@/lib/auth/session"
 import { useClinicAccess } from "@/lib/hooks/use-clinic-access"
@@ -36,13 +37,28 @@ export function DashboardSidebar() {
 
   const isAdmin = user?.role === "admin"
 
-  const sections: NavSection[] = buildNavSections(isAdmin)
+  // The ROLE, not `isAdmin`: a secretary sees fewer destinations than a doctor (I1 — « Tableau de bord » and the
+  // whole « Finances » group are `AdminOrDoctor` server-side), and an admin/not-admin boolean cannot say that.
+  const sections: NavSection[] = buildNavSections(user?.role)
 
   // `collapsed` is passed rather than read from context: inside the mobile drawer the rail is always
   // expanded (there is room, and a phone has no hover for the collapsed tooltips), while the desktop rail
   // honours the persisted preference. One renderer, two callers — AC-P3.18.
-  const renderItem = (item: NavItem, collapsed: boolean) => {
-    const isActive = pathname === item.href
+  /*
+   * A prefix match, not an exact one — and the bottom bar's rule, byte for byte.
+   *
+   * `pathname === item.href` meant that on `/patients/[id]`, `/patients/[id]/files`, `/treatment-plans/[id]`
+   * and `/documents/[type]` — i.e. **every detail page, where a user is deepest in and most likely to be
+   * lost** — no rail item was highlighted and no `aria-current` was set anywhere. The phone's bottom bar has
+   * always used `startsWith`, so the two navigations disagreed about where the user was, on exactly the
+   * screens where it mattered.
+   *
+   * `/` is special-cased for the obvious reason: every path starts with it.
+   */
+  const isActivePath = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href))
+
+  const renderItem = (item: NavItem, collapsed: boolean, zone: Zone) => {
+    const isActive = isActivePath(item.href)
     const linkContent = (
       <Link
         href={item.href}
@@ -54,7 +70,7 @@ export function DashboardSidebar() {
           // height rather than overlaying a hit area that would overlap the row above. The density argument
           // above is a DESKTOP one: it was about a 19-item nav overflowing a laptop's 100vh, and the drawer a
           // finger uses scrolls anyway.
-          "flex items-center gap-3 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors coarse:py-3",
+          "relative flex items-center gap-3 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors coarse:py-3",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card",
           isActive
             ? "bg-accent text-accent-foreground"
@@ -63,7 +79,31 @@ export function DashboardSidebar() {
         )}
         aria-current={isActive ? "page" : undefined}
       >
-        <item.icon className="h-5 w-5 shrink-0" />
+        {/*
+          The active row's left edge, in its zone's own colour.
+
+          `bg-accent` alone marked the current page with a wash that is two per cent away from the rail's own
+          background — findable if you already knew where you were, which is not what a location indicator is
+          for. A 3 px bar is unambiguous at a glance and, being the zone hue, it is the same colour as the
+          eyebrow at the top of the page it opens, so the rail and the page agree about where the user is.
+
+          `-ms-1` pulls it into the row's own padding rather than adding width: the rail is 256 px and the four
+          destinations with the longest French names already truncate.
+        */}
+        {isActive && !collapsed && (
+          <span
+            aria-hidden="true"
+            className={cn("absolute inset-y-1 -ms-1 start-0 w-[3px] rounded-full", zone.bg)}
+          />
+        )}
+        {/*
+          Colour lands on the ACTIVE icon only.
+
+          Nineteen tinted glyphs in a column is a paint chart, and it would make the one row that matters — the
+          page you are on — the hardest to pick out, since everything would be shouting equally. One coloured
+          icon against eighteen grey ones is the whole effect, and it costs the reader nothing to learn.
+        */}
+        <item.icon className={cn("h-5 w-5 shrink-0 transition-colors", isActive && zone.text)} />
         {collapsed ? <span className="sr-only">{item.name}</span> : <span className="truncate">{item.name}</span>}
       </Link>
     )
@@ -113,16 +153,35 @@ export function DashboardSidebar() {
      */
     <nav className="scrollbar-thin min-h-0 flex-1 overflow-y-auto px-3 py-3" aria-label={label}>
       <TooltipProvider>
-        {sections.map((section) => (
-          <div key={section.title} className="space-y-0.5 pb-1">
-            {!collapsed && (
-              <p className="px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">
-                {section.title}
-              </p>
-            )}
-            {section.items.map((item) => renderItem(item, collapsed))}
-          </div>
-        ))}
+        {sections.map((section) => {
+          // The rail's group title IS the zone's name — `zoneForSectionTitle` is that seam, so the two lists
+          // cannot drift into disagreeing about what « Finances » is called.
+          const zone = zoneForSectionTitle(section.title)
+          return (
+            <div key={section.title} className="space-y-0.5 pb-1">
+              {!collapsed && (
+                /*
+                 * The group heading carries its zone's hue.
+                 *
+                 * This is where most of the colour in the rail lives, and it is five words rather than nineteen
+                 * icons — at 12 px uppercase it is a whisper, but five whispers are what turn a list of
+                 * destinations into four working areas plus settings. `text-muted-foreground/70` had made these
+                 * headings the faintest thing in the rail, so the grouping they exist to express was the first
+                 * thing a reader's eye discarded.
+                 */
+                <p
+                  className={cn(
+                    "px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wider",
+                    zone.text,
+                  )}
+                >
+                  {section.title}
+                </p>
+              )}
+              {section.items.map((item) => renderItem(item, collapsed, zone))}
+            </div>
+          )
+        })}
       </TooltipProvider>
     </nav>
   )

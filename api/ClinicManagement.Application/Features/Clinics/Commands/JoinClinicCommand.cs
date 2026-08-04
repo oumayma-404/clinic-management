@@ -231,7 +231,13 @@ public class JoinClinicCommandHandler : IRequestHandler<JoinClinicCommand, Resul
         }
 
         var passwordHash = _localAuthService.HashPassword(request.Password);
-        var user = User.CreateLocalUser(clinic.Id, role, request.Email, passwordHash, request.FullName);
+
+        // I5: the account is created **pending**, not live. The clinic code is a 6-character secret over a
+        // 36-symbol alphabet that is displayed on a settings screen and known to every person who has ever
+        // worked at the practice — including the ones who left. Before this, learning it was enough to mint a
+        // working account and read every patient record, with no invitation and nobody notified. An admin now
+        // activates from « Utilisateurs » (the screen and `SetUserActiveCommand` already existed).
+        var user = User.CreateSelfRegistered(clinic.Id, role, request.Email, passwordHash, request.FullName);
         await _userRepository.AddAsync(user, cancellationToken);
 
         if (role == "doctor" && request.DoctorInfo != null)

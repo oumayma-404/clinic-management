@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { AppShell } from "@/components/app-shell"
 import { ClinicGuard } from "@/components/clinic-guard"
+import { PageHeader } from "@/components/ui/page-header"
 import { ProcedureTypesTable } from "@/components/procedure-types-table"
 import { ProcedureTypeFormModal } from "@/components/procedure-type-form-modal"
 import type { ProcedureTypeDto } from "@/lib/api/types"
@@ -33,7 +34,15 @@ export default function ProcedureTypesPage() {
 
   return (
     <ClinicGuard>
-      <AppShell>
+      <AppShell contentClassName="space-y-6">
+        {/* The page had NO title: it rendered straight into the table, whose 16px `CardTitle` was then the
+            largest text on the screen, and the route's zone eyebrow and icon never appeared. No `zone` prop —
+            `PageHeader` derives it from the route. */}
+        <PageHeader
+          title="Types de procédures"
+          subtitle="Le catalogue d'actes qui alimente l'agenda, les devis et les fiches de soins."
+        />
+
         <ProcedureTypesTable key={refreshKey} onEdit={handleEdit} onAdd={handleAdd} />
 
         <ProcedureTypeFormModal

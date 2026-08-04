@@ -132,26 +132,68 @@ public static class DentalActCatalogSeed
             ("DCH050160", "Orthopédie des malformations — en période d'attente", OrthopedieDentoFaciale, true),
 
             // Section VI — Prothèse dentaire (adjointe)
-            ("DCH060010", "Prothèse adjointe — appareillage de 1 à 3 dents", Prothese, true),
-            ("DCH060020", "Prothèse adjointe — par dent supplémentaire", Prothese, true),
-            ("DCH060030", "Appareillage complet haut et bas", Prothese, true),
-            ("DCH060040", "Dent prothétique contre-plaquée sur plaque base plastique (supplément)", Prothese, true),
-            ("DCH060050", "Plaque base métallique coulée (supplément)", Prothese, true),
-            ("DCH060060", "Dent prothétique contreplaquée/massive soudée sur plaque base métallique (supplément)", Prothese, true),
-            ("DCH060070", "Réparation de fracture sur plaque base plastique", Prothese, true),
-            ("DCH060080", "Dents/crochets ajoutés/remplacés sur appareil plastique — premier élément", Prothese, true),
-            ("DCH060090", "Dents/crochets ajoutés/remplacés — élément suivant", Prothese, true),
-            ("DCH060100", "Dents/crochets soudés, ajoutés/remplacés sur appareil métallique (par élément)", Prothese, true),
-            ("DCH060110", "Réparation de fracture de la plaque base métallique", Prothese, true),
-            ("DCH060120", "Dents/crochets remontés sur plastique après réparation", Prothese, true),
-            ("DCH060130", "Rebasage", Prothese, true),
-            ("DCH060140", "Prothèse avec attachement (par élément)", Prothese, true),
-            ("DCH060150", "Remplacement de facette ou dent à tube", Prothese, true),
+            //
+            // ⚠️ Every row here shipped as `RequiresAccordPrealable = true` and is now `false`. Since **April
+            // 2019** dental prostheses are covered *hors plafond* and **without** a demande d'accord préalable —
+            // consistent with the convention's art. 7 « ou hors plafond » wording (sourced: Tunisian press;
+            // graded **Likely**, no primary arrêté retrieved). The flag now reaches the BS1 editor, so a wrong
+            // flag is a wrong warning printed in front of the patient rather than a dormant column.
+            //
+            // ⚠️ `Parodontologie` and `OrthopedieDentoFaciale` are deliberately left flagged exactly as they
+            // were. The convention (art. 24) confirms the *mechanism* in detail, but **which act families need
+            // it is fixed by an arrêté conjoint the research could not retrieve** — so the sourced correction is
+            // applied and the rest is left alone. Do not invent the list; the admin screen says it is
+            // unverified and the flag is editable per clinic.
+            ("DCH060010", "Prothèse adjointe — appareillage de 1 à 3 dents", Prothese, false),
+            ("DCH060020", "Prothèse adjointe — par dent supplémentaire", Prothese, false),
+            ("DCH060030", "Appareillage complet haut et bas", Prothese, false),
+            ("DCH060040", "Dent prothétique contre-plaquée sur plaque base plastique (supplément)", Prothese, false),
+            ("DCH060050", "Plaque base métallique coulée (supplément)", Prothese, false),
+            ("DCH060060", "Dent prothétique contreplaquée/massive soudée sur plaque base métallique (supplément)", Prothese, false),
+            ("DCH060070", "Réparation de fracture sur plaque base plastique", Prothese, false),
+            ("DCH060080", "Dents/crochets ajoutés/remplacés sur appareil plastique — premier élément", Prothese, false),
+            ("DCH060090", "Dents/crochets ajoutés/remplacés — élément suivant", Prothese, false),
+            ("DCH060100", "Dents/crochets soudés, ajoutés/remplacés sur appareil métallique (par élément)", Prothese, false),
+            ("DCH060110", "Réparation de fracture de la plaque base métallique", Prothese, false),
+            ("DCH060120", "Dents/crochets remontés sur plastique après réparation", Prothese, false),
+            ("DCH060130", "Rebasage", Prothese, false),
+            ("DCH060140", "Prothèse avec attachement (par élément)", Prothese, false),
+            ("DCH060150", "Remplacement de facette ou dent à tube", Prothese, false),
         };
 
         return raw
             .Select(r => new ActSeed(DeterministicGuid($"dental-act:{r.Code}"), r.Code, r.Designation, r.Cat, r.Ap))
             .ToList();
+    }
+
+    /// <summary>
+    /// True when <paramref name="codeActe"/> is an act this seed once shipped as requiring an accord préalable and
+    /// no longer does — i.e. the rows the startup correction may clear on an already-seeded clinic.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Derived from the table above (a Prothèse act now flagged <c>false</c>) rather than a second hand-written
+    /// list of the fifteen <c>DCH06…</c> codes, which would have to be kept in step with it by hand.
+    /// </para>
+    /// <para>
+    /// ⚠️ Same predicate discipline as <c>CnamCatalogSeed.SupersededLetterValue</c>: this only says the seeded
+    /// default *was* wrong. The correction must additionally require the row to be untouched since seeding
+    /// (<c>UpdatedAt == null</c>), still provisional, and still carrying the wrong flag — a clinic that has
+    /// deliberately re-flagged an act keeps its own answer.
+    /// </para>
+    /// </remarks>
+    public static bool SupersededAccordPrealable(string? codeActe)
+    {
+        if (string.IsNullOrWhiteSpace(codeActe))
+        {
+            return false;
+        }
+
+        var trimmed = codeActe.Trim();
+        return Acts.Any(a =>
+            string.Equals(a.CodeActe, trimmed, StringComparison.OrdinalIgnoreCase)
+            && a.Category == Prothese
+            && !a.RequiresAccordPrealable);
     }
 
     /// <summary>

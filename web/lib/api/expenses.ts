@@ -38,8 +38,13 @@ export const expensesApi = {
    * `runningBalance` always describe the whole period, so « Solde de la période » keeps meaning the same thing on
    * page 3 as on page 1.
    */
+  /**
+   * @param params.method Optional `PaymentMethod` storage key (`Cash`/`Cheque`/`Card`/`Transfer`) — L8 slice B's
+   *   « ne montre que les chèques ». ⚠️ Applied server-side **after** the running balance, for the same reason as
+   *   `search`. A movement with no method at all (a legacy avoir) leaves the list under any filter.
+   */
   caisseLedger: async (
-    params: PageParams & { from?: string; to?: string } = {},
+    params: PageParams & { from?: string; to?: string; method?: string } = {},
   ): Promise<CaisseLedgerDto> =>
     apiGet<CaisseLedgerDto>('/billing/caisse/ledger', params),
 };

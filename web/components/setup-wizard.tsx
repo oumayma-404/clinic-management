@@ -5,6 +5,7 @@ import type React from "react"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
@@ -256,7 +257,12 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
   ]
 
   return (
-    <div className="min-h-dvh bg-gradient-to-br from-accent via-white to-slate-50 dark:from-slate-950 dark:to-slate-900 flex items-center justify-center p-6">
+    /*
+     * `bg-background`, not a two-stop gradient with a hand-written `dark:` pair. This is the very first screen
+     * a clinic ever sees; the gradient it carried was the app's own theme being ignored on the one page that
+     * sets the impression for everything after it.
+     */
+    <div className="min-h-dvh bg-background flex items-center justify-center p-6">
       <div className="w-full max-w-4xl">
         {/* Header */}
         <div className="text-center space-y-3 mb-8">
@@ -292,17 +298,17 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                 <div
                   className={`w-12 h-12 rounded-full flex items-center justify-center border-2 transition-all ${
  currentStep > step.number
-                      ? "bg-primary border-primary text-white"
+                      ? "bg-primary border-primary text-primary-foreground"
                       : currentStep === step.number
                         ? "bg-accent border-primary text-primary ring-4 ring-primary/20"
-                        : "bg-white border-gray-300 text-gray-400"
+                        : "bg-card border-border text-muted-foreground"
                   }`}
                 >
                   {currentStep > step.number ? <CheckCircle2 className="w-6 h-6" /> : step.number}
                 </div>
                 <div className="mt-2 text-center">
                   <p
-                    className={`text-sm font-medium ${currentStep >= step.number ? "text-accent-foreground" : "text-gray-400"}`}
+                    className={`text-sm font-medium ${currentStep >= step.number ? "text-accent-foreground" : "text-muted-foreground"}`}
                   >
                     {step.title}
                   </p>
@@ -310,7 +316,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                 </div>
               </div>
               {index < steps.length - 1 && (
-                <div className={`w-16 h-0.5 mb-12 mx-2 ${currentStep > step.number ? "bg-primary" : "bg-gray-300"}`} />
+                <div className={`w-16 h-0.5 mb-12 mx-2 ${currentStep > step.number ? "bg-primary" : "bg-border"}`} />
               )}
             </div>
           ))}
@@ -418,12 +424,21 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                           fill
                           className="object-cover"
                         />
+                        {/*
+                          `type="button"` because this sits in a form-shaped step and an untyped button
+                          submits; `touch-target` because the painted control is 20×20 and it is the ONLY way
+                          to undo a mis-picked logo; `aria-label` because the icon is its whole content.
+                          `clinic-settings.tsx`'s equivalent already does all three — this one is the copy
+                          that never got them.
+                        */}
                         <button
+                          type="button"
                           onClick={() => {
                             setLogoPreview(null)
                             setLogoFile(null)
                           }}
-                          className="absolute top-1 right-1 p-1 bg-destructive rounded-full text-white hover:bg-destructive/90"
+                          aria-label="Supprimer le logo"
+                          className="touch-target absolute top-1 right-1 p-1 bg-destructive rounded-full text-destructive-foreground hover:bg-destructive/90"
                         >
                           <X className="w-3 h-3" />
                         </button>
@@ -512,18 +527,24 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
 
                     {/* Single-dentist cabinet: the admin is usually the practitioner too. When enabled, a
                         linked Doctor record is created so their cachet / CNOMDT ordre + "Mon profil" work. */}
+                    {/*
+                      `ui/checkbox.tsx`, not a raw `<input type="checkbox">`. The coarse-pointer floor in
+                      `globals.css` deliberately EXCLUDES `[type=checkbox]` because the primitive is supposed
+                      to carry `touch-target` itself — so hand-rolling one gets neither, leaving a 16×16 tap
+                      target. A `<Label htmlFor>` replaces the wrapping `<label>` for the same reason the rest
+                      of this wizard uses one.
+                    */}
                     <div className="pt-4 border-t space-y-4">
-                      <label className="flex items-center gap-3 cursor-pointer">
-                        <input
-                          type="checkbox"
+                      <div className="flex items-center gap-3">
+                        <Checkbox
+                          id="admin-is-practitioner"
                           checked={adminIsPractitioner}
-                          onChange={(e) => setAdminIsPractitioner(e.target.checked)}
-                          className="w-4 h-4 rounded border-gray-300"
+                          onCheckedChange={(checked) => setAdminIsPractitioner(checked === true)}
                         />
-                        <span className="text-sm font-medium">
+                        <Label htmlFor="admin-is-practitioner" className="text-sm font-medium cursor-pointer">
                           Je suis aussi le praticien (dentiste) de ce cabinet
-                        </span>
-                      </label>
+                        </Label>
+                      </div>
 
                       {adminIsPractitioner && (
                         <div className="space-y-2">
@@ -655,34 +676,48 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                 </div>
 
                 <div className="space-y-3">
+                  {/*
+                    `flex-wrap` + no fixed width on the time pair. The row is a `w-32` day column plus two
+                    `w-36` fields with no wrap: on a 390px phone the content box is ~246px, so both fields
+                    were squeezed to ~33px — of which `px-3` takes 24 — and the opening and closing hours
+                    became unreadable on the LAST step of first-run setup, seven rows over. Wrapping lets the
+                    pair drop onto its own full-width line instead of shrinking.
+
+                    `bg-muted/40`: the class here was `bg-accent/30/10`, a double opacity modifier that
+                    Tailwind does not parse — so the row has in fact been painting nothing at all.
+                  */}
                   {weekdays.map((day) => (
-                    <div key={day} className="flex items-center gap-4 p-4 rounded-lg bg-accent/30/10">
+                    <div key={day} className="flex flex-wrap items-center gap-4 p-4 rounded-lg bg-muted/40">
                       <div className="flex items-center gap-3 w-32">
-                        <input
-                          type="checkbox"
+                        <Checkbox
                           id={`day-${day}`}
                           checked={workingHours[day].enabled}
-                          onChange={() => toggleWorkingDay(day)}
-                          className="w-4 h-4 rounded border-gray-300"
+                          onCheckedChange={() => toggleWorkingDay(day)}
                         />
                         <Label htmlFor={`day-${day}`} className="text-sm font-medium cursor-pointer">
                           {weekdayLabelsFr[day] ?? day}
                         </Label>
                       </div>
                       {workingHours[day].enabled && (
-                        <div className="flex items-center gap-3 flex-1">
+                        <div className="flex w-full items-center gap-3 sm:w-auto sm:flex-1">
+                          <Label htmlFor={`day-${day}-from`} className="sr-only">
+                            {`Heure d'ouverture — ${weekdayLabelsFr[day] ?? day}`}
+                          </Label>
                           <Input
+                            id={`day-${day}-from`}
                             type="time"
                             value={workingHours[day].from}
                             onChange={(e) => updateWorkingHours(day, "from", e.target.value)}
-                            className="w-36"
                           />
                           <span className="text-muted-foreground text-sm">à</span>
+                          <Label htmlFor={`day-${day}-to`} className="sr-only">
+                            {`Heure de fermeture — ${weekdayLabelsFr[day] ?? day}`}
+                          </Label>
                           <Input
+                            id={`day-${day}-to`}
                             type="time"
                             value={workingHours[day].to}
                             onChange={(e) => updateWorkingHours(day, "to", e.target.value)}
-                            className="w-36"
                           />
                         </div>
                       )}
@@ -718,7 +753,14 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                   <ChevronRight className="w-4 h-4 ml-2" />
                 </Button>
               ) : (
-                <Button onClick={handleComplete} disabled={isLoading} className="bg-green-600 hover:bg-green-700">
+                /*
+                  The default (primary) fill, not `bg-green-600`. There is deliberately no solid-success
+                  token: `--success` is an INK meant for `--success-wash`, and at its dark-mode step
+                  (L 0.70) white type on it measures ~2.6:1 — so "convert the green button to `bg-success`"
+                  would have shipped an unreadable CTA. The completion signal is carried by the check icon
+                  and « Terminer la configuration », which is where it belongs.
+                */
+                <Button onClick={handleComplete} disabled={isLoading}>
                   {isLoading ? (
                     "Création…"
                   ) : (

@@ -35,6 +35,7 @@ public class UpdatePatientCommand : IRequest<Result<PatientDto>>
     /// <summary>
     /// Tri-state, same mechanism as <c>UpdateAppointmentCommand</c>: omit the key to leave the value alone,
     /// send an explicit <c>null</c> (or an empty string) to clear it, send a value to set it.
+    /// <see cref="Address"/> carries the same mechanism, for the same reason.
     ///
     /// <para>
     /// Plain nullability is not enough. The old handler read "blank ⇒ keep the existing value", so once a
@@ -63,7 +64,30 @@ public class UpdatePatientCommand : IRequest<Result<PatientDto>>
 
     [JsonIgnore]
     public bool PhoneNumberSpecified { get; private set; }
-    public AddressDto? Address { get; set; }
+
+    /// <summary>
+    /// The postal address, tri-state like <see cref="Email"/>: omit the key to leave it alone, send an explicit
+    /// <c>null</c> to clear it, send a block to set it.
+    ///
+    /// <para>
+    /// ⚠️ It reached the same defect the contact fields did, from the other direction. The edit dialog builds the
+    /// block only when at least one of the four inputs is non-blank and sent <c>undefined</c> otherwise, while this
+    /// handler read a missing block as "keep the stored one" — so **emptying the address boxes silently did
+    /// nothing**, exactly as emptying the e-mail box once did. Found by the L1b payload audit, not by a report:
+    /// the fields that carried it clinically (allergies, antécédents) are the ones that made it worth auditing the
+    /// whole literal.
+    /// </para>
+    /// </summary>
+    public AddressDto? Address
+    {
+        get => _address;
+        set { _address = value; AddressSpecified = true; }
+    }
+    private AddressDto? _address;
+
+    [JsonIgnore]
+    public bool AddressSpecified { get; private set; }
+
     public InsuranceInfoDto? InsuranceInfo { get; set; }
     public CnamInfoDto? CnamInfo { get; set; }
     public string? MedicalHistory { get; set; }
@@ -149,7 +173,7 @@ public class UpdatePatientCommandHandler : IRequestHandler<UpdatePatientCommand,
             // any more — it has its own tri-state block below, and routing it through UpdatePersonalInfo (six
             // positional parameters) would rewrite name, birth date, gender and address on every contact edit.
             if (request.FirstName != null || request.LastName != null || request.DateOfBirth.HasValue ||
-                request.Gender != null || request.Address != null)
+                request.Gender != null || request.AddressSpecified)
             {
                 var firstName = request.FirstName ?? patient.FirstName;
                 var lastName = request.LastName ?? patient.LastName;
@@ -166,8 +190,15 @@ public class UpdatePatientCommandHandler : IRequestHandler<UpdatePatientCommand,
 
                 var gender = request.Gender ?? patient.Gender;
 
-                Address? address = null;
-                if (request.Address != null)
+                // Tri-state: an unspecified block keeps the stored address, a specified `null` clears it, a
+                // specified block replaces it. `request.Address != null` was the whole bug — it made "clear"
+                // and "leave alone" the same request.
+                Address? address;
+                if (!request.AddressSpecified)
+                {
+                    address = patient.Address;
+                }
+                else if (request.Address != null)
                 {
                     address = new Address(
                         request.Address.Street,
@@ -178,7 +209,7 @@ public class UpdatePatientCommandHandler : IRequestHandler<UpdatePatientCommand,
                 }
                 else
                 {
-                    address = patient.Address;
+                    address = null;
                 }
 
                 patient.UpdatePersonalInfo(
@@ -298,54 +329,17 @@ public class UpdatePatientCommandHandler : IRequestHandler<UpdatePatientCommand,
             await _patientRepository.UpdateAsync(patient, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            // Map to DTO
-            var dto = new PatientDto
-            {
-                Id = patient.Id,
-                ClinicId = patient.ClinicId,
-                FirstName = patient.FirstName,
-                LastName = patient.LastName,
-                DateOfBirth = patient.DateOfBirth,
-                Gender = patient.Gender,
-                Dentition = patient.Dentition.ToString(),
-                Email = patient.Email?.Value,
-                PhoneNumber = patient.PhoneNumber?.Value,
-                MedicalHistory = patient.MedicalHistory,
-                Allergies = patient.Allergies,
-                EmergencyContactName = patient.EmergencyContactName,
-                EmergencyContactPhone = patient.EmergencyContactPhone?.Value,
-                ReferredBy = patient.ReferredBy,
-                Notes = patient.Notes,
-                ImportantNotes = patient.ImportantNotes,
-                CreatedAt = patient.CreatedAt,
-                Version = patient.Version,
-                Address = patient.Address != null ? new AddressDto
-                {
-                    Street = patient.Address.Street,
-                    City = patient.Address.City,
-                    State = patient.Address.State,
-                    ZipCode = patient.Address.ZipCode,
-                    Country = patient.Address.Country
-                } : null,
-                InsuranceInfo = patient.InsuranceInfo != null ? new InsuranceInfoDto
-                {
-                    Provider = patient.InsuranceInfo.Provider,
-                    PolicyNumber = patient.InsuranceInfo.PolicyNumber,
-                    GroupNumber = patient.InsuranceInfo.GroupNumber,
-                    ExpiryDate = patient.InsuranceInfo.ExpiryDate
-                } : null,
-                CnamInfo = patient.CnamInfo.ToDto(),
-                Flags = patient.Flags.Select(f => new PatientFlagDto
-                {
-                    Id = f.Id,
-                    FlagType = f.FlagType.ToString(),
-                    Description = f.Description,
-                    Notes = f.Notes,
-                    IsActive = f.IsActive
-                }).ToList()
-            };
-
-            return Result<PatientDto>.Success(dto);
+            /*
+             * The shared mapper, not a fifth hand-written copy.
+             *
+             * ⚠️ This is load-bearing for L1b, not tidiness. The client now applies **this response** to its
+             * local state instead of spreading its own request over the previous patient — which is what stops
+             * the UI showing a value the server rejected. That only works if the response is complete, and the
+             * copy that used to live here omitted `IsArchived` / `ArchivedAt` / `ArchiveReason`: applying it
+             * would have made « Ce patient est archivé » disappear from the page on every unrelated save.
+             * `PatientMappingExtensions` exists for exactly this reason and says so in its own doc block.
+             */
+            return Result<PatientDto>.Success(patient.ToDto());
         }
         catch (Exception ex) when (ex is not ConflictException)
         {

@@ -54,6 +54,11 @@ function saveSnooze(map: SnoozeMap): void {
  * visit; "Plus tard" snoozes it client-side without marking it read. Mounted once in the dashboard header,
  * so it is present on every authenticated page.
  *
+ * Three surfaces by device, not one scaled three ways: a **dialog** with a mouse, a **toast** on a tablet, and on
+ * a **phone nothing at all** — there the header bell is the whole prompt. It can be nothing on a phone because it
+ * never was the only channel: the review is a real `StaffNotification` (`NotificationCategory.PostVisitReview`),
+ * so the bell already lists it and its row deep-links to the same destination the button here does.
+ *
  * ⚠️ **Every way of dismissing it — « Plus tard », the ✕, Escape, a click outside — goes through one
  * `handleLater`, and the dialog's `open` is gated on a local `dismissed` flag rather than on the snooze map
  * alone.** Visibility used to be derived purely from the snooze, so closing depended on a five-step chain
@@ -89,6 +94,17 @@ export function PostVisitReviewPopup() {
    * a width test would have left the modal exactly where it hurts most.
    */
   const isCoarse = useMediaQuery("(pointer: coarse)")
+  /**
+   * On a phone this component prompts **not at all** — the review is a `StaffNotification` like any other, so it
+   * is already in the header bell, with a row that deep-links to the same add-record destination this would.
+   *
+   * ⚠️ This is a *width* test where the one above is a *pointer* test, and both are right. What makes a modal
+   * wrong on a tablet is the finger; what makes any unsolicited prompt wrong on a phone is that there is one
+   * screen, and an interruption on it is the whole screen — a reminder that is never urgent does not get to
+   * spend that, when a badge on the bell says the same thing and waits. A tablet keeps the toast: it has the
+   * room to show a prompt beside what the user is doing.
+   */
+  const isPhone = useMediaQuery("(max-width: 767px)")
 
   const mountedRef = useRef(true)
   useEffect(() => {
@@ -104,8 +120,14 @@ export function PostVisitReviewPopup() {
     setNow(Date.now())
   }, [])
 
+  /*
+   * ⚠️ `isPhone` is gated **here**, not at each call site, so the mount fetch, the 60-second interval and the
+   * realtime handler all stop together. A phone renders no prompt, and a component that renders nothing has no
+   * business asking the server for pending reviews once a minute on all 24 routes — the bell does its own
+   * fetching, and this one would be paid for on mobile data to display nothing.
+   */
   const refetch = useCallback(async () => {
-    if (!user) return
+    if (!user || isPhone) return
     try {
       const list = await notificationsApi.pendingReviews()
       if (mountedRef.current) {
@@ -118,15 +140,15 @@ export function PostVisitReviewPopup() {
     } catch {
       // Best-effort — a failed poll must never surface an error over the app.
     }
-  }, [user])
+  }, [user, isPhone])
 
-  // Poll on mount + on an interval while authenticated.
+  // Poll on mount + on an interval while authenticated (never on a phone — nothing consumes the result).
   useEffect(() => {
-    if (!user) return
+    if (!user || isPhone) return
     void refetch()
     const id = window.setInterval(() => void refetch(), POLL_INTERVAL_MS)
     return () => window.clearInterval(id)
-  }, [user, refetch])
+  }, [user, isPhone, refetch])
 
   // A generation/removal broadcast (e.g. a review became due or was fulfilled) refetches promptly.
   useClinicRealtime(RealtimeResource.Notifications, () => {
@@ -199,10 +221,11 @@ export function PostVisitReviewPopup() {
   }, [active, snooze])
 
   /*
-   * AC-27 — on a coarse pointer this is a **toast with an action, not a sheet**.
+   * AC-27 — on a coarse pointer **that has the room for it** (a tablet) this is a **toast with an action, not a
+   * sheet**. On a phone there is no prompt at all; see `isPhone`.
    *
-   * It is mounted in the header, so it fires on all 24 routes and re-polls every 60 s. As a modal on a phone
-   * that means the app can seize the whole screen while the user is mid-task, on a *reminder* — the one
+   * It is mounted in the header, so it fires on all 24 routes and re-polls every 60 s. As a modal on a touch
+   * device that means the app can seize the whole screen while the user is mid-task, on a *reminder* — the one
    * notification class that is never urgent. A toast says the same thing without taking the screen.
    *
    * ⚠️ Three constraints this has to respect, all of them already load-bearing above:
@@ -217,7 +240,9 @@ export function PostVisitReviewPopup() {
    *   stacks, which the 60-second poll would otherwise do.
    */
   useEffect(() => {
-    if (!isCoarse || active === null || dismissed) return
+    // `isPhone` is redundant while `refetch` keeps `reviews` empty there — and stated anyway, because a guard
+    // that depends on another guard's side effect is the kind of thing a later change quietly removes.
+    if (isPhone || !isCoarse || active === null || dismissed) return
     if (document.body.hasAttribute("data-sheet-open") || document.body.hasAttribute("data-scroll-locked")) return
 
     toast(active.title ?? "Compte rendu de visite", {
@@ -229,10 +254,11 @@ export function PostVisitReviewPopup() {
       onDismiss: handleLater,
       onAutoClose: handleLater,
     })
-  }, [isCoarse, active, dismissed, handleAddRecord, handleLater])
+  }, [isPhone, isCoarse, active, dismissed, handleAddRecord, handleLater])
 
-  // On a coarse pointer the toast above *is* the prompt; rendering the dialog too would show both.
-  if (isCoarse) return null
+  // On a phone the header bell *is* the prompt; on a tablet the toast above is. Either way the dialog would be
+  // a second copy of a reminder the user has already been given.
+  if (isPhone || isCoarse) return null
 
   return (
     <Dialog

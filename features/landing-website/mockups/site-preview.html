@@ -1,0 +1,2554 @@
+<title>Gestion Clinique — maquettes v3 du site vitrine</title>
+
+<style>
+/* ============================================================================
+   Site vitrine « Gestion Clinique » — v3
+   Exécution de facture « site produit haut de gamme » (référence : apple.com)
+   ----------------------------------------------------------------------------
+   v1 était trop dense, v2 trop vide et ses titres trop maigres. v3 reprend la
+   matière de v1 et lui applique une exécution de site produit :
+
+   1. TYPE LOURD ET SERRÉ, pas maigre. Les grands titres sont en 600 avec un
+      crénage NÉGATIF (-0,025em) : c'est ce qui fait « haut de gamme ». Le
+      crénage est fonction de la taille — serré en grand, neutre en courant,
+      légèrement ouvert en petit. Jamais une valeur unique.
+   2. BANDES PLEINE LARGEUR ALTERNÉES, clair / presque noir. C'est le rythme
+      qui structure la page, à la place des filets.
+   3. RÉVÉLATION AU DÉFILEMENT, sobre : opacité + 24 px de montée, décalée.
+      Uniquement transform/opacity (propriétés compositables).
+   4. CHROME TRANSLUCIDE : la barre de navigation est un matériau, le contenu
+      défile dessous. Le filet n'apparaît qu'une fois la page défilée.
+   5. Réponse au POINTER-DOWN : scale(0.97) instantané sur les boutons.
+
+   Neutres : ceux d'un site produit haut de gamme (#fbfbfd / #1d1d1f / #6e6e73 /
+   #d2d2d7), délibérément, parce que c'est la référence demandée. L'accent reste
+   le teal du produit (--primary de web/app/globals.css) : le site et
+   l'application sont la même marque.
+   ========================================================================== */
+
+:root {
+  --bg: #fbfbfd;
+  --surface: #ffffff;
+  --ink: #1d1d1f;
+  --ink-2: #6e6e73;
+  --hair: #d2d2d7;
+
+  /* L'accent : --primary du produit, inchangé. */
+  --teal: oklch(0.49 0.105 188);
+  --teal-2: oklch(0.42 0.095 190);      /* survol : un cran plus sombre */
+
+  /* La bande sombre est un décor de section, pas le thème de la page : ses
+     valeurs ne bougent donc pas avec le thème. */
+  --night: #080c0e;
+  --night-ink: #f5f5f7;
+  --night-ink-2: #98989d;
+  --night-hair: #2a2f32;
+  --night-teal: oklch(0.72 0.10 187);
+
+  --r: 20px;
+  --r-lg: 28px;
+
+  /* Police système d'abord : elle embarque déjà l'optical sizing et les tables
+     de crénage. Aucune police liée — la CSP des Artifacts bloque les CDN, et un
+     lien mort donnerait un repli silencieux. */
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
+          "Segoe UI Variable Display", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+
+  /* Une seule courbe de sortie, empruntée aux transitions d'interface : départ
+     franc, arrivée posée, aucun rebond (amorti critique). */
+  --ease: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.45, 0, 0.15, 1);
+
+  --shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 22px 56px -22px rgba(0, 0, 0, 0.16);
+  --shadow-lg: 0 4px 14px rgba(0, 0, 0, 0.05), 0 44px 100px -34px rgba(0, 0, 0, 0.28);
+
+  /* Largeurs : 980 px pour le texte — au-delà, une ligne cesse d'être lisible. */
+  --w-text: 980px;
+  --w-wide: 1240px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #000000;
+    --surface: #131316;
+    --ink: #f5f5f7;
+    --ink-2: #98989d;
+    --hair: #2c2c2e;
+    --teal: oklch(0.72 0.10 187);
+    --teal-2: oklch(0.80 0.09 187);
+    --shadow: 0 2px 8px rgba(0, 0, 0, 0.5), 0 22px 56px -22px rgba(0, 0, 0, 0.8);
+    --shadow-lg: 0 4px 14px rgba(0, 0, 0, 0.6), 0 44px 100px -34px rgba(0, 0, 0, 0.9);
+  }
+}
+/* La bascule du site gagne sur la préférence système, dans les deux sens. */
+:root[data-theme="dark"] {
+  --bg: #000000; --surface: #131316; --ink: #f5f5f7; --ink-2: #98989d; --hair: #2c2c2e;
+  --teal: oklch(0.72 0.10 187); --teal-2: oklch(0.80 0.09 187);
+  --shadow: 0 2px 8px rgba(0,0,0,0.5), 0 22px 56px -22px rgba(0,0,0,0.8);
+  --shadow-lg: 0 4px 14px rgba(0,0,0,0.6), 0 44px 100px -34px rgba(0,0,0,0.9);
+}
+:root[data-theme="light"] {
+  --bg: #fbfbfd; --surface: #ffffff; --ink: #1d1d1f; --ink-2: #6e6e73; --hair: #d2d2d7;
+  --teal: oklch(0.49 0.105 188); --teal-2: oklch(0.42 0.095 190);
+  --shadow: 0 2px 8px rgba(0,0,0,0.04), 0 22px 56px -22px rgba(0,0,0,0.16);
+  --shadow-lg: 0 4px 14px rgba(0,0,0,0.05), 0 44px 100px -34px rgba(0,0,0,0.28);
+}
+
+/* ============================== Base ============================== */
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 17px;
+  line-height: 1.55;
+  letter-spacing: -0.01em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;              /* aucune page ne part de côté */
+}
+
+a { color: inherit; text-decoration: none; }
+img, svg { max-width: 100%; }
+:focus-visible { outline: 2px solid var(--teal); outline-offset: 3px; border-radius: 4px; }
+
+/* Bandeau « maquette ». Discret : il ne fait pas partie du produit. */
+.flag {
+  display: flex; justify-content: space-between; gap: 16px;
+  padding: 6px 22px; background: var(--surface);
+  border-bottom: 1px solid var(--hair);
+  font-size: 11px; color: var(--ink-2); letter-spacing: 0.02em;
+}
+
+/* ============================== Structure ============================== */
+.wrap { max-width: var(--w-text); margin: 0 auto; padding: 0 22px; }
+.wrap-wide { max-width: var(--w-wide); margin: 0 auto; padding: 0 22px; }
+
+section { padding: clamp(76px, 9.5vw, 132px) 0; position: relative; }
+section.pt-0 { padding-top: 0; }
+section.tight { padding: clamp(52px, 6vw, 84px) 0; }
+
+/* La bande sombre : le dispositif de rythme du site. Pleine largeur, valeurs
+   fixes (c'est un décor, pas le thème). */
+.night {
+  background: var(--night); color: var(--night-ink);
+}
+.night .lede, .night .body, .night .fine { color: var(--night-ink-2); }
+.night .eyebrow { color: var(--night-teal); }
+.night .accent { color: var(--night-teal); }
+.night .hair { background: var(--night-hair); }
+.night .btn-ghost { color: var(--night-ink); border-color: rgba(255, 255, 255, 0.28); }
+.night .btn-ghost:hover { border-color: rgba(255, 255, 255, 0.55); }
+.night .card { background: rgba(255, 255, 255, 0.045); border-color: var(--night-hair); }
+.night .frame { background: #0e1315; border-color: var(--night-hair); }
+
+.hair { height: 1px; background: var(--hair); border: 0; margin: 0; }
+
+/* ============================== Typographie ============================== */
+/* Le crénage suit la taille : serré en grand, neutre en courant, ouvert en
+   petit. Une valeur unique serait fausse quelque part. */
+h1, h2, h3, h4 { margin: 0; font-weight: 600; }
+
+.display {
+  font-size: clamp(40px, 7vw, 88px);
+  line-height: 1.04;
+  letter-spacing: -0.028em;
+  font-weight: 600;
+}
+.title {
+  font-size: clamp(30px, 4.4vw, 56px);
+  line-height: 1.08;
+  letter-spacing: -0.022em;
+}
+.title-s {
+  font-size: clamp(22px, 2.4vw, 30px);
+  line-height: 1.15;
+  letter-spacing: -0.018em;
+}
+.h-card { font-size: 21px; line-height: 1.25; letter-spacing: -0.014em; font-weight: 600; }
+
+h1, h2, h3, .lede { text-wrap: balance; }
+p { margin: 0; text-wrap: pretty; }
+
+/* L'eyebrow d'un site produit : pas une étiquette monospace, mais une ligne
+   courte en gras dans la couleur d'accent. */
+.eyebrow {
+  font-size: clamp(15px, 1.5vw, 19px);
+  font-weight: 600; letter-spacing: -0.008em;
+  color: var(--teal);
+}
+
+.lede {
+  font-size: clamp(18px, 1.9vw, 25px);
+  line-height: 1.42; letter-spacing: -0.012em;
+  color: var(--ink-2); max-width: 34ch;
+}
+.lede.wide { max-width: 44ch; }
+.body { font-size: 17px; line-height: 1.6; letter-spacing: -0.008em; color: var(--ink-2); max-width: 62ch; }
+.small { font-size: 15px; line-height: 1.5; letter-spacing: 0; color: var(--ink-2); }
+
+/* Petit texte : crénage LÉGÈREMENT POSITIF — c'est la règle inverse des grands
+   titres. Sert aux réserves honnêtes, à la manière des notes de bas de page
+   d'un site produit : lisibles, jamais criées. */
+.fine {
+  font-size: 12.5px; line-height: 1.5; letter-spacing: 0.005em;
+  color: var(--ink-2); max-width: 74ch;
+}
+.fine sup { font-size: 10px; }
+
+.center { text-align: center; margin-left: auto; margin-right: auto; }
+.center .lede, .center .body, .center .fine { margin-left: auto; margin-right: auto; }
+.accent { color: var(--teal); }
+.nums { font-variant-numeric: tabular-nums; }
+
+/* ============================== Boutons ============================== */
+/* Pilules. Réponse au pointer-down : le retour est instantané, pas au relâché. */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 50px; padding: 0 26px; border-radius: 999px;
+  border: 1px solid transparent; font-family: inherit;
+  font-size: 17px; font-weight: 500; letter-spacing: -0.01em;
+  cursor: pointer; white-space: nowrap;
+  transition: transform 120ms var(--ease), background-color 260ms var(--ease),
+              border-color 260ms var(--ease), color 260ms var(--ease), opacity 260ms var(--ease);
+}
+.btn:active { transform: scale(0.97); }
+.btn-sm { min-height: 38px; padding: 0 18px; font-size: 15px; }
+
+.btn-fill { background: var(--teal); color: #fff; }
+.btn-fill:hover { background: var(--teal-2); }
+
+.btn-ghost { color: var(--ink); border-color: var(--hair); }
+.btn-ghost:hover { border-color: var(--ink-2); }
+
+/* Le lien fléché d'un site produit : le chevron avance au survol. */
+.link {
+  display: inline-flex; align-items: center; gap: 6px;
+  color: var(--teal); font-size: 17px; font-weight: 500; letter-spacing: -0.01em;
+}
+.link .chev { transition: transform 260ms var(--ease); }
+.link:hover .chev { transform: translateX(4px); }
+.night .link { color: var(--night-teal); }
+
+.actions { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
+.actions.center { justify-content: center; }
+
+/* ============================== Chrome translucide ============================== */
+/* La barre est un matériau : le contenu défile dessous. Pas de bordure tant que
+   la page n'a pas bougé — le filet n'a de sens qu'au recouvrement. */
+.nav {
+  position: sticky; top: 0; z-index: 90;
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  border-bottom: 1px solid transparent;
+  transition: border-color 320ms var(--ease), background-color 320ms var(--ease);
+}
+.nav.scrolled {
+  border-bottom-color: var(--hair);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+}
+.nav .row { display: flex; align-items: center; gap: 30px; height: 52px; max-width: var(--w-wide); margin: 0 auto; padding: 0 22px; }
+
+/* Marque : icône lucide Stethoscope + nom. C'est la marque réelle du produit —
+   il n'existe aucun fichier logo dans web/public/. */
+.brand { display: inline-flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 600; letter-spacing: -0.015em; }
+.brand .ico { color: var(--teal); width: 19px; height: 19px; }
+
+.menu { display: flex; gap: 26px; margin-left: auto; }
+.menu a { font-size: 14px; color: var(--ink); opacity: 0.82; transition: opacity 200ms var(--ease); }
+.menu a:hover { opacity: 1; }
+.menu a[aria-current="page"] { opacity: 1; font-weight: 500; }
+
+.nav .end { display: flex; align-items: center; gap: 12px; }
+.tog {
+  width: 30px; height: 30px; border-radius: 999px; border: 0;
+  background: transparent; color: var(--ink); opacity: 0.7; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: opacity 200ms var(--ease), transform 120ms var(--ease);
+}
+.tog:hover { opacity: 1; }
+.tog:active { transform: scale(0.92); }
+.burger { display: none; }
+
+/* Matériau moins translucide si l'utilisateur le demande. */
+@media (prefers-reduced-transparency: reduce) {
+  .nav { background: var(--bg); backdrop-filter: none; -webkit-backdrop-filter: none; }
+}
+
+/* ============================== Surfaces ============================== */
+/* Cadre produit : grand rayon, ombre profonde, aucun faux chrome de navigateur. */
+.frame {
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  border: 1px solid var(--hair);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--hair);
+  border-radius: var(--r);
+  padding: 28px;
+  box-shadow: var(--shadow);
+}
+
+/* Survol seulement là où il existe un vrai pointeur : sur tactile, un état de
+   survol reste collé après le toucher. */
+@media (hover: hover) and (pointer: fine) {
+  .card-i { transition: transform 420ms var(--ease), box-shadow 420ms var(--ease); }
+  .card-i:hover { transform: translateY(-6px); box-shadow: var(--shadow-lg); }
+}
+.card-i:active { transform: scale(0.995); }
+
+/* ============================== Grilles ============================== */
+.g2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: clamp(20px, 2.4vw, 30px); }
+.g3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: clamp(20px, 2.4vw, 30px); }
+.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.08fr); gap: clamp(40px, 5.5vw, 80px); align-items: center; }
+.stack { display: grid; gap: 22px; align-content: start; }
+.stack-s { display: grid; gap: 10px; align-content: start; }
+.stack-l { display: grid; gap: 38px; align-content: start; }
+
+/* ============================== Icônes ============================== */
+.ico {
+  width: 26px; height: 26px; fill: none; stroke: currentColor;
+  stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; flex: none;
+}
+.ico-s { width: 18px; height: 18px; stroke-width: 1.75; }
+.ico-l { width: 34px; height: 34px; stroke-width: 1.3; }
+
+/* ============================== Listes ============================== */
+.ticks { list-style: none; margin: 0; padding: 0; display: grid; gap: 15px; }
+.ticks li { display: flex; gap: 13px; align-items: flex-start; font-size: 16px; letter-spacing: -0.008em; }
+.ticks .ico { color: var(--teal); margin-top: 3px; }
+.night .ticks .ico { color: var(--night-teal); }
+
+/* Pastille d'état — la forme dit l'état autant que la couleur. */
+.pill {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 5px 12px; border-radius: 999px;
+  font-size: 13px; font-weight: 500; letter-spacing: 0;
+  border: 1px solid var(--hair); color: var(--ink-2);
+}
+.pill .dot { width: 6px; height: 6px; border-radius: 999px; background: currentColor; }
+.pill-on { color: var(--teal); border-color: color-mix(in srgb, var(--teal) 40%, transparent); }
+.night .pill { border-color: var(--night-hair); color: var(--night-ink-2); }
+.night .pill-on { color: var(--night-teal); border-color: color-mix(in srgb, var(--night-teal) 45%, transparent); }
+
+/* ============================== Révélation au défilement ============================== */
+/* Opacité + montée, décalée. Uniquement transform/opacity. L'état de départ
+   n'est posé que si le script tourne (classe .js sur l'élément racine) : sans JS,
+   tout reste visible. */
+.js .rise { opacity: 0; transform: translate3d(0, 26px, 0); }
+.js .rise.in {
+  opacity: 1; transform: translate3d(0, 0, 0);
+  transition: opacity 760ms var(--ease), transform 760ms var(--ease);
+}
+/* Décalage : chaque enfant part un cran après le précédent. */
+.js .rise-g > * { opacity: 0; transform: translate3d(0, 26px, 0); }
+.js .rise-g.in > * {
+  opacity: 1; transform: translate3d(0, 0, 0);
+  transition: opacity 760ms var(--ease), transform 760ms var(--ease);
+}
+.js .rise-g.in > *:nth-child(2) { transition-delay: 70ms; }
+.js .rise-g.in > *:nth-child(3) { transition-delay: 140ms; }
+.js .rise-g.in > *:nth-child(4) { transition-delay: 210ms; }
+.js .rise-g.in > *:nth-child(5) { transition-delay: 280ms; }
+.js .rise-g.in > *:nth-child(6) { transition-delay: 350ms; }
+
+/* ============================== Pied de page ============================== */
+.foot { background: var(--bg); border-top: 1px solid var(--hair); padding: 44px 0 40px; }
+.foot-cols { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 30px; }
+.foot h4 { font-size: 12.5px; font-weight: 600; letter-spacing: 0; margin-bottom: 12px; }
+.foot ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 9px; }
+.foot a { font-size: 12.5px; color: var(--ink-2); }
+.foot a:hover { color: var(--ink); text-decoration: underline; }
+.foot-end {
+  margin-top: 34px; padding-top: 18px; border-top: 1px solid var(--hair);
+  display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  font-size: 12.5px; color: var(--ink-2);
+}
+
+/* ============================== Responsive ============================== */
+@media (max-width: 1000px) {
+  .g3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .split { grid-template-columns: minmax(0, 1fr); }
+  .foot-cols { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 700px) {
+  body { font-size: 16px; }
+  .g2, .g3 { grid-template-columns: minmax(0, 1fr); }
+  .menu { display: none; }
+  .burger {
+    display: inline-flex; width: 30px; height: 30px; border-radius: 999px; border: 0;
+    background: transparent; color: var(--ink); cursor: pointer;
+    align-items: center; justify-content: center; margin-left: auto;
+  }
+  .nav .end { margin-left: 0; }
+  .lede, .lede.wide { max-width: none; }
+}
+
+/* Contenu large : défile dans son conteneur. */
+.scroll-x { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+/* ============================== Mouvement réduit ============================== */
+/* Pas « aucun retour » : un fondu court remplace la montée, et le mouvement
+   lié au défilement est neutralisé. */
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .js .rise, .js .rise-g > * { transform: none; }
+  .js .rise.in, .js .rise-g.in > * {
+    transform: none;
+    transition: opacity 240ms linear;
+    transition-delay: 0ms !important;
+  }
+  .btn, .card-i, .link .chev { transition: none; }
+  .card-i:hover { transform: none; }
+  [data-scale] { transform: none !important; }
+}
+
+
+/* ========== 01-accueil.html ========== */
+
+  /* ---------- Héro ---------- */
+  .hero { padding: clamp(56px, 8vw, 108px) 0 0; }
+  /* Le cadre grandit légèrement en entrant : c'est le seul mouvement lié au
+     défilement de la page. La montée .rise est sur le parent, le scale sur
+     l'enfant — deux transforms sur un même élément se battraient. */
+  .hero-shot { transform-origin: 50% 100%; will-change: transform; }
+
+  /* ---------- Intérieur de la capture (tableau de bord reconstitué) ---------- */
+  .shot { display: grid; grid-template-columns: 200px minmax(0, 1fr); min-height: 420px; }
+  .shot-side { border-right: 1px solid var(--hair); padding: 18px 14px; }
+  .shot-side .brand { font-size: 13.5px; margin-bottom: 18px; }
+  .shot-side .brand .ico { width: 16px; height: 16px; }
+  .si { display: flex; align-items: center; gap: 9px; padding: 7px 10px; border-radius: 9px; font-size: 13px; color: var(--ink-2); letter-spacing: 0; }
+  .si.on { background: color-mix(in srgb, var(--teal) 11%, transparent); color: var(--teal); font-weight: 500; }
+  .si .ico { width: 15px; height: 15px; stroke-width: 1.7; }
+  .sgrp { font-size: 10.5px; font-weight: 600; color: var(--ink-2); opacity: 0.65; padding: 15px 10px 5px; letter-spacing: 0.02em; }
+
+  .shot-main { padding: clamp(20px, 2.4vw, 30px); display: grid; gap: 16px; align-content: start; }
+  .shot-h { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; flex-wrap: wrap; }
+  .shot-h h4 { font-size: 19px; letter-spacing: -0.016em; }
+
+  .kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+  .kpi { border: 1px solid var(--hair); border-radius: 14px; padding: 13px 14px; background: var(--bg); }
+  .kpi .k { font-size: 11.5px; color: var(--ink-2); letter-spacing: 0; }
+  .kpi .v { font-size: 23px; font-weight: 600; letter-spacing: -0.028em; margin-top: 3px; }
+  .kpi .d { font-size: 11.5px; color: var(--teal); letter-spacing: 0; }
+  .kpi.hero-k { background: var(--teal); border-color: transparent; color: #fff; }
+  .kpi.hero-k .k, .kpi.hero-k .d { color: rgba(255, 255, 255, 0.86); }
+
+  .chart { border: 1px solid var(--hair); border-radius: 14px; padding: 15px; background: var(--bg); }
+  .chart svg { display: block; width: 100%; height: 118px; }
+
+  /* ---------- Cartes de fonctionnalité ---------- */
+  .fc { display: grid; gap: 14px; align-content: start; }
+  .fc .ico { color: var(--teal); }
+  .fc p { font-size: 15.5px; line-height: 1.55; letter-spacing: -0.006em; color: var(--ink-2); }
+
+  /* ---------- Liste connectivité (bande sombre) ---------- */
+  .conn { display: grid; }
+  .conn > div {
+    display: flex; align-items: center; justify-content: space-between; gap: 18px;
+    padding: 16px 0; border-bottom: 1px solid var(--night-hair); font-size: 16px; letter-spacing: -0.008em;
+  }
+  .conn > div:last-child { border-bottom: 0; }
+
+  /* ---------- Odontogramme ---------- */
+  .arch { display: flex; flex-wrap: wrap; gap: 5px; justify-content: center; }
+  .t {
+    position: relative; width: 30px; height: 38px; border-radius: 9px;
+    border: 1px solid var(--hair); background: var(--surface);
+    display: flex; align-items: flex-end; justify-content: center; padding-bottom: 4px;
+    font-size: 9.5px; color: var(--ink-2); letter-spacing: 0;
+    transition: transform 300ms var(--ease), border-color 300ms var(--ease);
+  }
+  .t::after { content: ""; position: absolute; top: 8px; width: 7px; height: 7px; border-radius: 999px; }
+  .t.d1 { border-color: color-mix(in srgb, var(--teal) 55%, transparent); color: var(--teal); }
+  .t.d1::after { background: var(--teal); }
+  /* Bleu clinique littéral pour l'obturation : convention de charting reprise du
+     produit, où le teal signifie déjà « bridge ». L'app la conserve exprès. */
+  .t.d2 { border-color: #6f8fd6; color: #4a6bb8; }
+  .t.d2::after { background: #6f8fd6; }
+  .t.d3 { border-color: var(--hair); color: var(--ink-2); opacity: 0.5; }
+  .t.d3::after { background: var(--ink-2); opacity: 0.45; }
+  @media (hover: hover) and (pointer: fine) { .t:hover { transform: translateY(-3px); } }
+
+  .legend { display: flex; gap: 18px; flex-wrap: wrap; justify-content: center; font-size: 12.5px; color: var(--ink-2); letter-spacing: 0; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend i { width: 8px; height: 8px; border-radius: 999px; }
+
+  /* ---------- BS1 (bande sombre) ---------- */
+  .comb { display: flex; gap: 4px; }
+  .comb i {
+    width: 30px; height: 38px; border: 1px solid var(--night-hair); border-radius: 7px;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 17px; font-style: normal; font-weight: 500; color: var(--night-ink);
+    font-variant-numeric: tabular-nums;
+  }
+  .bsrow { display: flex; align-items: baseline; justify-content: space-between; gap: 20px; padding: 14px 0; border-bottom: 1px solid var(--night-hair); }
+  .bsrow:last-child { border-bottom: 0; }
+  .bsrow b { font-size: 25px; font-weight: 600; letter-spacing: -0.026em; }
+
+  /* ---------- Faits Tunisie ---------- */
+  .fact b { display: block; font-size: clamp(34px, 4vw, 48px); font-weight: 600; letter-spacing: -0.03em; line-height: 1; }
+
+  /* ---------- Prix ---------- */
+  .price b { font-size: clamp(38px, 4.4vw, 54px); font-weight: 600; letter-spacing: -0.03em; }
+
+  @media (max-width: 1000px) {
+    .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .shot { grid-template-columns: minmax(0, 1fr); min-height: 0; }
+    .shot-side { display: none; }
+  }
+  @media (max-width: 700px) {
+    .t { width: 26px; height: 33px; }
+    .comb i { width: 25px; height: 33px; font-size: 14px; }
+  }
+
+/* ========== 02-fonctionnalites.html ========== */
+
+  /* Agenda reconstitué — trois colonnes de jour, sobre. */
+  .ag { display: grid; grid-template-columns: 42px repeat(3, minmax(0, 1fr)); font-size: 12px; letter-spacing: 0; }
+  .ag .hh { color: var(--ink-2); font-size: 10.5px; text-align: right; padding: 6px 8px 0 0; font-variant-numeric: tabular-nums; }
+  .ag .dh { font-weight: 600; font-size: 11.5px; padding: 0 0 8px 6px; }
+  .ag .c { border-left: 1px solid var(--hair); border-top: 1px solid var(--hair); min-height: 40px; padding: 4px; }
+  .sl { border-radius: 9px; padding: 6px 8px; line-height: 1.32; border-left: 3px solid var(--teal); background: color-mix(in srgb, var(--teal) 10%, transparent); }
+  .sl b { font-weight: 600; }
+  .sl.b2 { border-left-color: #6f8fd6; background: color-mix(in srgb, #6f8fd6 12%, transparent); }
+  .sl.b3 { border-left-color: #d99a3f; background: color-mix(in srgb, #d99a3f 13%, transparent); }
+  .sl .m { color: var(--ink-2); font-size: 11px; }
+
+  /* Onglets du dossier patient. */
+  .tabs { display: flex; gap: 4px; overflow-x: auto; border-bottom: 1px solid var(--hair); }
+  .tabs span { padding: 10px 12px; font-size: 13px; white-space: nowrap; color: var(--ink-2); border-bottom: 2px solid transparent; letter-spacing: 0; }
+  .tabs span.on { color: var(--ink); font-weight: 600; border-bottom-color: var(--teal); }
+
+  /* Étapes d'un devis. */
+  .st { display: flex; align-items: center; gap: 14px; padding: 13px 0; border-bottom: 1px solid var(--hair); font-size: 15px; letter-spacing: -0.006em; }
+  .st:last-child { border-bottom: 0; }
+  .st .n { width: 20px; color: var(--ink-2); font-size: 12px; font-variant-numeric: tabular-nums; flex: none; }
+  .st .nm { flex: 1; min-width: 0; }
+  .st .a { font-variant-numeric: tabular-nums; font-weight: 500; }
+
+  /* Trois chiffres d'argent. */
+  .figs { display: grid; gap: 20px; }
+  .figs > div { display: flex; align-items: baseline; justify-content: space-between; gap: 18px; }
+  .figs b { font-size: clamp(26px, 3vw, 34px); font-weight: 600; letter-spacing: -0.028em; }
+
+  .mini { display: grid; gap: 12px; }
+  .mini h3 { font-size: 17px; font-weight: 600; letter-spacing: -0.012em; }
+  .mini p { font-size: 15px; line-height: 1.55; color: var(--ink-2); letter-spacing: -0.004em; }
+  .mini .ico { color: var(--teal); }
+
+  @media (max-width: 700px) { .ag { grid-template-columns: 34px repeat(3, minmax(0, 1fr)); } }
+
+/* ========== 03-tarifs.html ========== */
+
+  .switch { display: inline-flex; gap: 3px; padding: 4px; border: 1px solid var(--hair); border-radius: 999px; }
+  .switch button {
+    border: 0; background: transparent; cursor: pointer; font-family: inherit;
+    padding: 8px 18px; border-radius: 999px; font-size: 14.5px; font-weight: 500;
+    color: var(--ink-2); letter-spacing: -0.006em;
+    transition: background-color 260ms var(--ease), color 260ms var(--ease), transform 120ms var(--ease);
+  }
+  .switch button:active { transform: scale(0.97); }
+  .switch button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+
+  .plan { display: flex; flex-direction: column; position: relative; }
+  .plan.hi { border-color: color-mix(in srgb, var(--teal) 55%, transparent); box-shadow: var(--shadow-lg); }
+  .tag {
+    position: absolute; top: -12px; left: 28px;
+    background: var(--teal); color: #fff; font-size: 12px; font-weight: 600;
+    padding: 4px 12px; border-radius: 999px; letter-spacing: 0;
+  }
+  .plan .nm { font-size: 20px; font-weight: 600; letter-spacing: -0.016em; }
+  .plan .who { font-size: 14.5px; color: var(--ink-2); margin-top: 6px; min-height: 44px; letter-spacing: -0.004em; }
+  .amt { font-size: clamp(38px, 4.2vw, 50px); font-weight: 600; letter-spacing: -0.032em; line-height: 1; }
+  .per { font-size: 15px; color: var(--ink-2); letter-spacing: 0; }
+  .pn { font-size: 13px; color: var(--ink-2); min-height: 38px; letter-spacing: 0; }
+  .plan .btn { width: 100%; }
+  .pl { list-style: none; margin: 0; padding: 0; display: grid; gap: 11px; }
+  .pl li { display: flex; gap: 11px; font-size: 14.5px; line-height: 1.5; letter-spacing: -0.004em; }
+  .pl .ico { color: var(--teal); margin-top: 3px; }
+  .pl li.no { color: var(--ink-2); }
+  .pl li.no .ico { color: var(--ink-2); opacity: 0.42; }
+  .grp { font-size: 11.5px; font-weight: 600; color: var(--ink-2); letter-spacing: 0.02em; margin: 6px 0 -2px; }
+
+  /* Comparatif : 16 lignes, pas 35. Ce qui distingue vraiment les formules. */
+  .cmp { width: 100%; border-collapse: collapse; }
+  .cmp th, .cmp td { padding: 13px 16px; text-align: left; border-bottom: 1px solid var(--hair); font-size: 14.5px; letter-spacing: -0.004em; }
+  .cmp thead th { font-size: 12.5px; font-weight: 600; color: var(--ink-2); letter-spacing: 0; }
+  .cmp td.c, .cmp th.c { text-align: center; }
+  .cmp tr.g td { background: var(--bg); font-size: 12px; font-weight: 600; color: var(--ink-2); letter-spacing: 0.02em; padding: 9px 16px; }
+  .cmp .y { color: var(--teal); }
+  .cmp .n { color: var(--ink-2); opacity: 0.4; }
+  .cmp .fn { font-weight: 500; }
+  .cmp .fn span { display: block; font-size: 12.5px; color: var(--ink-2); font-weight: 400; margin-top: 2px; letter-spacing: 0; }
+
+  .faq { border-top: 1px solid var(--hair); }
+  .faq details { border-bottom: 1px solid var(--hair); padding: 20px 0; }
+  .faq summary { cursor: pointer; font-size: 17px; font-weight: 500; letter-spacing: -0.01em; list-style: none; display: flex; justify-content: space-between; gap: 16px; align-items: center; }
+  .faq summary::-webkit-details-marker { display: none; }
+  .faq summary::after { content: "+"; color: var(--ink-2); font-size: 22px; font-weight: 300; line-height: 1; }
+  .faq details[open] summary::after { content: "−"; }
+  .faq p { margin-top: 12px; font-size: 15.5px; line-height: 1.6; color: var(--ink-2); max-width: 70ch; }
+
+/* ========== 04-cloud-vs-local.html ========== */
+
+  .mode { display: flex; flex-direction: column; gap: 22px; }
+  .mode.hi { border-color: color-mix(in srgb, var(--teal) 55%, transparent); box-shadow: var(--shadow-lg); }
+  .mode-h { display: flex; align-items: center; gap: 14px; }
+  .mode-h .ico { color: var(--teal); }
+  .mode-h .nm { font-size: 22px; font-weight: 600; letter-spacing: -0.018em; }
+  .mode-h .sub { font-size: 14px; color: var(--ink-2); margin-top: 2px; letter-spacing: 0; }
+
+  .yn { list-style: none; margin: 0; padding: 0; display: grid; gap: 13px; }
+  .yn li { display: flex; gap: 12px; font-size: 15.5px; line-height: 1.5; letter-spacing: -0.006em; }
+  .yn .ico { margin-top: 3px; }
+  .yn .ok { color: var(--teal); }
+  .yn .no { color: var(--ink-2); opacity: 0.5; }
+
+  /* Topologie dessinée en HTML : rien à maintenir comme image. */
+  .topo { display: grid; gap: 0; }
+  .box {
+    border: 1px solid var(--hair); border-radius: 14px; padding: 13px 15px;
+    display: flex; align-items: center; gap: 11px; font-size: 14px; letter-spacing: -0.004em;
+  }
+  .box.on { border-color: color-mix(in srgb, var(--teal) 45%, transparent); background: color-mix(in srgb, var(--teal) 7%, transparent); }
+  .box .ico { color: var(--teal); }
+  .box b { font-weight: 600; }
+  .box .s { display: block; font-size: 12px; color: var(--ink-2); letter-spacing: 0; }
+  .wire { height: 26px; margin-left: 28px; border-left: 1px dashed var(--hair); position: relative; }
+  .wire span { position: absolute; left: 12px; top: 4px; font-size: 11.5px; color: var(--ink-2); white-space: nowrap; letter-spacing: 0; }
+  .leaves { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .leaf { border: 1px solid var(--hair); border-radius: 11px; padding: 10px 8px; text-align: center; font-size: 12px; color: var(--ink-2); letter-spacing: 0; }
+  .leaf .ico { color: var(--ink-2); margin-bottom: 3px; }
+
+  /* Aide au choix. */
+  .dec { width: 100%; border-collapse: collapse; }
+  .dec td { padding: 16px; border-bottom: 1px solid var(--night-hair); font-size: 15.5px; verticalalign: top; vertical-align: top; letter-spacing: -0.006em; }
+  .dec tr:last-child td { border-bottom: 0; }
+  .dec .q { width: 46%; font-weight: 500; }
+  .dec .p { width: 18%; font-weight: 600; }
+  .dec .p.c { color: #7fb2e8; }
+  .dec .p.l { color: var(--night-teal); }
+  .dec .w { color: var(--night-ink-2); font-size: 14.5px; }
+
+  .step { display: flex; gap: 18px; align-items: flex-start; padding: 20px 0; border-bottom: 1px solid var(--hair); }
+  .step:last-child { border-bottom: 0; }
+  .step .n {
+    width: 30px; height: 30px; border-radius: 999px; flex: none;
+    background: color-mix(in srgb, var(--teal) 12%, transparent); color: var(--teal);
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums;
+  }
+  .step h3 { font-size: 17px; font-weight: 600; letter-spacing: -0.012em; }
+  .step p { margin-top: 5px; font-size: 15px; line-height: 1.55; color: var(--ink-2); letter-spacing: -0.004em; max-width: 66ch; }
+
+  .conn > div {
+    display: flex; align-items: center; justify-content: space-between; gap: 18px;
+    padding: 15px 0; border-bottom: 1px solid var(--hair); font-size: 15.5px; letter-spacing: -0.006em;
+  }
+  .conn > div:last-child { border-bottom: 0; }
+
+  @media (max-width: 700px) { .dec .q, .dec .p { width: auto; } }
+
+/* ========== 05-contact.html ========== */
+
+  .f { display: grid; gap: 7px; }
+  .f label { font-size: 13.5px; color: var(--ink-2); letter-spacing: 0; }
+  .f input, .f textarea, .f select {
+    font-family: inherit; font-size: 16px; color: var(--ink); letter-spacing: -0.008em;
+    background: var(--bg); border: 1px solid var(--hair); border-radius: 12px;
+    padding: 11px 13px; width: 100%;
+    transition: border-color 220ms var(--ease), box-shadow 220ms var(--ease);
+  }
+  .f textarea { resize: vertical; min-height: 96px; line-height: 1.55; }
+  .f input:focus, .f textarea:focus, .f select:focus {
+    outline: none; border-color: var(--teal);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--teal) 16%, transparent);
+  }
+  .f input:focus-visible, .f textarea:focus-visible, .f select:focus-visible { outline: none; }
+  .f input::placeholder, .f textarea::placeholder { color: var(--ink-2); opacity: 0.6; }
+
+  .pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+
+  /* Mode de déploiement : pastilles. Le choix décide du prix et de l'installation,
+     donc il est posé en clair et non enfoui dans une liste déroulante. */
+  .modes { display: flex; gap: 8px; flex-wrap: wrap; }
+  .modes label {
+    padding: 9px 16px; border-radius: 999px; border: 1px solid var(--hair);
+    font-size: 14.5px; cursor: pointer; color: var(--ink-2); letter-spacing: -0.004em;
+    transition: border-color 220ms var(--ease), color 220ms var(--ease), background-color 220ms var(--ease), transform 120ms var(--ease);
+  }
+  .modes label:hover { border-color: var(--ink-2); }
+  .modes label:active { transform: scale(0.97); }
+  .modes input { position: absolute; opacity: 0; pointer-events: none; }
+  .modes label:has(input:checked) {
+    border-color: var(--teal); color: var(--teal);
+    background: color-mix(in srgb, var(--teal) 8%, transparent);
+  }
+  .modes label:has(input:focus-visible) { outline: 2px solid var(--teal); outline-offset: 2px; }
+
+  .consent { display: flex; gap: 11px; align-items: flex-start; font-size: 13.5px; color: var(--ink-2); letter-spacing: 0; }
+  .consent input { margin-top: 3px; width: 16px; height: 16px; accent-color: var(--teal); flex: none; }
+
+  .side { display: grid; gap: 16px; }
+  .side a { display: flex; align-items: center; gap: 11px; font-size: 16px; letter-spacing: -0.008em; }
+  .side a .ico { color: var(--teal); }
+  .side a:hover { color: var(--teal); }
+
+  .stepn { display: flex; gap: 14px; align-items: flex-start; }
+  .stepn .n {
+    width: 26px; height: 26px; border-radius: 999px; flex: none;
+    background: color-mix(in srgb, var(--teal) 12%, transparent); color: var(--teal);
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums;
+  }
+  .stepn b { font-size: 15.5px; font-weight: 600; letter-spacing: -0.01em; }
+  .stepn p { font-size: 14.5px; color: var(--ink-2); margin-top: 3px; letter-spacing: -0.004em; }
+
+  @media (max-width: 700px) { .pair { grid-template-columns: minmax(0, 1fr); } }
+
+
+/* ================= Coquille de prévisualisation =================
+   N'existe pas sur le vrai site : c'est l'outil de revue. Les cinq pages vivent
+   dans un document, une seule affichée. */
+.vpage { display: none; }
+.vpage.on { display: block; }
+
+.vswitch {
+  position: fixed; z-index: 200; left: 50%; bottom: 18px; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 2px; padding: 5px;
+  border: 1px solid var(--hair); border-radius: 999px;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  box-shadow: var(--shadow);
+  max-width: calc(100vw - 20px); overflow-x: auto;
+}
+.vswitch button {
+  border: 0; background: transparent; cursor: pointer; font-family: inherit;
+  white-space: nowrap; padding: 9px 16px; border-radius: 999px;
+  font-size: 13.5px; font-weight: 500; color: var(--ink-2); letter-spacing: -0.006em;
+  transition: color 220ms var(--ease), background-color 220ms var(--ease), transform 120ms var(--ease);
+}
+.vswitch button:hover { color: var(--ink); }
+.vswitch button:active { transform: scale(0.97); }
+.vswitch button[aria-current="true"] { background: var(--ink); color: var(--bg); }
+
+/* Le sélecteur flotte au-dessus du pied de page : on lui laisse la place. */
+.foot { padding-bottom: 92px; }
+</style>
+
+
+<div class="vpage" id="p1" aria-label="Accueil">
+<div class="flag"><span>MAQUETTE v3 — Accueil</span><span>1/5</span></div>
+
+<!-- ============================ NAVIGATION ============================ -->
+<nav class="nav" aria-label="Navigation principale">
+  <div class="row">
+    <a class="brand" href="#p1">
+      <!-- lucide: stethoscope — la marque réelle du produit (dashboard-sidebar.tsx) -->
+      <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.8 2.3A.3.3 0 1 0 5 2H4a2 2 0 0 0-2 2v5a6 6 0 0 0 6 6a6 6 0 0 0 6-6V4a2 2 0 0 0-2-2h-1a.2.2 0 1 0 .3.3"/><path d="M8 15v1a6 6 0 0 0 6 6a6 6 0 0 0 6-6v-4"/><circle cx="20" cy="10" r="2"/></svg>
+      Gestion Clinique
+    </a>
+    <div class="menu">
+      <a href="#p2">Fonctionnalités</a>
+      <a href="#p4">Cloud ou Local</a>
+      <a href="#p3">Tarifs</a>
+      <a href="#p5">Contact</a>
+    </div>
+    <div class="end">
+      <button class="tog" data-theme-toggle aria-label="Basculer le thème sombre">
+        <svg class="ico ico-s" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4"/></svg>
+      </button>
+      <a class="btn btn-fill btn-sm" href="#p5">Demander une démo</a>
+    </div>
+    <button class="burger" aria-label="Ouvrir le menu">
+      <svg class="ico ico-s" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+    </button>
+  </div>
+</nav>
+
+<!-- ============================ 1 · HÉRO ============================ -->
+<section class="hero">
+  <div class="wrap center rise">
+    <p class="eyebrow">Cabinets et cliniques dentaires · Tunisie</p>
+    <h1 class="display" style="margin: 14px 0 0;">Tout le cabinet.<br>Un seul logiciel.</h1>
+    <p class="lede wide center" style="margin-top: 22px;">
+      Agenda, dossiers, schéma dentaire, devis, facturation et bulletins CNAM.
+      Au même endroit — et le cabinet continue de tourner quand internet tombe.
+    </p>
+    <div class="actions center" style="margin-top: 30px;">
+      <a class="btn btn-fill" href="#p5">Demander une démo</a>
+      <a class="link" href="#p2">
+        Découvrir les fonctionnalités
+        <svg class="ico ico-s chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
+      </a>
+    </div>
+  </div>
+
+  <div class="wrap-wide rise" style="margin-top: clamp(44px, 5.5vw, 76px);">
+    <div class="frame hero-shot" data-scale>
+      <div class="shot">
+        <!-- Barre latérale : les libellés et les icônes réels du produit. -->
+        <aside class="shot-side">
+          <span class="brand">
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.8 2.3A.3.3 0 1 0 5 2H4a2 2 0 0 0-2 2v5a6 6 0 0 0 6 6a6 6 0 0 0 6-6V4a2 2 0 0 0-2-2h-1a.2.2 0 1 0 .3.3"/><path d="M8 15v1a6 6 0 0 0 6 6a6 6 0 0 0 6-6v-4"/><circle cx="20" cy="10" r="2"/></svg>
+            Cabinet Ben Salah
+          </span>
+          <div class="sgrp">Quotidien</div>
+          <div class="si on">
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>
+            Tableau de bord
+          </div>
+          <div class="si">
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+            Rendez-vous
+          </div>
+          <div class="si">
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+            Patients
+          </div>
+          <div class="sgrp">Finances</div>
+          <div class="si">
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M8 8h8M8 12h8"/></svg>
+            Factures
+          </div>
+          <div class="si">
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0 0 4h15a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5"/><path d="M18 12h.01"/></svg>
+            Caisse
+          </div>
+          <div class="si">
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9.5 9.5h5M9.5 14.5h5"/></svg>
+            Créances
+          </div>
+        </aside>
+
+        <div class="shot-main">
+          <div class="shot-h">
+            <h4>Tableau de bord</h4>
+            <span class="pill">Ce mois</span>
+          </div>
+
+          <div class="kpis">
+            <div class="kpi hero-k">
+              <div class="k">Encaissé</div>
+              <div class="v nums">18 460</div>
+              <div class="d nums">+12,4 % vs juin</div>
+            </div>
+            <div class="kpi">
+              <div class="k">Facturé</div>
+              <div class="v nums">24 130</div>
+              <div class="d nums">+8,1 %</div>
+            </div>
+            <div class="kpi">
+              <div class="k">RDV honorés</div>
+              <div class="v nums">142</div>
+              <div class="d nums">+6,0 %</div>
+            </div>
+            <div class="kpi">
+              <div class="k">Reste à recouvrer</div>
+              <div class="v nums">9 840</div>
+              <div class="d" style="color: var(--ink-2);">32 patients</div>
+            </div>
+          </div>
+
+          <div class="chart">
+            <div class="k" style="font-size: 11.5px; color: var(--ink-2); margin-bottom: 8px;">Encaissements — 6 derniers mois</div>
+            <svg viewBox="0 0 640 118" preserveAspectRatio="none" aria-label="Courbe des encaissements sur six mois">
+              <defs>
+                <linearGradient id="g1" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="var(--teal)" stop-opacity="0.22"/>
+                  <stop offset="100%" stop-color="var(--teal)" stop-opacity="0"/>
+                </linearGradient>
+              </defs>
+              <path d="M0 88 L128 70 L256 78 L384 44 L512 55 L640 16 L640 118 L0 118 Z" fill="url(#g1)"/>
+              <path d="M0 88 L128 70 L256 78 L384 44 L512 55 L640 16"
+                    fill="none" stroke="var(--teal)" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"/>
+              <circle cx="640" cy="16" r="4" fill="var(--teal)"/>
+            </svg>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="fine center" style="margin-top: 16px;">Écrans de démonstration. Les chiffres sont fictifs.</p>
+  </div>
+</section>
+
+<!-- ============================ 2 · LES MODULES ============================ -->
+<section>
+  <div class="wrap-wide">
+    <div class="center rise" style="max-width: 620px;">
+      <h2 class="title">Tout ce que le cabinet fait,<br>au même endroit.</h2>
+      <p class="lede wide center" style="margin-top: 18px;">
+        Le logiciel suit le trajet réel d'un patient. Chaque étape alimente la
+        suivante — rien n'est à ressaisir.
+      </p>
+    </div>
+
+    <div class="g3 rise-g" style="margin-top: clamp(38px, 4.5vw, 62px);">
+      <div class="card card-i fc">
+        <svg class="ico ico-l" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="3"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+        <h3 class="h-card">Agenda et rendez-vous</h3>
+        <p>Jour, semaine, mois, filtre par praticien. Une séance peut porter
+          plusieurs actes — « détartrage + deux obturations » est un seul rendez-vous.</p>
+      </div>
+
+      <div class="card card-i fc">
+        <svg class="ico ico-l" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.9"/></svg>
+        <h3 class="h-card">Dossier patient complet</h3>
+        <p>Sept onglets : dossiers, rendez-vous, notes, documents, fichiers,
+          factures, plan de traitement. Et le schéma dentaire en première carte.</p>
+      </div>
+
+      <div class="card card-i fc">
+        <svg class="ico ico-l" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="m9 14 2 2 4-4"/></svg>
+        <h3 class="h-card">Devis et échéanciers</h3>
+        <p>Chaque acte du devis lit son état dans les rendez-vous qui le visent,
+          et affiche la facture qui le règle. Un devis accepté s'amende, il ne se retape pas.</p>
+      </div>
+
+      <div class="card card-i fc">
+        <svg class="ico ico-l" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>
+        <h3 class="h-card">Facturation et caisse</h3>
+        <p>Notes d'honoraires numérotées sans trou, TVA, timbre fiscal, avoirs.
+          La caisse a un extrait : chaque mouvement derrière le total.</p>
+      </div>
+
+      <div class="card card-i fc">
+        <svg class="ico ico-l" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M12 12v6M9 15h6"/></svg>
+        <h3 class="h-card">Bulletin de soins CNAM</h3>
+        <p>Rempli par-dessus le formulaire BS1 officiel, aux bonnes coordonnées.
+          Avec l'estimation de remboursement pendant la saisie.</p>
+      </div>
+
+      <div class="card card-i fc">
+        <svg class="ico ico-l" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a2 2 0 0 0 3.4 0"/></svg>
+        <h3 class="h-card">Rappels et relances<sup>1</sup></h3>
+        <p>Rappels par SMS et WhatsApp avant le rendez-vous, et la liste des
+          patients qu'on n'a pas revus depuis six mois.</p>
+      </div>
+    </div>
+
+    <p class="center rise" style="margin-top: clamp(34px, 4vw, 52px);">
+      <a class="link" href="#p2">
+        Voir toutes les fonctionnalités
+        <svg class="ico ico-s chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
+      </a>
+    </p>
+  </div>
+</section>
+
+<!-- ============================ 3 · BANDE SOMBRE : SANS INTERNET ============================ -->
+<section class="night">
+  <div class="wrap-wide split">
+    <div class="stack rise">
+      <p class="eyebrow">Mode local</p>
+      <h2 class="title">La connexion tombe.<br>Le cabinet continue.</h2>
+      <p class="lede">
+        Installé sur un poste du cabinet, le logiciel fonctionne coupé d'internet.
+        Les autres postes s'y connectent par le réseau, et vos données ne sortent pas.
+      </p>
+      <div class="actions" style="margin-top: 6px;">
+        <a class="btn btn-ghost" href="#p4">Comparer Cloud et Local</a>
+      </div>
+    </div>
+
+    <div class="frame rise" style="box-shadow: none;">
+      <div style="padding: clamp(22px, 2.6vw, 32px);">
+        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 18px;">
+          <svg class="ico ico-s" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--night-ink-2);"><path d="M2 8.8a16 16 0 0 1 20 0M5 12.5a11 11 0 0 1 14 0M8.5 16a6 6 0 0 1 7 0"/><path d="m2 2 20 20"/></svg>
+          <span class="small" style="color: var(--night-ink-2);">Hors ligne — poste du cabinet</span>
+        </div>
+        <div class="conn">
+          <div><span>Agenda et dossiers patients</span><span class="pill pill-on"><span class="dot"></span>Actif</span></div>
+          <div><span>Devis, factures, caisse</span><span class="pill pill-on"><span class="dot"></span>Actif</span></div>
+          <div><span>Documents et bulletin CNAM</span><span class="pill pill-on"><span class="dot"></span>Actif</span></div>
+          <div><span>Alerte de péremption du stock</span><span class="pill pill-on"><span class="dot"></span>Actif</span></div>
+          <div><span>Agenda Google<sup>2</sup></span><span class="pill">Indisponible</span></div>
+          <div><span>Rappels SMS et WhatsApp<sup>1</sup></span><span class="pill">En attente</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ 4 · ODONTOGRAMME ============================ -->
+<section>
+  <div class="wrap-wide split">
+    <div class="frame rise" style="order: 2;">
+      <div style="padding: clamp(26px, 3vw, 40px); display: grid; gap: 26px;">
+        <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 16px; flex-wrap: wrap;">
+          <div>
+            <div style="font-weight: 600; font-size: 16px; letter-spacing: -0.014em;">Ines Trabelsi</div>
+            <div class="small">Denture adulte · 34 ans</div>
+          </div>
+          <span class="pill pill-on"><span class="dot"></span>Diagnostics</span>
+        </div>
+
+        <div style="display: grid; gap: 6px;">
+          <div class="arch">
+            <span class="t">18</span><span class="t">17</span><span class="t d1">16</span><span class="t">15</span>
+            <span class="t d2">14</span><span class="t">13</span><span class="t">12</span><span class="t">11</span>
+            <span class="t">21</span><span class="t">22</span><span class="t">23</span><span class="t">24</span>
+            <span class="t d1">25</span><span class="t">26</span><span class="t">27</span><span class="t d3">28</span>
+          </div>
+          <div class="arch">
+            <span class="t d3">48</span><span class="t">47</span><span class="t">46</span><span class="t">45</span>
+            <span class="t">44</span><span class="t">43</span><span class="t">42</span><span class="t">41</span>
+            <span class="t">31</span><span class="t">32</span><span class="t">33</span><span class="t d2">34</span>
+            <span class="t">35</span><span class="t d1">36</span><span class="t">37</span><span class="t">38</span>
+          </div>
+        </div>
+
+        <div class="legend">
+          <span><i style="background: var(--teal);"></i>Carie</span>
+          <span><i style="background: #6f8fd6;"></i>Obturation</span>
+          <span><i style="background: var(--ink-2); opacity: 0.45;"></i>Absente</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="stack rise">
+      <p class="eyebrow">Schéma dentaire</p>
+      <h2 class="title">Relever une bouche prend quinze secondes.</h2>
+      <p class="body">
+        On clique une dent, on choisit l'état et les faces, on ajoute une note.
+        Les diagnostics ouverts se versent ensuite dans un devis — sans retaper une ligne.
+      </p>
+      <ul class="ticks">
+        <li><svg class="ico ico-s" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>
+          <span>Numérotation FDI, denture adulte ou enfant selon l'âge du patient</span></li>
+        <li><svg class="ico ico-s" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>
+          <span>Deux vues : ce qui a été diagnostiqué, ce qui a été réalisé</span></li>
+        <li><svg class="ico ico-s" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>
+          <span>« Verser dans un devis » reprend les diagnostics avec leurs dents</span></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ 5 · BANDE SOMBRE : CNAM ============================ -->
+<section class="night">
+  <div class="wrap-wide">
+    <div class="center rise" style="max-width: 660px;">
+      <p class="eyebrow">Spécifique Tunisie</p>
+      <h2 class="title" style="margin-top: 12px;">Le bulletin CNAM est rempli<br>sur le vrai formulaire.</h2>
+      <p class="lede wide center" style="margin-top: 18px;">
+        Pas une imitation mise en page : les données sont imposées sur le PDF officiel
+        du BS1, aux coordonnées calibrées.
+      </p>
+    </div>
+
+    <div class="g2 rise-g" style="margin-top: clamp(38px, 4.5vw, 62px); align-items: start;">
+      <div class="frame" style="box-shadow: none;">
+        <div style="padding: clamp(24px, 2.8vw, 36px); display: grid; gap: 24px;">
+          <div>
+            <div class="small" style="color: var(--night-ink-2); margin-bottom: 12px;">Identifiant unique — un chiffre par case</div>
+            <div class="comb scroll-x"><i>0</i><i>8</i><i>4</i><i>2</i><i>1</i><i>7</i><i>7</i><i>3</i><i>1</i><i>2</i></div>
+          </div>
+          <div>
+            <div class="bsrow"><span class="small" style="color: var(--night-ink-2);">Honoraires</span><b class="nums">320,000</b></div>
+            <div class="bsrow"><span class="small" style="color: var(--night-ink-2);">Remboursement estimé<sup>3</sup></span><b class="nums accent">224,000</b></div>
+          </div>
+        </div>
+      </div>
+
+      <ul class="ticks" style="gap: 20px;">
+        <li><svg class="ico ico-s" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>
+          <span>Peigne IDU, cases régime et lien de parenté</span></li>
+        <li><svg class="ico ico-s" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>
+          <span>Identités de l'assuré et du malade, quand ce ne sont pas la même personne</span></li>
+        <li><svg class="ico ico-s" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>
+          <span>Tableau de six actes, avec le code professionnel de santé du praticien</span></li>
+        <li><svg class="ico ico-s" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>
+          <span>Cadre de soins en page 2 ; au-delà de six actes, un feuillet supplémentaire</span></li>
+        <li><svg class="ico ico-s" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>
+          <span>Nomenclature et valeurs de la lettre clé propres à votre clinique</span></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ 6 · TROIS FAITS ============================ -->
+<section class="tight">
+  <div class="wrap-wide">
+    <div class="g3 rise-g">
+      <div class="stack-s fact">
+        <b class="nums">3</b>
+        <div class="title-s">décimales</div>
+        <p class="small">Le dinar n'est jamais arrondi. TVA, matricule fiscal et timbre
+          fiscal sont des champs de la facture, pas des lignes à ajouter.</p>
+      </div>
+      <div class="stack-s fact">
+        <b class="nums">24</b>
+        <div class="title-s">gouvernorats</div>
+        <p class="small">Les adresses patients utilisent la géographie tunisienne,
+          pas une liste de pays à faire défiler.</p>
+      </div>
+      <div class="stack-s fact">
+        <b>100 %</b>
+        <div class="title-s">en français</div>
+        <p class="small">L'interface, les documents, les PDF. Écrit pour le cabinet
+          tunisien, pas traduit après coup.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ 7 · PRIX + APPEL ============================ -->
+<section>
+  <div class="wrap center rise">
+    <h2 class="title">Voyons-le sur votre cabinet.</h2>
+    <p class="lede wide center" style="margin-top: 18px;">
+      Trente minutes, avec vos actes et vos tarifs — pas une démonstration générique.
+      Installation et reprise de vos patients incluses.
+    </p>
+
+    <div class="price" style="margin-top: 34px;">
+      <span class="small">À partir de</span>
+      <b class="nums" style="display: block; margin: 4px 0;">120 DT</b>
+      <span class="small">par mois et par cabinet<sup>4</sup></span>
+    </div>
+
+    <div class="actions center" style="margin-top: 30px;">
+      <a class="btn btn-fill" href="#p5">Demander une démo</a>
+      <a class="btn btn-ghost" href="#p3">Voir les tarifs</a>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ NOTES ============================ -->
+<!-- Les réserves honnêtes en notes de bas de page numérotées : lisibles pour qui
+     les cherche, sans bandeau d'alerte qui casse la page. -->
+<section class="tight" style="padding-top: 0;">
+  <div class="wrap-wide">
+    <hr class="hair">
+    <div class="fine" style="margin-top: 20px; display: grid; gap: 8px;">
+      <p><sup>1</sup> Les rappels SMS et WhatsApp demandent une connexion internet et vos propres accès :
+        la passerelle SMS de votre opérateur, et un compte WhatsApp Business avec un modèle de message
+        approuvé par Meta. Le coût des envois est facturé par eux.</p>
+      <p><sup>2</sup> Vos rendez-vous partent automatiquement vers l'agenda Google de la clinique ;
+        l'import des événements créés dans Google se lance en un clic. Demande une connexion internet.</p>
+      <p><sup>3</sup> L'estimation de remboursement est une aide à la saisie : elle n'est ni enregistrée
+        dans le dossier, ni imprimée sur le bulletin. C'est la CNAM qui liquide.</p>
+      <p><sup>4</sup> Montant indicatif de maquette. La grille tarifaire reste à définir.</p>
+      <p>La facturation électronique El Fatoora (TTN) est prête côté logiciel ; la transmission réelle
+        demande vos identifiants TTN et un certificat de signature. Les avoirs ne sont pas transmis.
+        La sauvegarde en un clic existe sur une installation locale : elle est manuelle, non planifiée.
+        Un compte appartient à une clinique — il n'y a pas de sélecteur multi-cabinets.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ PIED DE PAGE ============================ -->
+<footer class="foot">
+  <div class="wrap-wide">
+    <div class="foot-cols">
+      <div>
+        <h4>Produit</h4>
+        <ul>
+          <li><a href="#p2">Fonctionnalités</a></li>
+          <li><a href="#p4">Cloud ou Local</a></li>
+          <li><a href="#p3">Tarifs</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Cabinet dentaire</h4>
+        <ul>
+          <li><a href="#p2">Schéma dentaire</a></li>
+          <li><a href="#p2">Devis et échéanciers</a></li>
+          <li><a href="#p2">Bulletin CNAM</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Contact</h4>
+        <ul>
+          <li><a href="#p5">Demander une démo</a></li>
+          <li><a href="#">contact@gestion-clinique.tn</a></li>
+          <li><a href="#" class="nums">+216 71 000 000</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Légal</h4>
+        <ul>
+          <li><a href="#">Conditions</a></li>
+          <li><a href="#">Confidentialité</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="foot-end">
+      <span>© 2026 Gestion Clinique — Tunis, Tunisie</span>
+      <span>Maquette de site vitrine</span>
+    </div>
+  </div>
+</footer>
+</div>
+
+<div class="vpage" id="p2" aria-label="Fonctionnalités">
+<div class="flag"><span>MAQUETTE v3 — Fonctionnalités</span><span>2/5</span></div>
+
+<nav class="nav" aria-label="Navigation principale">
+  <div class="row">
+    <a class="brand" href="#p1">
+      <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.8 2.3A.3.3 0 1 0 5 2H4a2 2 0 0 0-2 2v5a6 6 0 0 0 6 6a6 6 0 0 0 6-6V4a2 2 0 0 0-2-2h-1a.2.2 0 1 0 .3.3"/><path d="M8 15v1a6 6 0 0 0 6 6a6 6 0 0 0 6-6v-4"/><circle cx="20" cy="10" r="2"/></svg>
+      Gestion Clinique
+    </a>
+    <div class="menu">
+      <a href="#p2" aria-current="page">Fonctionnalités</a>
+      <a href="#p4">Cloud ou Local</a>
+      <a href="#p3">Tarifs</a>
+      <a href="#p5">Contact</a>
+    </div>
+    <div class="end">
+      <button class="tog" data-theme-toggle aria-label="Basculer le thème sombre">
+        <svg class="ico ico-s" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4"/></svg>
+      </button>
+      <a class="btn btn-fill btn-sm" href="#p5">Demander une démo</a>
+    </div>
+    <button class="burger" aria-label="Ouvrir le menu">
+      <svg class="ico ico-s" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+    </button>
+  </div>
+</nav>
+
+<!-- ============================ HÉRO ============================ -->
+<section>
+  <div class="wrap center rise">
+    <p class="eyebrow">Fonctionnalités</p>
+    <h1 class="display" style="margin: 14px 0 0; font-size: clamp(36px, 5.6vw, 68px);">
+      Le cabinet, écran par écran.
+    </h1>
+    <p class="lede wide center" style="margin-top: 22px;">
+      Dans l'ordre du trajet d'un patient. Quand une fonction demande une connexion
+      ou un branchement de votre part, c'est écrit.
+    </p>
+  </div>
+</section>
+
+<!-- ============================ AGENDA ============================ -->
+<section class="tight">
+  <div class="wrap-wide split">
+    <div class="stack rise">
+      <p class="eyebrow">Agenda</p>
+      <h2 class="title">Une séance,<br>plusieurs actes.</h2>
+      <p class="body">
+        « Détartrage + deux obturations » est un seul rendez-vous, dont la durée est
+        la somme des actes — et non une ligne tapée dans les notes, invisible partout
+        ailleurs. Le créneau connaît aussi sa suite : un rendez-vous facturé affiche
+        le numéro de la note d'honoraires.
+      </p>
+      <ul class="ticks">
+        <li><svg class="ico ico-s" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>
+          <span>Deux rendez-vous ne peuvent pas occuper le même créneau — la base le refuse</span></li>
+        <li><svg class="ico ico-s" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>
+          <span>Séries récurrentes, avec le compte des créneaux ignorés en conflit</span></li>
+        <li><svg class="ico ico-s" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>
+          <span>Annulation : cette occurrence, les suivantes, ou toute la série</span></li>
+      </ul>
+      <p class="fine">Agenda Google : l'envoi vers Google est automatique à chaque enregistrement,
+        l'import depuis Google se lance par un bouton. Demande une connexion internet.</p>
+    </div>
+
+    <div class="frame rise">
+      <div style="padding: clamp(22px, 2.6vw, 32px);">
+        <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 14px; margin-bottom: 18px; flex-wrap: wrap;">
+          <div style="font-weight: 600; font-size: 16px; letter-spacing: -0.014em;">Semaine du 27 juillet</div>
+          <span class="pill">Dr Ben Salah</span>
+        </div>
+        <div class="ag">
+          <div></div><div class="dh">Lun 27</div><div class="dh">Mar 28</div><div class="dh">Mer 29</div>
+
+          <div class="hh">08:30</div>
+          <div class="c"><div class="sl"><b>I. Trabelsi</b><div class="m">Détartrage</div></div></div>
+          <div class="c"></div>
+          <div class="c"><div class="sl b2"><b>K. Jelassi</b><div class="m">Contrôle</div></div></div>
+
+          <div class="hh">09:30</div>
+          <div class="c"></div>
+          <div class="c"><div class="sl b2"><b>M. Gharbi</b><div class="m">Détartrage + 2 obturations<br>90 min · 3 actes</div></div></div>
+          <div class="c"></div>
+
+          <div class="hh">11:00</div>
+          <div class="c"><div class="sl b3"><b>S. Ayari</b><div class="m">Couronne 16<br>Facturé · F-2026-0151</div></div></div>
+          <div class="c"></div>
+          <div class="c"><div class="sl b3"><b>H. Mabrouk</b><div class="m">Empreinte</div></div></div>
+
+          <div class="hh">14:00</div>
+          <div class="c"><div class="sl"><b>N. Chaabane</b><div class="m">Extraction 38</div></div></div>
+          <div class="c"><div class="sl"><b>R. Fekih</b><div class="m">Détartrage</div></div></div>
+          <div class="c"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ DOSSIER (bande sombre) ============================ -->
+<section class="night">
+  <div class="wrap-wide split">
+    <div class="frame rise" style="order: 2; box-shadow: none;">
+      <div style="padding: clamp(20px, 2.4vw, 28px) 0 0;">
+        <div style="padding: 0 clamp(20px, 2.4vw, 28px) 18px; display: flex; align-items: center; gap: 14px;">
+          <div style="width: 42px; height: 42px; border-radius: 999px; background: color-mix(in srgb, var(--night-teal) 18%, transparent); color: var(--night-teal); display: flex; align-items: center; justify-content: center; font-weight: 600;">IT</div>
+          <div>
+            <div style="font-weight: 600; font-size: 16px; letter-spacing: -0.014em;">Ines Trabelsi</div>
+            <div class="small" style="color: var(--night-ink-2);">34 ans · Tunis</div>
+          </div>
+        </div>
+        <div class="tabs scroll-x" style="padding: 0 clamp(20px, 2.4vw, 28px); border-bottom-color: var(--night-hair);">
+          <span class="on" style="border-bottom-color: var(--night-teal);">Dossiers</span>
+          <span>Rendez-vous</span><span>Notes</span><span>Documents</span>
+          <span>Fichiers</span><span>Factures</span><span>Plan de traitement</span>
+        </div>
+        <div style="padding: 20px clamp(20px, 2.4vw, 28px) clamp(22px, 2.6vw, 30px);">
+          <div class="small" style="color: var(--night-ink-2); margin-bottom: 14px;">Fiche de soins du 24/07 — Dr Ben Salah</div>
+          <div class="st" style="border-bottom-color: var(--night-hair);"><span class="nm">Obturation composite — 14</span><span class="a nums">120,000</span></div>
+          <div class="st" style="border-bottom-color: var(--night-hair);"><span class="nm">Obturation composite — 34</span><span class="a nums">120,000</span></div>
+          <div class="st"><span class="nm">Détartrage deux arcades</span><span class="a nums">80,000</span></div>
+          <div class="actions" style="margin-top: 20px;">
+            <button class="btn btn-fill btn-sm">Facturer cette séance</button>
+            <button class="btn btn-ghost btn-sm">Verser dans un devis</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stack rise">
+      <p class="eyebrow">Dossier patient</p>
+      <h2 class="title">Sept onglets,<br>et rien à ressaisir.</h2>
+      <p class="lede">
+        « Facturer cette séance » tarife les actes, émet la note d'honoraires et
+        enregistre le règlement en une seule opération.
+      </p>
+      <ul class="ticks">
+        <li><svg class="ico ico-s" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>
+          <span>Coordonnées vraiment facultatives — un dossier sans e-mail reste valide</span></li>
+        <li><svg class="ico ico-s" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>
+          <span>La suppression est refusée dès que quelque chose est rattaché ; on archive</span></li>
+        <li><svg class="ico ico-s" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>
+          <span>Recherche insensible aux accents : « bechir » trouve « Béchir »</span></li>
+        <li><svg class="ico ico-s" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>
+          <span>Radios, photos et documents scannés, classés par dossier</span></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ DEVIS ============================ -->
+<section>
+  <div class="wrap-wide split">
+    <div class="stack rise">
+      <p class="eyebrow">Devis et plans de traitement</p>
+      <h2 class="title">Un devis qui sait<br>où il en est.</h2>
+      <p class="body">
+        Chaque acte lit son état dans les rendez-vous qui le visent — à planifier,
+        planifié, réalisé — et affiche la facture qui le règle. Vous cochez des actes
+        et vous les planifiez ensemble, en une séance, ou séparément.
+      </p>
+      <p class="body">
+        Un devis accepté s'<strong style="color: var(--ink); font-weight: 600;">amende</strong>
+        avec un numéro de révision plutôt que d'être annulé puis retapé.
+      </p>
+    </div>
+
+    <div class="frame rise">
+      <div style="padding: clamp(22px, 2.6vw, 32px);">
+        <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 14px; margin-bottom: 16px; flex-wrap: wrap;">
+          <div>
+            <span style="font-weight: 600; font-size: 16px; letter-spacing: -0.014em;">D-2026-0031</span>
+            <span class="small"> · révision 2</span>
+          </div>
+          <span class="pill pill-on"><span class="dot"></span>Accepté</span>
+        </div>
+        <div class="st"><span class="n">1</span><span class="nm">Détartrage deux arcades<div class="small">séance de 3 actes · 29/07</div></span><span class="pill pill-on"><span class="dot"></span>Réalisé</span></div>
+        <div class="st"><span class="n">2</span><span class="nm">Obturation — 14<div class="small">séance de 3 actes · 29/07</div></span><span class="pill pill-on"><span class="dot"></span>Réalisé</span></div>
+        <div class="st"><span class="n">3</span><span class="nm">Traitement de racine — 25</span><span class="pill">Planifié 05/08</span></div>
+        <div class="st"><span class="n">4</span><span class="nm">Couronne — 16</span><span class="pill">À planifier</span></div>
+        <hr class="hair" style="margin: 18px 0;">
+        <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 16px;">
+          <span class="small">Échéancier — 2 sur 3 réglées</span>
+          <span class="nums" style="font-weight: 600; letter-spacing: -0.02em;">850,000 / 1 190,000 DT</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ ARGENT (bande sombre) ============================ -->
+<section class="night">
+  <div class="wrap-wide split">
+    <div class="frame rise" style="order: 2; box-shadow: none;">
+      <div style="padding: clamp(24px, 2.8vw, 36px);">
+        <div class="small" style="color: var(--night-ink-2); margin-bottom: 22px;">Juillet 2026</div>
+        <div class="figs">
+          <div><span class="small" style="color: var(--night-ink-2);">Facturé</span><b class="nums">24 130</b></div>
+          <div><span class="small" style="color: var(--night-ink-2);">Encaissé</span><b class="nums">18 460</b></div>
+          <div><span class="small" style="color: var(--night-ink-2);">Avoirs</span><b class="nums">−540</b></div>
+          <div><span class="small" style="color: var(--night-ink-2);">Reste à recouvrer</span><b class="nums accent">9 840</b></div>
+        </div>
+        <p class="fine" style="color: var(--night-ink-2); margin-top: 22px;">Montants en dinars, trois décimales.</p>
+      </div>
+    </div>
+
+    <div class="stack rise">
+      <p class="eyebrow">Facturation et caisse</p>
+      <h2 class="title">L'argent se corrige,<br>il ne s'efface pas.</h2>
+      <p class="lede">
+        Une erreur passe par un avoir. Un règlement mal saisi s'annule avec son motif
+        et son auteur — la ligne reste, barrée, et le reçu réimprimé porte « REÇU ANNULÉ ».
+      </p>
+      <ul class="ticks">
+        <li><svg class="ico ico-s" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>
+          <span>Notes d'honoraires numérotées sans trou, TVA et timbre fiscal</span></li>
+        <li><svg class="ico ico-s" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>
+          <span>La caisse a un extrait : chaque mouvement derrière le total</span></li>
+        <li><svg class="ico ico-s" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>
+          <span>« Créances » répond à qui doit encore combien, factures et échéanciers réunis</span></li>
+      </ul>
+      <p class="fine">El Fatoora (TTN) est prêt côté logiciel ; la transmission réelle demande vos
+        identifiants TTN et un certificat de signature. Les avoirs ne sont pas transmis.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ ET AUSSI ============================ -->
+<section>
+  <div class="wrap-wide">
+    <div class="center rise" style="max-width: 560px;">
+      <h2 class="title">Et le reste du cabinet.</h2>
+    </div>
+
+    <div class="g3 rise-g" style="margin-top: clamp(38px, 4.5vw, 60px);">
+      <div class="mini">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+        <h3>Salle d'attente</h3>
+        <p>Une file dont on promeut une entrée en rendez-vous dès qu'une place se libère.</p>
+      </div>
+      <div class="mini">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 2v7.5L4.8 18A2 2 0 0 0 6.5 21h11a2 2 0 0 0 1.7-3L14 9.5V2"/><path d="M8.5 2h7M7 15h10"/></svg>
+        <h3>Bons de prothèse</h3>
+        <p>Le travail au laboratoire, son étape, et les retards comptés sur le tableau de bord.</p>
+      </div>
+      <div class="mini">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 8v8l-9 5-9-5V8l9-5Z"/><path d="m3 8 9 5 9-5M12 13v8"/></svg>
+        <h3>Stock</h3>
+        <p>Lots, seuils de réapprovisionnement, alerte de péremption quotidienne — qui part même hors ligne.</p>
+      </div>
+      <div class="mini">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M15 2v5h5M9 15l2 2 4-4"/></svg>
+        <h3>Documents</h3>
+        <p>Ordonnance avec catalogue de médicaments, lettre de liaison, certificat. En PDF, avec votre cachet.</p>
+      </div>
+      <div class="mini">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3v18h18"/><path d="m7 15 4-5 3 3 5-7"/></svg>
+        <h3>Tableau de bord</h3>
+        <p>Jour, semaine ou mois, avec l'écart sur la période précédente. Chaque chiffre est un lien.</p>
+      </div>
+      <div class="mini">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/></svg>
+        <h3>Trois rôles, un code</h3>
+        <p>Administrateur, praticien, secrétaire. L'équipe se rattache avec un code, sans créer les comptes un par un.</p>
+      </div>
+    </div>
+
+    <p class="fine rise" style="margin-top: clamp(30px, 3.5vw, 44px);">
+      Un compte appartient à une clinique : le logiciel sert autant de cliniques qu'on veut, étanches
+      les unes aux autres, mais il n'y a pas de sélecteur pour piloter plusieurs cabinets d'une seule
+      connexion. La sauvegarde en un clic existe sur une installation locale ; elle est manuelle,
+      non planifiée.
+    </p>
+  </div>
+</section>
+
+<!-- ============================ APPEL ============================ -->
+<section class="night tight">
+  <div class="wrap center rise">
+    <h2 class="title">Le plus simple est de le voir tourner.</h2>
+    <p class="lede wide center" style="margin-top: 16px;">Trente minutes, avec vos actes et vos tarifs.</p>
+    <div class="actions center" style="margin-top: 28px;">
+      <a class="btn btn-fill" href="#p5">Demander une démo</a>
+      <a class="btn btn-ghost" href="#p3">Voir les tarifs</a>
+    </div>
+  </div>
+</section>
+
+<footer class="foot">
+  <div class="wrap-wide">
+    <div class="foot-cols">
+      <div><h4>Produit</h4><ul>
+        <li><a href="#p1">Accueil</a></li>
+        <li><a href="#p4">Cloud ou Local</a></li>
+        <li><a href="#p3">Tarifs</a></li>
+      </ul></div>
+      <div><h4>Cabinet dentaire</h4><ul>
+        <li><a href="#">Schéma dentaire</a></li>
+        <li><a href="#">Devis et échéanciers</a></li>
+        <li><a href="#">Bulletin CNAM</a></li>
+      </ul></div>
+      <div><h4>Contact</h4><ul>
+        <li><a href="#p5">Demander une démo</a></li>
+        <li><a href="#">contact@gestion-clinique.tn</a></li>
+        <li><a href="#" class="nums">+216 71 000 000</a></li>
+      </ul></div>
+      <div><h4>Légal</h4><ul>
+        <li><a href="#">Conditions</a></li>
+        <li><a href="#">Confidentialité</a></li>
+      </ul></div>
+    </div>
+    <div class="foot-end">
+      <span>© 2026 Gestion Clinique — Tunis, Tunisie</span>
+      <span>Maquette de site vitrine</span>
+    </div>
+  </div>
+</footer>
+</div>
+
+<div class="vpage" id="p3" aria-label="Tarifs">
+<div class="flag"><span>MAQUETTE v3 — Tarifs</span><span>3/5</span></div>
+
+<nav class="nav" aria-label="Navigation principale">
+  <div class="row">
+    <a class="brand" href="#p1">
+      <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.8 2.3A.3.3 0 1 0 5 2H4a2 2 0 0 0-2 2v5a6 6 0 0 0 6 6a6 6 0 0 0 6-6V4a2 2 0 0 0-2-2h-1a.2.2 0 1 0 .3.3"/><path d="M8 15v1a6 6 0 0 0 6 6a6 6 0 0 0 6-6v-4"/><circle cx="20" cy="10" r="2"/></svg>
+      Gestion Clinique
+    </a>
+    <div class="menu">
+      <a href="#p2">Fonctionnalités</a>
+      <a href="#p4">Cloud ou Local</a>
+      <a href="#p3" aria-current="page">Tarifs</a>
+      <a href="#p5">Contact</a>
+    </div>
+    <div class="end">
+      <button class="tog" data-theme-toggle aria-label="Basculer le thème sombre">
+        <svg class="ico ico-s" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4"/></svg>
+      </button>
+      <a class="btn btn-fill btn-sm" href="#p5">Demander une démo</a>
+    </div>
+    <button class="burger" aria-label="Ouvrir le menu">
+      <svg class="ico ico-s" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+    </button>
+  </div>
+</nav>
+
+<!-- ============================ HÉRO ============================ -->
+<section>
+  <div class="wrap center rise">
+    <p class="eyebrow">Tarifs</p>
+    <h1 class="display" style="margin: 14px 0 0; font-size: clamp(36px, 5.6vw, 68px);">
+      Un prix par cabinet.
+    </h1>
+    <p class="lede wide center" style="margin-top: 22px;">
+      Toutes les formules donnent accès à tout le logiciel — il n'y a pas de module
+      CNAM en option. Ce qui change, c'est le nombre de praticiens et l'accompagnement.
+    </p>
+    <div class="actions center" style="margin-top: 32px;">
+      <!-- Piloté par attributs et non par id : la page de prévisualisation réunit
+           les cinq maquettes, et un id ne peut pas y être unique. -->
+      <div class="switch" data-period-switch role="group" aria-label="Période de facturation">
+        <button type="button" data-period="mois" aria-pressed="true">Mensuel</button>
+        <button type="button" data-period="an" aria-pressed="false">Annuel · 2 mois offerts</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ FORMULES ============================ -->
+<section class="pt-0">
+  <div class="wrap-wide">
+    <div class="g3 rise-g" style="align-items: start;">
+
+      <div class="card plan">
+        <div class="nm">Cabinet</div>
+        <div class="who">Un praticien, avec ou sans secrétaire.</div>
+        <div style="margin: 22px 0 4px;">
+          <span class="amt nums" data-mois="120" data-an="100">120</span>
+          <span class="per"> DT / mois</span>
+        </div>
+        <div class="pn" data-note-mois="Sans engagement, résiliable au mois."
+             data-note-an="Facturé 1 200 DT par an.">Sans engagement, résiliable au mois.</div>
+        <a class="btn btn-ghost" style="margin: 20px 0 24px;" href="#p5">Demander une démo</a>
+        <hr class="hair" style="margin-bottom: 22px;">
+        <ul class="pl">
+          <li><svg class="ico ico-s" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span>1 praticien + 1 secrétaire</span></li>
+          <li><svg class="ico ico-s" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span>Patients et rendez-vous illimités</span></li>
+          <li><svg class="ico ico-s" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span>Schéma dentaire et fiches de soins</span></li>
+          <li><svg class="ico ico-s" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span>Devis, factures, caisse, créances</span></li>
+          <li><svg class="ico ico-s" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span>Bulletin CNAM et nomenclature</span></li>
+          <li><svg class="ico ico-s" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span>Cloud ou installation locale</span></li>
+          <li class="no"><svg class="ico ico-s" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg><span>Rappels SMS et WhatsApp</span></li>
+          <li class="no"><svg class="ico ico-s" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg><span>El Fatoora (TTN)</span></li>
+        </ul>
+      </div>
+
+      <div class="card plan hi">
+        <span class="tag">Le plus courant</span>
+        <div class="nm">Clinique</div>
+        <div class="who">Plusieurs praticiens, un secrétariat, du laboratoire et du stock à suivre.</div>
+        <div style="margin: 22px 0 4px;">
+          <span class="amt nums" data-mois="290" data-an="242">290</span>
+          <span class="per"> DT / mois</span>
+        </div>
+        <div class="pn" data-note-mois="Jusqu'à 5 praticiens, puis 45 DT par praticien."
+             data-note-an="Facturé 2 900 DT par an.">Jusqu'à 5 praticiens, puis 45 DT par praticien.</div>
+        <a class="btn btn-fill" style="margin: 20px 0 24px;" href="#p5">Demander une démo</a>
+        <hr class="hair" style="margin-bottom: 22px;">
+        <ul class="pl">
+          <li><svg class="ico ico-s" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span>Jusqu'à 5 praticiens, secrétariat illimité</span></li>
+          <li><svg class="ico ico-s" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span>Tout ce que contient « Cabinet »</span></li>
+          <li class="grp" aria-hidden="true">En plus</li>
+          <li><svg class="ico ico-s" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span>Rappels SMS et WhatsApp<sup>1</sup></span></li>
+          <li><svg class="ico ico-s" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span>Relances patients et salle d'attente</span></li>
+          <li><svg class="ico ico-s" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span>Laboratoire, stock, lots et péremption</span></li>
+          <li><svg class="ico ico-s" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span>Agenda Google et assistant intégré</span></li>
+          <li><svg class="ico ico-s" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span>Reprise de vos données existantes</span></li>
+        </ul>
+      </div>
+
+      <div class="card plan">
+        <div class="nm">Sur-mesure</div>
+        <div class="who">Plus de cinq praticiens, ou une contrainte particulière.</div>
+        <div style="margin: 22px 0 4px;">
+          <span class="amt" style="font-size: clamp(28px, 3vw, 34px);">Sur devis</span>
+        </div>
+        <div class="pn">Après un échange sur votre organisation et votre infrastructure.</div>
+        <a class="btn btn-ghost" style="margin: 20px 0 24px;" href="#p5">Nous contacter</a>
+        <hr class="hair" style="margin-bottom: 22px;">
+        <ul class="pl">
+          <li><svg class="ico ico-s" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span>Praticiens illimités</span></li>
+          <li><svg class="ico ico-s" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span>Tout ce que contient « Clinique »</span></li>
+          <li class="grp" aria-hidden="true">En plus</li>
+          <li><svg class="ico ico-s" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span>El Fatoora (TTN)<sup>2</sup> — accompagnement au paramétrage</span></li>
+          <li><svg class="ico ico-s" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span>Installation sur votre propre serveur</span></li>
+          <li><svg class="ico ico-s" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span>Formation sur site de toute l'équipe</span></li>
+          <li><svg class="ico ico-s" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span>Interlocuteur dédié</span></li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Licence locale : le produit s'installe vraiment hors ligne, donc l'achat
+         unique est une option commerciale réelle. -->
+    <div class="card rise" style="margin-top: clamp(20px, 2.4vw, 30px); display: flex; gap: 28px; align-items: center; flex-wrap: wrap;">
+      <svg class="ico ico-l" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--teal);"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+      <div style="flex: 1; min-width: 260px;">
+        <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+          <span class="title-s">Licence locale, achat unique</span>
+          <span class="pill pill-on">Sans abonnement</span>
+        </div>
+        <p class="small" style="margin-top: 8px; max-width: 62ch;">
+          Le logiciel s'installe sur un poste du cabinet et vous l'utilisez sans
+          abonnement. La maintenance annuelle est facultative — sans elle, la version
+          installée continue de fonctionner.
+        </p>
+      </div>
+      <div style="text-align: right;">
+        <div class="amt nums" style="font-size: clamp(28px, 3vw, 36px);">3 900 <span class="per">DT</span></div>
+        <div class="small" style="margin-top: 4px;">+ 690 DT / an de maintenance, facultative</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ COMPARATIF ============================ -->
+<section class="night">
+  <div class="wrap-wide">
+    <div class="center rise" style="max-width: 560px;">
+      <h2 class="title">Ce qui change vraiment.</h2>
+      <p class="lede wide center" style="margin-top: 16px;">
+        Le cœur clinique et financier est partout. Ce qui monte en gamme est ce qui
+        demande une connexion ou un accompagnement.
+      </p>
+    </div>
+
+    <div class="frame rise" style="margin-top: clamp(34px, 4vw, 54px); box-shadow: none;">
+      <div class="scroll-x">
+        <table class="cmp">
+          <thead>
+            <tr>
+              <th style="min-width: 260px; border-bottom-color: var(--night-hair); color: var(--night-ink-2);">Fonction</th>
+              <th class="c" style="min-width: 100px; border-bottom-color: var(--night-hair); color: var(--night-ink-2);">Cabinet</th>
+              <th class="c" style="min-width: 100px; border-bottom-color: var(--night-hair); color: var(--night-ink-2);">Clinique</th>
+              <th class="c" style="min-width: 110px; border-bottom-color: var(--night-hair); color: var(--night-ink-2);">Sur-mesure</th>
+            </tr>
+          </thead>
+          <tbody style="color: var(--night-ink);">
+            <tr class="g"><td colspan="4" style="background: rgba(255,255,255,0.04); color: var(--night-ink-2); border-bottom-color: var(--night-hair);">Partout</td></tr>
+            <tr><td class="fn" style="border-bottom-color: var(--night-hair);">Agenda, dossiers, schéma dentaire<span style="color: var(--night-ink-2);">Patients et rendez-vous illimités</span></td>
+              <td class="c y" style="border-bottom-color: var(--night-hair);">✓</td><td class="c y" style="border-bottom-color: var(--night-hair);">✓</td><td class="c y" style="border-bottom-color: var(--night-hair);">✓</td></tr>
+            <tr><td class="fn" style="border-bottom-color: var(--night-hair);">Devis, échéanciers, factures, caisse<span style="color: var(--night-ink-2);">Avoirs et annulation de règlement compris</span></td>
+              <td class="c y" style="border-bottom-color: var(--night-hair);">✓</td><td class="c y" style="border-bottom-color: var(--night-hair);">✓</td><td class="c y" style="border-bottom-color: var(--night-hair);">✓</td></tr>
+            <tr><td class="fn" style="border-bottom-color: var(--night-hair);">Bulletin CNAM BS1 et nomenclature</td>
+              <td class="c y" style="border-bottom-color: var(--night-hair);">✓</td><td class="c y" style="border-bottom-color: var(--night-hair);">✓</td><td class="c y" style="border-bottom-color: var(--night-hair);">✓</td></tr>
+            <tr><td class="fn" style="border-bottom-color: var(--night-hair);">Documents PDF avec votre cachet</td>
+              <td class="c y" style="border-bottom-color: var(--night-hair);">✓</td><td class="c y" style="border-bottom-color: var(--night-hair);">✓</td><td class="c y" style="border-bottom-color: var(--night-hair);">✓</td></tr>
+            <tr><td class="fn" style="border-bottom-color: var(--night-hair);">Cloud ou installation locale<span style="color: var(--night-ink-2);">Le mode local fonctionne sans internet</span></td>
+              <td class="c y" style="border-bottom-color: var(--night-hair);">✓</td><td class="c y" style="border-bottom-color: var(--night-hair);">✓</td><td class="c y" style="border-bottom-color: var(--night-hair);">✓</td></tr>
+
+            <tr class="g"><td colspan="4" style="background: rgba(255,255,255,0.04); color: var(--night-ink-2); border-bottom-color: var(--night-hair);">Selon la formule</td></tr>
+            <tr><td class="fn" style="border-bottom-color: var(--night-hair);">Salle d'attente et relances</td>
+              <td class="c n" style="border-bottom-color: var(--night-hair);">—</td><td class="c y" style="border-bottom-color: var(--night-hair);">✓</td><td class="c y" style="border-bottom-color: var(--night-hair);">✓</td></tr>
+            <tr><td class="fn" style="border-bottom-color: var(--night-hair);">Laboratoire et stock</td>
+              <td class="c n" style="border-bottom-color: var(--night-hair);">—</td><td class="c y" style="border-bottom-color: var(--night-hair);">✓</td><td class="c y" style="border-bottom-color: var(--night-hair);">✓</td></tr>
+            <tr><td class="fn" style="border-bottom-color: var(--night-hair);">Rappels SMS et WhatsApp<sup>1</sup><span style="color: var(--night-ink-2);">Vous branchez votre passerelle et votre compte</span></td>
+              <td class="c n" style="border-bottom-color: var(--night-hair);">—</td><td class="c y" style="border-bottom-color: var(--night-hair);">✓</td><td class="c y" style="border-bottom-color: var(--night-hair);">✓</td></tr>
+            <tr><td class="fn" style="border-bottom-color: var(--night-hair);">Agenda Google et assistant<sup>3</sup></td>
+              <td class="c n" style="border-bottom-color: var(--night-hair);">—</td><td class="c y" style="border-bottom-color: var(--night-hair);">✓</td><td class="c y" style="border-bottom-color: var(--night-hair);">✓</td></tr>
+            <tr><td class="fn" style="border-bottom-color: var(--night-hair);">El Fatoora / TTN<sup>2</sup></td>
+              <td class="c n" style="border-bottom-color: var(--night-hair);">—</td><td class="c n" style="border-bottom-color: var(--night-hair);">—</td><td class="c y" style="border-bottom-color: var(--night-hair);">✓</td></tr>
+            <tr><td class="fn" style="border-bottom-color: var(--night-hair);">Installation et formation</td>
+              <td class="c" style="border-bottom-color: var(--night-hair);">À distance</td><td class="c" style="border-bottom-color: var(--night-hair);">Sur site</td><td class="c" style="border-bottom-color: var(--night-hair);">Équipe entière</td></tr>
+            <tr><td class="fn" style="border-bottom: 0;">Support</td>
+              <td class="c" style="border-bottom: 0;">E-mail</td><td class="c" style="border-bottom: 0;">Téléphone</td><td class="c" style="border-bottom: 0;">Dédié</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ FAQ ============================ -->
+<section>
+  <div class="wrap">
+    <div class="rise" style="margin-bottom: 34px;">
+      <h2 class="title">Questions de prix.</h2>
+    </div>
+    <div class="faq rise">
+      <details>
+        <summary>Le prix dépend-il du nombre de patients ?</summary>
+        <p>Non. Dossiers, rendez-vous, factures et documents sont illimités dans toutes
+          les formules. Seul le nombre de praticiens entre dans le prix.</p>
+      </details>
+      <details>
+        <summary>Une secrétaire compte-t-elle comme un praticien ?</summary>
+        <p>Non. Les comptes secrétaire ne sont pas facturés : ils ne posent pas d'acte
+          et n'ont pas de numéro CNOMDT.</p>
+      </details>
+      <details>
+        <summary>Les envois SMS et WhatsApp sont-ils inclus ?</summary>
+        <p>Non, et c'est important. Le logiciel prépare, planifie et journalise les
+          messages, mais l'envoi passe par votre passerelle SMS et votre compte WhatsApp
+          Business. Le coût des messages est facturé par votre opérateur et par Meta.</p>
+      </details>
+      <details>
+        <summary>El Fatoora est-il utilisable dès l'abonnement ?</summary>
+        <p>La chaîne technique est là, mais la transmission réelle demande vos identifiants
+          TTN et un certificat de signature, obtenus auprès de TTN. Un mode bac à sable
+          permet de valider le paramétrage avant. C'est pourquoi El Fatoora vient avec un
+          accompagnement plutôt qu'une case à cocher.</p>
+      </details>
+      <details>
+        <summary>Que se passe-t-il si j'arrête de payer ?</summary>
+        <p>En Cloud, l'accès s'arrête mais vos données sont conservées le temps que vous
+          récupériez une sauvegarde complète. En licence locale, la version installée
+          continue de fonctionner — seules les mises à jour s'arrêtent.</p>
+      </details>
+      <details>
+        <summary>Peut-on passer du Cloud au Local, ou l'inverse ?</summary>
+        <p>Oui, c'est le même logiciel. Le changement est un travail d'installation et de
+          transfert de données que nous faisons avec vous ; il n'y a pas de ressaisie.</p>
+      </details>
+    </div>
+
+    <div class="fine rise" style="margin-top: 34px; display: grid; gap: 8px;">
+      <p><strong>Les montants de cette page sont des placeholders.</strong> Rien dans le produit ne
+        définit de tarification : la grille reste à établir avant toute publication.</p>
+      <p><sup>1</sup> Rappels SMS et WhatsApp : connexion internet requise, plus votre passerelle SMS et
+        un compte WhatsApp Business avec un modèle approuvé par Meta. Envois facturés par eux.</p>
+      <p><sup>2</sup> El Fatoora : le mode bac à sable est fourni ; la transmission réelle demande vos
+        identifiants TTN et un certificat de signature. Les avoirs ne sont pas transmis.</p>
+      <p><sup>3</sup> Agenda Google : envoi automatique vers Google, import depuis Google en un clic.
+        L'assistant intégré sait créer, chercher, ouvrir, lister et annuler un rendez-vous.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ APPEL ============================ -->
+<section class="night tight">
+  <div class="wrap center rise">
+    <h2 class="title">On choisit la formule ensemble.</h2>
+    <p class="lede wide center" style="margin-top: 16px;">
+      Le nombre de praticiens et votre connexion suffisent à trancher.
+    </p>
+    <div class="actions center" style="margin-top: 28px;">
+      <a class="btn btn-fill" href="#p5">Demander une démo</a>
+      <a class="btn btn-ghost" href="#p4">Cloud ou Local ?</a>
+    </div>
+  </div>
+</section>
+
+<footer class="foot">
+  <div class="wrap-wide">
+    <div class="foot-cols">
+      <div><h4>Produit</h4><ul>
+        <li><a href="#p1">Accueil</a></li>
+        <li><a href="#p2">Fonctionnalités</a></li>
+        <li><a href="#p4">Cloud ou Local</a></li>
+      </ul></div>
+      <div><h4>Formules</h4><ul>
+        <li><a href="#">Cabinet</a></li>
+        <li><a href="#">Clinique</a></li>
+        <li><a href="#">Licence locale</a></li>
+      </ul></div>
+      <div><h4>Contact</h4><ul>
+        <li><a href="#p5">Demander une démo</a></li>
+        <li><a href="#">contact@gestion-clinique.tn</a></li>
+        <li><a href="#" class="nums">+216 71 000 000</a></li>
+      </ul></div>
+      <div><h4>Légal</h4><ul>
+        <li><a href="#">Conditions</a></li>
+        <li><a href="#">Confidentialité</a></li>
+      </ul></div>
+    </div>
+    <div class="foot-end">
+      <span>© 2026 Gestion Clinique — Tunis, Tunisie</span>
+      <span>Maquette de site vitrine</span>
+    </div>
+  </div>
+</footer>
+</div>
+
+<div class="vpage" id="p4" aria-label="Cloud ou Local">
+<div class="flag"><span>MAQUETTE v3 — Cloud ou Local</span><span>4/5</span></div>
+
+<nav class="nav" aria-label="Navigation principale">
+  <div class="row">
+    <a class="brand" href="#p1">
+      <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.8 2.3A.3.3 0 1 0 5 2H4a2 2 0 0 0-2 2v5a6 6 0 0 0 6 6a6 6 0 0 0 6-6V4a2 2 0 0 0-2-2h-1a.2.2 0 1 0 .3.3"/><path d="M8 15v1a6 6 0 0 0 6 6a6 6 0 0 0 6-6v-4"/><circle cx="20" cy="10" r="2"/></svg>
+      Gestion Clinique
+    </a>
+    <div class="menu">
+      <a href="#p2">Fonctionnalités</a>
+      <a href="#p4" aria-current="page">Cloud ou Local</a>
+      <a href="#p3">Tarifs</a>
+      <a href="#p5">Contact</a>
+    </div>
+    <div class="end">
+      <button class="tog" data-theme-toggle aria-label="Basculer le thème sombre">
+        <svg class="ico ico-s" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4"/></svg>
+      </button>
+      <a class="btn btn-fill btn-sm" href="#p5">Demander une démo</a>
+    </div>
+    <button class="burger" aria-label="Ouvrir le menu">
+      <svg class="ico ico-s" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+    </button>
+  </div>
+</nav>
+
+<!-- ============================ HÉRO ============================ -->
+<section>
+  <div class="wrap center rise">
+    <p class="eyebrow">Installation</p>
+    <h1 class="display" style="margin: 14px 0 0; font-size: clamp(36px, 5.6vw, 68px);">
+      Le même logiciel,<br>livré de deux façons.
+    </h1>
+    <p class="lede wide center" style="margin-top: 22px;">
+      Pas une version allégée contre une version complète : les deux modes exécutent
+      le même code. Ce qui change, c'est où vivent vos données et ce qui se passe
+      quand la connexion tombe.
+    </p>
+  </div>
+</section>
+
+<!-- ============================ LES DEUX MODES ============================ -->
+<section class="pt-0">
+  <div class="wrap-wide">
+    <div class="g2 rise-g" style="align-items: start;">
+
+      <div class="card mode">
+        <div class="mode-h">
+          <svg class="ico ico-l" viewBox="0 0 24 24" aria-hidden="true"><path d="M17.5 19a4.5 4.5 0 1 0-1.1-8.9A6 6 0 0 0 5 12.5"/><path d="M6 19h11.5"/><circle cx="6" cy="19" r="2.5"/></svg>
+          <div>
+            <div class="nm">Cloud</div>
+            <div class="sub">Hébergé, accessible partout</div>
+          </div>
+        </div>
+        <p class="small">
+          Vous ouvrez un navigateur et vous travaillez. Rien à installer, rien à
+          sauvegarder. Le choix par défaut si la connexion du cabinet est fiable.
+        </p>
+        <ul class="yn">
+          <li><svg class="ico ico-s ok" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span>Aucun serveur à gérer, mises à jour automatiques</span></li>
+          <li><svg class="ico ico-s ok" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span>Accessible de chez vous, d'un second cabinet, d'un téléphone</span></li>
+          <li><svg class="ico ico-s ok" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span>Agenda Google et assistant disponibles en permanence</span></li>
+          <li><svg class="ico ico-s no" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg><span><strong style="color: var(--ink); font-weight: 600;">Coupure internet = cabinet à l'arrêt.</strong> C'est la vraie contrainte.</span></li>
+          <li><svg class="ico ico-s no" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></svg><span>Vos données sont hébergées hors du cabinet</span></li>
+        </ul>
+        <hr class="hair">
+        <div class="topo">
+          <div class="box on">
+            <svg class="ico ico-s" viewBox="0 0 24 24" aria-hidden="true"><path d="M17.5 19a4.5 4.5 0 1 0-1.1-8.9A6 6 0 0 0 5 12.5"/><path d="M6 19h11.5"/><circle cx="6" cy="19" r="2.5"/></svg>
+            <div><b>Serveur hébergé</b><span class="s">Base de données et fichiers</span></div>
+          </div>
+          <div class="wire"><span>internet — obligatoire</span></div>
+          <div class="leaves">
+            <div class="leaf"><svg class="ico ico-s" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>Accueil</div>
+            <div class="leaf"><svg class="ico ico-s" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>Fauteuil</div>
+            <div class="leaf"><svg class="ico ico-s" viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="2"/><path d="M11 18h2"/></svg>Domicile</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card mode hi">
+        <div class="mode-h">
+          <svg class="ico ico-l" viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+          <div>
+            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+              <div class="nm">Local</div>
+              <span class="pill pill-on">Sans internet</span>
+            </div>
+            <div class="sub">Sur un poste du cabinet, sur votre réseau</div>
+          </div>
+        </div>
+        <p class="small">
+          Un installateur Windows pose le logiciel, sa base et son serveur web sur un
+          poste du cabinet. Les autres postes s'y connectent par le réseau local.
+        </p>
+        <ul class="yn">
+          <li><svg class="ico ico-s ok" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span><strong style="color: var(--ink); font-weight: 600;">Fonctionne sans internet</strong> — agenda, dossiers, facturation, documents</span></li>
+          <li><svg class="ico ico-s ok" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span>Les données ne quittent pas le cabinet</span></li>
+          <li><svg class="ico ico-s ok" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span>Démarre avec Windows, en service — personne ne « lance le serveur »</span></li>
+          <li><svg class="ico ico-s ok" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span>HTTPS sur le réseau, certificat généré à la première mise en route</span></li>
+          <li><svg class="ico ico-s no" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></svg><span>Le poste serveur doit rester allumé aux heures d'ouverture</span></li>
+          <li><svg class="ico ico-s no" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></svg><span>La sauvegarde est <strong style="color: var(--ink); font-weight: 600;">manuelle</strong> — à vous de la déclencher</span></li>
+        </ul>
+        <hr class="hair">
+        <div class="topo">
+          <div class="box on">
+            <svg class="ico ico-s" viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+            <div><b>Poste serveur du cabinet</b><span class="s">Logiciel, base et fichiers, sur place</span></div>
+          </div>
+          <div class="wire"><span>réseau local (HTTPS) — pas d'internet</span></div>
+          <div class="leaves">
+            <div class="leaf"><svg class="ico ico-s" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>Accueil</div>
+            <div class="leaf"><svg class="ico ico-s" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>Fauteuil 1</div>
+            <div class="leaf"><svg class="ico ico-s" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>Fauteuil 2</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ HORS LIGNE (bande sombre) ============================ -->
+<section class="night">
+  <div class="wrap-wide split">
+    <div class="stack rise">
+      <p class="eyebrow">Hors ligne</p>
+      <h2 class="title">Ce qui s'arrête,<br>et ce qui continue.</h2>
+      <p class="lede">
+        En mode Local, c'est le serveur qui juge s'il y a internet, pas votre navigateur —
+        un poste peut n'avoir aucune sortie vers l'extérieur tout en atteignant le serveur.
+      </p>
+      <p class="small" style="color: var(--night-ink-2);">
+        Les deux fonctions qui dépendent du réseau se grisent visiblement puis se
+        réactivent seules. Les rappels restent dans la file, ils ne sont pas perdus, et
+        un rendez-vous pas encore envoyé à Google porte un badge « non synchronisé ».
+      </p>
+    </div>
+
+    <div class="frame rise" style="box-shadow: none;">
+      <div style="padding: clamp(22px, 2.6vw, 32px);">
+        <div class="conn">
+          <div style="border-bottom-color: var(--night-hair);"><span>Agenda et dossiers patients</span><span class="pill pill-on"><span class="dot"></span>Actif</span></div>
+          <div style="border-bottom-color: var(--night-hair);"><span>Devis, factures, caisse, créances</span><span class="pill pill-on"><span class="dot"></span>Actif</span></div>
+          <div style="border-bottom-color: var(--night-hair);"><span>Documents, PDF, bulletin CNAM</span><span class="pill pill-on"><span class="dot"></span>Actif</span></div>
+          <div style="border-bottom-color: var(--night-hair);"><span>Alerte de péremption du stock</span><span class="pill pill-on"><span class="dot"></span>Actif</span></div>
+          <div style="border-bottom-color: var(--night-hair);"><span>Agenda Google</span><span class="pill">Indisponible</span></div>
+          <div style="border-bottom-color: var(--night-hair);"><span>Assistant intégré</span><span class="pill">Indisponible</span></div>
+          <div><span>Rappels SMS et WhatsApp</span><span class="pill">En file d'attente</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ AIDE AU CHOIX ============================ -->
+<section class="night pt-0">
+  <div class="wrap-wide">
+    <div class="center rise" style="max-width: 520px;">
+      <h2 class="title">Six questions, et la réponse tombe.</h2>
+    </div>
+    <div class="frame rise" style="margin-top: clamp(32px, 4vw, 50px); box-shadow: none;">
+      <div class="scroll-x">
+        <table class="dec">
+          <tbody>
+            <tr><td class="q">La connexion du cabinet coupe plusieurs fois par mois</td><td class="p l">Local</td><td class="w">Une coupure ne doit pas empêcher d'encaisser ni d'imprimer une ordonnance.</td></tr>
+            <tr><td class="q">Vous consultez vos dossiers depuis chez vous</td><td class="p c">Cloud</td><td class="w">Rien à ouvrir sur le réseau du cabinet, rien à maintenir à distance.</td></tr>
+            <tr><td class="q">Vous ne voulez pas que les dossiers sortent du cabinet</td><td class="p l">Local</td><td class="w">La base et les fichiers restent sur votre poste.</td></tr>
+            <tr><td class="q">Personne ne veut s'occuper d'un poste serveur</td><td class="p c">Cloud</td><td class="w">Pas de poste à laisser allumé, pas de sauvegarde à déclencher.</td></tr>
+            <tr><td class="q">Vous tenez à une sauvegarde que vous détenez</td><td class="p l">Local</td><td class="w">La sauvegarde produit un dossier sur votre disque, que vous copiez où vous voulez.</td></tr>
+            <tr><td class="q">Vous voulez payer une fois plutôt qu'un abonnement</td><td class="p l">Local</td><td class="w">La licence locale est un achat unique ; la maintenance est facultative.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <p class="fine rise" style="margin-top: 20px; color: var(--night-ink-2);">
+      Vous pouvez changer d'avis plus tard : c'est le même logiciel, le passage d'un mode à l'autre est
+      un travail d'installation et de transfert, pas une ressaisie de dossiers.
+    </p>
+  </div>
+</section>
+
+<!-- ============================ INSTALLATION ============================ -->
+<section>
+  <div class="wrap">
+    <div class="rise stack" style="margin-bottom: 26px;">
+      <p class="eyebrow">Mise en place</p>
+      <h2 class="title">Une installation locale,<br>étape par étape.</h2>
+      <p class="body">
+        Comptez une demi-journée sur place pour un cabinet de deux à trois fauteuils,
+        reprise des patients existants comprise.
+      </p>
+    </div>
+
+    <div class="rise">
+      <div class="step"><span class="n">1</span><div>
+        <h3>On choisit le poste serveur</h3>
+        <p>Le poste de l'accueil, en général : il est allumé toute la journée. Windows suffit, aucun matériel particulier.</p>
+      </div></div>
+      <div class="step"><span class="n">2</span><div>
+        <h3>L'installateur pose tout</h3>
+        <p>Le logiciel, sa base de données et son serveur web, en un seul programme. Le service démarre avec Windows.</p>
+      </div></div>
+      <div class="step"><span class="n">3</span><div>
+        <h3>Le certificat HTTPS se génère seul</h3>
+        <p>À la première mise en route, le serveur crée son certificat couvrant son nom et ses adresses réseau. Les postes l'installent une fois.</p>
+      </div></div>
+      <div class="step"><span class="n">4</span><div>
+        <h3>Les postes se connectent</h3>
+        <p>Par le navigateur ou avec l'application de bureau. Aucune adresse IP n'est figée : changer de réseau ne casse rien.</p>
+      </div></div>
+      <div class="step"><span class="n">5</span><div>
+        <h3>La clinique est créée, l'équipe se rattache</h3>
+        <p>Informations de la clinique, compte administrateur, horaires. Puis le code d'équipe circule et chacun crée son compte.</p>
+      </div></div>
+      <div class="step"><span class="n">6</span><div>
+        <h3>On reprend vos données et on forme l'équipe</h3>
+        <p>Patients existants, catalogue d'actes et tarifs chargés avec vous, doublons vérifiés. Puis une prise en main écran par écran.</p>
+      </div></div>
+    </div>
+
+    <div class="fine rise" style="margin-top: 30px; display: grid; gap: 8px;">
+      <p>L'installateur Windows et l'application de bureau sont vérifiés par une procédure d'installation
+        que nous déroulons nous-mêmes, poste par poste — ce n'est pas un téléchargement en libre-service.
+        Une mise en place locale passe donc par une intervention, à distance ou sur site.</p>
+      <p>Si la base ne démarre pas ou qu'un port est déjà pris, le message est en français et explicite.
+        Le mot de passe administrateur oublié se réinitialise depuis le poste serveur, sans page web exposée.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ APPEL ============================ -->
+<section class="night tight">
+  <div class="wrap center rise">
+    <h2 class="title">Dites-nous comment est votre connexion.</h2>
+    <p class="lede wide center" style="margin-top: 16px;">
+      C'est presque toujours la question qui tranche. Deux minutes suffisent à décider.
+    </p>
+    <div class="actions center" style="margin-top: 28px;">
+      <a class="btn btn-fill" href="#p5">Demander une démo</a>
+      <a class="btn btn-ghost" href="#p3">Voir les tarifs</a>
+    </div>
+  </div>
+</section>
+
+<footer class="foot">
+  <div class="wrap-wide">
+    <div class="foot-cols">
+      <div><h4>Produit</h4><ul>
+        <li><a href="#p1">Accueil</a></li>
+        <li><a href="#p2">Fonctionnalités</a></li>
+        <li><a href="#p3">Tarifs</a></li>
+      </ul></div>
+      <div><h4>Installation</h4><ul>
+        <li><a href="#">Mode Cloud</a></li>
+        <li><a href="#">Mode Local</a></li>
+        <li><a href="#">Sauvegarde</a></li>
+      </ul></div>
+      <div><h4>Contact</h4><ul>
+        <li><a href="#p5">Demander une démo</a></li>
+        <li><a href="#">contact@gestion-clinique.tn</a></li>
+        <li><a href="#" class="nums">+216 71 000 000</a></li>
+      </ul></div>
+      <div><h4>Légal</h4><ul>
+        <li><a href="#">Conditions</a></li>
+        <li><a href="#">Confidentialité</a></li>
+      </ul></div>
+    </div>
+    <div class="foot-end">
+      <span>© 2026 Gestion Clinique — Tunis, Tunisie</span>
+      <span>Maquette de site vitrine</span>
+    </div>
+  </div>
+</footer>
+</div>
+
+<div class="vpage" id="p5" aria-label="Contact">
+<div class="flag"><span>MAQUETTE v3 — Contact</span><span>5/5</span></div>
+
+<nav class="nav" aria-label="Navigation principale">
+  <div class="row">
+    <a class="brand" href="#p1">
+      <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.8 2.3A.3.3 0 1 0 5 2H4a2 2 0 0 0-2 2v5a6 6 0 0 0 6 6a6 6 0 0 0 6-6V4a2 2 0 0 0-2-2h-1a.2.2 0 1 0 .3.3"/><path d="M8 15v1a6 6 0 0 0 6 6a6 6 0 0 0 6-6v-4"/><circle cx="20" cy="10" r="2"/></svg>
+      Gestion Clinique
+    </a>
+    <div class="menu">
+      <a href="#p2">Fonctionnalités</a>
+      <a href="#p4">Cloud ou Local</a>
+      <a href="#p3">Tarifs</a>
+      <a href="#p5" aria-current="page">Contact</a>
+    </div>
+    <div class="end">
+      <button class="tog" data-theme-toggle aria-label="Basculer le thème sombre">
+        <svg class="ico ico-s" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4"/></svg>
+      </button>
+    </div>
+    <button class="burger" aria-label="Ouvrir le menu">
+      <svg class="ico ico-s" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+    </button>
+  </div>
+</nav>
+
+<!-- ============================ HÉRO ============================ -->
+<section class="tight">
+  <div class="wrap center rise">
+    <p class="eyebrow">Contact</p>
+    <h1 class="display" style="margin: 14px 0 0; font-size: clamp(34px, 5vw, 60px);">
+      Voyons-le sur votre cabinet.
+    </h1>
+    <p class="lede wide center" style="margin-top: 20px;">
+      Trente minutes, en visioconférence ou sur place. On prépare la démonstration avec
+      vos actes et vos tarifs — pas un jeu de données générique.
+    </p>
+  </div>
+</section>
+
+<!-- ============================ FORMULAIRE ============================ -->
+<section class="pt-0">
+  <div class="wrap-wide">
+    <div class="split rise" style="align-items: start; grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);">
+
+      <!-- Formulaire -->
+      <div class="card" style="padding: clamp(26px, 3vw, 40px);">
+        <form data-demo-form novalidate style="display: grid; gap: 22px;">
+          <div class="pair">
+            <div class="f"><label for="nom">Nom</label>
+              <input id="nom" type="text" placeholder="Dr Amel Ben Salah" required></div>
+            <div class="f"><label for="cab">Cabinet</label>
+              <input id="cab" type="text" placeholder="Cabinet Ben Salah" required></div>
+          </div>
+          <div class="pair">
+            <div class="f"><label for="tel">Téléphone</label>
+              <input id="tel" type="tel" placeholder="+216 98 000 000" required></div>
+            <div class="f"><label for="mail">E-mail</label>
+              <input id="mail" type="email" placeholder="a.bensalah@exemple.tn" required></div>
+          </div>
+          <div class="pair">
+            <div class="f"><label for="gouv">Gouvernorat</label>
+              <select id="gouv">
+                <option selected>Tunis</option><option>Ariana</option><option>Ben Arous</option>
+                <option>La Manouba</option><option>Bizerte</option><option>Nabeul</option>
+                <option>Sousse</option><option>Monastir</option><option>Mahdia</option>
+                <option>Sfax</option><option>Gabès</option><option>Médenine</option>
+                <option>Kairouan</option><option>Autre gouvernorat</option>
+              </select></div>
+            <div class="f"><label for="prat">Praticiens</label>
+              <select id="prat">
+                <option>1 praticien</option><option selected>2 à 3</option>
+                <option>4 à 8</option><option>Plus de 8</option>
+              </select></div>
+          </div>
+
+          <div class="f">
+            <label id="mlab">Cloud ou installé au cabinet ?</label>
+            <div class="modes" role="radiogroup" aria-labelledby="mlab">
+              <label><input type="radio" name="mode" checked> Cloud</label>
+              <label><input type="radio" name="mode"> Au cabinet</label>
+              <label><input type="radio" name="mode"> Je ne sais pas encore</label>
+            </div>
+          </div>
+
+          <div class="f">
+            <label for="msg">Ce que vous cherchez à régler <span style="opacity: 0.7;">— facultatif</span></label>
+            <textarea id="msg" placeholder="Je perds du temps sur les devis et je n'ai aucune visibilité sur ce qui reste dû par patient."></textarea>
+          </div>
+
+          <label class="consent">
+            <input type="checkbox" required>
+            <span>J'accepte d'être contacté à ce sujet. Aucune donnée de patient n'est demandée
+              dans ce formulaire.</span>
+          </label>
+
+          <div class="actions">
+            <button type="submit" class="btn btn-fill">Envoyer la demande</button>
+            <span class="small">Réponse sous un jour ouvré · sans engagement</span>
+          </div>
+        </form>
+
+        <!-- État envoyé -->
+        <div data-demo-done hidden style="display: grid; gap: 26px;">
+          <div class="stack">
+            <p class="eyebrow">Demande envoyée</p>
+            <h2 class="title" style="font-size: clamp(26px, 3vw, 36px);">Merci — on vous rappelle.</h2>
+            <p class="body">Sous un jour ouvré, au numéro que vous avez laissé, pour fixer le créneau.
+              Une copie du récapitulatif part sur votre adresse e-mail.</p>
+          </div>
+          <hr class="hair">
+          <div style="display: grid; gap: 18px;">
+            <div class="stepn"><span class="n">1</span><div><b>Appel de cadrage — 10 min</b>
+              <p>Vos actes, vos tarifs, le nombre de praticiens, votre connexion.</p></div></div>
+            <div class="stepn"><span class="n">2</span><div><b>Démonstration — 30 min</b>
+              <p>Sur un jeu de données préparé à partir de votre cabinet.</p></div></div>
+            <div class="stepn"><span class="n">3</span><div><b>Essai accompagné — 2 semaines</b>
+              <p>Installation, reprise de vos patients, formation de l'équipe.</p></div></div>
+          </div>
+          <div><button class="btn btn-ghost" data-demo-back>Revenir au formulaire</button></div>
+        </div>
+      </div>
+
+      <!-- Colonne latérale -->
+      <div style="display: grid; gap: 20px;">
+        <div class="card">
+          <div class="side">
+            <a href="#">
+              <svg class="ico ico-s" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.6a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.5-1.2a2 2 0 0 1 2.1-.5c.8.3 1.7.6 2.6.7a2 2 0 0 1 1.7 2Z"/></svg>
+              <span class="nums">+216 71 000 000</span>
+            </a>
+            <a href="#">
+              <svg class="ico ico-s" viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg>
+              contact@gestion-clinique.tn
+            </a>
+            <a href="#">
+              <svg class="ico ico-s" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8v.5Z"/></svg>
+              WhatsApp — même numéro
+            </a>
+            <hr class="hair">
+            <span class="small">Lundi – vendredi, 8 h – 18 h · Tunis, Sfax et Sousse sur place</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="stack-s">
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--teal);"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/></svg>
+            <b style="font-size: 16px; font-weight: 600; letter-spacing: -0.012em;">Vos dossiers restent les vôtres</b>
+            <p class="small">En mode Local, les données ne quittent pas le cabinet. Dans les deux
+              modes, la sauvegarde produit un fichier que vous gardez, et l'export reste possible
+              si vous partez.</p>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="stack-s">
+            <b style="font-size: 16px; font-weight: 600; letter-spacing: -0.012em;">Déjà décidé ?</b>
+            <p class="small">Si vous savez ce que vous voulez, nous planifions directement
+              l'installation et la reprise de vos données.</p>
+            <a class="link" href="#p3" style="margin-top: 4px;">
+              Voir les tarifs
+              <svg class="ico ico-s chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ FAQ COURTE ============================ -->
+<section class="night tight">
+  <div class="wrap-wide">
+    <div class="center rise" style="max-width: 520px;">
+      <h2 class="title">Avant d'écrire.</h2>
+    </div>
+    <div class="g3 rise-g" style="margin-top: clamp(32px, 4vw, 50px);">
+      <div class="stack-s">
+        <b style="font-size: 16.5px; font-weight: 600; letter-spacing: -0.012em;">Faut-il internet ?</b>
+        <p class="small" style="color: var(--night-ink-2);">Non, en mode Local. Seuls l'agenda Google et
+          l'assistant en ont besoin, et ils se désactivent proprement hors ligne.</p>
+      </div>
+      <div class="stack-s">
+        <b style="font-size: 16.5px; font-weight: 600; letter-spacing: -0.012em;">Et mes patients déjà saisis ?</b>
+        <p class="small" style="color: var(--night-ink-2);">La reprise se fait pendant l'installation, à
+          partir d'un export ou d'un fichier Excel. Nous vérifions les doublons avec vous.</p>
+      </div>
+      <div class="stack-s">
+        <b style="font-size: 16.5px; font-weight: 600; letter-spacing: -0.012em;">Combien de temps ?</b>
+        <p class="small" style="color: var(--night-ink-2);">Une demi-journée suffit pour l'agenda, les
+          dossiers et la facturation. Le catalogue d'actes est préparé en amont.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer class="foot">
+  <div class="wrap-wide">
+    <div class="foot-cols">
+      <div><h4>Produit</h4><ul>
+        <li><a href="#p1">Accueil</a></li>
+        <li><a href="#p2">Fonctionnalités</a></li>
+        <li><a href="#p3">Tarifs</a></li>
+      </ul></div>
+      <div><h4>Installation</h4><ul>
+        <li><a href="#p4">Cloud ou Local</a></li>
+        <li><a href="#">Sauvegarde</a></li>
+      </ul></div>
+      <div><h4>Contact</h4><ul>
+        <li><a href="#">contact@gestion-clinique.tn</a></li>
+        <li><a href="#" class="nums">+216 71 000 000</a></li>
+      </ul></div>
+      <div><h4>Légal</h4><ul>
+        <li><a href="#">Conditions</a></li>
+        <li><a href="#">Confidentialité</a></li>
+      </ul></div>
+    </div>
+    <div class="foot-end">
+      <span>© 2026 Gestion Clinique — Tunis, Tunisie</span>
+      <span>Maquette de site vitrine</span>
+    </div>
+  </div>
+</footer>
+</div>
+
+
+<nav class="vswitch" aria-label="Choisir la page à prévisualiser">
+  <button type="button" data-p="p1" aria-current="true">Accueil</button>
+  <button type="button" data-p="p2" aria-current="false">Fonctionnalités</button>
+  <button type="button" data-p="p3" aria-current="false">Tarifs</button>
+  <button type="button" data-p="p4" aria-current="false">Cloud ou Local</button>
+  <button type="button" data-p="p5" aria-current="false">Contact</button>
+</nav>
+
+<script>
+/* ---- Comportements du site, inlinés depuis site.js ---- */
+window.__initSite = function () {
+  /* ============================================================================
+     Site vitrine « Gestion Clinique » — comportements partagés (v3)
+     ----------------------------------------------------------------------------
+     Quatre choses, et rien de plus :
+       1. Révélation au défilement, décalée.
+       2. La barre de navigation gagne son filet une fois la page défilée.
+       3. Le cadre du héros grandit légèrement en entrant (lié au défilement).
+       4. Bascule de thème.
+  
+     Principes appliqués :
+     - On n'anime que `transform` et `opacity` (propriétés compositables).
+     - Le défilement est lu dans un `requestAnimationFrame`, jamais directement
+       dans l'écouteur : sinon on force un recalcul de mise en page par événement.
+     - `prefers-reduced-motion` ne veut pas dire « aucun retour » : la montée
+       devient un fondu court (dans la CSS) et le mouvement lié au défilement est
+       purement et simplement coupé.
+     - L'état initial masqué est posé par la classe `.js` sur l'élément racine.
+       Sans script, rien n'est caché — une page qui ne révèle jamais son contenu
+       est pire qu'une page sans animation.
+  
+     ⚠️ Ce fichier doit être RÉEXÉCUTABLE. La page de prévisualisation réunit les
+     cinq maquettes dans un document et n'en affiche qu'une : une page cachée n'a
+     aucune mise en page, donc ses éléments ne peuvent pas être observés avant
+     d'être affichés, et il faut relancer l'initialisation à chaque changement de
+     page. D'où les garde-fous : les écouteurs de fenêtre sont posés une seule
+     fois, ceux des éléments sont marqués par `data-bound`, et l'état vit dans
+     `window.__site` plutôt que dans une fermeture qui deviendrait périmée.
+     ========================================================================== */
+  (function () {
+    'use strict';
+  
+    var root = document.documentElement;
+    var reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
+    var S = (window.__site = window.__site || {});
+  
+    root.classList.add('js');
+  
+    /* Un élément réellement affiché. Dans la page de prévisualisation, plusieurs
+       `[data-scale]` coexistent — un par maquette — et un seul est visible. */
+    function visible(sel) {
+      var all = document.querySelectorAll(sel);
+      for (var i = 0; i < all.length; i++) {
+        if (all[i].offsetParent !== null) return all[i];
+      }
+      return null;
+    }
+  
+    /* ---------- 1 · Révélation au défilement ---------- */
+    function reveal() {
+      var targets = document.querySelectorAll('.rise:not(.in), .rise-g:not(.in)');
+      if (!targets.length) return;
+  
+      if (!('IntersectionObserver' in window)) {
+        for (var i = 0; i < targets.length; i++) targets[i].classList.add('in');
+        return;
+      }
+  
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) {
+          if (!e.isIntersecting) return;
+          e.target.classList.add('in');
+          io.unobserve(e.target);            // une seule fois : rien ne re-disparaît
+        });
+      }, { rootMargin: '0px 0px -10% 0px', threshold: 0.06 });
+  
+      for (var j = 0; j < targets.length; j++) io.observe(targets[j]);
+  
+      // Ce qui est déjà à l'écran ne doit pas attendre un défilement.
+      requestAnimationFrame(function () {
+        for (var k = 0; k < targets.length; k++) {
+          var r = targets[k].getBoundingClientRect();
+          if (r.top < window.innerHeight * 0.94) {
+            targets[k].classList.add('in');
+            io.unobserve(targets[k]);
+          }
+        }
+      });
+    }
+  
+    /* ---------- 2 et 3 · Barre de navigation + cadre du héros ---------- */
+    function frame() {
+      S.queued = false;
+  
+      if (S.nav) {
+        var past = window.scrollY > 8;
+        if (past !== S.nav.classList.contains('scrolled')) S.nav.classList.toggle('scrolled', past);
+      }
+  
+      if (S.scaler && !reduced.matches) {
+        var r = S.scaler.getBoundingClientRect();
+        var vh = window.innerHeight;
+        // 0 quand le haut du cadre entre par le bas, 1 quand il a monté de 65 % de
+        // la hauteur de fenêtre. Borné : au-delà, on ne touche plus à rien.
+        var p = (vh - r.top) / (vh * 0.65);
+        p = p < 0 ? 0 : p > 1 ? 1 : p;
+        S.scaler.style.transform = 'scale(' + (0.94 + 0.06 * p).toFixed(4) + ')';
+      }
+    }
+  
+    function onScroll() {
+      if (S.queued) return;
+      S.queued = true;
+      requestAnimationFrame(frame);
+    }
+  
+    function onReducedChange() {
+      // L'utilisateur vient d'activer « mouvement réduit » : on rend la main.
+      if (S.scaler && reduced.matches) S.scaler.style.transform = '';
+      onScroll();
+    }
+  
+    /* ---------- 4 · Bascule de thème, et extras de page ---------- */
+    function bindElements() {
+      // `data-bound` empêche le double abonnement : sans lui, après un changement
+      // de page la bascule serait appelée deux fois et le thème ne changerait plus.
+      each('[data-theme-toggle]', function (btn) {
+        btn.addEventListener('click', function () {
+          root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
+        });
+      });
+  
+      // Tarifs : bascule mensuel / annuel. Portée à la page visible, car la page
+      // de prévisualisation contient plusieurs formulaires et plusieurs bascules.
+      each('[data-period-switch]', function (sw) {
+        var bM = sw.querySelector('[data-period="mois"]');
+        var bA = sw.querySelector('[data-period="an"]');
+        if (!bM || !bA) return;
+        var scope = sw.closest('.vpage') || document;
+        var set = function (annuel) {
+          bM.setAttribute('aria-pressed', String(!annuel));
+          bA.setAttribute('aria-pressed', String(annuel));
+          eachIn(scope, '[data-mois]', function (el) {
+            el.textContent = annuel ? el.getAttribute('data-an') : el.getAttribute('data-mois');
+          });
+          eachIn(scope, '[data-note-mois]', function (el) {
+            el.textContent = annuel ? el.getAttribute('data-note-an') : el.getAttribute('data-note-mois');
+          });
+        };
+        bM.addEventListener('click', function () { set(false); });
+        bA.addEventListener('click', function () { set(true); });
+      });
+  
+      // Contact : l'envoi révèle l'état de confirmation.
+      each('[data-demo-form]', function (form) {
+        var scope = form.closest('.vpage') || document;
+        var done = scope.querySelector('[data-demo-done]');
+        var back = scope.querySelector('[data-demo-back]');
+        if (!done) return;
+        form.addEventListener('submit', function (e) {
+          e.preventDefault();
+          form.hidden = true;
+          done.hidden = false;
+          window.scrollTo({ top: Math.max(0, done.getBoundingClientRect().top + window.scrollY - 130) });
+        });
+        if (back) back.addEventListener('click', function () {
+          done.hidden = true;
+          form.hidden = false;
+        });
+      });
+    }
+  
+    function each(sel, fn) { eachIn(document, sel, fn, true); }
+    function eachIn(scope, sel, fn, once) {
+      var list = scope.querySelectorAll(sel);
+      for (var i = 0; i < list.length; i++) {
+        if (once) {
+          if (list[i].dataset.bound) continue;
+          list[i].dataset.bound = '1';
+        }
+        fn(list[i]);
+      }
+    }
+  
+    /* ---------- Initialisation ---------- */
+    S.nav = visible('.nav') || document.querySelector('.nav');
+    S.scaler = visible('[data-scale]');
+  
+    reveal();
+    bindElements();
+  
+    if (!S.windowBound) {
+      S.windowBound = true;
+      window.addEventListener('scroll', onScroll, { passive: true });
+      window.addEventListener('resize', onScroll, { passive: true });
+      if (reduced.addEventListener) reduced.addEventListener('change', onReducedChange);
+      else if (reduced.addListener) reduced.addListener(onReducedChange);
+    }
+  
+    frame();
+  })();
+  
+};
+
+/* ---- Routeur de prévisualisation ---- */
+(function () {
+  var ids = ["p1","p2","p3","p4","p5"];
+
+  function show(id) {
+    if (ids.indexOf(id) === -1) return;
+    var pages = document.querySelectorAll('.vpage');
+    for (var i = 0; i < pages.length; i++) pages[i].classList.toggle('on', pages[i].id === id);
+    var btns = document.querySelectorAll('.vswitch button');
+    for (var j = 0; j < btns.length; j++) btns[j].setAttribute('aria-current', String(btns[j].dataset.p === id));
+    window.scrollTo({ top: 0, behavior: 'auto' });
+    // La page qui vient d'apparaître n'avait pas de mise en page : ses éléments
+    // n'ont donc jamais pu être observés. On relance les comportements.
+    window.__initSite();
+  }
+
+  show(ids[0]);
+
+  var sw = document.querySelectorAll('.vswitch button');
+  for (var k = 0; k < sw.length; k++) {
+    sw[k].addEventListener('click', function () { show(this.dataset.p); });
+  }
+
+  document.addEventListener('click', function (e) {
+    var a = e.target.closest ? e.target.closest('a[href^="#"]') : null;
+    if (!a) return;
+    var h = a.getAttribute('href').slice(1);
+    if (ids.indexOf(h) !== -1) { e.preventDefault(); show(h); }
+  });
+})();
+</script>

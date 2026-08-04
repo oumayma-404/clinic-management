@@ -1,4 +1,4 @@
-using ClinicManagement.Application.Common.Interfaces;
+﻿using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Maintenance;
 using Moq;
 
@@ -26,7 +26,8 @@ public class SchemaVerificationServiceTests
         SchemaSide? model = null,
         SchemaSide? database = null,
         IReadOnlyList<MappedDecimalFact>? mappedDecimals = null,
-        DataMigrationCounts? counts = null)
+        DataMigrationCounts? counts = null,
+        AuditLedgerFacts? auditLedger = null)
     {
         _reader
             .Setup(r => r.ReadAsync(It.IsAny<CancellationToken>()))
@@ -36,7 +37,10 @@ public class SchemaVerificationServiceTests
                 model ?? EmptySide,
                 database ?? EmptySide,
                 mappedDecimals ?? Array.Empty<MappedDecimalFact>(),
-                counts ?? CleanCounts));
+                counts ?? CleanCounts,
+                // Default: the ledger exists and ClinicId is nullable, so the audit checks pass and individual
+                // tests override just this facet — the same one-facet-at-a-time shape as every other parameter.
+                auditLedger ?? new AuditLedgerFacts(TableExists: true, ClinicIdIsNullable: true)));
     }
 
     private static SchemaSide EmptySide => new(
@@ -48,7 +52,7 @@ public class SchemaVerificationServiceTests
         'x',
         "EXCLUDE USING gist (\"DoctorId\" WITH =, slot WITH &&) WHERE (\"Status\" <> ALL (ARRAY[5, 6]))");
 
-    private static DataMigrationCounts CleanCounts => new(0, 0, 0, 0, 0, 0, 12, 0);
+    private static DataMigrationCounts CleanCounts => new(0, 0, 0, 0, 0, 0, 12, 0, 0, 0, 0, 0);
 
     private static SchemaVerificationFinding Finding(SchemaVerificationReport report, string check) =>
         report.Findings.Single(f => f.Check == check);
@@ -356,7 +360,7 @@ public class SchemaVerificationServiceTests
     [Fact]
     public async Task Appointments_Naming_An_Act_With_No_Procedure_Row_Are_Drift()
     {
-        Arrange(counts: new DataMigrationCounts(0, 0, 0, 0, 0, 0, 12, 4));
+        Arrange(counts: new DataMigrationCounts(0, 0, 0, 0, 0, 0, 12, 4, 0, 0, 0, 0));
 
         var report = await CreateService().RunAsync();
 
@@ -368,7 +372,7 @@ public class SchemaVerificationServiceTests
     [Fact]
     public async Task Appointment_Act_Rows_Reads_Not_Applicable_Before_The_Table_Exists()
     {
-        Arrange(counts: new DataMigrationCounts(0, 0, 0, 0, 0, 0, 12, null));
+        Arrange(counts: new DataMigrationCounts(0, 0, 0, 0, 0, 0, 12, null, 0, 0, 0, 0));
 
         var report = await CreateService().RunAsync();
 
@@ -378,7 +382,7 @@ public class SchemaVerificationServiceTests
     [Fact]
     public async Task Appointment_Notes_Still_Carrying_A_Type_Prefix_Are_Drift()
     {
-        Arrange(counts: new DataMigrationCounts(3, 0, 0, 0, 0, 0, 12, 0));
+        Arrange(counts: new DataMigrationCounts(3, 0, 0, 0, 0, 0, 12, 0, 0, 0, 0, 0));
 
         var report = await CreateService().RunAsync();
 
@@ -388,7 +392,7 @@ public class SchemaVerificationServiceTests
     [Fact]
     public async Task Pre_Existing_Overlapping_Pairs_Are_Drift()
     {
-        Arrange(counts: new DataMigrationCounts(0, 2, 0, 0, 0, 0, 12, 0));
+        Arrange(counts: new DataMigrationCounts(0, 2, 0, 0, 0, 0, 12, 0, 0, 0, 0, 0));
 
         var report = await CreateService().RunAsync();
 
@@ -404,7 +408,7 @@ public class SchemaVerificationServiceTests
     [Fact]
     public async Task A_Legacy_Expiry_With_No_Opening_Batch_Is_Drift()
     {
-        Arrange(counts: new DataMigrationCounts(0, 0, 5, 5, 0, 0, 12, 0));
+        Arrange(counts: new DataMigrationCounts(0, 0, 5, 5, 0, 0, 12, 0, 0, 0, 0, 0));
 
         var report = await CreateService().RunAsync();
 
@@ -416,7 +420,7 @@ public class SchemaVerificationServiceTests
     [Fact]
     public async Task Patients_Missing_A_Normalized_Name_Are_Drift()
     {
-        Arrange(counts: new DataMigrationCounts(0, 0, 0, 0, 0, 4, 12, 0));
+        Arrange(counts: new DataMigrationCounts(0, 0, 0, 0, 0, 4, 12, 0, 0, 0, 0, 0));
 
         var report = await CreateService().RunAsync();
 
@@ -432,7 +436,7 @@ public class SchemaVerificationServiceTests
     [Fact]
     public async Task A_Count_Whose_Subject_Does_Not_Exist_Yet_Is_Not_Applicable_Rather_Than_Drift()
     {
-        Arrange(counts: new DataMigrationCounts(0, 0, null, null, null, null, null, null));
+        Arrange(counts: new DataMigrationCounts(0, 0, null, null, null, null, null, null, null, 0, null, 0));
 
         var report = await CreateService().RunAsync();
 
@@ -451,7 +455,7 @@ public class SchemaVerificationServiceTests
     [Fact]
     public async Task After_The_Migration_The_Backfill_Check_Says_It_Was_Superseded()
     {
-        Arrange(counts: new DataMigrationCounts(0, 0, null, null, 0, 0, 12, 0));
+        Arrange(counts: new DataMigrationCounts(0, 0, null, null, 0, 0, 12, 0, 0, 0, 0, 0));
 
         var report = await CreateService().RunAsync();
 
@@ -467,7 +471,7 @@ public class SchemaVerificationServiceTests
     [Fact]
     public async Task An_Item_Holding_Stock_With_No_Lot_Is_Drift()
     {
-        Arrange(counts: new DataMigrationCounts(0, 0, null, null, 3, 0, 12, 0));
+        Arrange(counts: new DataMigrationCounts(0, 0, null, null, 3, 0, 12, 0, 0, 0, 0, 0));
 
         var report = await CreateService().RunAsync();
 
@@ -482,7 +486,7 @@ public class SchemaVerificationServiceTests
     [Fact]
     public async Task HasDrift_Agrees_With_DriftCount()
     {
-        Arrange(counts: new DataMigrationCounts(1, 1, 0, 0, 0, 0, 12, 0));
+        Arrange(counts: new DataMigrationCounts(1, 1, 0, 0, 0, 0, 12, 0, 0, 0, 0, 0));
 
         var report = await CreateService().RunAsync();
 
@@ -500,5 +504,149 @@ public class SchemaVerificationServiceTests
 
         _reader.Verify(r => r.ReadAsync(It.IsAny<CancellationToken>()), Times.Once);
         _reader.VerifyNoOtherCalls();
+    }
+    // ---------------------------------------------------------------- I6: the audit ledger
+
+    /// <summary>
+    /// [I6] A healthy ledger reports both checks clean.
+    ///
+    /// <para>Only two checks, deliberately: <c>AuditEntryConfiguration</c> declares both of the table's indexes,
+    /// so the model-driven diff already verifies them and naming them here would rebuild the hand-maintained
+    /// expectation list this whole verb exists to avoid.</para>
+    /// </summary>
+    [Fact]
+    public async Task A_Healthy_Audit_Ledger_Reports_Both_Checks_Clean()
+    {
+        Arrange();
+
+        var report = await CreateService().RunAsync();
+
+        Assert.False(IsDrift(Finding(report, "audit-ledger-clinic-nullable")));
+        Assert.False(IsDrift(Finding(report, "audit-ledger-has-no-foreign-keys")));
+    }
+
+    /// <summary>
+    /// [I6][DEV-4] A <c>NOT NULL</c> <c>ClinicId</c> is drift, and this is the check's whole reason for existing.
+    ///
+    /// <para>The failure it catches is silent: a job or console verb mutating a row with no clinic derivable from
+    /// it writes the audit row with a null clinic, and if the column were tightened that insert would throw
+    /// <b>inside the interceptor's own swallow-and-log</b>. The ledger would simply stop recording every
+    /// non-interactive mutation, with nothing on any screen to say so — and no unit test could see it, because
+    /// nothing in this suite touches a database.</para>
+    /// </summary>
+    [Fact]
+    public async Task A_Not_Null_Audit_ClinicId_Is_Drift()
+    {
+        Arrange(auditLedger: new AuditLedgerFacts(TableExists: true, ClinicIdIsNullable: false));
+
+        var report = await CreateService().RunAsync();
+
+        var finding = Finding(report, "audit-ledger-clinic-nullable");
+        Assert.True(IsDrift(finding));
+        Assert.Contains("NOT NULL", finding.Detail);
+    }
+
+    /// <summary>
+    /// [I6] A foreign key on <c>AuditEntries</c> is drift — the one assertion in the whole report that looks for
+    /// something <b>absent</b>.
+    ///
+    /// <para>It is needed because the model-to-database FK diff only reports a <i>missing</i> key and can never
+    /// see an <i>extra</i> one. A well-meaning <c>ClinicId -&gt; Clinics ON DELETE CASCADE</c> would erase a
+    /// clinic's audit history along with the clinic, which is the one thing a ledger must never do.</para>
+    /// </summary>
+    [Fact]
+    public async Task A_Foreign_Key_On_The_Audit_Table_Is_Drift()
+    {
+        var database = new SchemaSide(
+            Array.Empty<IndexFact>(),
+            new[] { new ForeignKeyFact("AuditEntries", new[] { "ClinicId" }, "Clinics") },
+            Array.Empty<DecimalColumnFact>());
+
+        Arrange(database: database);
+
+        var report = await CreateService().RunAsync();
+
+        var finding = Finding(report, "audit-ledger-has-no-foreign-keys");
+        Assert.True(IsDrift(finding));
+        Assert.Contains("AuditEntries(ClinicId) -> Clinics", finding.Detail);
+    }
+
+    // A foreign key on some OTHER table is none of this check's business — it must not fire on the ~40 legitimate
+    // ones the schema already has.
+    [Fact]
+    public async Task A_Foreign_Key_On_Another_Table_Does_Not_Trip_The_Audit_Check()
+    {
+        var fk = new ForeignKeyFact("Expenses", new[] { "ClinicId" }, "Clinics");
+        var side = new SchemaSide(
+            Array.Empty<IndexFact>(), new[] { fk }, Array.Empty<DecimalColumnFact>());
+
+        Arrange(model: side, database: side);
+
+        var report = await CreateService().RunAsync();
+
+        Assert.False(IsDrift(Finding(report, "audit-ledger-has-no-foreign-keys")));
+    }
+
+    /// <summary>
+    /// [I6] Before the migration is applied, both checks report « not applicable » — <b>named, not dropped</b>.
+    ///
+    /// <para>Same rule as the stock-batch phases: a check that silently vanishes from the report is
+    /// indistinguishable from one that was forgotten, and the whole before/after-and-diff workflow depends on
+    /// every line being accounted for.</para>
+    /// </summary>
+    [Fact]
+    public async Task Before_The_Migration_Both_Audit_Checks_Are_Named_As_Not_Applicable()
+    {
+        Arrange(auditLedger: new AuditLedgerFacts(TableExists: false, ClinicIdIsNullable: null));
+
+        var report = await CreateService().RunAsync();
+
+        foreach (var check in new[] { "audit-ledger-clinic-nullable", "audit-ledger-has-no-foreign-keys" })
+        {
+            var finding = Finding(report, check);
+            Assert.False(IsDrift(finding));
+            Assert.Contains("not applicable", finding.Detail);
+        }
+    }
+
+    // The findings are filed under their own section, so the operator diff groups them rather than scattering
+    // them through « Data migrations ».
+    [Fact]
+    public async Task The_Audit_Findings_Are_Filed_Under_Their_Own_Section()
+    {
+        Arrange();
+
+        var report = await CreateService().RunAsync();
+
+        Assert.Equal("Audit ledger", Finding(report, "audit-ledger-clinic-nullable").Scope);
+        Assert.Equal("Audit ledger", Finding(report, "audit-ledger-has-no-foreign-keys").Scope);
+    }
+
+    // L4a's backfill, and the same quiet failure as the category move above: EF's differ scaffolds
+    // `defaultValue: 0` for a new non-nullable int, so a clinic left at zero has a retention policy of
+    // « keep nothing » and a staleness threshold that fires immediately — while the columns, the endpoint and
+    // the settings screen are all present and correct. Only a database read can see it.
+    [Fact]
+    public async Task Clinics_Left_With_A_Zero_Backup_Retention_Are_Drift()
+    {
+        Arrange(counts: new DataMigrationCounts(0, 0, 0, 0, 0, 0, 12, 0, 0, 3, 0, 0));
+
+        var report = await CreateService().RunAsync();
+
+        Assert.True(IsDrift(Finding(report, "backup-schedule-backfill")));
+    }
+
+    // Before the columns exist the question cannot be asked, so the line must read « not applicable » rather
+    // than a reassuring 0 — the distinction the whole nullable-count convention in this file exists for.
+    [Fact]
+    public async Task Backup_Schedule_Backfill_Reads_Not_Applicable_Before_The_Columns_Exist()
+    {
+        Arrange(counts: new DataMigrationCounts(0, 0, 0, 0, 0, 0, 12, 0, 0, null, 0, 0));
+
+        var report = await CreateService().RunAsync();
+
+        var finding = Finding(report, "backup-schedule-backfill");
+        Assert.False(IsDrift(finding));
+        Assert.Contains("not applicable", finding.Detail, StringComparison.OrdinalIgnoreCase);
     }
 }

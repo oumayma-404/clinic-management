@@ -124,7 +124,8 @@ public class ProcedureTypeTenantIsolationTests
         Authenticated();
         var own = ProcedureType(ClinicId);
         var foreign = ProcedureType(OtherClinicId);
-        _procedures.Setup(r => r.GetFilteredAsync(It.IsAny<Guid>(), It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<PageRequest?>(),
+        _procedures.Setup(r => r.GetFilteredAsync(It.IsAny<Guid>(), It.IsAny<bool>(), It.IsAny<string?>(),
+            It.IsAny<string?>(), It.IsAny<PageRequest?>(),
             It.IsAny<CancellationToken>())).ReturnsAsync(new[] { own, foreign }.AsPage());
 
         var handler = new GetProcedureTypesQueryHandler(

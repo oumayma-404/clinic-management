@@ -8,7 +8,8 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
-import { Save, Trash2 } from "lucide-react"
+import { Clock, Save, Trash2 } from "lucide-react"
+import { ZONES, zoneChipClass } from "@/lib/zones"
 import { doctorsApi, type WorkingDay } from "@/lib/api/doctors"
 import { ApiError } from "@/lib/api/client"
 import { DEFAULT_WORKING_HOURS, WEEKDAYS } from "@/lib/working-hours"
@@ -152,6 +153,10 @@ export function DoctorWorkingHoursCard({
               : "Ce praticien a ses propres horaires. Ils remplacent les horaires du cabinet pour la prise de rendez-vous."}
           </p>
 
+          {/* ⚠️ The two `<Input>`s below say `md:text-xs`, never a bare `text-xs`: `ui/input.tsx` ships
+              `text-base md:text-sm` as the iOS focus-zoom guard (Safari zooms into any field under 16px and
+              never zooms back), and tailwind-merge treats an unprefixed size at the call site as a REPLACEMENT
+              for `text-base` — so the guard is defeated by the very class meant to make the field compact. */}
           <div className="space-y-1.5">
             {WEEKDAYS.map((weekday) => {
               const day = days.find((d) => d.day === weekday) ?? {
@@ -187,7 +192,7 @@ export function DoctorWorkingHoursCard({
                       value={day.from}
                       onChange={(e) => updateDay(weekday, { from: e.target.value })}
                       disabled={saving || !day.enabled}
-                      className="h-7 text-xs"
+                      className="h-7 md:text-xs"
                     />
                     <span className="text-xs text-muted-foreground">à</span>
                     <Label htmlFor={toId} className="sr-only">
@@ -199,7 +204,7 @@ export function DoctorWorkingHoursCard({
                       value={day.to}
                       onChange={(e) => updateDay(weekday, { to: e.target.value })}
                       disabled={saving || !day.enabled}
-                      className="h-7 text-xs"
+                      className="h-7 md:text-xs"
                     />
                   </div>
                 </div>
@@ -235,9 +240,25 @@ export function DoctorWorkingHoursCard({
   }
 
   return (
-    <Card className="border border-gray-200 dark:border-slate-800">
+    // No border override: `Card` already renders `border`, which the base layer paints `--border`.
+    <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-base">
+        {/*
+          The icon chip — `app/documents/page.tsx`'s template-tile idiom, sized for a header. This header had no
+          glyph at all, and `Clock` is the one obviously right for « horaires »; the chip is what makes it a
+          mark rather than a second word. `config` is the zone of both routes this card is reachable from
+          (« Mon profil » and « Paramètres »), matching the sections it is stacked with.
+
+          ⚠️ Only the un-`embedded` rendering has a header — inside « Paramètres → Médecins » this component
+          renders its `body` bare, one per practitioner, so a chip per doctor row is not a thing that can happen.
+        */}
+        <CardTitle className="flex min-w-0 items-center gap-2.5 text-base leading-snug">
+          <span
+            aria-hidden="true"
+            className={`flex size-8 shrink-0 items-center justify-center rounded-lg ${zoneChipClass(ZONES.config)}`}
+          >
+            <Clock className="size-4" strokeWidth={1.75} />
+          </span>
           Mes horaires{doctorName ? ` — ${doctorName}` : ""}
         </CardTitle>
       </CardHeader>

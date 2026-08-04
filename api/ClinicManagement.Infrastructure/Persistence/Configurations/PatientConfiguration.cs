@@ -92,6 +92,12 @@ public class PatientConfiguration : IEntityTypeConfiguration<Patient>
             cnam.Property(c => c.AssurePostalCode).HasColumnName("CnamAssurePostalCode").HasMaxLength(20);
             cnam.Property(c => c.MaladeLien).HasColumnName("CnamMaladeLien").HasMaxLength(50);
             cnam.Property(c => c.MaladeLienRang).HasColumnName("CnamMaladeLienRang").HasMaxLength(50);
+            // L10 — the two inputs to the annual ceiling. The override carries the solution-wide money precision
+            // (18,3) so a plafond typed in millimes is stored as typed; it is a dinar amount like any other.
+            cnam.Property(c => c.DependantCount).HasColumnName("CnamDependantCount");
+            cnam.Property(c => c.AnnualCeilingOverride)
+                .HasColumnName("CnamAnnualCeilingOverride")
+                .HasPrecision(18, 3);
         });
 
         builder.Property(p => p.MedicalHistory)

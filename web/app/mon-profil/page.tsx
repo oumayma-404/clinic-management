@@ -10,7 +10,6 @@ export default function MonProfilPage() {
     <ClinicGuard>
       <AppShell width="3xl" contentClassName="space-y-6">
         <PageHeader
-          zone="Paramètres"
           title="Mon profil"
           subtitle="Vos informations professionnelles et votre cachet apparaissent sur les documents que vous générez."
         />

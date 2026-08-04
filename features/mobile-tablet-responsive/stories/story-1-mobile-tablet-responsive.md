@@ -14,7 +14,7 @@ See [progress.md](./progress.md).
 > re-opened. **Test authoring is out of scope by instruction — implementation only.**
 
 ## Objective
-
+what's left ?? relnce
 **As a** dentist at the chair with a tablet, a secretary at the front desk, and an owner checking the day from a
 phone
 **I want** every screen to fit the device I am holding, every control to be reachable with a thumb, and every

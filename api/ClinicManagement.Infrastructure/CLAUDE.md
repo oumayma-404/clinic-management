@@ -15,6 +15,30 @@ self-generated HTTPS trust material, and per-clinic reference-catalog seeding. A
 
 ## EF Core Persistence (`Persistence/`)
 
+- **`AuditSaveChangesInterceptor.cs`** — writes the audit ledger (`adoption-qa-i-access-control-and-audit` I6).
+  One row per mutated **aggregate root**, carrying the actor (`IAuditActorProvider`), the clinic, the entity, the
+  action, and for updates/deletes a compact changed-field summary.
+  **Why an interceptor and not the handlers:** attribution wired into commands is attribution a new command can
+  forget, and the ledger's whole value is that a missing row is indistinguishable from a mutation that never
+  happened. Every write funnels through `SaveChangesAsync`, so this sees them all by construction.
+  ⚠️ **The two-phase shape is forced, not stylistic.** Rows are *collected* in `SavingChangesAsync` — a `Deleted`
+  entry is **gone from the change tracker** afterwards, so its id and identifying values only exist then — and
+  *written* in `SavedChangesAsync` through a **separate** `ApplicationDbContext` from its own scope, because an
+  audit failure must never roll back a clinical or money operation (the same contract as `INotificationGenerator`)
+  and rows added to the caller's context would ride the caller's transaction. A separate context is also why it is
+  **not a nested save**: it never re-enters the context it observes, which would recurse.
+  ⚠️ **Known imprecision, stated rather than hidden:** `SavedChangesAsync` fires when `SaveChanges` returns, which
+  for the few handlers opening an explicit `IUnitOfWork.BeginTransactionAsync` is *before* the commit — so a
+  rolled-back transaction leaves its audit row behind. That is the deliberate direction of the error:
+  over-recording an attempt is a reading problem, under-recording a real change is the failure the ledger exists to
+  prevent.
+  **Aggregate roots only**, derived from `AggregateRoot<>` rather than a name list (so a new aggregate is audited
+  the day it is written) — saving one invoice touches its lines and payments, and a row per tracked entity would
+  answer « qui a annulé cette facture ? » with eleven rows for one action. Two exclusions, both structural:
+  `AuditEntry` itself (it would audit its own writes forever) and `Notification`, the outbound reminder outbox
+  whose **minutely** dispatcher would bury a clinic's real history in machine noise within a day (it already has a
+  visible delivery log on « Rappels »).
+
 - **`ApplicationDbContext.cs`** — the single `DbContext`. Injects an optional `ICurrentClinicProvider?` (null
   at design-time / in manual construction → filters inactive). Key mechanisms:
   - **Multi-tenant global query filters** (defense-in-depth backstop, NOT the authoritative check — handlers
@@ -27,6 +51,12 @@ self-generated HTTPS trust material, and per-clinic reference-catalog seeding. A
     before a clinic context exists). Child entities (`InvoiceLine`, `Payment`, `Installment`,
     `TreatmentPlanItem`, `MedicationActiveIngredient`, `DentalRecordTooth/Act`, `ToothState`,
     `NotificationRead`, **`StockBatch`**, **`ProcedureTypeMaterial`**) carry no filter — reached only through a filtered parent / scoped by `UserId`.
+    ⚠️ **`AuditEntries` carries no filter either, and that one is not an omission**: its `ClinicId` is
+    *nullable* (a job or console verb can mutate a row with no clinic derivable from it), so a filter comparing it
+    to the scoped id would silently hide exactly the unattributed rows an owner most needs — and the interceptor
+    writes on a context whose clinic scope belongs to the request being audited, not to the row.
+    `GetAuditEntriesQuery` filters by the caller's DB-resolved clinic explicitly, which is the authoritative check
+    everywhere in this codebase anyway.
     Cross-clinic paths (per-clinic seeder, reminder dispatcher, Google→App sync when no scope) call
     `IgnoreQueryFilters()` or run with no clinic in scope so the filter is inactive.
   - **Money precision by convention** - `ConfigureConventions` sets `HavePrecision(18, 3)` for every `decimal`, and the **26 redundant `HasColumnType("decimal(18,3)")` calls across 17 configuration files were deleted** (AC-P4.37). The deletions are load-bearing: `GetColumnType()` returns an explicit annotation verbatim and bypasses facet-derived store types, so with them in place the convention emits **zero** `AlterColumn`s and `StockItem.UnitPrice` stays at 2 decimals - the exact bug it looks like it fixes. `Clinic.VatRate` and `Invoice.VatRate` keep `(5,2)` via a retained annotation with the reason at each site: they are rates, not money (AC-P4.38). `verify-schema` asserts both halves.
@@ -53,6 +83,26 @@ self-generated HTTPS trust material, and per-clinic reference-catalog seeding. A
   defaults into each clinic on creation and a startup backfill (`SeedAllClinicsAsync`, called from the API's
   `DeferredStartupService`/`Program.cs`). Uses the `DbContext` directly with no clinic in scope; idempotent
   per catalog; deterministic per-clinic GUIDs.
+  ⚠️ **Seeding an empty catalog is no longer the whole job** (`adoption-qa-k`): a clinic seeded before a shipped
+  default was found to be *wrong* still holds the wrong value in its own rows, and « the catalog already has rows,
+  skip it » would leave it there forever. **`CorrectSupersededDefaultsAsync`** therefore runs after the four
+  seed-if-empty blocks, on every clinic, every startup — today for the CNAM **valeurs de la lettre clé** (the seed
+  shipped `Cd 7` / `Cds 10` / `D 1,200` against the convention in force since 01/01/2021, which fixes 30,000 /
+  45,000 / 3,000, so **every** reimbursement figure shown to a patient was understated by 60–75 %) and the
+  **Prothèse accord-préalable** flag (cleared since April 2019).
+  ⚠️ **The predicate is what makes it safe, and `IsProvisional` alone is the wrong one.** All three terms are
+  required: `UpdatedAt == null` (untouched since seeding), still provisional, **and** the row still holding the
+  exact superseded figure (`CnamCatalogSeed.SupersededLetterValue` / `DentalActCatalogSeed.
+  SupersededAccordPrealable`, both derived from the seed table so there is no second hand-written copy of the old
+  numbers). `CnamLetterValue.SetValue` stamps `UpdatedAt` but does **not** clear the provisional flag — only
+  `Confirm()` does — so an admin who typed their own valeur and never pressed « Confirmer » still reads
+  `IsProvisional = true`, and correcting on that flag would overwrite the one entry that must never be touched.
+  Divergence that survives the predicate is *offered* on `/cnam-nomenclature` instead
+  (`CnamLetterValueDto.ConventionValue`), never applied silently. Self-terminating: both mutators stamp
+  `UpdatedAt`, so a corrected row fails the predicate on every later startup.
+  The convention's own table lives in **Domain** (`Services/CnamConventionTariffs`) because the seed
+  (Infrastructure) and the letter-values read (Application) both need it; `ValueFor` returns **null** for a lettre
+  clé the convention text did not settle (`Vd`/`Rd`), which is what keeps those out of the correction entirely.
 
 ### Entity Configurations (`Persistence/Configurations/`)
 One `IEntityTypeConfiguration<T>` per aggregate, auto-discovered via `ApplyConfigurationsFromAssembly`.
@@ -67,7 +117,7 @@ Installment, TreatmentPlan, TreatmentPlanItem, ClinicReminderSettings, CnamNomen
 DentalActCode, Medication, MedicationActiveIngredient, Expense, WaitingListEntry, LabWorkOrder.
 
 ### Migrations (`Migrations/`)
-44 migrations, applied automatically at startup (`context.Database.Migrate()` in API `Program.cs`). Early ones
+45 migrations, applied automatically at startup (`context.Database.Migrate()` in API `Program.cs`). Early ones
 build the base schema, Google-event id, procedures, medical/dental records, notes, storage folders, medical
 documents, nullable-patient appointments, and the multi-tenant clinic/user/doctor model. Notable later ones:
 `AddLocalAuthUserFields` (Local-auth `User` columns + partial unique index on lowercased email filtered to
@@ -85,6 +135,24 @@ documents, nullable-patient appointments, and the multi-tenant clinic/user/docto
   guarded regex SQL cast (non-GUID legacy values → null); adds `Patient` recall fields (`LastRecallContactedAt`,
   `RecallReason`, `RecallSnoozedUntil`), `Doctor.WorkingHoursJson`, `Clinic.RecallIntervalMonths` (default 6);
   creates the `Expenses`, `LabWorkOrders`, `WaitingListEntries` tables.
+- **`20260731235500_AddProcedureTypeCategory`** — gives `ProcedureType` a real `Category` column (100 chars,
+  nullable) + a `(ClinicId, Category, Name)` index, and **moves** into it the disciplines that had been living in
+  `Description` — clearing the description it copies from, because « Endodontie » was never a *description* of
+  « Traitement de canal » and leaving it would preserve the original mistake behind the column added to fix it.
+  Only descriptions exactly matching a canonical label are touched, so real prose survives. **Hand-written**, not
+  scaffolded: `dotnet ef` cannot load a freshly-built assembly on the dev machine (Smart App Control,
+  `0x800711C7`), so the model snapshot and the paired Designer were updated by hand — the shape is checked against
+  PostgreSQL's catalog by `verify-schema`, which matches indexes on table + ordered columns rather than by name.
+- **`20260804120000_AddChequeDetailsToPayments`** (L8) — `Payments` and `InstallmentPayments` each gain
+  `ChequeNumber` (50), `ChequeBankName` (200) and `ChequeDueDate`, plus a **partial** index on the due date.
+  Purely additive: six nullable columns, no backfill, no row rewritten — a cheque recorded before today
+  legitimately has no number, which is different from « we have no cheques » and is why they are nullable rather
+  than defaulted to `''`. ⚠️ **No CHECK constraint**: « cheque details only on a cheque » lives in
+  `ChequeDetails.For`, and a second copy here would surface as a 500 instead of the French refusal — so
+  `verify-schema` gained `cheque-details-only-on-cheques` to *verify* it instead, over both ledgers.
+  ⚠️ Both index filters key on `"ChequeDueDate" IS NOT NULL`, **not** `"Method" = 1`: equally selective by that
+  invariant, and the enum form would bake an ordinal into SQL where no compiler checks it. **Hand-written** for the
+  same WDAC reason as the migration above; the delta is six columns and two indexes, small enough to verify by eye.
 
 ## Repositories (`Repositories/`)
 Concrete EF Core impls of Domain repo interfaces. Pattern: ctor-inject `ApplicationDbContext`; `GetById*` uses
@@ -97,7 +165,7 @@ Concrete EF Core impls of Domain repo interfaces. Pattern: ctor-inject `Applicat
 | `INotificationRepository` | `NotificationRepository` (reminder outbox rows) |
 | `IStaffNotificationRepository` | `StaffNotificationRepository` (in-app feed: newest-first/actor-excluded/50-cap, unread gated on viewer join time, read-marker existence+insert, reminder-by-appointment lookup) |
 | `IStockItemRepository` | `StockItemRepository` |
-| `IProcedureTypeRepository` | `ProcedureTypeRepository` |
+| `IProcedureTypeRepository` | `ProcedureTypeRepository` (`GetFilteredAsync` gained a `category` argument — compared on the **canonical** spelling so a stale « endodontie » link still matches — and orders by category then name with `Category == null` **first in the predicate** so unfiled acts land at the *end*, a decision this read makes rather than inheriting from PostgreSQL's NULLS-LAST default; `GetCategoriesAsync` returns the clinic's distinct categories, **including those of deactivated acts**, since a discipline the practice files work under does not stop being one because one act in it was archived) |
 | `IDentalRecordRepository` | `DentalRecordRepository` |
 | `IToothStateRepository` | `ToothStateRepository` (persistent odontogram) |
 | `IPatientFolderRepository` | `PatientFolderRepository` |
@@ -260,7 +328,18 @@ with a French operator message); a partial folder is deleted before rethrow. Reg
 a call fails cleanly ("pg_dump introuvable").
 
 ## DI Registration (`Extensions.cs` — `AddInfrastructure(services, configuration)`)
-- `ApplicationDbContext` via `UseNpgsql("DefaultConnection")`; `IUnitOfWork` scoped; all repositories scoped.
+- `ApplicationDbContext` via `UseNpgsql("DefaultConnection")` **+ `AddInterceptors(AuditSaveChangesInterceptor)`**;
+  `IUnitOfWork` scoped; all repositories scoped.
+  ⚠️ The interceptor is **scoped** and resolved through the `AddDbContext((provider, options) => …)` overload, not
+  registered as an instance: it holds per-request state (the actor, and the rows collected between the two save
+  phases), so a singleton would leak one request's actor into another's rows. It is built by an explicit factory so
+  its *optional* `ICurrentClinicProvider` is resolved with `GetService`, not `GetRequiredService` — a console verb
+  has none by design, and relying on the container's handling of a defaulted constructor parameter would make that
+  work by accident.
+- **`IAuditActorProvider` floor** — `TryAddScoped<IAuditActorProvider, ProcessAuditActorProvider>()`. A no-op in
+  the API (`AddApplication` runs first in `Program.cs` and registers the real claims-reading `AuditActorProvider`);
+  it exists for the console verbs, which build their container from `AddInfrastructure` alone and would otherwise
+  fail to resolve a `DbContext` at all.
 - `AddHttpClient()`; `AddMemoryCache()`; `IInternetProbe → InternetProbe` (**Singleton**).
 - **`IFileStorage` (scoped), mode-branched**: Local → `LocalDiskFileStorage` (base path via
   `LocalInstallPaths.Resolve(FileStorage:BasePath ?? "Files")`); Cloud → `MinioFileStorage` if `MinIO:*` present

@@ -26,7 +26,28 @@ public sealed record SchemaFacts(
     SchemaSide Model,
     SchemaSide Database,
     IReadOnlyList<MappedDecimalFact> MappedDecimals,
-    DataMigrationCounts DataMigrations);
+    DataMigrationCounts DataMigrations,
+    AuditLedgerFacts AuditLedger);
+
+/// <summary>
+/// The two things about <c>AuditEntries</c> the EF model cannot state, and whose violation is <b>silent</b> —
+/// which is the only reason a check earns a line in this report.
+///
+/// <para>Its indexes and column types need nothing here: the model declares them, so the model-driven diff
+/// covers them for free. These two do not survive that treatment.</para>
+/// </summary>
+/// <param name="TableExists">
+/// False before the <c>AddAuditEntries</c> migration has been applied, which makes the rest « not applicable »
+/// rather than drift.
+/// </param>
+/// <param name="ClinicIdIsNullable">
+/// <c>AuditEntries.ClinicId</c> must stay nullable. A job or a console verb can mutate a row with no clinic
+/// derivable from it, and the interceptor writes that row with a null. If a migration ever made the column
+/// <c>NOT NULL</c>, the insert would throw <em>inside</em> the interceptor's own swallow-and-log — so the ledger
+/// would simply stop recording every non-interactive mutation, with nothing on any screen to say so. Null when
+/// the table does not exist yet.
+/// </param>
+public sealed record AuditLedgerFacts(bool TableExists, bool? ClinicIdIsNullable);
 
 /// <summary>
 /// One side of the comparison — what the model expects, or what the database has. Symmetrical on purpose: the
@@ -99,4 +120,56 @@ public sealed record DataMigrationCounts(
     /// multi-act backfill establishes. The three procedure scalars are a derived snapshot of the first act now, so
     /// a scalar with no row behind it is a visit the agenda paints with an act the edit dialog cannot see.
     /// </summary>
-    int? AppointmentsWithActScalarLackingRow);
+    int? AppointmentsWithActScalarLackingRow,
+    /// <summary>
+    /// Procedure types whose <c>Description</c> still holds a canonical clinical discipline — i.e. rows the
+    /// `AddProcedureTypeCategory` backfill was supposed to move into <c>Category</c> and did not.
+    /// <para>
+    /// This is the one shape of drift the migration can leave behind that nothing else would notice: the column
+    /// exists, the UI reads it, and an act whose category stayed in the description simply renders as unfiled —
+    /// indistinguishable from an act the clinic genuinely never categorised. Null before the column exists.
+    /// </para>
+    /// </summary>
+    int? ProcedureTypesWithCategoryStillInDescription,
+    /// <summary>
+    /// Clinics whose backup schedule was left at the scaffolder's zeros (L4a) — a non-positive retention count or
+    /// staleness threshold.
+    /// <para>
+    /// The one shape of drift this migration can leave that nothing else would see: EF's differ emits
+    /// <c>defaultValue: 0</c> for a new non-nullable <c>int</c>, and a retention of <b>0</b> is the single value
+    /// the pruner's « never delete the last surviving backup » floor exists to survive. Every layer would report
+    /// success while the practice's retention policy is « keep nothing ». Null before the columns exist.
+    /// </para>
+    /// </summary>
+    int? ClinicsWithUnsetBackupSchedule,
+    /// <summary>
+    /// Payment rows carrying cheque details on a method that is <b>not</b> <c>Cheque</c> (L8), across both ledgers.
+    /// <para>
+    /// The one thing about these columns the EF model cannot express, and therefore the only part of this migration
+    /// worth a hand-written line: the columns, their widths and their two partial indexes are all diffed against the
+    /// catalog for free, but « a cheque number only ever appears on a cheque » is a <i>domain</i> invariant enforced
+    /// in <c>ChequeDetails.For</c>. Deliberately not a CHECK constraint — that would be a second copy of the rule,
+    /// and the copy that fired would surface as a 500 instead of the French refusal. So it is <b>verified</b> here
+    /// instead: a non-zero count means some write path reached the columns without passing through the guard, which
+    /// would put a cheque number on a cash payment and make « chèques à encaisser » list a row that is not a cheque.
+    /// Null before the columns exist.
+    /// </para>
+    /// </summary>
+    int? PaymentsWithChequeDetailsOnNonCheque,
+    /// <summary>
+    /// L9 — money and clinical rows whose linked visit names a practitioner while the row itself was left
+    /// unattributed, i.e. rows the <c>AddPractitionerAttribution</c> backfill was supposed to reach and did not.
+    /// <para>
+    /// This is the only part of that migration worth a hand-written line. Three nullable columns, three indexes and
+    /// four foreign keys are all diffed against the catalog for free by reading the EF model — but a <b>backfill</b>
+    /// is invisible to every layer: the column exists, the API returns it, the filter works, and an invoice whose
+    /// practitioner was knowable and simply not copied renders as « non attribué », indistinguishable from one that
+    /// genuinely has none. A backfill covering zero rows on a practice with two dentists is the failure this line
+    /// exists to see. Null before the columns exist.
+    /// </para>
+    /// <para>
+    /// ⚠️ It counts <b>recoverable</b> misses only — rows whose appointment names a doctor. A row with no
+    /// appointment, or one booked with no practitioner, is legitimately unattributed and is not drift.
+    /// </para>
+    /// </summary>
+    int? RowsAttributableFromAppointmentButUnattributed);

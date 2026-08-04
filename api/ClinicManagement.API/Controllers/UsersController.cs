@@ -33,7 +33,7 @@ public class UsersController : ApiControllerBase
     /// search that only saw the current page would answer a different question from the one that was typed.
     /// </param>
     [HttpGet]
-    public async Task<ActionResult<PagedResult<ClinicUserDto>>> GetUsers(
+    public async Task<ActionResult<ClinicUsersPageDto>> GetUsers(
         [FromQuery] int? page = null,
         [FromQuery] int? pageSize = null,
         [FromQuery] string? search = null)

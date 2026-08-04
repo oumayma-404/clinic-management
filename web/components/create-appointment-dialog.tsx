@@ -21,7 +21,10 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
+import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { Input } from "@/components/ui/input"
+import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
+import { DiscardChangesDialog } from "@/components/ui/discard-changes-dialog"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
@@ -539,9 +542,19 @@ export function CreateAppointmentDialog({
     await performCreate()
   }
 
+
+  /*
+   * A typed booking is not discarded by a stray tap (J9). Below `md:` this is a full-screen sheet, so the strip
+   * above it is a live dismiss target over a form that can hold a patient, several acts, a doctor and a time.
+   *
+   * Only the ROOT and « Annuler » route through the guard; every save path calls the raw prop, and so do the
+   * AlertDialog escalations below — a confirmation the user just accepted must not then ask whether to discard.
+   */
+  const guard = useDirtyGuard(open, onOpenChange)
+
   return (
     <>
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={guard.onOpenChange}>
       {/*
         The form scrolls; the header and the footer do not.
 
@@ -753,9 +766,23 @@ export function CreateAppointmentDialog({
                 )}
               </>
             ) : (
-              <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800">
-                <p className="text-sm text-amber-800 dark:text-amber-200">
-                  Ce créneau sera marqué comme occupé. Aucun patient ne pourra être assigné à cette période.
+              /*
+                ⚠️ The copy states what the server actually does now, and it used to state the opposite of it.
+                « Aucun patient ne pourra être assigné à cette période » was a promise the product could not keep:
+                a block carries no patient and, until L2b, `FindCollisionAsync` returned "no collision" for any
+                candidate with no `DoctorId` — so a « créneau occupé » with no practitioner prevented **nothing**,
+                and the database could not help either (its exclusion constraint is predicated on
+                `DoctorId IS NOT NULL`). L2b made an unassigned booking compete with everything in the clinic,
+                which is what finally makes a lunch break protectable.
+                Two wordings, because the scope genuinely differs — and neither says « aucun … ne pourra », since
+                the guard is advisory: a colleague can still book over it by confirming « Continuer quand même »,
+                and the row is then recorded as a deliberate overlap.
+              */
+              <div className="p-3 rounded-lg bg-warning-wash border border-warning/30">
+                <p className="text-sm text-warning-ink">
+                  {selectedDoctorId
+                    ? "Ce créneau sera marqué comme occupé pour ce praticien : toute tentative de lui assigner un rendez-vous à cette période demandera une confirmation."
+                    : "Ce créneau sera marqué comme occupé pour tout le cabinet : toute tentative d'y créer un rendez-vous demandera une confirmation."}
                 </p>
               </div>
             )}
@@ -857,7 +884,20 @@ export function CreateAppointmentDialog({
                   />
                 </div>
               ) : (
-                <div className="flex gap-2">
+                /*
+                 * A GRID below `sm:`, because these six buttons could not shrink and could not wrap.
+                 *
+                 * `buttonVariants` carries both `shrink-0` and `whitespace-nowrap`, and `flex-1` /
+                 * `shrink-0` are different tailwind-merge groups — so both survived and `flex-shrink: 0`
+                 * won. Six `px-3` presets need ~324 px of min-content against ~310 px of form body at 390 px
+                 * (~294 px at 360 px), and the body is `overflow-y-auto`, which computes `overflow-x` to
+                 * `auto`: « 2h » was clipped and the form gained a horizontal scrollbar, breaking the
+                 * "the body never scrolls sideways" invariant the shell is built on.
+                 *
+                 * Two rows of three fits every phone with room to spare, and `sm:flex` restores the single
+                 * row where it always fitted. `flex-1` is dropped: a grid cell is already equal-width.
+                 */
+                <div className="grid grid-cols-3 gap-2 sm:flex">
                   {[15, 30, 45, 60, 90, 120].map((mins) => (
                     <Button
                       key={mins}
@@ -866,7 +906,7 @@ export function CreateAppointmentDialog({
                       size="sm"
                       // Picking a duration by hand stops the act-sum from overwriting it — see `durationTouched`.
                       onClick={() => { setDurationTouched(true); setDuration(String(mins)) }}
-                      className="flex-1"
+                      className="sm:flex-1"
                     >
                       {mins < 60 ? `${mins}m` : `${mins / 60}h`}
                     </Button>
@@ -890,7 +930,7 @@ export function CreateAppointmentDialog({
                 <div
                   className={cn(
                     "space-y-0.5 text-sm transition-opacity duration-200 ease-snap",
-                    overlapSamePractitioner ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400",
+                    overlapSamePractitioner ? "text-destructive" : "text-warning-ink",
                   )}
                 >
                   <p>⚠ {overlapWarning}</p>
@@ -974,15 +1014,14 @@ export function CreateAppointmentDialog({
 
             {/* Validation error shown next to the submit button — the dialog is tall and scrollable, so an
                 error at the top would be off-screen when the user submits from the bottom. */}
-            {error && (
-              <div role="alert" className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-800 dark:bg-red-950 dark:border-red-800 dark:text-red-200">
-                {error}
-              </div>
-            )}
+            {/* The shared primitive, not a hand-rolled red box: this is the busiest form in the app and it was
+                reporting failures in a slightly different red from the eighteen dialogs that route through
+                `FormErrorBanner` — which now renders on `--destructive` tokens and needs no `dark:` twin. */}
+            <FormErrorBanner message={error} />
           </div>
 
           <DialogFooter className="flex-shrink-0 gap-2 border-t bg-background px-6 py-4">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
+            <Button type="button" variant="outline" onClick={() => guard.onOpenChange(false)} disabled={loading}>
               Annuler
             </Button>
             {/* No longer disabled on an overlap: the collision is advisory and the server offers the override.
@@ -1095,6 +1134,7 @@ export function CreateAppointmentDialog({
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+    <DiscardChangesDialog guard={guard} />
     </>
   )
 }

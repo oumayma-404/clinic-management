@@ -1,12 +1,13 @@
 "use client"
 
-import { useCallback, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { DataTablePagination } from "@/components/ui/data-table-pagination"
 import { usePagedList } from "@/lib/hooks/use-paged-list"
 import {
@@ -20,7 +21,14 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Stethoscope, Pencil, Trash2, Clock, Plus, Coins, ListPlus, Loader2, Boxes, MoreHorizontal } from "lucide-react"
-import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
+/*
+  `_LG`, not the plain `md:` pair: the Catégorie column takes this table to **eight** columns, every cell
+  `whitespace-nowrap`. An iPad portrait is 820px and therefore already `md:`, so it would get the desktop table
+  *and* the 256px rail — ~532px for eight columns. `web/CLAUDE.md` sets the hinge at roughly eight.
+*/
+import { CardList, CARDS_ONLY_LG, TABLE_ONLY_LG } from "@/components/ui/card-list"
+import { EmptyState } from "@/components/ui/empty-state"
+import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -34,6 +42,9 @@ import { getErrorMessage, showErrorToast } from "@/lib/errors"
 import { formatDT } from "@/lib/format"
 import { useSession } from "@/lib/auth/session"
 import { toast } from "sonner"
+
+/** Sentinel for « toutes les catégories » — Radix Select forbids an empty-string item value. */
+const ALL_CATEGORIES = "__all__"
 
 interface ProcedureTypesTableProps {
   onEdit: (procedure: ProcedureTypeDto) => void
@@ -50,6 +61,10 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [procedureToDelete, setProcedureToDelete] = useState<ProcedureTypeDto | null>(null)
   const [search, setSearch] = useState("")
+  /** `ALL_CATEGORIES` rather than `""`, because Radix Select forbids an empty-string item value. */
+  const [category, setCategory] = useState(ALL_CATEGORIES)
+  /** Filter options: the canonical disciplines plus whatever this clinic uses (served, not hardcoded). */
+  const [categoryOptions, setCategoryOptions] = useState<string[]>([])
   // Bumped to refetch the current page after a create / edit / delete / seed.
   const [reloadToken, setReloadToken] = useState(0)
   const [deleting, setDeleting] = useState(false)
@@ -57,11 +72,18 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
   // AC-P4.14 — the act whose material list is being edited (« Consommables »), or null.
   const [materialsTarget, setMaterialsTarget] = useState<ProcedureTypeDto | null>(null)
 
-  // Only active procedures. Search, ordering and paging are all server-side.
+  // Only active procedures. Search, the category filter, ordering and paging are ALL server-side — filtering an
+  // already-cut page in the browser would shrink pages unpredictably (« Endodontie » showing 3 rows of 25).
   const fetchPage = useCallback(
     ({ page, pageSize, search }: { page: number; pageSize: number; search?: string }) =>
-      procedureTypesApi.listPaged({ page, pageSize, search, includeInactive: false }),
-    [],
+      procedureTypesApi.listPaged({
+        page,
+        pageSize,
+        search,
+        includeInactive: false,
+        category: category === ALL_CATEGORIES ? undefined : category,
+      }),
+    [category],
   )
 
   const {
@@ -76,6 +98,84 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
   } = usePagedList<ProcedureTypeDto>({ fetchPage, search, refreshKey: reloadToken })
 
   const loadProcedures = async () => setReloadToken((t) => t + 1)
+
+  // Filter options, refetched whenever the list is: editing an act can introduce or retire a category, and a
+  // filter offering a category no act carries — or missing one that several do — is worse than no filter.
+  useEffect(() => {
+    let active = true
+    procedureTypesApi
+      .getCategories()
+      .then((categories) => {
+        if (active) setCategoryOptions(categories)
+      })
+      // Silent: the filter simply stays at « Toutes les catégories » and the table is unaffected. The read that
+      // matters here is the list itself, which has its own error banner.
+      .catch(() => {
+        if (active) setCategoryOptions([])
+      })
+    return () => {
+      active = false
+    }
+  }, [reloadToken])
+
+  /**
+   * The two empty facts kept apart (finding #4). The table has a live search box, so one message told an admin
+   * who mistyped that the clinic has no acts at all — and the « Ajouter votre premier type d'acte » button that
+   * sat under it invited a duplicate of the act the search had simply failed to match. The filtered branch
+   * therefore offers « Effacer la recherche » and no create action.
+   */
+  // A category filter is the second way to narrow this list, so it counts as "filtered" for the same reason the
+  // search does: an empty « Orthodontie » must not tell a clinic with 40 acts that it has none, nor offer to
+  // create the first one.
+  const isFiltered = isSearching || category !== ALL_CATEGORIES
+
+  const renderEmpty = (size: "default" | "compact") =>
+    isFiltered ? (
+      <div className="flex flex-col items-center gap-2 py-2">
+        <p className="text-sm text-muted-foreground">
+          {isSearching
+            ? "Aucun type d'acte ne correspond à votre recherche"
+            : `Aucun type d'acte dans « ${category} »`}
+        </p>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            setSearch("")
+            setCategory(ALL_CATEGORIES)
+          }}
+        >
+          Effacer les filtres
+        </Button>
+      </div>
+    ) : (
+      <EmptyState
+        icon={Stethoscope}
+        size={size}
+        title="Aucun type d'acte défini"
+        description={
+          isAdmin
+            ? "Les actes de ce catalogue donnent à l'agenda sa couleur et sa durée, et préremplissent les devis et les fiches de soins. « Charger les actes courants » installe les actes tunisiens usuels en une fois."
+            : "Ce catalogue donne à l'agenda ses couleurs et ses durées. Demandez à un administrateur d'y ajouter vos actes."
+        }
+        action={
+          isAdmin ? (
+            <Button onClick={onAdd} className="gap-2">
+              <Plus className="h-4 w-4" />
+              Ajouter un type d&apos;acte
+            </Button>
+          ) : undefined
+        }
+        secondaryAction={
+          isAdmin ? (
+            <Button variant="outline" onClick={handleLoadDefaults} disabled={seeding} className="gap-2">
+              {seeding ? <Loader2 className="h-4 w-4 animate-spin" /> : <ListPlus className="h-4 w-4" />}
+              Charger les actes courants
+            </Button>
+          ) : undefined
+        }
+      />
+    )
 
   const handleDelete = (procedure: ProcedureTypeDto) => {
     setProcedureToDelete(procedure)
@@ -163,33 +263,70 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
           </div>
         </CardHeader>
         <CardContent>
-          {error && (
-            <div className="mb-4 rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-800 dark:bg-red-950 dark:border-red-800 dark:text-red-200">
-              {error}
+          {/* The shared primitive, on the theme's own destructive family — this was one of the ~18 places that
+              copied `border-red-200 bg-red-50 … dark:` by hand and therefore maintained dark mode itself. The
+              action turns a dead end into a retry: without it the only way out of a failed read is a browser
+              reload, which a non-technical user on an installed PWA has no gesture for. */}
+          <FormErrorBanner
+            className="mb-4"
+            message={error}
+            action={{ label: "Réessayer", onClick: () => setReloadToken((t) => t + 1) }}
+          />
+          {/* Stacks below `sm:` — a 288px card cannot hold a search box and a ~200px Select side by side. */}
+          <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="min-w-0 flex-1">
+              <Label htmlFor="procedure-types-search" className="sr-only">
+                Rechercher un type d&apos;acte
+              </Label>
+              <Input
+                id="procedure-types-search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Rechercher un type d&apos;acte (nom, catégorie, description)…"
+              />
             </div>
-          )}
-          <div className="mb-4">
-            <Label htmlFor="procedure-types-search" className="sr-only">
-              Rechercher un type d&apos;acte
-            </Label>
-            <Input
-              id="procedure-types-search"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Rechercher un type d&apos;acte (nom, description)…"
-            />
+            <div className="sm:w-56">
+              <Label htmlFor="procedure-types-category" className="sr-only">
+                Filtrer par catégorie
+              </Label>
+              <Select value={category} onValueChange={setCategory}>
+                <SelectTrigger id="procedure-types-category" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_CATEGORIES}>Toutes les catégories</SelectItem>
+                  {categoryOptions.map((option) => (
+                    <SelectItem key={option} value={option}>
+                      {option}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
-          <div className={`overflow-x-auto${refreshing ? " opacity-60 transition-opacity" : ""}`}>
+          {/* No `overflow-x-auto` here: `ui/table.tsx` already wraps its own table in one, so this was a second
+              horizontal scroller nested around the first — the wrapper now carries only the refetch dimming. */}
+          <div className={refreshing ? "opacity-60 transition-opacity" : undefined}>
             {/* The colour column is decoration, not data — it becomes the card's accent bar rather than a
                 field labelled « Couleur » whose value is a swatch. */}
             <CardList
-              className={CARDS_ONLY}
+              className={CARDS_ONLY_LG}
               ariaLabel="Types de procédures"
               items={procedures}
               getKey={(p) => p.id}
               title={(p) => p.name}
               subtitle={(p) => p.description}
               accent={(p) => p.colorHex}
+              // The discipline goes in the status slot, not a field: on a phone it is the fastest way to tell two
+              // similarly-named acts apart, and it belongs at the top of the card with the name rather than
+              // fourth in a list of values. `CardList` drops an empty status, so an unfiled act shows nothing.
+              status={(p) =>
+                p.category ? (
+                  <Badge variant="secondary" className="max-w-[10rem] truncate text-xs">
+                    {p.category}
+                  </Badge>
+                ) : null
+              }
               fields={(p) => [
                 { label: "Durée", value: `${p.defaultDurationMinutes} min` },
                 {
@@ -227,17 +364,14 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
                     )
                   : undefined
               }
-              empty={
-                isAdmin
-                  ? "Aucun type d'acte défini"
-                  : "Aucun type d'acte défini. Demandez à un administrateur d'en ajouter."
-              }
+              empty={renderEmpty("compact")}
             />
-            <Table containerClassName={TABLE_ONLY}>
+            <Table containerClassName={TABLE_ONLY_LG}>
               <TableHeader>
                 <TableRow>
                   <TableHead>Couleur</TableHead>
                   <TableHead>Nom de l'acte</TableHead>
+                  <TableHead>Catégorie</TableHead>
                   <TableHead>Durée</TableHead>
                   <TableHead>Coût par défaut</TableHead>
                   <TableHead>Description</TableHead>
@@ -248,19 +382,7 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
               <TableBody>
                 {procedures.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="h-24 text-center">
-                      <p className="text-muted-foreground">
-                        {isAdmin
-                          ? "Aucun type d'acte défini"
-                          : "Aucun type d'acte défini. Demandez à un administrateur d'en ajouter."}
-                      </p>
-                      {isAdmin && (
-                        <Button onClick={onAdd} variant="outline" size="sm" className="mt-2 gap-2">
-                          <Plus className="h-4 w-4" />
-                          Ajouter votre premier type d'acte
-                        </Button>
-                      )}
-                    </TableCell>
+                    <TableCell colSpan={8}>{renderEmpty("default")}</TableCell>
                   </TableRow>
                 ) : (
                   procedures.map((procedure) => (
@@ -288,6 +410,18 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
                         </div>
                       </TableCell>
                       <TableCell className="font-medium text-foreground">{procedure.name}</TableCell>
+                      {/* Rows arrive ordered by catégorie then nom, so the badges read as blocks down the column
+                          without needing section headings — which a *paged* list cannot honestly draw anyway
+                          (a discipline straddling a page boundary would print its heading twice). */}
+                      <TableCell>
+                        {procedure.category ? (
+                          <Badge variant="secondary" className="text-xs font-normal">
+                            {procedure.category}
+                          </Badge>
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2 text-muted-foreground">
                           <Clock className="h-4 w-4" />
@@ -374,7 +508,9 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Êtes-vous sûr ?</AlertDialogTitle>
+            {/* The title names the object rather than asking « Êtes-vous sûr ? », which is the same sentence
+                this app uses to delete a patient. */}
+            <AlertDialogTitle>Supprimer ce type d&apos;acte ?</AlertDialogTitle>
             <AlertDialogDescription>
               Cela va {procedureToDelete?.isActive ? "désactiver" : "supprimer définitivement"} le type d'acte{" "}
               <span className="font-semibold">{procedureToDelete?.name}</span>.
@@ -383,12 +519,22 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={deleting}>Annuler</AlertDialogCancel>
+            {/* The button says what the branch above already computed. The body explained that an act in use is
+                « archivé au lieu d'être supprimé » and the button then read « Supprimer » regardless — so the
+                two halves of the same dialog described different outcomes, and the one the user actually presses
+                was the one that was wrong. */}
             <AlertDialogAction
               onClick={confirmDelete}
               disabled={deleting}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {deleting ? "Suppression…" : "Supprimer"}
+              {deleting
+                ? procedureToDelete?.isActive
+                  ? "Désactivation…"
+                  : "Suppression…"
+                : procedureToDelete?.isActive
+                  ? "Désactiver"
+                  : "Supprimer définitivement"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

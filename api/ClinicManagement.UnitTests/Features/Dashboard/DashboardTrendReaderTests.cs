@@ -33,7 +33,7 @@ public class DashboardTrendReaderTests
     private void WireEmpty()
     {
         _invoices.Setup(r => r.GetCollectedBetweenAsync(
-                It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+                It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(0m);
     }
 
@@ -43,7 +43,7 @@ public class DashboardTrendReaderTests
         var start = ClinicClock.StartOfLocalDayUtc(new DateTime(year, month, 1));
         var end = ClinicClock.EndOfLocalDayUtc(new DateTime(year, month, 1).AddMonths(1).AddDays(-1)).AddTicks(-1);
 
-        _invoices.Setup(r => r.GetCollectedBetweenAsync(ClinicId, start, end, It.IsAny<CancellationToken>()))
+        _invoices.Setup(r => r.GetCollectedBetweenAsync(ClinicId, start, end, It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(collected);
     }
 
@@ -92,10 +92,10 @@ public class DashboardTrendReaderTests
         var febStart = ClinicClock.StartOfLocalDayUtc(new DateTime(2026, 2, 1));
         var febEnd = ClinicClock.EndOfLocalDayUtc(new DateTime(2026, 2, 28)).AddTicks(-1);
 
-        _invoices.Verify(r => r.GetCollectedBetweenAsync(ClinicId, febStart, febEnd, It.IsAny<CancellationToken>()),
+        _invoices.Verify(r => r.GetCollectedBetweenAsync(ClinicId, febStart, febEnd, It.IsAny<Guid?>(), It.IsAny<CancellationToken>()),
             Times.Once);
         _invoices.Verify(r => r.GetCollectedBetweenAsync(
-                ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()),
+                ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()),
             Times.Exactly(DashboardPeriod.TrendMonths));
     }
 
@@ -107,8 +107,8 @@ public class DashboardTrendReaderTests
         WireEmpty();
         var windows = new List<(DateTime From, DateTime To)>();
         _invoices.Setup(r => r.GetCollectedBetweenAsync(
-                ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
-            .Callback((Guid _, DateTime from, DateTime to, CancellationToken _) => windows.Add((from, to)))
+                ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
+            .Callback((Guid _, DateTime from, DateTime to, Guid? _, CancellationToken _) => windows.Add((from, to)))
             .ReturnsAsync(0m);
 
         await Reader().ReadAsync(ClinicId, Period, FixedNow, CancellationToken.None);
@@ -150,7 +150,7 @@ public class DashboardTrendReaderTests
 
         var febEnd = ClinicClock.EndOfLocalDayUtc(new DateTime(2028, 2, 29)).AddTicks(-1);
         _invoices.Verify(r => r.GetCollectedBetweenAsync(
-                ClinicId, ClinicClock.StartOfLocalDayUtc(new DateTime(2028, 2, 1)), febEnd, It.IsAny<CancellationToken>()),
+                ClinicId, ClinicClock.StartOfLocalDayUtc(new DateTime(2028, 2, 1)), febEnd, It.IsAny<Guid?>(), It.IsAny<CancellationToken>()),
             Times.Once);
     }
 
@@ -177,6 +177,6 @@ public class DashboardTrendReaderTests
         await Reader().ReadAsync(ClinicId, Period, FixedNow, CancellationToken.None);
 
         _invoices.Verify(r => r.GetCollectedBetweenAsync(
-            OtherClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Never);
+            OtherClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 }

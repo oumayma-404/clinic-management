@@ -78,6 +78,18 @@ public class EInvoiceService : IEInvoiceService
                 return;
             }
 
+            // The second of J4's three guards: a **cancelled** note is never declared. `Invoice.Cancel` now
+            // dequeues, and the repository's due-query excludes cancelled rows, so reaching here with a
+            // cancelled invoice should be impossible — which is exactly why the check is cheap and worth having.
+            // TTN validation is irreversible on their side, so the cost of the three guards disagreeing once is a
+            // note that is annulée in the clinic's books and « validée » in the national registry, for ever.
+            if (invoice.Status == InvoiceStatus.Cancelled)
+            {
+                _logger.LogWarning(
+                    "Skipping El Fatoora dispatch of invoice {InvoiceId}: the note is cancelled.", invoiceId);
+                return;
+            }
+
             var clinic = await _clinicRepository.GetByIdAsync(invoice.ClinicId, cancellationToken);
             var patient = await _patientRepository.GetByIdAsync(invoice.PatientId, cancellationToken);
 

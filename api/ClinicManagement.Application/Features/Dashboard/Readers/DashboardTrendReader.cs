@@ -61,7 +61,7 @@ public class DashboardTrendReader : IDashboardTrendReader
             var monthEndUtc = ClinicClock.EndOfLocalDayUtc(month.AddMonths(1).AddDays(-1)).AddTicks(-1);
 
             var collected = await _invoiceRepository.GetCollectedBetweenAsync(
-                clinicId, monthStartUtc, monthEndUtc, cancellationToken);
+                clinicId, monthStartUtc, monthEndUtc, cancellationToken: cancellationToken);
 
             points.Add(new MonthlyCollectedPointDto
             {

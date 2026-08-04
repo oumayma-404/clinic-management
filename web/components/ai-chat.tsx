@@ -825,10 +825,14 @@ export function AIChat({ className }: AIChatProps) {
 
       {/* Input */}
       <div className="p-4 border-t">
+        {/* `bg-warning-wash` + `text-warning-ink`, not `amber-50/700` with a hand-maintained `dark:` twin: the
+            tokens already carry their dark values, so the twin is deleted rather than translated — a second,
+            hand-kept dark mode is precisely what drifts. `text-warning-ink` and not `text-warning`, because
+            `--warning` on its own wash lands near 3.5:1 and this is 12px text. */}
         {!internetReachable && (
           <div
             role="status"
-            className="mb-2 flex items-center gap-2 rounded-md bg-amber-50 dark:bg-amber-500/10 px-2 py-1.5 text-xs text-amber-700 dark:text-amber-400"
+            className="mb-2 flex items-center gap-2 rounded-md bg-warning-wash px-2 py-1.5 text-xs text-warning-ink"
           >
             {/* WifiOff, not MicOff — this banner is about connectivity, and the mic icon read as a
                 microphone problem right next to the real mic button. */}
@@ -843,9 +847,11 @@ export function AIChat({ className }: AIChatProps) {
               disabled={isLoading || !internetReachable}
               size="icon"
               variant={isListening ? "destructive" : "outline"}
-              className={cn(
-                isListening && "animate-pulse bg-red-500 hover:bg-red-600 text-white"
-              )}
+              /* Only the pulse. `variant="destructive"` already paints `bg-destructive text-white
+                 hover:bg-destructive/90`, so `bg-red-500 hover:bg-red-600 text-white` was a hardcoded
+                 re-implementation of the variant it sits on — one that ignores the theme and would survive a
+                 change to `--destructive` as a divergent red next to every other refusal in the app. */
+              className={cn(isListening && "animate-pulse")}
               title={isListening ? "Cliquez pour arrêter l'enregistrement" : "Cliquez pour la saisie vocale"}
             >
               {isListening ? (
@@ -886,7 +892,9 @@ export function AIChat({ className }: AIChatProps) {
         </div>
         {isListening && (
           <div className="mt-2 text-xs text-muted-foreground flex items-center gap-2">
-            <div className="h-2 w-2 bg-red-500 rounded-full animate-pulse" />
+            {/* `bg-destructive`, not `bg-red-500` — the recording dot and the mic button beside it are the same
+                signal and must be the same red, which only holds if both read the token. */}
+            <div className="size-2 animate-pulse rounded-full bg-destructive" />
             Enregistrement… Cliquez à nouveau sur le micro pour arrêter
           </div>
         )}

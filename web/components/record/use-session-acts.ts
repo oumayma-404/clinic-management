@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo, useReducer } from "react"
-import { roundMillimes } from "@/lib/format"
+import { formatAmount, parseAmountInput, roundMillimes } from "@/lib/format"
 import { parseSurfaces } from "@/components/odontogram-conditions"
 import type { DentalRecordDto, DentalRecordActDto, ProcedureTypeDto } from "@/lib/api/types"
 
@@ -75,16 +75,23 @@ export interface PlanItemPrefill {
  * Rounded to the millime so float noise never reaches the UI or the API.
  */
 export function resolveActCost(unitCost: string, perTooth: boolean, toothCount: number): number {
-  const unit = Number.parseFloat(unitCost)
+  const unit = parseAmountInput(unitCost)
   if (!Number.isFinite(unit)) return 0
   return roundMillimes(unit * (perTooth && toothCount > 0 ? toothCount : 1))
 }
 
-/** True when the price field holds something unusable. Empty is allowed (a free act priced later). */
+/**
+ * True when the price field holds something unusable. Empty is allowed (a free act priced later).
+ *
+ * <p>⚠️ Both this and {@link resolveActCost} read the field through `parseAmountInput` (J8), because « Tarif » is
+ * now `type="text" inputMode="decimal"` — a `type="number"` input refused the comma this product prints with, and
+ * `step="0.001"` on the field that seeds every invoice line still made the millime awkward to reach. Parsing with
+ * bare `Number.parseFloat` here would read « 90,500 » as `90` and quietly under-bill the act by half a dinar.</p>
+ */
 export function hasInvalidPrice(unitCost: string): boolean {
   const raw = unitCost.trim()
   if (raw === "") return false
-  const unit = Number.parseFloat(raw)
+  const unit = parseAmountInput(raw)
   return !Number.isFinite(unit) || unit < 0
 }
 
@@ -136,7 +143,9 @@ function actFromDto(a: DentalRecordActDto, key: string): SessionAct {
     procedureTypeId: a.procedureTypeId ?? null,
     procedureName: a.procedureName,
     toothNumbers: teeth,
-    unitCost: String(perTooth && unit != null ? unit : a.cost),
+    // `formatAmount`, never `String(...)`: reopening a saved act must show its fee the way the rest of the
+    // product prints it (« 90,500 », not « 90.5 »), and the field now accepts that form back.
+    unitCost: formatAmount(perTooth && unit != null ? unit : a.cost),
     // Whether the stored amount was typed or taken from a tariff is not recorded, so it is not treated as
     // typed: replacing the act re-prices from the act now chosen. The figure is only a default until saved
     // again, and the card shows the new total before anything is committed.
@@ -249,7 +258,7 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
       const draft: ActDraft = {
         ...state.draft,
         procedureName: item.designationFr ?? state.draft.procedureName,
-        unitCost: item.plannedCost != null && item.plannedCost > 0 ? String(item.plannedCost) : state.draft.unitCost,
+        unitCost: item.plannedCost != null && item.plannedCost > 0 ? formatAmount(item.plannedCost) : state.draft.unitCost,
       }
       return { ...state, selection: teeth, draft: { ...draft, perTooth: derivePerTooth(draft, teeth.length) } }
     }

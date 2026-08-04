@@ -53,21 +53,73 @@ export function isNetworkError(err: unknown): boolean {
  */
 const ERROR_TOAST_DURATION_MS = 8000
 
+/** Everything `showErrorToast` can be told, for the call sites that need more than a fallback string. */
+export interface ErrorToastOptions {
+  /** Shown when the thrown value carries no usable message of its own. */
+  fallback?: string
+  /**
+   * Offered as « Réessayer » — but **only** for a transport failure (see below). Pass the same function the
+   * failed action would re-run.
+   */
+  onRetry?: () => void
+  /**
+   * A bold headline above the message, sonner's `toast.error(title, { description })` shape.
+   *
+   * <p>It exists purely to make the ~70 hand-rolled call sites a mechanical swap. Roughly a third of them read
+   * `toast.error("Échec de la suppression", { description: msg })`, and without this the conversion would have
+   * to drop their title — a lossy rewrite is a rewrite nobody performs, and the sweep stalls again.</p>
+   */
+  title?: string
+}
+
 /**
  * Show a single, non-blocking error toast for any thrown value (replaces `alert()` / silent swallows).
  *
- * Pass `onRetry` and a **transport** failure additionally gets a « Réessayer » action (AC-43). It is offered
- * only for `isNetworkError`, never for a refusal: a 409 or a 403 will refuse identically the second time, and
- * a retry button that cannot work is worse than none. Callers that have nothing to re-run simply omit it and
- * the toast is unchanged.
+ * <p><b>This is the only place an error toast should be raised.</b> It supplies the 8-second duration
+ * ({@link ERROR_TOAST_DURATION_MS}) and the network-only « Réessayer », neither of which a hand-rolled
+ * `toast.error(...)` inherits — those take the global 4 s meant for success confirmations, and with
+ * `visibleToasts: 3` on a phone an error about a failed payment can be pushed off screen before it is read.</p>
+ *
+ * <p><b>Adopting it is a one-line swap</b>, by design:</p>
+ * <pre>
+ *   toast.error(err instanceof ApiError ? err.message : "Échec de la suppression.")
+ *   → showErrorToast(err, "Échec de la suppression.")
+ *
+ *   toast.error("Échec de la sauvegarde", { description: msg })
+ *   → showErrorToast(err, { title: "Échec de la sauvegarde" })
+ *
+ *   toast.error("Le motif est requis.")            // no thrown value at all
+ *   → showErrorToast(null, "Le motif est requis.")
+ * </pre>
+ *
+ * <p>`err` is `unknown` and every shape is handled — `ApiError`, `Error`, a bare string, `null`, or something
+ * that is none of those — so no caller ever has to narrow it first. That narrowing (`err instanceof ApiError ?
+ * err.message : "…"`) is precisely the boilerplate the hand-rolled sites were re-deriving, and it drops the
+ * message of a plain `Error` on the floor.</p>
+ *
+ * <p>`onRetry` is optional and is honoured only for `isNetworkError`, never for a refusal: a 409 or a 403 will
+ * refuse identically the second time, and a retry button that cannot work is worse than none. Callers that have
+ * nothing to re-run simply omit it and the toast is unchanged.</p>
  */
 export function showErrorToast(
   err: unknown,
-  fallback: string = DEFAULT_ERROR_MESSAGE,
+  /** A fallback string, or the full option bag. The string form is the common case and stays a bare argument. */
+  fallbackOrOptions?: string | ErrorToastOptions,
+  /** Legacy positional form of `options.onRetry`. Kept so existing call sites need no edit. */
   onRetry?: () => void,
 ): void {
-  toast.error(getErrorMessage(err, fallback), {
-    duration: ERROR_TOAST_DURATION_MS,
-    action: onRetry && isNetworkError(err) ? { label: "Réessayer", onClick: onRetry } : undefined,
-  })
+  const options: ErrorToastOptions =
+    typeof fallbackOrOptions === "string" ? { fallback: fallbackOrOptions } : (fallbackOrOptions ?? {})
+
+  const message = getErrorMessage(err, options.fallback ?? DEFAULT_ERROR_MESSAGE)
+  const retry = options.onRetry ?? onRetry
+  const action = retry && isNetworkError(err) ? { label: "Réessayer", onClick: retry } : undefined
+
+  // With a title the message becomes the description, which is sonner's two-line shape; without one the message
+  // *is* the toast. Not `title ?? message` for both — that would print the message twice.
+  if (options.title) {
+    toast.error(options.title, { description: message, duration: ERROR_TOAST_DURATION_MS, action })
+    return
+  }
+  toast.error(message, { duration: ERROR_TOAST_DURATION_MS, action })
 }

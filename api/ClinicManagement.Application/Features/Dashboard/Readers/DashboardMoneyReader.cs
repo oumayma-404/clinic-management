@@ -37,17 +37,26 @@ public class DashboardMoneyReader : IDashboardMoneyReader
         _creditNoteRepository = creditNoteRepository;
     }
 
+    /// <param name="doctorId">
+    /// L9 — narrow « Encaissé » and « Facturé » to one practitioner. ⚠️ <b>Dépenses and Net are deliberately NOT
+    /// narrowed</b>, and the DTO says so (<c>DashboardMoneyDto.ClinicWideOutgoings</c>): an expense has no
+    /// practitioner — rent and salaries belong to the practice — so « Net » under a practitioner filter would be
+    /// one dentist's income minus the whole clinic's costs, a figure that means nothing and looks like a loss.
+    /// Reporting the two money-out lines as clinic-wide, and labelling them, is the honest shape. Créances are
+    /// likewise left whole: a debt is owed to the practice.
+    /// </param>
     public async Task<(DashboardMoneyDto Money, DashboardReceivablesDto Receivables)> ReadAsync(
-        Guid clinicId, DashboardPeriod period, DateTime nowUtc, CancellationToken cancellationToken)
+        Guid clinicId, DashboardPeriod period, DateTime nowUtc, Guid? doctorId, CancellationToken cancellationToken)
     {
         // One read, used by four calls below (two cash windows + the debt side). The links projection is light by
         // design — no lines, no payments.
         var billedPlanIds = PlanBillingRules.BilledPlanIds(
             await _invoiceRepository.GetTreatmentPlanLinksAsync(clinicId, cancellationToken));
 
-        var collected = await CollectedAsync(clinicId, period.From, period.ToInclusive, billedPlanIds, cancellationToken);
+        var collected = await CollectedAsync(
+            clinicId, period.From, period.ToInclusive, billedPlanIds, doctorId, cancellationToken);
         var previousCollected = await CollectedAsync(
-            clinicId, period.PreviousFrom, period.PreviousToInclusive, billedPlanIds, cancellationToken);
+            clinicId, period.PreviousFrom, period.PreviousToInclusive, billedPlanIds, doctorId, cancellationToken);
 
         var refunds = await _creditNoteRepository.GetRefundedBetweenAsync(
             clinicId, period.From, period.ToInclusive, cancellationToken);
@@ -55,9 +64,9 @@ public class DashboardMoneyReader : IDashboardMoneyReader
             clinicId, period.PreviousFrom, period.PreviousToInclusive, cancellationToken);
 
         var invoiced = await _invoiceRepository.GetInvoicedBetweenAsync(
-            clinicId, period.From, period.ToInclusive, cancellationToken);
+            clinicId, period.From, period.ToInclusive, doctorId, cancellationToken);
         var previousInvoiced = await _invoiceRepository.GetInvoicedBetweenAsync(
-            clinicId, period.PreviousFrom, period.PreviousToInclusive, cancellationToken);
+            clinicId, period.PreviousFrom, period.PreviousToInclusive, doctorId, cancellationToken);
 
         var expenses = await _expenseRepository.GetTotalBetweenAsync(
             clinicId, period.From, period.ToInclusive, cancellationToken);
@@ -67,6 +76,8 @@ public class DashboardMoneyReader : IDashboardMoneyReader
         var money = new DashboardMoneyDto
         {
             Collected = PeriodComparison.Of(collected, previousCollected),
+            ClinicWideOutgoings = doctorId.HasValue,
+            CollectedInvoicesOnly = doctorId.HasValue,
             Invoiced = PeriodComparison.Of(Round(invoiced), Round(previousInvoiced)),
             Refunds = PeriodComparison.Of(Round(refunds), Round(previousRefunds)),
             Expenses = PeriodComparison.Of(Round(expenses), Round(previousExpenses)),
@@ -96,10 +107,23 @@ public class DashboardMoneyReader : IDashboardMoneyReader
         DateTime from,
         DateTime toInclusive,
         IReadOnlyCollection<Guid> billedPlanIds,
+        Guid? doctorId,
         CancellationToken cancellationToken)
     {
         var invoiceCollected = await _invoiceRepository.GetCollectedBetweenAsync(
-            clinicId, from, toInclusive, cancellationToken);
+            clinicId, from, toInclusive, doctorId, cancellationToken);
+
+        // ⚠️ The plan track is included ONLY in the unfiltered figure. `TreatmentPlan` now carries a `DoctorId`, but
+        // an *installment collection* is money against the devis, and narrowing it would need the same filter on the
+        // plan repository's SUM — which this slice does not add. Rather than silently mixing one filtered ledger
+        // with one unfiltered one (making a practitioner's « Encaissé » include everybody's échéances), the
+        // per-practitioner figure is invoice-collections only, and the DTO's `CollectedInvoicesOnly` flag says so
+        // on screen. A figure that overstates by an unknown amount is worse than one whose scope is stated.
+        if (doctorId.HasValue)
+        {
+            return Round(invoiceCollected);
+        }
+
         var installmentCollected = await _planRepository.GetInstallmentCollectedBetweenAsync(
             clinicId, from, toInclusive, billedPlanIds, cancellationToken);
 

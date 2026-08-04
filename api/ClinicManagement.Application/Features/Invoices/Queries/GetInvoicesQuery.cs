@@ -24,6 +24,12 @@ public class GetInvoicesQuery : IRequest<Result<PagedResult<InvoiceDto>>>
     /// <summary>Free-text filter, matched in SQL across the whole clinic — never only the requested page.</summary>
     public string? SearchTerm { get; set; }
 
+    /// <summary>
+    /// L9 — only the notes attributed to this practitioner. Applied in SQL, like every other filter here: in the
+    /// handler it would mean « hers among these 25 », hiding her invoices on every other page.
+    /// </summary>
+    public Guid? DoctorId { get; set; }
+
 }
 
 public class GetInvoicesQueryHandler : IRequestHandler<GetInvoicesQuery, Result<PagedResult<InvoiceDto>>>
@@ -31,6 +37,7 @@ public class GetInvoicesQueryHandler : IRequestHandler<GetInvoicesQuery, Result<
     private readonly IInvoiceRepository _invoiceRepository;
     private readonly IPatientRepository _patientRepository;
     private readonly ICreditNoteRepository _creditNoteRepository;
+    private readonly IDoctorRepository _doctorRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly ILogger<GetInvoicesQueryHandler> _logger;
 
@@ -38,12 +45,14 @@ public class GetInvoicesQueryHandler : IRequestHandler<GetInvoicesQuery, Result<
         IInvoiceRepository invoiceRepository,
         IPatientRepository patientRepository,
         ICreditNoteRepository creditNoteRepository,
+        IDoctorRepository doctorRepository,
         ICurrentClinicResolver clinicResolver,
         ILogger<GetInvoicesQueryHandler> logger)
     {
         _invoiceRepository = invoiceRepository;
         _patientRepository = patientRepository;
         _creditNoteRepository = creditNoteRepository;
+        _doctorRepository = doctorRepository;
         _clinicResolver = clinicResolver;
         _logger = logger;
     }
@@ -77,7 +86,8 @@ public class GetInvoicesQueryHandler : IRequestHandler<GetInvoicesQuery, Result<
                 status,
                 request.SearchTerm,
                 PageRequest.From(request.Page, request.PageSize),
-                cancellationToken);
+                request.DoctorId,
+                cancellationToken: cancellationToken);
             var invoices = page.Items;
 
             // Patient names for the rows on this page only, via the batched read. This used to load EVERY
@@ -96,9 +106,19 @@ public class GetInvoicesQueryHandler : IRequestHandler<GetInvoicesQuery, Result<
             var credited = await _creditNoteRepository.GetTotalsForInvoicesAsync(
                 invoices.Select(i => i.Id).ToList(), cancellationToken);
 
+            // L9 — practitioner names, once for the whole clinic rather than once per row. The roster of a dental
+            // practice is a handful of rows, so this is cheaper than a batched-by-id read would be and it also
+            // resolves a name for a row whose practitioner no longer appears on this page.
+            var doctorNames = (await _doctorRepository.GetByClinicIdAsync(clinicId, cancellationToken))
+                .ToDictionary(d => d.Id, d => d.FullName);
+
             var dtos = page.Map(i =>
             {
-                var dto = i.ToDto(names.TryGetValue(i.PatientId, out var name) ? name : null);
+                var dto = i.ToDto(
+                    names.TryGetValue(i.PatientId, out var name) ? name : null,
+                    doctorName: i.DoctorId is { } docId && doctorNames.TryGetValue(docId, out var docName)
+                        ? docName
+                        : null);
                 dto.CreditedTotal = credited.TryGetValue(i.Id, out var total) ? total : 0m;
                 return dto;
             });

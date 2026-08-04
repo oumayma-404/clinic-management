@@ -38,7 +38,18 @@ function DialogOverlay({
     <DialogPrimitive.Overlay
       data-slot="dialog-overlay"
       className={cn(
-        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-black/50",
+        /*
+         * A tinted, blurred scrim rather than flat 50 % black.
+         *
+         * `bg-black/50` over a tinted ground reads as a grey sheet laid on the page; the same value in the
+         * app's own neutral, plus a small blur, reads as the page receding behind the dialog. It is the
+         * cheapest depth cue available and the app had almost no `backdrop-blur` anywhere.
+         *
+         * `supports-[backdrop-filter]` keeps the opacity honest: with a blur the scrim can be lighter and the
+         * dialog still separates, but a browser that drops the filter would then be left with a too-thin veil.
+         * So the opaque value is the default and the blurred one is the enhancement.
+         */
+        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-foreground/40 supports-[backdrop-filter]:bg-foreground/25 supports-[backdrop-filter]:backdrop-blur-[2px]",
         className
       )}
       {...props}
@@ -67,14 +78,30 @@ function DialogOverlay({
  * AC-20 exists to remove, so the base's own clamp moved from `sm:max-w-lg` to `md:max-w-lg` and every caller
  * override is `md:max-w-*`.
  */
+/*
+ * ⚠️ `pb-[max(1.5rem,env(safe-area-inset-bottom))]` is not padding taste — it is the home indicator.
+ *
+ * `app/layout.tsx` sets `viewportFit: "cover"`, which is precisely what makes the inset non-zero (34 px on the
+ * 390×844 iPhone class). Without this the base `p-6` gives 24 px against a 34 px gesture strip, so the bottom
+ * ~10 px of the last footer control sits inside the band iOS reserves for its own swipe — a tap there is eaten
+ * by the system. `DialogFooter` stacks `flex-col-reverse`, so the button in that position is usually
+ * « Annuler », but on the sheets that override the order it is the submit.
+ *
+ * `max()` rather than a bare `env()`: the inset is `0px` on a desktop browser and on Android, and the dialog
+ * still wants its 24 px there. `md:pb-6` resets it for the centred presentation, which is nowhere near an edge.
+ */
 export const DIALOG_MOBILE_BOTTOM =
   "inset-x-0 bottom-0 max-h-[90dvh] overflow-y-auto rounded-t-xl border-x-0 border-b-0 " +
+  "pb-[max(1.5rem,env(safe-area-inset-bottom,0px))] md:pb-6 " +
   "data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom"
 
 const DIALOG_MOBILE_VARIANTS = {
   bottom: DIALOG_MOBILE_BOTTOM,
+  // Same home-indicator reasoning as `bottom` above — a full-screen sheet's footer sits on the very edge of
+  // the viewport, so it needs the inset even more than the bottom sheet does.
   sheet:
     "inset-0 h-dvh rounded-none border-0 " +
+    "pb-[max(1.5rem,env(safe-area-inset-bottom,0px))] md:pb-6 " +
     "data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom",
 } as const
 
@@ -176,7 +203,9 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="dialog-header"
       // `shrink-0` so the header keeps its height when it sits above a `DialogBody` that wants to grow.
-      className={cn("flex shrink-0 flex-col gap-2 pe-8 text-center sm:text-left", className)}
+      // `md:`, not `sm:` — this file's own docstring above states the rule ("Everything keys on `md:`,
+      // deliberately"), and these two helpers were the only places in it that still did not.
+      className={cn("flex shrink-0 flex-col gap-2 pe-8 text-center md:text-left", className)}
       {...props}
     />
   )
@@ -187,7 +216,17 @@ function DialogFooter({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="dialog-footer"
       className={cn(
-        "flex shrink-0 flex-col-reverse gap-2 sm:flex-row sm:justify-end",
+        /*
+         * `md:` for the breakpoint consistency this file's docstring requires, plus **full-width stacked
+         * buttons below it**.
+         *
+         * A phone footer whose actions are two shrink-to-fit buttons side by side wastes the width it has and
+         * puts « Annuler » directly in the thumb's arc beside the submit. Stacking them full-width — primary on
+         * top, because `flex-col-reverse` puts the LAST child first — gives each a real 44 px target and an
+         * unambiguous order. `[&>*]:w-full` reaches the direct children rather than requiring 66 call sites to
+         * remember it; a caller that nests its own row still wins, since it sets width on that wrapper.
+         */
+        "flex shrink-0 flex-col-reverse gap-2 md:flex-row md:justify-end [&>*]:w-full md:[&>*]:w-auto",
         className
       )}
       {...props}

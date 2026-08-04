@@ -56,6 +56,18 @@ if (args.Length > 0 && string.Equals(args[0], VerifySchemaCommand.CommandName, S
     return await VerifySchemaCommand.RunAsync(args);
 }
 
+// Restore a backup (L4g). A restore runs with the application STOPPED — it drops and recreates every table the
+// app holds open — so an endpoint inside the app being replaced is the wrong shape; this is the fourth verb of the
+// same family. It validates the folder, refuses while the app is listening, takes a safety dump of the current
+// state, restores with `pg_restore --clean --if-exists`, copies `files/` back and invalidates every live session.
+// Every refusal happens BEFORE anything is destroyed. Usage:
+//   ClinicManagement.API.exe restore-backup <dossier> [--force]
+// Exit codes: 0 = restored, 1 = refused or failed.
+if (args.Length > 0 && string.Equals(args[0], RestoreBackupCommand.CommandName, StringComparison.OrdinalIgnoreCase))
+{
+    return await RestoreBackupCommand.RunAsync(args);
+}
+
 // Install-time permission hardening (security-hardening, audit § 2 findings 1–3): tightens NTFS ACLs on the
 // install's data directories so no other local account can read the patient database, the uploaded files,
 // the logs, or the .local/ trust store. The installer calls this instead of running icacls itself, so the
@@ -85,14 +97,10 @@ if (args.Length > 0 && string.Equals(args[0], CredentialProtectionCommand.ReadCo
 // the install directory (R-6) — a Windows service's CWD is System32, where a relative "logs/" path would
 // scatter or fail. Cloud keeps its prior relative path, byte-for-byte. This early config is also the seam
 // used for the outer-catch startup-failure handling below (both need the mode before builder.Build()).
-var startupConfig = new ConfigurationBuilder()
-    .SetBasePath(AppContext.BaseDirectory)
-    .AddJsonFile("appsettings.json", optional: true)
-    .AddJsonFile(
-        $"appsettings.{Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Production"}.json",
-        optional: true)
-    .AddEnvironmentVariables()
-    .Build();
+// L4e — the layers come from InstallConfiguration so the host and the four console verbs cannot read a
+// different set. `appsettings.Install.json` (installer-owned, machine-derived) sits between the shipped defaults
+// and the operator's own `appsettings.Production.json`, which is what stopped an upgrade from truncating it.
+var startupConfig = new ConfigurationBuilder().AddInstallLayers().Build();
 var startupIsLocalMode = ClinicManagement.Infrastructure.Auth.LocalAuthConfig.IsLocalMode(startupConfig);
 var logFilePath = startupIsLocalMode
     ? Path.Combine(LocalInstallPaths.BaseDirectory, "logs", "clinic-management-.log")
@@ -147,6 +155,13 @@ try
     Log.Information("Starting Clinic Management API");
 
     var builder = WebApplication.CreateBuilder(args);
+
+    // L4e — the host reads the same layers the early config and the console verbs do. `CreateBuilder` already
+    // adds `appsettings.json` + `appsettings.{Environment}.json`; adding them again through `AddInstallLayers`
+    // is harmless (identical values, later wins) and is what inserts the installer-owned
+    // `appsettings.Install.json` beneath the operator's `appsettings.Production.json`. Environment variables are
+    // re-added last so they keep outranking every file, exactly as before.
+    builder.Configuration.AddInstallLayers();
 
     // Use Serilog for logging
     builder.Host.UseSerilog();
@@ -598,6 +613,15 @@ try
         job => job.DispatchQueuedInvoices(),
         Cron.Minutely);
 
+    // Document-email outbox dispatcher — minutely, connectivity-gated (see DocumentEmailJob). Sends the queued
+    // document PDFs only when the server has internet; otherwise no-ops and leaves them queued, which is what
+    // makes « Envoyer par email » meaningful on an offline LAN install. Safe to run unconditionally (does
+    // nothing until a clinic configures SMTP and queues a send).
+    RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.DocumentEmailJob>(
+        "dispatch-document-emails",
+        job => job.DispatchQueuedEmails(),
+        Cron.Minutely);
+
     // Approaching-expiry stock alerts (AC-P4.6) — daily, deliberately NOT connectivity-gated: the alert is
     // in-app, so it has to work on an offline LAN install. An expiry is crossed by the passage of time rather
     // than by a write, so without this scan the notification would never fire for the case it exists for (a
@@ -607,6 +631,19 @@ try
         "flag-expiring-stock",
         job => job.FlagExpiringStock(),
         Cron.Daily(6));
+
+    // Unattended backup (L4a) — HOURLY, not daily, and deliberately not connectivity-gated (the output is a
+    // local file, so it must work on an offline LAN install — the same reasoning as the expiry scan above).
+    //
+    // ⚠️ Hourly is what makes the per-clinic hour real: the schedule lives on the clinic
+    // (`Clinic.BackupHourLocal`, clinic-local), so one daily cron could honour only one clinic's choice. It also
+    // serves the case a fixed 02:00 cron cannot: a clinic PC switched off overnight would simply never be backed
+    // up, silently, for ever. The job itself decides whether each clinic is due, and will not back one up twice
+    // in its own local day.
+    RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.BackupJob>(
+        "run-scheduled-backups",
+        job => job.RunScheduledBackups(),
+        Cron.Hourly);
 
     // Google→App calendar sync never runs on a schedule: the recurring job and its GoogleCalendarSyncJob
     // class were removed as dead scaffolding. App→Google sync runs inline on appointment create/update, and

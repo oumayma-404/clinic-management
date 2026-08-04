@@ -48,6 +48,12 @@ The **dependency direction** in `api/` is strict Clean Architecture: `API → Ap
 - **Realtime (live refresh across clients)** → SignalR `ClinicHub` at `/hub/clinic` (`api/ClinicManagement.API/Hubs/`), fed by the Application `RealtimeBroadcastBehavior`; frontend `web/lib/realtime/`.
 - **A page / screen** → `web/app/<route>/page.tsx` (App Router).
 - **A UI component** → `web/components/` (feature) or `web/components/ui/` (shadcn primitives).
+  ⚠️ **Before writing any frontend code, read `.claude/rules/frontend-web.md`** — the device + UX contract this
+  app is held to (usable at 320 px · 44 px targets on a **coarse pointer**, not on a breakpoint · a table has a
+  card form · a heavy dialog becomes a sheet in `dvh` · no capability removed by a layout decision), and the
+  gate: `npm run check:responsive` + `npx tsc --noEmit` + `npm run build`, then an eye pass at
+  320/390/820/1180/1440 px. There is no test runner, no working ESLint and no CI in `web/`, so that *is* the
+  gate. It is the directive form of `web/CLAUDE.md`'s conventions, not a second copy of them.
 - **Frontend → backend calls** → `web/lib/api/` (per-resource modules over `client.ts`).
 - **A backend test** → `api/ClinicManagement.UnitTests/` (xUnit + Moq, one folder per layer).
 
@@ -255,6 +261,140 @@ Frontend talks to the API via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
   user ticks acts and chooses « Planifier ensemble » (one RDV) or « Planifier séparément » (one each), and mixed
   splits fall out of repeating the gesture; `verify-schema` gained `appointment-act-rows`, pinning that no
   appointment names an act with no row behind it.
+- **Who may do what, and who did it (`adoption-qa-i-access-control-and-audit`)**: the product had three
+  authorization policies defined and **never applied** — `DoctorOnly`, `SecretaryOnly`, `DoctorOrSecretary`, zero
+  usages for the whole life of the product — while **33 endpoints carried a bare `[Authorize]`** (any authenticated
+  user, any role) and **20 controllers carried no policy at all**, including la caisse, les créances, the
+  dashboard, patient delete/archive, the odontogram and every clinical note. They stayed green because the guard
+  test only asserted that a policy *existed*. Nor was it a hidden-menu-with-a-live-API case: `web/lib/nav.ts`
+  shipped « Tableau de bord » and the whole « Finances » group to every role, and the three finance pages contained
+  no `role` reference. **Every one of the 32 controllers now carries a class-level named policy and no bare
+  `[Authorize]` remains**, over a vocabulary of four — `Authenticated` (the onboarding surface, which in Cloud is
+  reached *before* the role is in the JWT), `AnyClinicRole`, `AdminOrDoctor`, `AdminOnly`.
+  ⚠️ **The load-bearing distinction is not "lock the money down"**: a secretary must be able to take a payment and
+  read *one patient's* balance — that is reception's job — but must not read clinic-wide aggregates. Per-patient
+  money: yes. Clinic-wide money: no. So `POST /api/invoices/{id}/payments` and
+  `GET /api/patients/{id}/billing-summary` stay **deliberately open**, while `billing/caisse`, `/caisse/ledger`,
+  `billing/receivables`, `invoices/revenue` and the whole dashboard are `AdminOrDoctor`.
+  ⚠️ **`AnyClinicRole` includes `admin`, and that is why it exists** rather than the spec's `DoctorOrSecretary`:
+  `CreateClinicCommand` makes a clinic's creator an **admin** and links the single dentist's `Doctor` record to that
+  same account, so in the common Tunisian practice the owner-dentist's role is `admin` — and a literal
+  `{doctor, secretary}` policy on the agenda, the patient list or the till would have locked the owner out of their
+  own practice, which is strictly worse than the defect being fixed.
+  **The audit ledger** is the other half: a `SaveChangesInterceptor` writing one row per mutated **aggregate root**
+  (actor, clinic, entity, action, and a compact changed-field summary for updates and deletes), read through
+  `GET /api/audit` (`AdminOnly`, paged). Before it there was **no audit trail of any kind** — zero hits for
+  `CreatedBy`, `ModifiedBy`, `DeletedBy`, `AuditLog`, `IAuditable`, `SaveChangesInterceptor` — and the only
+  attributable actions in the entire product were voiding a payment and voiding an installment (an avoir recorded
+  no actor). It is an interceptor rather than `CreatedBy`/`ModifiedBy` on `Entity<TId>` because those would be a
+  write-path obligation on 38 entities, any writer that forgets one produces an unattributed row indistinguishable
+  from a legitimate one, and they answer nothing about a delete — the question most often asked. See
+  `Infrastructure/Persistence/AuditSaveChangesInterceptor.cs` for the forced two-phase shape and its one stated
+  imprecision. **Self-registration** no longer mints a live account either: `POST /api/auth/register` creates it
+  **pending** an admin's activation, since the only secret was a 6-character clinic code shown on a settings screen
+  and known to everyone who ever worked at the practice. And `GET /api/patients/{id}/ai-summary` was **deleted** —
+  see the AI-summary bullet below.
+- **A reminder queue that cannot starve, and never announces the wrong day (`adoption-qa-l` L3)**: the outbox had
+  two individually-defensible decisions that together stopped the whole install sending. A row whose channel was
+  disabled or unconfigured was left `Pending` *on purpose* (« so it sends once the operator configures it ») and
+  the purge deliberately never deleted a `Pending` row — but the dispatch scan is `Pending && due`, **oldest
+  first**, `.Take(50)`, so unsendable rows accumulate at the *front* and past the batch size consume every tick
+  for ever. There was no clinic dimension either, so one practice starved the others.
+  The fix is a **new non-terminal status, `NotificationStatus.Blocked`**: the row survives and records why
+  (both original intentions) while leaving the scan, and `NotificationJob.ReviewBlockedRowsAsync` returns it to
+  the queue once the channel is sendable — so the status is not a one-way door. `GetDueForDispatchAsync` adds a
+  **per-clinic bound** (clinics served oldest-due-first, capped per tick; the single-clinic install keeps the flat
+  query it had), `ReminderScheduler` now checks sendability at **enqueue** on the appointment path too, and
+  « N rappels bloqués » is a counter + a filter chip on `/rappels` with the reason on each row.
+  ⚠️ Two more things live here. **`ReminderSchedule.ComputeSendTimesUtc` returns every future tier**, not the
+  largest — it returned one `DateTime?` while the settings screen invited « Ex. 24, 6 », so for a no-show problem
+  the 6 h nudge was the one being discarded — with idempotency on **(appointment, channel, tier)** where the
+  tier's identity on the wire *is* its send instant, and a **quiet-hours floor** (21:00→08:00 clinic-local) that
+  moves a send **earlier first**: an 08:00 appointment booked ~22 h ahead resolved to 02:00, and 21:00 the evening
+  before reaches the patient whereas 08:00 *is* the appointment. And **`GoogleCalendarSyncService` finally has an
+  `IReminderScheduler`** — it called `Reschedule()` and committed straight through the repository, so a visit moved
+  in Google kept the reminder frozen at the old day; `ReminderMessage.AnnouncesStaleMoment` is the dispatcher-side
+  backstop that makes every *future* write-path omission harmless, and it shares its formatter with the scheduler
+  that writes the body so the two cannot drift.
+- **Backup is automatic, verified, and restorable (`adoption-qa-l` L4)**: the entire protection used to be a button
+  someone had to remember, whose documented default destination **failed on a fresh install** (the service threw
+  when both the argument and `Backup:DefaultDestination` were empty — and the installer wrote that key as `""`),
+  that recorded nothing about when it last ran, and that was never verified readable. Now: an **hourly**
+  `BackupJob` (not daily — the hour lives on the clinic, and an hourly check also covers the PC switched off at
+  02:00), `pg_restore --list` **verification whose failure fails the backup**, a real install-relative default
+  destination with a **same-volume warning**, a **`BackupRuns` ledger** behind « Dernière sauvegarde réussie » +
+  `GET /api/backup/history` + an ensure/clear staleness notification, retention that prunes oldest-first and
+  **never empties the folder**, a pre-migration backup that **aborts the migration if it fails**, and a
+  **`restore-backup` console verb**. See `api/ClinicManagement.API/CLAUDE.md` for the verb's ordering guarantees
+  and `packaging/README.md` for the operator view. ⚠️ The installer now writes **two** config files split by
+  ownership (`appsettings.Install.json` machine-derived and rewritten · `appsettings.Production.json`
+  operator-owned and never truncated) — it used to truncate the operator's file on every upgrade.
+- **A cheque has an identity, and it travels with the money (`adoption-qa-l` L8, slice A)**: post-dated cheques are
+  ubiquitous in Tunisian practice and `PaymentMethod.Cheque` was a **bare enum value** — `Payment`,
+  `InstallmentPayment`, `CreditNote` and `Expense` each carried `Amount`/`Method`/`PaidOn` and nothing else. For money
+  *out* the number could go in an expense's description; for money **in** there was no free-text field of any kind, so
+  « quel chèque, de quelle banque, encaissable quand ? » had nowhere to live. Both payment ledgers now carry
+  `ChequeNumber`/`ChequeBankName`/`ChequeDueDate`, and `Domain/ValueObjects/ChequeDetails.cs` is the **one** guard:
+  details on a non-cheque method are refused there, not by a CHECK constraint (a second copy of the rule whose failure
+  would be a 500 instead of the French refusal) — so `verify-schema` **verifies** the invariant instead
+  (`cheque-details-only-on-cheques`, over both ledgers), while the six columns and two partial indexes are diffed
+  against the catalog for free.
+  ⚠️ **The load-bearing call site is the devis→facture bridge** (`IssueInvoiceCommand`): it carries an installment
+  payment onto the invoice, and a cheque left behind there would vanish from any « chèques à encaisser » view — the
+  plan side stops being counted the moment the bridge invoice is issued, so the row that still has to be banked would
+  become the one row nothing lists. `InstallmentPayment.ToChequeDetails()` rebuilds it **through** `ChequeDetails.For`,
+  re-checking the invariant on the way across rather than trusting it. ⚠️ Two smaller traps: the index filters key on
+  `ChequeDueDate IS NOT NULL`, **not** `Method = 1` (equally selective by the invariant, and the enum form would bake
+  an ordinal into SQL where no compiler checks it); and `ChequeDueDate` is a **calendar day** sent as a bare
+  `YYYY-MM-DD` — `toISOString()` would shift a cheque due on the 1st into the previous month. All three fields stay
+  **optional even for a cheque** (refusing money genuinely received to enforce a field is the wrong trade), so a
+  cheque with no due date is counted as its own group rather than dropped. Client side: `components/factures/cheque-fields.tsx`
+  is the single conditional sub-form and `chequePaymentFields()` the single payload builder — it clears the fields
+  when the method is not `Cheque`, which is what makes "the server refuses details on a cash payment" unreachable
+  rather than merely unlikely. *(Slice B — the per-method caisse breakdown, the ledger `method` filter and the
+  cheques-due screen — is **not built**; see `features/adoption-qa-l-residual-blockers/progress.md`.)*
+- **Data comes back in as CSV, and the dry run is the product (`adoption-qa-l` L5, import half)**: a dentist arriving
+  with 3 000 patients in a spreadsheet used to type them in by hand — the spec names that as the single thing that
+  stops most switchers. `POST /api/patients/import/preview` → mapping → `POST /api/patients/import`, both
+  **`AdminOrDoctor`**, multipart, scoped to patients. `Application/Common/Csv/CsvReader.cs` is the reader half of the
+  writer above it, and **nothing about it is symmetrical**: the writer controls its one shape, the reader is handed
+  whatever the previous software produced, so the **delimiter** (`;`/`,`/tab, counted on the header record only), the
+  **encoding** (invalid UTF-8 falls back to Latin-1 — a BOM-less Excel file on a French Windows is cp1252, and
+  decoding it as UTF-8 dies on the first « é ») and the line ending are all *detected*.
+  ⚠️ **The preview is a `Query` and the commit a `Command`, and that is not stylistic**: `RealtimeBroadcastBehavior`
+  derives its key from the namespace, so a dry run in `Commands` would announce an import that has not happened. The
+  same mechanism is why the commit does **not** `Send` a `CreatePatientCommand` per row (3 000 broadcasts, 3 000
+  refetches in every open browser) — the *rules* are shared instead of the pipeline, by extracting
+  **`PatientFromRequest.Build`** out of `CreatePatientCommandHandler`, which is now its only other caller. That is
+  what makes the spec's « reuse `CreatePatientCommand`'s validation rather than a parallel path » literally true.
+  ⚠️ Three more decisions worth knowing. (a) **One `SaveChangesAsync` per row**, because « all-or-nothing per *row*,
+  never a silent partial commit » is unachievable with one save for the file — one refused row would take the other
+  2 999 — with `IUnitOfWork.StopTracking` detaching each committed row so EF does not re-scan 3 000 entries on every
+  later save. (b) **Nothing is staged server-side**: both calls carry the file, so a mapping change re-runs the whole
+  dry run and the *identical* `PatientImportPlanner` produces both the preview and the commit — a preview built by
+  other code is a promise the commit need not keep. (c) **Duplicate matching is deliberately eager** (name+DOB, name
+  alone when the row supplies no DOB, or phone through `PhoneNumber.ToE164`) and skips by default, including matches
+  against *earlier rows of the same file*: a false positive costs one « Créer quand même » tick, while a false
+  negative is permanent — this product has **no patient merge and no soft delete**. Phones are normalised to `+216`
+  E.164 on the way in, which the hand-typed write path notably does **not** do (`PhoneNumber`'s ctor only trims); the
+  spec names that standing defect and forbids replicating it. The « Sexe » export column now writes « Homme »/« Femme »
+  through `PatientGender` (both directions in one file) — it had been emitting the raw `Male` into a French file, one
+  column over from a `YesNo` that was translated on purpose.
+- **Data leaves the product as CSV (`adoption-qa-l` L5, export half)**: there were **zero** occurrences of `csv`
+  anywhere in the repo and zero of « Exporter » in `web/`, so the only way data left was a `pg_dump` readable by
+  PostgreSQL tooling and nothing else — the owner could not leave with their own data, or hand their accountant
+  anything. `Application/Common/Csv/` is the single authority: **UTF-8 with a BOM** and a **`;`** delimiter (Excel
+  on Windows reads BOM-less UTF-8 in the system codepage, and its list separator follows the fr locale — get
+  either wrong and the file is mojibake in one column), money through `InvoiceCalculator.RoundMoney` and dates
+  through `ClinicClock`. ⚠️ **An export re-sends the screen's own query with `paging: null`**, which the paging
+  primitive models as a first-class case — so « honours the current filters, exports the whole filtered set, never
+  the current page » is true by construction rather than by discipline. Money exports are `AdminOrDoctor`, matching
+  the reads they export. All nine lists carry the button — `/patients`, `/factures`, `/treatment-plans` and `/caisse`
+  in their `PageHeader`, and `/creances`, `/stock`, `/lab-orders`, `/appointments` and la caisse's « Dépenses » card
+  **beside the filters they export**, because those components own their own filter state and a copy lifted to page
+  level would be a second authority on what is on screen. ⚠️ One deliberate superset: the agenda's CSV covers the
+  whole window and every statut, since « Terminés »/« Annulés » *reveal* rather than narrow — honouring them would
+  make the ordinary export of a past week omit almost every appointment in it, and `Statut` is a column in the file.
 - **Multi-tenancy**: every request is scoped to a clinic. The **authoritative** check is per-request in the handlers — the clinic is resolved from the DB user record (`ICurrentClinicResolver`/`IClinicContext` → DB lookup of the `sub`, not purely from the JWT claim) and each loaded aggregate's `ClinicId` is re-verified. Since `cloud-security-and-tenant-isolation` (PR #11) there is **also** a defense-in-depth backstop: EF Core **global query filters** on ~15 clinic-owned aggregate roots, fed the JWT `clinic_id` via `ICurrentClinicProvider` (fail-open — inactive when no clinic is in scope, so jobs/CLI/auth flows still work). See `Infrastructure/Persistence/ApplicationDbContext.cs`. Tenant-isolation is pinned by `*TenantIsolationTests` in the test project.
 - **Pluggable auth (`Auth:Mode` = `Cloud` | `Local`)**: Cloud is the original Auth0 path; **Local** (for offline Windows/LAN installs) issues its own HS256 JWTs against local email+password accounts. Backend seam: `ILocalAuthService`/`LocalAuthService` (+ per-install signing key via `LocalAuthConfig`), a mode-branched JWT setup in `Program.cs`, and `AuthController` (`login`/`setup`/`register`/`mode`/`change-password`). `CreateClinicCommand`/`JoinClinicCommand` branch to a Local path when a `Password` is present. Frontend seam: a single `useSession()` context (`web/lib/auth/session.tsx`) backed by either `CloudSessionProvider` (Auth0) or `LocalSessionProvider` (HttpOnly cookie), gated on `AUTH_MODE`. All Local behavior is additive; the Cloud path is unchanged. Offline admin lockout recovery is a console command (`dotnet run -- reset-admin-password`), not a web endpoint. *All 5 phases of the offline-Windows repackaging are complete — see `features/windows-desktop-app/`.*
 - **Local-disk file storage (Phase 2)**: the single `IFileStorage` seam is mode-branched — `LocalDiskFileStorage` (Local, blobs under `FileStorage:BasePath`) vs `MinioFileStorage` (Cloud). Additive; Cloud unchanged.
@@ -269,7 +409,7 @@ Frontend talks to the API via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
 - **Clinic-scoped SignalR realtime (built)**: every mutating command auto-broadcasts a `entityChanged` event to the caller's `clinic-{id}` group via the Application `RealtimeBroadcastBehavior` → `IRealtimeNotifier` → API `ClinicHub` (`/hub/clinic`); the resource key is derived from the command's namespace (so new commands broadcast for free). The frontend subscribes with `useClinicRealtime(resource, refetch)` (`web/lib/realtime/`) so a peer's edit live-refreshes appointments, patients, stock, invoices, treatment plans, catalogs, users, notifications, la caisse, and — since `audit-sections-3-to-10` closed audit § 9.1 — the **salle d'attente, lab orders, relances, recurring series, « Mon profil » and the patient's documents tab**. The **dashboard** now subscribes to all nine keys its figures depend on (it watched only four, so the à-traiter counts and la caisse went stale under a peer's edit). Excluded areas: Auth, AI, Backup, Connectivity, and all queries. ⚠️ The two sides are now held together by a **contract test**, not by discipline: `RealtimeResourceResolverTests` reflects over every `IRequest` for the emitted set, **parses `clinic-hub.ts`** for the declared set, and fails unless they are equal **in both directions**. It replaced a hardcoded `[InlineData]` table that stayed green for the whole period five keys (`expenses`, `doctors`, `laborders`, `recall`, `waitinglist`) were broadcast with nothing listening — the derived-vs-listed lesson `verify-schema` also embodies.
 - **In-app staff notification center (built)**: a real, clinic-scoped in-app feed — header bell + unread badge → panel (newest-first, per-user read/unread, mark-all-read, deep-links), live over the SignalR `"notifications"` key above. Backed by a **`StaffNotification`** aggregate (one shared row per event) + per-user **`NotificationRead`** markers (no write-time fan-out). Notifications are generated **best-effort, post-commit** by an `INotificationGenerator`/`NotificationGenerator` seam called inline from the appointment/stock command handlers (appointment created/cancelled/rescheduled, ~24h reminder, not-low→low stock crossing) — a generation failure logs at Error but **never** fails/rolls back the core operation. This is **in-app only**; the dormant email/SMS `Notification` entity + `NotificationService` stay untouched. The actor who caused an event is excluded from their own feed.
 - **Real outbound SMS/WhatsApp reminders** (feature `sms-whatsapp-reminders`): the previously-dormant `Notification` outbox is now live for **SMS + WhatsApp** appointment reminders — `IReminderChannelSender` (`HttpSmsSender`/`WhatsAppSender`) + `RemindersConfig`/`ReminderSchedule`/`ReminderPhone`, enqueued best-effort post-commit by `IReminderScheduler`/`ReminderScheduler` from the appointment handlers and dispatched by the connectivity-gated minutely `NotificationJob`. Secrets come from env (or per-clinic, encrypted). Per-clinic settings (`ClinicReminderSettings` + `IReminderSettingsProvider`) override the per-install config: channel toggles, sender identity, **gateway/Graph URLs, lead-time tiers and the message wording** (all admin-editable in `reminder-settings.tsx` — `reliability-and-polish`), so a channel can be turned fully on without a server-config edit. The settings GET returns a per-channel `effectiveStatus` (`configured`/`not_configured`) that drives a "sendable vs. warning" badge (a WhatsApp OAuth "Connecté" downgrades to a warning when the resolved settings still can't send), and `GET /api/clinics/reminder-status` surfaces the recent outbox rows (sent/pending/failed + reason).
-- **Patient AI summary is real**: the patient detail page's summary (`GET /api/patients/{id}/ai-summary` → `PatientAiSummaryDto`) is a live HuggingFace call (`IHuggingFaceAIService`), connectivity-gated. *(The old placeholder `PatientSummaryService`/`IPatientSummaryService` + the disabled `AISummaryJob`, the never-registered `GoogleAIService`/`IGoogleAIService`, and the dormant email `NotificationService`/`INotificationService` were removed as dead code in `reliability-and-polish` — HuggingFace is the sole wired AI backend, and the live outbound reminders go through the `IReminderChannelSender` senders below.)*
+- **The patient AI summary is gone, and the claim that used to be here was false on both halves (`adoption-qa-i-access-control-and-audit` I4)**: `GET /api/patients/{id}/ai-summary` was documented as "on the patient detail page … connectivity-gated" while having **zero callers** in `web/` (the button was removed and the endpoint outlived it) and **no** `IInternetProbe` gate — so on an offline LAN install it hung ~205 s on a `HttpClient` with no timeout before failing. What it did do was POST a patient's full name, allergies, every medical- and family-history entry, and every dental record — teeth, money and all free-text notes — to `router.huggingface.co`, with no record cap, no consent flag, no audit of which patient was sent, and a class-level `[Authorize]` as its only gate, so any secretary could trigger it. It was **deleted** rather than fixed (endpoint, `GetPatientAiSummaryQuery`, `PatientAiSummaryDto`, `patientsApi.getAiSummary`): keeping it would have required a policy, a probe gate, a timeout, a record cap and an audit row to restore a feature no screen asked for. `IHuggingFaceAIService` stays — the AI **chat** is its live, gated caller. *(The old placeholder `PatientSummaryService`/`IPatientSummaryService` + the disabled `AISummaryJob`, the never-registered `GoogleAIService`/`IGoogleAIService`, and the dormant email `NotificationService`/`INotificationService` were removed as dead code in `reliability-and-polish` — HuggingFace is the sole wired AI backend, and the live outbound reminders go through the `IReminderChannelSender` senders below.)*
 - **`ValidationBehavior` is inert**: no FluentValidation validators exist; handlers validate inline and return `Result.Failure`.
 - **Frontend data-wiring**: the dashboard, `appointment-list`, the stock feature, and the notification center are all API-wired (`dashboardApi`, `useAppointments`, `stockApi`, `notificationsApi`/`useNotifications`). The header **search** is a live patient lookup (type → results → open the patient). *(The orphan `notifications-list` sample component and the redundant `dental-chart` tooth chart were removed in `reliability-and-polish`; the read-only summary chart now reuses `record-tooth-chart`.)*
 - **Security posture (mostly hardened by `cloud-security-and-tenant-isolation`, PR #11)**: committed `api/.../appsettings.json` secrets were **retired** — DB connection string, `GoogleCalendar:ClientSecret`, `HuggingFace:ApiKey`, WhatsApp/SMS/Meta tokens are now empty strings + `// SECRET` comments; supply real values via env / user-secrets / `.local/` / the installer's `appsettings.Production.json`. An empty DB connection string fails startup loud (`return 1`). The Hangfire filter is loopback-only in **both** modes; the Google OAuth `state` is validated; Google refresh tokens live per-clinic in the DB. **Residual (Cloud)**: the authorization `FallbackPolicy` stays null (a Cloud controller without `[Authorize]` is still anonymous — Local fails closed), and a few non-secret real values remain in config (`Auth0:Domain/Audience`, `GoogleCalendar:ClientId`; `Auth0:ManagementApi` still has `YOUR_*` placeholders). Treat with care.

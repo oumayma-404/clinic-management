@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authorization;
+using ClinicManagement.Application.Common.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using MediatR;
@@ -17,6 +18,9 @@ namespace ClinicManagement.API.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/connectivity")]
+// The single action below is deliberately [AllowAnonymous] (the frontend polls it before login). The class
+// policy exists so a future action added here is covered rather than silently anonymous.
+[Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
 public class ConnectivityController : ApiControllerBase
 {
     private readonly IMediator _mediator;

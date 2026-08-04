@@ -94,7 +94,7 @@ export default function JoinClinicPage() {
 
   if (userLoading || authLoading || isChecking) {
     return (
-      <div className="min-h-dvh bg-gradient-to-br from-accent via-white to-slate-50 dark:from-slate-950 dark:to-slate-900 flex items-center justify-center p-6">
+      <div className="min-h-dvh bg-background flex items-center justify-center p-6">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
           <p className="text-muted-foreground">Vérification du statut de votre clinique…</p>
@@ -109,7 +109,7 @@ export default function JoinClinicPage() {
   }
 
   return (
-    <div className="min-h-dvh bg-gradient-to-br from-accent via-white to-slate-50 dark:from-slate-950 dark:to-slate-900 flex items-center justify-center p-6">
+    <div className="min-h-dvh bg-background flex items-center justify-center p-6">
       <div className="w-full max-w-md">
         <Card className="border-primary/20 shadow-lg">
           <CardHeader className="text-center space-y-4">
@@ -165,9 +165,19 @@ export default function JoinClinicPage() {
                   type="button"
                   variant="ghost"
                   onClick={() => router.push("/setup")}
-                  className="text-muted-foreground hover:text-primary"
+                  /*
+                   * `h-auto whitespace-normal` — this 58-character label pushed the whole page off-canvas.
+                   *
+                   * `buttonVariants` carries `whitespace-nowrap` and `shrink-0`, so the label was one
+                   * unbreakable ~440px line. Its ancestor card is `w-full max-w-md` inside a
+                   * `flex items-center justify-center` column whose `min-width: auto` floor beats `max-w-md`,
+                   * so the card was forced to ~440px inside a 342px content box — and because the parent
+                   * centres, the overflow split to BOTH sides, putting ~24px of the card's left edge off-screen
+                   * where no scroll can reach it. Letting the label wrap is the whole fix.
+                   */
+                  className="h-auto whitespace-normal py-2 text-center text-muted-foreground hover:text-primary"
                 >
-                  Vous n'avez pas de code ? Créez plutôt une nouvelle clinique
+                  Vous n&apos;avez pas de code ? Créez plutôt une nouvelle clinique
                 </Button>
               </div>
             </form>

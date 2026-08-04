@@ -23,7 +23,12 @@ public sealed record CaissePaymentRow(
     DateTime PaidOn,
     bool IsVoided,
     string? VoidReason,
-    string? VoidedByName);
+    string? VoidedByName,
+    // Cheque identity (L8). On the statement it is the difference between « Chèque 45,000 » — which could be
+    // anything — and a line naming the cheque somebody still has to take to the bank.
+    string? ChequeNumber = null,
+    string? ChequeBankName = null,
+    DateTime? ChequeDueDate = null);
 
 public interface IInvoiceRepository
 {
@@ -46,6 +51,7 @@ public interface IInvoiceRepository
         InvoiceStatus? status = null,
         string? searchTerm = null,
         PageRequest? paging = null,
+        Guid? doctorId = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -54,8 +60,16 @@ public interface IInvoiceRepository
     /// </summary>
     Task<int> GetMaxSequenceForYearAsync(Guid clinicId, int year, CancellationToken cancellationToken = default);
 
-    /// <summary>Sum of payments received in [from, to] across the clinic's non-cancelled invoices.</summary>
-    Task<decimal> GetCollectedBetweenAsync(Guid clinicId, DateTime from, DateTime to, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Sum of payments received in [from, to] across the clinic's non-cancelled invoices.
+    /// </summary>
+    /// <param name="doctorId">
+    /// L9 — when supplied, only invoices <b>attributed to that practitioner</b>. ⚠️ An unattributed invoice is
+    /// therefore <i>excluded</i>, not silently included: a per-practitioner figure that quietly absorbed every
+    /// historical row would make two dentists' filtered totals sum to more than the clinic's.
+    /// </param>
+    Task<decimal> GetCollectedBetweenAsync(
+        Guid clinicId, DateTime from, DateTime to, Guid? doctorId = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Sum of <c>TotalTtc</c> over the clinic's invoices <b>issued</b> in <c>[from, toInclusive]</c> — the
@@ -67,8 +81,9 @@ public interface IInvoiceRepository
     /// single figure on the app's home page.
     /// </para>
     /// </summary>
+    /// <param name="doctorId">L9 — same rule as <see cref="GetCollectedBetweenAsync"/>'s: attributed rows only.</param>
     Task<decimal> GetInvoicedBetweenAsync(
-        Guid clinicId, DateTime from, DateTime toInclusive, CancellationToken cancellationToken = default);
+        Guid clinicId, DateTime from, DateTime toInclusive, Guid? doctorId = null, CancellationToken cancellationToken = default);
 
     // NOTE: there is deliberately no GetCollectedByMonthAsync. One was written for the « Tendance » sparkline and
     // removed: bucketing by the clinic-local month required date arithmetic on a `timestamptz` column
@@ -82,8 +97,15 @@ public interface IInvoiceRepository
     /// Outstanding invoice balance per patient (TTC − collected) across the clinic's issued, non-cancelled,
     /// non-draft invoices — only patients whose invoice balance is &gt; 0. Feeds the unified per-patient
     /// balance, the clinic receivables list, and the dashboard total-outstanding figure.
+    /// <para>
+    /// <b><c>OldestUnpaidIssueDate</c> is what ages the debt (J7).</b> This read used to return the total alone,
+    /// so « Créances » could only date the plan track and the « Retard » column was blank for pure invoice
+    /// debt — which is where most of a clinic's debt is. A note d'honoraires has no due date: it is payable on
+    /// issue, so its issue date <i>is</i> the moment the debt started, and the oldest one over a patient's
+    /// unpaid notes is the age of their invoice debt. Null only when a legacy row carries no issue date.
+    /// </para>
     /// </summary>
-    Task<IReadOnlyList<(Guid PatientId, decimal Outstanding)>> GetOutstandingByPatientAsync(
+    Task<IReadOnlyList<(Guid PatientId, decimal Outstanding, DateTime? OldestUnpaidIssueDate)>> GetOutstandingByPatientAsync(
         Guid clinicId, CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -142,6 +164,43 @@ public interface IInvoiceRepository
     /// </summary>
     Task<IReadOnlyList<CaissePaymentRow>> GetPaymentsBetweenAsync(
         Guid clinicId, DateTime from, DateTime toInclusive, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The same money <see cref="GetCollectedBetweenAsync"/> sums, split by <c>PaymentMethod</c> — la caisse's
+    /// « dont espèces », so the owner can separate what is physically in the drawer from a cheque nobody has
+    /// banked yet.
+    /// <para>
+    /// ⚠️ A <c>GROUP BY</c> sibling of the SUM, deliberately, and <b>not</b> a grouping of
+    /// <see cref="GetPaymentsBetweenAsync"/>'s rows in the caller: those include voided payments (the statement
+    /// strikes them through) while the SUM drops them, so summing them would produce a breakdown that
+    /// silently disagrees with <c>CashIn</c> unless the caller re-applied <c>!IsVoided</c> — one predicate
+    /// remembered in two places, which is exactly how the two figures drift. Predicate-for-predicate identical
+    /// to the SUM instead, so <c>Σ breakdown == CashIn</c> holds by construction.
+    /// </para>
+    /// </summary>
+    Task<IReadOnlyList<PaymentMethodTotal>> GetCollectedByMethodBetweenAsync(
+        Guid clinicId, DateTime from, DateTime toInclusive, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Every **cheque** payment recorded against the clinic's non-cancelled invoices, non-voided, optionally
+    /// bounded by the cheque's own <c>ChequeDueDate</c> — the invoice half of « chèques à encaisser ». First
+    /// reader of <c>IX_Payments_ChequeDueDate</c>.
+    /// <para>
+    /// ⚠️ The date bounds are on the <b>due date</b>, not on <c>PaidOn</c>: the question is « what can I take to
+    /// the bank this month? », and a post-dated cheque is received long before it can be presented. Rows with no
+    /// due date are **always returned** regardless of the bounds — a cheque nobody wrote a date on is precisely
+    /// the money-lost case the view exists for, so excluding it from a bounded window would hide it for ever.
+    /// </para>
+    /// <para>
+    /// Unpaged: the caller merges this with the treatment-plan half, orders the union and pages in memory — the
+    /// same shape as the « extrait de caisse » and « Créances », where no single query knows a row's position.
+    /// </para>
+    /// </summary>
+    Task<IReadOnlyList<CaissePaymentRow>> GetChequePaymentsAsync(
+        Guid clinicId,
+        DateTime? dueFrom = null,
+        DateTime? dueTo = null,
+        CancellationToken cancellationToken = default);
 
     /// <summary>Load the invoice that owns a given payment (with lines + payments), or null. Clinic-agnostic — the caller guards the clinic.</summary>
     Task<Invoice?> GetByPaymentIdAsync(Guid paymentId, CancellationToken cancellationToken = default);

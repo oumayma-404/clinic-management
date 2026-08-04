@@ -41,7 +41,7 @@ public class DashboardTenantIsolationTests
         _activity.Setup(r => r.ReadAsync(It.IsAny<Guid>(), It.IsAny<DashboardPeriod>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new DashboardActivityDto());
         _money.Setup(r => r.ReadAsync(
-                It.IsAny<Guid>(), It.IsAny<DashboardPeriod>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+                It.IsAny<Guid>(), It.IsAny<DashboardPeriod>(), It.IsAny<DateTime>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((new DashboardMoneyDto(), new DashboardReceivablesDto()));
         _alerts.Setup(r => r.ReadAsync(It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new DashboardAlertsDto());
@@ -60,12 +60,12 @@ public class DashboardTenantIsolationTests
 
         Assert.True(result.IsSuccess);
         _activity.Verify(r => r.ReadAsync(ClinicId, It.IsAny<DashboardPeriod>(), It.IsAny<CancellationToken>()), Times.Once);
-        _money.Verify(r => r.ReadAsync(ClinicId, It.IsAny<DashboardPeriod>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Once);
+        _money.Verify(r => r.ReadAsync(ClinicId, It.IsAny<DashboardPeriod>(), It.IsAny<DateTime>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()), Times.Once);
         _alerts.Verify(r => r.ReadAsync(ClinicId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Once);
         _trend.Verify(r => r.ReadAsync(ClinicId, It.IsAny<DashboardPeriod>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Once);
 
         _activity.Verify(r => r.ReadAsync(OtherClinicId, It.IsAny<DashboardPeriod>(), It.IsAny<CancellationToken>()), Times.Never);
-        _money.Verify(r => r.ReadAsync(OtherClinicId, It.IsAny<DashboardPeriod>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Never);
+        _money.Verify(r => r.ReadAsync(OtherClinicId, It.IsAny<DashboardPeriod>(), It.IsAny<DateTime>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()), Times.Never);
         _alerts.Verify(r => r.ReadAsync(OtherClinicId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Never);
         _trend.Verify(r => r.ReadAsync(OtherClinicId, It.IsAny<DashboardPeriod>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Never);
     }
@@ -82,7 +82,7 @@ public class DashboardTenantIsolationTests
 
         Assert.True(result.IsFailure);
         _activity.Verify(r => r.ReadAsync(It.IsAny<Guid>(), It.IsAny<DashboardPeriod>(), It.IsAny<CancellationToken>()), Times.Never);
-        _money.Verify(r => r.ReadAsync(It.IsAny<Guid>(), It.IsAny<DashboardPeriod>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Never);
+        _money.Verify(r => r.ReadAsync(It.IsAny<Guid>(), It.IsAny<DashboardPeriod>(), It.IsAny<DateTime>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()), Times.Never);
         _alerts.Verify(r => r.ReadAsync(It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Never);
         _trend.Verify(r => r.ReadAsync(It.IsAny<Guid>(), It.IsAny<DashboardPeriod>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Never);
     }
@@ -101,8 +101,8 @@ public class DashboardTenantIsolationTests
         _activity.Setup(r => r.ReadAsync(ClinicId, It.IsAny<DashboardPeriod>(), It.IsAny<CancellationToken>()))
             .Callback((Guid _, DashboardPeriod p, CancellationToken _) => activityPeriod = p)
             .ReturnsAsync(new DashboardActivityDto());
-        _money.Setup(r => r.ReadAsync(ClinicId, It.IsAny<DashboardPeriod>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
-            .Callback((Guid _, DashboardPeriod p, DateTime now, CancellationToken _) => { moneyPeriod = p; moneyNow = now; })
+        _money.Setup(r => r.ReadAsync(ClinicId, It.IsAny<DashboardPeriod>(), It.IsAny<DateTime>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
+            .Callback((Guid _, DashboardPeriod p, DateTime now, Guid? _, CancellationToken _) => { moneyPeriod = p; moneyNow = now; })
             .ReturnsAsync((new DashboardMoneyDto(), new DashboardReceivablesDto()));
         _alerts.Setup(r => r.ReadAsync(ClinicId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .Callback((Guid _, DateTime now, CancellationToken _) => alertsNow = now)
@@ -138,7 +138,7 @@ public class DashboardTenantIsolationTests
     {
         WireResolved(ClinicId);
         _money.Setup(r => r.ReadAsync(
-                It.IsAny<Guid>(), It.IsAny<DashboardPeriod>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+                It.IsAny<Guid>(), It.IsAny<DashboardPeriod>(), It.IsAny<DateTime>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new InvalidOperationException("db down"));
 
         var result = await Handler().Handle(new GetDashboardQuery(), CancellationToken.None);

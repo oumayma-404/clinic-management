@@ -61,6 +61,31 @@ public interface INotificationGenerator
         Guid clinicId, Guid stockItemId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Ensures the clinic carries exactly one live « sauvegarde ancienne » alert, restated to the moment of its
+    /// last successful backup (L4d). Deep-links to the « Sauvegarde » section of « Paramètres ».
+    ///
+    /// <para><b>Ensure/clear, not fire-once</b>, for the identical reason as
+    /// <see cref="EnsureStockExpiringSoonAsync"/>: staleness is crossed by the passage of time, so the daily job
+    /// re-evaluates the same fact every run. A fire-once call would write one alert per day for ever, which is the
+    /// fastest way to make the notification feed unreadable — and the feed is where the four other alerts that
+    /// matter live.</para>
+    ///
+    /// <para><paramref name="lastSuccessUtc"/> is <c>null</c> on an install that has <b>never</b> backed up, and
+    /// the wording differs: « aucune sauvegarde » on a brand-new clinic is not the same message as « la dernière
+    /// remonte à trois jours », and firing the alarming version on a clinic created this morning is how an alert
+    /// gets dismissed permanently on day one.</para>
+    /// </summary>
+    Task EnsureBackupStaleAsync(
+        Guid clinicId, DateTime? lastSuccessUtc, int staleAfterHours,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Removes the clinic's backup-staleness alert if one exists — a backup has just succeeded (L4d). No-op when
+    /// there is nothing to clear, which is the overwhelmingly common case on a nightly run.
+    /// </summary>
+    Task ClearBackupStaleAsync(Guid clinicId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Ensures a "post-visit review" notification for an appointment matches its current state — created if
     /// missing, otherwise moved. It becomes visible at the appointment's end (<paramref name="appointmentEndUtc"/> =
     /// start + duration; deferred visibility). The target user is resolved from <paramref name="doctorId"/>

@@ -75,19 +75,40 @@ public class GetReceivablesQueryHandler : IRequestHandler<GetReceivablesQuery, R
 
             // Merge the two tracks per patient.
             var totals = new Dictionary<Guid, decimal>();
-            var oldestOverdue = new Dictionary<Guid, DateTime?>();
+            var oldestOverdue = new Dictionary<Guid, DateTime>();
+
+            /*
+             * Both tracks now date the debt (J7), and the patient's « Retard » is the EARLIER of the two — a
+             * patient with a six-month-old note and an échéance late by a week has been owing for six months.
+             * Before this the invoice loop contributed no date at all, so the column was blank for pure invoice
+             * debt, which is most of it: an échéancier is what a patient asked to pay in instalments, while an
+             * unpaid note d'honoraires is the ordinary way a bill goes unpaid.
+             *
+             * The two dates mean the same thing (« owing since ») from different clocks: an échéance is late once
+             * its due day has passed, a note from the day it was issued — it is payable on issue, with no due
+             * date to wait for. `Keep` therefore compares them directly rather than privileging either track.
+             */
+            void Keep(Guid patientId, DateTime? candidate)
+            {
+                if (candidate is null)
+                {
+                    return;
+                }
+                if (!oldestOverdue.TryGetValue(patientId, out var current) || candidate.Value < current)
+                {
+                    oldestOverdue[patientId] = candidate.Value;
+                }
+            }
 
             foreach (var row in invoiceByPatient)
             {
                 totals[row.PatientId] = totals.GetValueOrDefault(row.PatientId) + row.Outstanding;
+                Keep(row.PatientId, row.OldestUnpaidIssueDate);
             }
             foreach (var row in planByPatient)
             {
                 totals[row.PatientId] = totals.GetValueOrDefault(row.PatientId) + row.Outstanding;
-                if (row.OldestOverdueDueDate is not null)
-                {
-                    oldestOverdue[row.PatientId] = row.OldestOverdueDueDate;
-                }
+                Keep(row.PatientId, row.OldestOverdueDueDate);
             }
 
             // Round and drop the settled rows FIRST, then resolve names in one round trip (AC-P6.21). This loop
@@ -111,8 +132,27 @@ public class GetReceivablesQueryHandler : IRequestHandler<GetReceivablesQuery, R
                     continue;
                 }
 
-                var overdue = oldestOverdue.GetValueOrDefault(patientId);
-                int? daysOverdue = overdue is not null ? Math.Max(0, (clinicToday - overdue.Value.Date).Days) : null;
+                DateTime? overdue = oldestOverdue.TryGetValue(patientId, out var since) ? since : null;
+                /*
+                 * ⚠️ Both sides of the subtraction must be on the CLINIC's calendar.
+                 *
+                 * `clinicToday` already is; `overdue` is a stored UTC **instant**, so `.Date` on it is the *UTC*
+                 * calendar date — and for the first hour of every clinic day (23:00–24:00 UTC, Tunisia being UTC+1)
+                 * that is the previous day. Differencing the two mixed « depuis 46 jours » for a note whose debt
+                 * was 45 days old, and « depuis 1 jour » for one issued at 00:30 this morning.
+                 *
+                 * It bit the invoice track specifically because J7's date is `Invoice.IssueDate` — a true instant
+                 * from `DateTime.UtcNow`. The plan track was unaffected in practice: an échéance's `DueDate` is
+                 * stored as midnight of a chosen day, so its UTC date and its intended day already agree. Running
+                 * both through `ToClinicLocal` costs nothing on that side and removes the distinction as a thing
+                 * anyone has to remember.
+                 *
+                 * This is the § 4.1 defect J3 exists to close, re-armed by a newly-added date — caught by
+                 * `InvoiceDebtIsAgedTests`, not by review.
+                 */
+                int? daysOverdue = overdue is not null
+                    ? Math.Max(0, (clinicToday - ClinicClock.ToClinicLocal(overdue.Value).Date).Days)
+                    : null;
 
                 receivables.Add(new ReceivableDto
                 {

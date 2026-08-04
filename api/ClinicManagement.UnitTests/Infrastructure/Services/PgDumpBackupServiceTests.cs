@@ -88,16 +88,45 @@ public sealed class PgDumpBackupServiceTests : IDisposable
         Assert.Contains("pg_dump", ex.Message);
     }
 
+    /// <summary>
+    /// L4b — a missing destination is <b>resolved</b>, not refused, and this test is the inversion of the one it
+    /// replaces.
+    ///
+    /// <para>It used to assert that <c>CreateBackupAsync(null)</c> threw « Aucun dossier de destination » with no
+    /// argument and no <c>Backup:DefaultDestination</c>. That threw for a configuration the <b>installer itself
+    /// produced</b> — it wrote the key as <c>""</c> — while <c>backup-settings.tsx</c> promised « Laissez le champ
+    /// vide pour utiliser le dossier par défaut du serveur ». So the documented default path failed on every
+    /// fresh install, and a test was pinning it in place.</para>
+    ///
+    /// <para>The resolution order is now argument → config → install-relative <c>Backups/</c>. The assertion is
+    /// therefore about <c>ResolveDestinationRoot</c> returning a real path, and about the backup getting past the
+    /// destination stage — it still fails later here, because the dummy <c>pg_dump</c> is not an executable, which
+    /// is exactly what proves the destination check no longer refuses it.</para>
+    /// </summary>
     [Fact]
-    public async Task Missing_destination_fails_loud()
+    public async Task No_Destination_Falls_Back_To_The_Install_Folder_Instead_Of_Refusing()
     {
-        // A real (dummy) pg_dump file so the pg_dump check passes and we reach the destination check.
-        var settings = ReachesBackupFolder();
-        // No destination folder passed and no Backup:DefaultDestination configured.
-        var service = Service(settings);
+        // A real (dummy) pg_dump file so the pg_dump check passes and we reach the destination stage.
+        var service = Service(ReachesBackupFolder());
 
+        var resolved = service.ResolveDestinationRoot(null);
+
+        Assert.False(string.IsNullOrWhiteSpace(resolved));
+        Assert.EndsWith("Backups", resolved);
+
+        // And the backup itself gets past the destination check: the failure it does hit names pg_dump, not the
+        // destination — which is the whole difference this test exists to pin.
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => service.CreateBackupAsync(null));
-        Assert.Contains("destination", ex.Message);
+        Assert.DoesNotContain("Aucun dossier de destination", ex.Message);
+    }
+
+    /// <summary>An explicit folder still wins over the configured default and over the fallback.</summary>
+    [Fact]
+    public void An_Explicit_Destination_Wins()
+    {
+        var service = Service(ReachesBackupFolder());
+
+        Assert.Equal(_dir, service.ResolveDestinationRoot(_dir));
     }
 
     [Fact]

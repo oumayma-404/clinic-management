@@ -21,6 +21,8 @@ import {
 } from "@/components/ui/alert-dialog"
 import { ClipboardList, Pencil, Trash2, Plus, AlertTriangle, CheckCircle2, MoreHorizontal } from "lucide-react"
 import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
+import { EmptyState } from "@/components/ui/empty-state"
+import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -97,6 +99,34 @@ export function DentalActsTable({ onEdit, onAdd, onChanged, reloadToken }: Denta
 
   const hasProvisional = acts.some((a) => a.isProvisional)
 
+  /**
+   * The two empty facts kept apart (finding #4). The list has a live search box and carried one message, so a
+   * mistyped code reported the whole catalogue as empty. The filtered branch offers no « Ajouter un acte »: the
+   * act almost certainly exists, and creating it again produces a duplicate `codeActe`.
+   */
+  const renderEmpty = (size: "default" | "compact") =>
+    isSearching ? (
+      <div className="flex flex-col items-center gap-2 py-2">
+        <p className="text-sm text-muted-foreground">Aucun acte ne correspond à votre recherche</p>
+        <Button variant="outline" size="sm" onClick={() => setSearch("")}>
+          Effacer la recherche
+        </Button>
+      </div>
+    ) : (
+      <EmptyState
+        icon={ClipboardList}
+        size={size}
+        title="Aucun acte dans le catalogue"
+        description="Ce catalogue alimente le sélecteur d'actes des devis et des notes d'honoraires : code, désignation, tarif par défaut et accord préalable éventuel."
+        action={
+          <Button onClick={onAdd} className="gap-2">
+            <Plus className="h-4 w-4" />
+            Ajouter un acte
+          </Button>
+        }
+      />
+    )
+
   if (loading) {
     return (
       <Card>
@@ -110,7 +140,9 @@ export function DentalActsTable({ onEdit, onAdd, onChanged, reloadToken }: Denta
   return (
     <>
       {hasProvisional && (
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+        /* On the theme's warning family (`--warning-wash` / `--warning-ink`), not `amber-*` literals with a
+           hand-maintained `dark:` twin. */
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-warning/40 bg-warning-wash p-3 text-sm text-warning-ink">
           <div className="flex items-center gap-2">
             <AlertTriangle className="h-4 w-4 shrink-0" />
             <span>
@@ -124,6 +156,26 @@ export function DentalActsTable({ onEdit, onAdd, onChanged, reloadToken }: Denta
           </Button>
         </div>
       )}
+
+      {/*
+        Ungated by `hasProvisional`, deliberately: confirming the catalogue does not make this list verified. Which
+        act families genuinely require an accord préalable is fixed by an **arrêté conjoint** we could not retrieve —
+        the convention (art. 24) settles the procedure, not the list. The seeded flags are therefore a starting
+        point, and this says so on the one screen where they can be corrected.
+
+        It says this *here* because the flag is no longer dormant: since K1 the bulletin editor renders
+        « Accord préalable requis » on the act row, so a wrong flag is now a wrong instruction shown to a
+        practitioner in front of a patient rather than an unread column in an admin table. Muted rather than a
+        second `warning-wash` block — stacked under the « à vérifier » banner, two warnings read as one noise.
+      */}
+      <div className="mb-4 rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
+        <span className="font-medium text-foreground">Accord préalable&nbsp;: à confirmer par famille d&apos;actes.</span>{" "}
+        Les actes de <strong>prothèse</strong> n&apos;en requièrent plus depuis avril&nbsp;2019 (pris en charge hors
+        plafond), et le drapeau a été retiré. La <strong>parodontologie</strong> et l&apos;<strong>ODF</strong> restent
+        signalées par défaut&nbsp;: la liste officielle est fixée par arrêté conjoint et n&apos;a pas pu être
+        vérifiée. Modifiez le drapeau acte par acte si votre caisse indique autre chose — il est propre à votre
+        cabinet.
+      </div>
 
       <Card>
         <CardHeader>
@@ -144,11 +196,14 @@ export function DentalActsTable({ onEdit, onAdd, onChanged, reloadToken }: Denta
           </div>
         </CardHeader>
         <CardContent>
-          {error && (
-            <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
-              {error}
-            </div>
-          )}
+          {/* The shared primitive on the theme's own destructive family, plus a retry: this file carried a
+              hand-written `border-red-200 bg-red-50 … dark:` copy, so it maintained dark mode itself and the
+              only escape from a failed read was a browser reload. */}
+          <FormErrorBanner
+            className="mb-4"
+            message={error}
+            action={{ label: "Réessayer", onClick: onChanged }}
+          />
           <div className="mb-4">
             <Label htmlFor="dental-acts-search" className="sr-only">
               Rechercher un acte (code, désignation)…
@@ -160,7 +215,9 @@ export function DentalActsTable({ onEdit, onAdd, onChanged, reloadToken }: Denta
               placeholder="Rechercher un acte (code, désignation)…"
             />
           </div>
-          <div className={`overflow-x-auto${refreshing ? " opacity-60 transition-opacity" : ""}`}>
+          {/* No `overflow-x-auto` here: `ui/table.tsx` already wraps its own table in one, so this was a second
+              horizontal scroller nested around the first — the wrapper now carries only the refetch dimming. */}
+          <div className={refreshing ? "opacity-60 transition-opacity" : undefined}>
             {/* Same shape as the CNAM nomenclature, plus a tarif. `coefficient` and `defaultFee` are passed
                 raw — the primitive drops a nullish value, so the « — » placeholders the table needs to keep
                 its columns aligned simply do not appear on a card (AC-17). */}
@@ -181,7 +238,7 @@ export function DentalActsTable({ onEdit, onAdd, onChanged, reloadToken }: Denta
                     </Badge>
                   )}
                   {a.isProvisional && (
-                    <Badge variant="outline" className="border-amber-400 text-amber-700 dark:text-amber-300">
+                    <Badge variant="outline" className="border-warning/50 text-warning-ink">
                       À vérifier
                     </Badge>
                   )}
@@ -213,7 +270,7 @@ export function DentalActsTable({ onEdit, onAdd, onChanged, reloadToken }: Denta
                   </DropdownMenuContent>
                 </DropdownMenu>
               )}
-              empty="Aucun acte dans le catalogue"
+              empty={renderEmpty("compact")}
             />
             <Table containerClassName={TABLE_ONLY}>
               <TableHeader>
@@ -231,9 +288,7 @@ export function DentalActsTable({ onEdit, onAdd, onChanged, reloadToken }: Denta
               <TableBody>
                 {acts.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="h-24 text-center">
-                      <p className="text-muted-foreground">Aucun acte dans le catalogue</p>
-                    </TableCell>
+                    <TableCell colSpan={8}>{renderEmpty("default")}</TableCell>
                   </TableRow>
                 ) : (
                   acts.map((act) => (
@@ -257,7 +312,7 @@ export function DentalActsTable({ onEdit, onAdd, onChanged, reloadToken }: Denta
                             </Badge>
                           )}
                           {act.isProvisional && (
-                            <Badge variant="outline" className="border-amber-400 text-amber-700 dark:text-amber-300">
+                            <Badge variant="outline" className="border-warning/50 text-warning-ink">
                               À vérifier
                             </Badge>
                           )}

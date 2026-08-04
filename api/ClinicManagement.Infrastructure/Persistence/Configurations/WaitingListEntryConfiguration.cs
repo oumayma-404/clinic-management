@@ -35,7 +35,24 @@ public class WaitingListEntryConfiguration : IEntityTypeConfiguration<WaitingLis
         builder.HasIndex(w => new { w.ClinicId, w.Status });
         builder.HasIndex(w => w.PatientId);
 
-        builder.Property(w => w.PreferredDoctorId);
+        // L9 — a REAL FK, where this was a bare `Property` for the whole life of the product. The spec names it
+        // as the illustration of what a bare Guid buys you: nothing prevented an id from another clinic, nothing
+        // prevented one pointing at a deleted practitioner, and « le praticien souhaité » could therefore be a
+        // value no screen could resolve to a name.
+        //
+        // ⚠️ There is no navigation property on the entity, so the FK is declared by shadow-type overload
+        // (`HasOne<Doctor>()`). Adding one would put an EF-only reference on an aggregate that has no clinical need
+        // to load a practitioner — the read resolves names in one batch, exactly as it did before.
+        //
+        // `SetNull` for the same reason as its three siblings: removing a dentist must not delete somebody's place
+        // in the queue, it must merely forget their preference.
+        builder.HasOne<Doctor>()
+            .WithMany()
+            .HasForeignKey(w => w.PreferredDoctorId)
+            .IsRequired(false)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        builder.HasIndex(w => w.PreferredDoctorId);
 
         builder.Property(w => w.Priority)
             .IsRequired()

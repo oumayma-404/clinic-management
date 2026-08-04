@@ -6,6 +6,7 @@ using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Domain.Entities;
+using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Domain.Services;
 
@@ -47,6 +48,28 @@ public class GetCaisseLedgerQuery : IRequest<Result<CaisseLedgerDto>>
     /// the ordered union of four ledgers, so there is no single query to push it into.
     /// </summary>
     public string? SearchTerm { get; set; }
+
+    /// <summary>
+    /// Optional <c>PaymentMethod</c> name (<c>Cash</c>/<c>Cheque</c>/<c>Card</c>/<c>Transfer</c>) — « ne montre que
+    /// les chèques » (L8 slice B), the movement-level companion to the summary's per-method breakdown.
+    ///
+    /// <para>
+    /// ⚠️ Applied <b>after</b> the running balance is computed, beside the search term and for the same reason:
+    /// « Solde de la période » is a fact about where the till stood after a movement, so filtering first would
+    /// print a column that adds up to nothing.
+    /// </para>
+    /// <para>
+    /// ⚠️ An unrecognised value is <b>ignored</b>, not refused — the same tolerance as the lab-order stage filter,
+    /// so a stale deep link shows the full statement rather than a French error. Note that a movement with no
+    /// method at all (a legacy avoir) legitimately leaves the list under any filter: the filter asks « which
+    /// movements were taken this way », and « none recorded » is not an answer to it.
+    /// </para>
+    /// <para>
+    /// Defaults to null, which is also what keeps <c>CaisseLedgerTests</c>' invariant
+    /// (<c>Σ movements == cashIn − refunds − cashOut</c>) meaningful — that test reads the statement unfiltered.
+    /// </para>
+    /// </summary>
+    public string? Method { get; set; }
 }
 
 public class GetCaisseLedgerQueryHandler : IRequestHandler<GetCaisseLedgerQuery, Result<CaisseLedgerDto>>
@@ -152,11 +175,28 @@ public class GetCaisseLedgerQueryHandler : IRequestHandler<GetCaisseLedgerQuery,
             // of four ledgers, so no single query knows a row's position in it. Unlike the other lists this one is
             // already bounded by its date window — the paging is here so a month-long extrait does not render
             // thousands of rows at once, not because the read was unbounded.
-            var visible = string.IsNullOrWhiteSpace(request.SearchTerm)
-                ? ordered
-                : ordered
-                    .Where(m => SearchTerm.Matches(request.SearchTerm, m.Label, m.PatientName, m.Reference, m.Method))
-                    .ToList();
+            IEnumerable<CaisseMovementDto> filtered = ordered;
+
+            // The method filter (L8 slice B). Compared on the enum's own name, which is exactly what `Method`
+            // carries on the DTO — so the value the summary's breakdown hands back is the value this accepts,
+            // with no third spelling of « Cheque » anywhere.
+            if (Enum.TryParse<PaymentMethod>(request.Method, ignoreCase: true, out var method))
+            {
+                var methodName = method.ToString();
+                filtered = filtered.Where(m => m.Method == methodName);
+            }
+
+            if (!string.IsNullOrWhiteSpace(request.SearchTerm))
+            {
+                // The cheque's number and bank are searchable (L8): « où est passé le chèque 4512 ? » is a
+                // question staff ask out loud, and the statement is the one screen that lists every movement.
+                filtered = filtered.Where(m => SearchTerm.Matches(
+                    request.SearchTerm, m.Label, m.PatientName, m.Reference, m.Method,
+                    m.ChequeNumber, m.ChequeBankName));
+            }
+
+            // `ordered` is itself a List, so an unfiltered read costs no copy — the cast succeeds.
+            var visible = filtered as IReadOnlyList<CaisseMovementDto> ?? filtered.ToList();
 
             var page = PagedResult<CaisseMovementDto>.FromSource(
                 visible, PageRequest.From(request.Page, request.PageSize));
@@ -200,7 +240,10 @@ public class GetCaisseLedgerQueryHandler : IRequestHandler<GetCaisseLedgerQuery,
         TargetId = row.InvoiceId,
         IsVoided = row.IsVoided,
         VoidReason = row.VoidReason,
-        VoidedByName = row.VoidedByName
+        VoidedByName = row.VoidedByName,
+        ChequeNumber = row.ChequeNumber,
+        ChequeBankName = row.ChequeBankName,
+        ChequeDueDate = row.ChequeDueDate
     };
 
     private static CaisseMovementDto FromInstallmentPayment(CaisseInstallmentPaymentRow row, string? patientName) => new()
@@ -220,7 +263,10 @@ public class GetCaisseLedgerQueryHandler : IRequestHandler<GetCaisseLedgerQuery,
         TargetId = row.TreatmentPlanId,
         IsVoided = row.IsVoided,
         VoidReason = row.VoidReason,
-        VoidedByName = row.VoidedByName
+        VoidedByName = row.VoidedByName,
+        ChequeNumber = row.ChequeNumber,
+        ChequeBankName = row.ChequeBankName,
+        ChequeDueDate = row.ChequeDueDate
     };
 
     private static CaisseMovementDto FromRefund(CreditNote note) => new()

@@ -35,6 +35,42 @@ public class DentalRecord : Entity<Guid>
     /// </para>
     /// </summary>
     public Guid? AppointmentId { get; private set; }
+    /// <summary>
+    /// Which practitioner earned this — nullable, and nullable means nullable (L9 attribution).
+    ///
+    /// <para><b>What was missing.</b> <c>DoctorId</c> existed on exactly three entities in the whole model
+    /// (<c>Appointment</c> — the only real FK to <c>Doctors</c> — <c>RecurringAppointment</c>, and
+    /// <c>WaitingListEntry.PreferredDoctorId</c>, which was not even an FK), and on nothing that carries money or
+    /// clinical work. So « combien a produit ce praticien ce mois ? » had no answer, and
+    /// <c>Features/Dashboard/</c> contained <b>zero</b> occurrences of <c>Doctor</c> across all four readers.</para>
+    ///
+    /// <para>⚠️ <b>Historical rows legitimately have none</b> — the column did not exist when they were written,
+    /// and the migration only backfills where a linked appointment names a practitioner. Every read must therefore
+    /// tolerate null rather than treating it as « the clinic », which would silently attribute one dentist's work
+    /// to whoever the filter happens to select.</para>
+    ///
+    /// <para>This is <b>attribution, not authorization</b>: it answers who earned a figure. Per-practitioner data
+    /// scoping (« this dentist sees only their own patients ») is a separate decision with its own blast radius and
+    /// is deliberately out of scope.</para>
+    /// </summary>
+    public Guid? DoctorId { get; private set; }
+
+    /// <summary>The practitioner navigation, for the read-side name resolution. Null when unattributed.</summary>
+    public Doctor? Doctor { get; private set; }
+
+    /// <summary>
+    /// Attribute (or un-attribute) this record to a practitioner. Deliberately its own mutator rather than a ctor
+    /// parameter on every construction path: the answer is often only known *after* the aggregate exists (it comes
+    /// from the appointment the record was written against), and a required ctor argument would have forced every
+    /// caller to guess.
+    /// </summary>
+    public void SetDoctor(Guid? doctorId)
+    {
+        DoctorId = doctorId == Guid.Empty ? null : doctorId;
+        // This entity has no `Touch()` helper — its two other mutators assign `UpdatedAt` inline.
+        UpdatedAt = DateTime.UtcNow;
+    }
+
 
     /// <summary>Derived summary of the acts' procedure names (recomputed in <see cref="SetActs"/>).</summary>
     public string ProcedureType { get; private set; } = string.Empty;

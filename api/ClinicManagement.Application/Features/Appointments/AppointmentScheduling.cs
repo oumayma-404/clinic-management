@@ -50,10 +50,53 @@ public static class AppointmentScheduling
     /// widen the back-off to a bound no real appointment exceeds and keep the exact test in memory.
     /// </para>
     /// </summary>
-    private static readonly TimeSpan MaxCredibleAppointmentLength = TimeSpan.FromDays(7);
+    /// <remarks>
+    /// Public because the recurring-series command loads its own window once for the whole series and must back it
+    /// off by the same amount, or a long appointment starting before the series' first occurrence would be invisible
+    /// to the very check L2b added. One constant, two readers — a second literal there is how the widened window
+    /// would silently apply to one path only.
+    /// </remarks>
+    public static readonly TimeSpan MaxCredibleAppointmentLength = TimeSpan.FromDays(7);
 
     /// <summary>
-    /// True when the candidate window collides with a slot-occupying appointment for the same practitioner.
+    /// True when a booking with no practitioner competes with <paramref name="candidateDoctorId"/>'s window.
+    ///
+    /// <para>
+    /// <b>The rule, stated once (L2b).</b> An appointment with no <c>DoctorId</c> is not "nobody's" — it is
+    /// <b>everybody's</b>: it is how this product expresses a « créneau occupé » block, a lunch break, a machine
+    /// being serviced. So:
+    /// </para>
+    /// <list type="bullet">
+    ///   <item>a candidate with <b>no</b> practitioner collides with <b>anything</b> in the clinic — that is what
+    ///   makes blocking a period actually block it;</item>
+    ///   <item>a candidate <b>with</b> a practitioner collides with that practitioner's own bookings <b>and</b>
+    ///   with the clinic-wide unassigned ones.</item>
+    /// </list>
+    ///
+    /// <para>
+    /// ⚠️ This deliberately **diverges from the database's exclusion constraint**, which is predicated on
+    /// <c>DoctorId IS NOT NULL</c> and therefore cannot see either case. The divergence is one-directional and
+    /// safe: this guard refuses a superset of what the constraint refuses, never the other way round, so the two
+    /// can never disagree about a booking that reaches the database. It stays advisory — a refusal carries
+    /// <see cref="SlotTakenCode"/> and the caller may proceed with <c>AllowOverlap</c> — because a second chair
+    /// is real and a hard prohibition here would describe a day the practice is not having.
+    /// </para>
+    ///
+    /// <para>
+    /// What this replaced: <c>if (!doctorId.HasValue) return null;</c>, justified as "an unassigned busy slot
+    /// belongs to nobody". Two blockers rode on it. A **recurring series** never names a practitioner (the create
+    /// form had no such field), so its two collision branches were gated on a value that was always null and the
+    /// outcome panel's conflict list was unreachable code — a twelve-week series booked straight over twelve
+    /// existing patients. And a « créneau occupé » block promised « Aucun patient ne pourra être assigné à cette
+    /// période » while preventing nothing at all.
+    /// </para>
+    /// </summary>
+    public static bool CompetesFor(Guid? candidateDoctorId, Guid? existingDoctorId) =>
+        !candidateDoctorId.HasValue || !existingDoctorId.HasValue || existingDoctorId == candidateDoctorId;
+
+    /// <summary>
+    /// True when the candidate window collides with a slot-occupying appointment that competes for it — see
+    /// <see cref="CompetesFor"/> for what "competes" means when either side has no practitioner.
     /// </summary>
     /// <param name="excludeAppointmentId">The appointment being edited, so it cannot collide with itself.</param>
     public static async Task<Appointment?> FindCollisionAsync(
@@ -65,23 +108,21 @@ public static class AppointmentScheduling
         Guid? excludeAppointmentId,
         CancellationToken cancellationToken)
     {
-        // No practitioner means no double-booking to prevent: an unassigned "busy slot" belongs to nobody. This
-        // matches the exclusion constraint's stated NULL rule (AC-P1.17).
-        if (!doctorId.HasValue)
-        {
-            return null;
-        }
-
         var start = NormalizeUtc(candidateStartUtc);
         var windowStart = start - MaxCredibleAppointmentLength;
         var windowEnd = start + duration;
 
+        // Fetched clinic-wide and narrowed by CompetesFor in memory, rather than pushing `doctorId` into the
+        // query: even when a practitioner IS named we must still see the clinic's unassigned blocks, and the
+        // repository can only filter on equality. The window is the narrow one either way, so this reads a
+        // handful of rows, not a schedule.
         var candidates = await appointments.GetByClinicIdAsync(
-            clinicId, windowStart, windowEnd, doctorId, cancellationToken);
+            clinicId, windowStart, windowEnd, doctorId: null, cancellationToken);
 
         return candidates.FirstOrDefault(existing =>
             existing.Id != excludeAppointmentId
             && OccupiesSlot(existing.Status)
+            && CompetesFor(doctorId, existing.DoctorId)
             && Overlaps(existing.AppointmentDateTime, existing.Duration, start, duration));
     }
 
@@ -100,9 +141,20 @@ public static class AppointmentScheduling
     /// </summary>
     public const string SlotTakenCode = "slot_taken";
 
-    /// <summary>The French refusal for a collision (AC-P1.14).</summary>
+    /// <summary>
+    /// The French refusal for a collision (AC-P1.14).
+    ///
+    /// <para>
+    /// Two wordings, chosen from the <b>colliding</b> row rather than from the candidate: « pour ce praticien » is
+    /// what makes the refusal actionable when a named dentist is already booked, and it would be simply false about
+    /// an unassigned « créneau occupé » block — which, now that L2b lets those collide at all, is a case this
+    /// message reaches. No new parameter, so every existing call site keeps working.
+    /// </para>
+    /// </summary>
     public static string SlotTakenMessage(Appointment collision) =>
-        $"Ce créneau est déjà réservé pour ce praticien "
+        (collision.DoctorId.HasValue
+            ? "Ce créneau est déjà réservé pour ce praticien "
+            : "Ce créneau est déjà occupé au cabinet ")
         + $"({ClinicClock.ToClinicLocal(collision.AppointmentDateTime):dd/MM HH\\:mm}"
         + $"–{ClinicClock.ToClinicLocal(collision.AppointmentDateTime + collision.Duration):HH\\:mm}).";
 

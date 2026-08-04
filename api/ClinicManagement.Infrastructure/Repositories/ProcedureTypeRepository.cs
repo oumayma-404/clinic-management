@@ -3,6 +3,7 @@ using ClinicManagement.Application.Common;
 using ClinicManagement.Domain.Common;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
+using ClinicManagement.Domain.Services;
 using ClinicManagement.Infrastructure.Persistence;
 
 namespace ClinicManagement.Infrastructure.Repositories;
@@ -44,6 +45,7 @@ public class ProcedureTypeRepository : IProcedureTypeRepository
         Guid clinicId,
         bool includeInactive = false,
         string? searchTerm = null,
+        string? category = null,
         PageRequest? paging = null,
         CancellationToken cancellationToken = default)
     {
@@ -59,18 +61,47 @@ public class ProcedureTypeRepository : IProcedureTypeRepository
             query = query.Where(pt => pt.IsActive);
         }
 
+        // Compared on the canonical spelling, so « endodontie » from a stale deep link still selects the acts
+        // stored as « Endodontie » — the same fold the write path applies.
+        var normalizedCategory = ProcedureTypeCategories.Normalize(category);
+        if (normalizedCategory is not null)
+        {
+            query = query.Where(pt => pt.Category == normalizedCategory);
+        }
+
         var pattern = SearchTerm.ToLikePattern(searchTerm);
         if (pattern is not null)
         {
             query = query.Where(pt =>
                 EF.Functions.ILike(SqlSearch.Unaccent(pt.Name)!, pattern, SqlSearch.EscapeString) ||
+                // Searching « endo » must find the endodontic acts even though none of them is named « endo » —
+                // the discipline is how staff refer to a group of acts out loud.
+                EF.Functions.ILike(SqlSearch.Unaccent(pt.Category)!, pattern, SqlSearch.EscapeString) ||
                 EF.Functions.ILike(SqlSearch.Unaccent(pt.Description)!, pattern, SqlSearch.EscapeString));
         }
 
         return await query
-            .OrderBy(pt => pt.Name)
+            // `Category == null` first, so unfiled acts land at the END of the list rather than at the top of it.
+            // Written as a predicate rather than relying on PostgreSQL's NULLS-LAST default for ASC, because the
+            // placement of the unfiled rows is a decision this read is making, not a property of the provider.
+            .OrderBy(pt => pt.Category == null)
+            .ThenBy(pt => pt.Category)
+            .ThenBy(pt => pt.Name)
+            // Unique column last: OFFSET over a non-unique sort can show one row on two pages and skip another.
             .ThenBy(pt => pt.Id)
             .ToPagedResultAsync(paging, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<string>> GetCategoriesAsync(
+        Guid clinicId,
+        CancellationToken cancellationToken = default)
+    {
+        return await _context.ProcedureTypes
+            .Where(pt => pt.ClinicId == clinicId && pt.Category != null)
+            .Select(pt => pt.Category!)
+            .Distinct()
+            .OrderBy(category => category)
+            .ToListAsync(cancellationToken);
     }
 
 

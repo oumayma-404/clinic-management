@@ -100,7 +100,9 @@ export function PatientUndocumentedVisits({
         onClick={() => setCollapsed((v) => !v)}
         aria-expanded={!collapsed}
         aria-controls={panelId}
-        className="flex min-h-9 w-full items-center gap-2 rounded-lg px-3 pt-2 pb-1 text-left transition-colors duration-150 ease-out hover:bg-primary/10 active:bg-primary/15 motion-reduce:transition-none"
+        // `touch-target` raises the collapse trigger to the 44px floor on a finger without repainting the row
+        // (AC-10) — `min-h-9` is 36px, and this header is the only control that reveals the section again.
+        className="touch-target flex min-h-9 w-full items-center gap-2 rounded-lg px-3 pt-2 pb-1 text-left transition-colors duration-150 ease-out hover:bg-primary/10 active:bg-primary/15 motion-reduce:transition-none"
       >
         <ChevronRight
           aria-hidden="true"
@@ -163,14 +165,19 @@ export function PatientUndocumentedVisits({
           {/* Only when there is genuinely more than fits — otherwise the control would promise something it cannot
               deliver. A sibling of the scroll box, never inside it, so revealing it cannot resize what it describes. */}
           {hasMoreThanFits ? (
-            <button
+            // A bare underlined `<button>` was a ~16px-tall target. `variant="link"` keeps exactly the look
+            // (primary ink, underline, no press-scale) and inherits the 44px `touch-target` floor from
+            // `buttonVariants`; the negative margins keep the row's original spacing.
+            <Button
               type="button"
+              variant="link"
+              size="sm"
               onClick={() => setShowAll((v) => !v)}
               aria-expanded={showAll}
-              className="mx-3 mb-2 mt-1 rounded text-xs font-semibold text-primary underline underline-offset-2 hover:no-underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+              className="mb-2 mt-1 h-auto py-1 text-xs font-semibold"
             >
               {showAll ? "Réduire la liste" : `Tout afficher (${pending.length})`}
-            </button>
+            </Button>
           ) : (
             <div className="pb-2" />
           )}

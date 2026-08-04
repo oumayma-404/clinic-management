@@ -18,6 +18,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { ConnectivityIndicator } from "@/components/connectivity-indicator"
+import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { NotificationPanel } from "@/components/notification-panel"
 import { PostVisitReviewPopup } from "@/components/post-visit-review-popup"
 import { useNotifications } from "@/lib/hooks/use-notifications"
@@ -53,6 +54,10 @@ export function DashboardHeader() {
   const [searchResults, setSearchResults] = useState<PatientDto[]>([])
   const [searchOpen, setSearchOpen] = useState(false)
   const [searching, setSearching] = useState(false)
+  /** The last lookup **failed** — kept apart from "returned nothing", which the dropdown must not conflate. */
+  const [searchFailed, setSearchFailed] = useState(false)
+  /** Bumped by « Réessayer » — the term is unchanged, so only a token can re-trigger the debounced effect. */
+  const [searchRetry, setSearchRetry] = useState(0)
   const searchBoxRef = useRef<HTMLDivElement>(null)
   /**
    * Which result the keyboard is on; -1 = none.
@@ -68,6 +73,7 @@ export function DashboardHeader() {
     const term = searchQuery.trim()
     if (term.length < 2) {
       setSearchResults([])
+      setSearchFailed(false)
       setSearching(false)
       return
     }
@@ -77,6 +83,7 @@ export function DashboardHeader() {
       try {
         const results = await patientsApi.list({ searchTerm: term, limit: 8 })
         if (active) {
+          setSearchFailed(false)
           setSearchResults(results)
           setSearchOpen(true)
           // Preselect the top match: after typing a name, Enter should open the obvious result without a
@@ -84,7 +91,19 @@ export function DashboardHeader() {
           setActiveIndex(results.length > 0 ? 0 : -1)
         }
       } catch {
-        if (active) setSearchResults([])
+        /*
+         * ⚠️ Recorded, not swallowed into `[]`.
+         *
+         * The old `catch { setSearchResults([]) }` rendered « Aucun patient trouvé. » for a network failure — about
+         * a twelve-year patient, on the fastest route to a file in the whole product. « This patient does not exist »
+         * and « we could not ask » are different answers and only one of them is ever true here.
+         */
+        if (active) {
+          setSearchFailed(true)
+          setSearchResults([])
+          setSearchOpen(true)
+          setActiveIndex(-1)
+        }
       } finally {
         if (active) setSearching(false)
       }
@@ -93,7 +112,7 @@ export function DashboardHeader() {
       active = false
       clearTimeout(handle)
     }
-  }, [searchQuery])
+  }, [searchQuery, searchRetry])
 
   // Close the results dropdown on an outside click.
   useEffect(() => {
@@ -186,6 +205,10 @@ export function DashboardHeader() {
        * subject — pointing at a deleted route, or at an unfiltered patient list, would be worse.
        */
       router.push("/rappels?status=failed")
+    } else if (notification.targetKind === "BackupSettings") {
+      // L4d — the staleness alert carries no id: it is about the clinic, and everything it asks for (the last
+      // successful backup, the schedule, « Sauvegarder maintenant », the restore command) is on one screen.
+      router.push("/settings")
     }
   }
 
@@ -248,7 +271,19 @@ export function DashboardHeader() {
             aria-controls="patient-search-results"
             aria-autocomplete="list"
             aria-activedescendant={activeIndex >= 0 ? `patient-search-option-${activeIndex}` : undefined}
-            className="h-10 w-full rounded-lg border border-input bg-background pl-10 pr-9 text-sm outline-none placeholder:text-muted-foreground focus:border-ring focus:ring-1 focus:ring-ring"
+            // A combobox announced with no name is unusable by a screen reader, and the placeholder — its only
+            // label — disappears on the first keystroke.
+            aria-label="Rechercher un patient"
+            /*
+             * `text-base md:text-sm`, not a bare `text-sm`.
+             *
+             * This is a raw `<input>` rather than `ui/input.tsx`, so it never picked up that primitive's iOS
+             * focus-zoom guard: Safari magnifies the page whenever a focused field is under 16px and does not
+             * zoom back on blur. This field is in the header of **every** page, so tapping it left the user on
+             * a zoomed, sideways-scrolling app with the drawer trigger off-screen — the single widest-reaching
+             * instance of that bug in the product.
+             */
+            className="h-10 w-full rounded-lg border border-input bg-background pl-10 pr-9 text-base outline-none placeholder:text-muted-foreground focus:border-ring focus:ring-1 focus:ring-ring md:text-sm"
           />
           {searching && (
             <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
@@ -264,6 +299,15 @@ export function DashboardHeader() {
             >
               {searching && searchResults.length === 0 ? (
                 <p className="px-3 py-2 text-sm text-muted-foreground">Recherche…</p>
+              ) : searchFailed ? (
+                /* Failed ≠ empty — a dead search with no way to retry sends the user to look up a paper file.
+                   `border-0` because the dropdown already has its own border and the two would double up. */
+                <LoadFailureNotice
+                  message="La recherche n'a pas abouti."
+                  detail="Ce patient existe peut-être."
+                  onRetry={() => setSearchRetry((n) => n + 1)}
+                  className="border-0 bg-transparent"
+                />
               ) : searchResults.length === 0 ? (
                 <p className="px-3 py-2 text-sm text-muted-foreground">Aucun patient trouvé.</p>
               ) : (

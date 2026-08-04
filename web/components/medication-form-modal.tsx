@@ -13,6 +13,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { medicationsApi } from "@/lib/api/medications"
 import type { MedicationDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
@@ -88,7 +89,10 @@ export function MedicationFormModal({ open, onOpenChange, editingMedication, onS
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90dvh] overflow-y-auto md:max-w-lg">
+      {/* No `max-h-[90dvh] overflow-y-auto` here: `ui/dialog.tsx`'s base already declares both (and the `md:`
+          counterparts). Repeating them unprefixed meant this call site would silently override the primitive
+          the day it changes. */}
+      <DialogContent className="md:max-w-lg">
         <DialogHeader>
           <DialogTitle>{editingMedication ? "Modifier le médicament" : "Ajouter un médicament"}</DialogTitle>
           <DialogDescription>
@@ -97,11 +101,9 @@ export function MedicationFormModal({ open, onOpenChange, editingMedication, onS
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {error && (
-            <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
-              {error}
-            </div>
-          )}
+          {/* The shared refusal banner, on `--destructive-wash` / `--destructive`. It replaces a hand-written
+              `border-red-200 bg-red-50 … dark:` copy — one of ~18 that each maintained dark mode themselves. */}
+          <FormErrorBanner message={error} />
 
           <div className="space-y-1.5">
             <Label htmlFor="brandName" className="text-sm">

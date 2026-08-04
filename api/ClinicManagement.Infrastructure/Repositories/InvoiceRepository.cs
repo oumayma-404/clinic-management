@@ -33,6 +33,7 @@ public class InvoiceRepository : IInvoiceRepository
         InvoiceStatus? status = null,
         string? searchTerm = null,
         PageRequest? paging = null,
+        Guid? doctorId = null,
         CancellationToken cancellationToken = default)
     {
         var query = _context.Invoices
@@ -43,6 +44,14 @@ public class InvoiceRepository : IInvoiceRepository
         if (patientId.HasValue)
         {
             query = query.Where(i => i.PatientId == patientId.Value);
+        }
+
+        // L9 — the practitioner filter, in SQL like every other filter on this read. In the handler it would mean
+        // « the ones attributed to her among these 25 », which hides her invoices on every other page — the exact
+        // defect `list-pagination` moved the flag and category filters into the repository to remove.
+        if (doctorId.HasValue)
+        {
+            query = query.Where(i => i.DoctorId == doctorId.Value);
         }
 
         if (status.HasValue)
@@ -107,21 +116,27 @@ public class InvoiceRepository : IInvoiceRepository
         return max;
     }
 
-    public async Task<decimal> GetCollectedBetweenAsync(Guid clinicId, DateTime from, DateTime to, CancellationToken cancellationToken = default)
+    public async Task<decimal> GetCollectedBetweenAsync(
+        Guid clinicId, DateTime from, DateTime to, Guid? doctorId = null, CancellationToken cancellationToken = default)
     {
         // Voided payments were never really received, so they leave the cash reads entirely — and they leave
         // them on the day the money was recorded, not the day the void happened. A void is a correction: the
         // original day self-corrects to what the clinic actually took. Without this filter the caisse, the
         // dashboard and the revenue KPI would over-report by the voided amount forever.
+        // L9 — the practitioner narrowing, and it is a filter on the INVOICE, not on the payment: a payment has no
+        // practitioner of its own (whoever took the cash at the desk did not earn the work), so attribution lives on
+        // the document the money was collected against.
         return await _context.Invoices
-            .Where(i => i.ClinicId == clinicId && i.Status != InvoiceStatus.Cancelled)
+            .Where(i => i.ClinicId == clinicId
+                        && i.Status != InvoiceStatus.Cancelled
+                        && (doctorId == null || i.DoctorId == doctorId))
             .SelectMany(i => i.Payments)
             .Where(p => !p.IsVoided && p.PaidOn >= from && p.PaidOn <= to)
             .SumAsync(p => (decimal?)p.Amount, cancellationToken) ?? 0m;
     }
 
     public async Task<decimal> GetInvoicedBetweenAsync(
-        Guid clinicId, DateTime from, DateTime toInclusive, CancellationToken cancellationToken = default)
+        Guid clinicId, DateTime from, DateTime toInclusive, Guid? doctorId = null, CancellationToken cancellationToken = default)
     {
         // Same rule as GetInvoiceRevenueQuery's « Total facturé »: only numbered (issued) invoices count, and a
         // cancelled one is void. Dated by IssueDate — a draft has none, which is why the null check is not
@@ -132,27 +147,38 @@ public class InvoiceRepository : IInvoiceRepository
                         && i.Status != InvoiceStatus.Cancelled
                         && i.IssueDate != null
                         && i.IssueDate >= from
-                        && i.IssueDate <= toInclusive)
+                        && i.IssueDate <= toInclusive
+                        && (doctorId == null || i.DoctorId == doctorId))
             .SumAsync(i => (decimal?)i.TotalTtc, cancellationToken) ?? 0m;
     }
 
-    public async Task<IReadOnlyList<(Guid PatientId, decimal Outstanding)>> GetOutstandingByPatientAsync(
-        Guid clinicId, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<(Guid PatientId, decimal Outstanding, DateTime? OldestUnpaidIssueDate)>>
+        GetOutstandingByPatientAsync(Guid clinicId, CancellationToken cancellationToken = default)
     {
         // Only issued invoices carry a real balance: drafts aren't billed yet and cancelled ones are void.
         // TTC − collected can't be overpaid (domain guard), so the per-patient sum is always >= 0.
+        //
+        // The MIN issue date is aggregated in the same projection as the sum (J7) rather than in a second read:
+        // both describe the same set of rows, and two queries could disagree about which invoices are unpaid if
+        // a payment landed between them. It is the *oldest* because « Retard » is the age of the debt, so the
+        // note that has been waiting longest is the one that dates it.
         var rows = await _context.Invoices
             .Where(i => i.ClinicId == clinicId
                         && i.Status != InvoiceStatus.Draft
                         && i.Status != InvoiceStatus.Cancelled
                         && i.TotalTtc > i.AmountCollected)
             .GroupBy(i => i.PatientId)
-            .Select(g => new { PatientId = g.Key, Outstanding = g.Sum(i => i.TotalTtc - i.AmountCollected) })
+            .Select(g => new
+            {
+                PatientId = g.Key,
+                Outstanding = g.Sum(i => i.TotalTtc - i.AmountCollected),
+                OldestUnpaidIssueDate = g.Min(i => i.IssueDate),
+            })
             .ToListAsync(cancellationToken);
 
         return rows
             .Where(r => r.Outstanding > 0m)
-            .Select(r => (r.PatientId, r.Outstanding))
+            .Select(r => (r.PatientId, r.Outstanding, r.OldestUnpaidIssueDate))
             .ToList();
     }
 
@@ -242,14 +268,84 @@ public class InvoiceRepository : IInvoiceRepository
                     p.PaidOn,
                     p.IsVoided,
                     p.VoidReason,
-                    p.VoidedByName
+                    p.VoidedByName,
+                    p.ChequeNumber,
+                    p.ChequeBankName,
+                    p.ChequeDueDate
                 }))
             .ToListAsync(cancellationToken);
 
         return rows
             .Select(r => new CaissePaymentRow(
                 r.PaymentId, r.InvoiceId, r.InvoiceNumber, r.PatientId,
-                r.Amount, r.Method, r.PaidOn, r.IsVoided, r.VoidReason, r.VoidedByName))
+                r.Amount, r.Method, r.PaidOn, r.IsVoided, r.VoidReason, r.VoidedByName,
+                r.ChequeNumber, r.ChequeBankName, r.ChequeDueDate))
+            .ToList();
+    }
+
+    public async Task<IReadOnlyList<PaymentMethodTotal>> GetCollectedByMethodBetweenAsync(
+        Guid clinicId, DateTime from, DateTime toInclusive, CancellationToken cancellationToken = default)
+    {
+        // Predicate-for-predicate GetCollectedBetweenAsync with a GROUP BY bolted on — same clinic scope, same
+        // `Status != Cancelled`, the same `!IsVoided`, the same inclusive bounds. That identity is the whole
+        // point: the breakdown is rendered directly beneath the total, so `Σ breakdown == CashIn` has to be a
+        // property of the two queries and not a claim about them.
+        var totals = await _context.Invoices
+            .Where(i => i.ClinicId == clinicId && i.Status != InvoiceStatus.Cancelled)
+            .SelectMany(i => i.Payments)
+            .Where(p => !p.IsVoided && p.PaidOn >= from && p.PaidOn <= toInclusive)
+            .GroupBy(p => p.Method)
+            .Select(g => new { Method = g.Key, Amount = g.Sum(p => p.Amount) })
+            .ToListAsync(cancellationToken);
+
+        return totals.Select(t => new PaymentMethodTotal(t.Method, t.Amount)).ToList();
+    }
+
+    public async Task<IReadOnlyList<CaissePaymentRow>> GetChequePaymentsAsync(
+        Guid clinicId,
+        DateTime? dueFrom = null,
+        DateTime? dueTo = null,
+        CancellationToken cancellationToken = default)
+    {
+        // Same projection as GetPaymentsBetweenAsync — one shape for « a payment row with a patient and a
+        // document number » — but a different question, so a different predicate: not a period of *receipt* but
+        // the set of cheques that still have to reach a bank.
+        //
+        // A voided cheque is excluded here (unlike the statement, which shows it struck through): the list is a
+        // to-do, and a payment that was never really received is not something to go and bank.
+        //
+        // ⚠️ A row with NO due date passes whatever the bounds are. The due date stays optional even for a
+        // cheque — refusing money genuinely received to enforce a field is the wrong trade — so the undated
+        // cheque is exactly the one nobody will ever chase, and a bounded window that dropped it would hide the
+        // case the screen exists for. The caller counts them as their own group.
+        var rows = await _context.Invoices
+            .Where(i => i.ClinicId == clinicId && i.Status != InvoiceStatus.Cancelled)
+            .SelectMany(i => i.Payments
+                .Where(p => !p.IsVoided
+                            && p.Method == PaymentMethod.Cheque
+                            && (p.ChequeDueDate == null
+                                || ((dueFrom == null || p.ChequeDueDate >= dueFrom)
+                                    && (dueTo == null || p.ChequeDueDate <= dueTo))))
+                .Select(p => new
+                {
+                    PaymentId = p.Id,
+                    InvoiceId = i.Id,
+                    InvoiceNumber = i.Number,
+                    i.PatientId,
+                    p.Amount,
+                    p.Method,
+                    p.PaidOn,
+                    p.ChequeNumber,
+                    p.ChequeBankName,
+                    p.ChequeDueDate
+                }))
+            .ToListAsync(cancellationToken);
+
+        return rows
+            .Select(r => new CaissePaymentRow(
+                r.PaymentId, r.InvoiceId, r.InvoiceNumber, r.PatientId,
+                r.Amount, r.Method, r.PaidOn, IsVoided: false, VoidReason: null, VoidedByName: null,
+                r.ChequeNumber, r.ChequeBankName, r.ChequeDueDate))
             .ToList();
     }
 
@@ -266,7 +362,11 @@ public class InvoiceRepository : IInvoiceRepository
         return await _context.Invoices
             .Include(i => i.Lines)
             .Include(i => i.Payments)
+            // A cancelled note is never declared (J4). `Invoice.Cancel` dequeues, so a cancelled row should
+            // already have left this set — the predicate is the belt to that braces, and it also covers the rows
+            // cancelled *before* the dequeue existed, which are still sitting in the outbox with a due date.
             .Where(i => i.EInvoiceStatus == EInvoiceStatus.Queued
+                        && i.Status != InvoiceStatus.Cancelled
                         && i.EInvoiceNextAttemptAt != null
                         && i.EInvoiceNextAttemptAt <= now)
             .OrderBy(i => i.EInvoiceNextAttemptAt)

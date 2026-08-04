@@ -15,13 +15,18 @@ public static class InvoiceMappingExtensions
     public static InvoiceDto ToDto(
         this Invoice invoice,
         string? patientName = null,
-        IReadOnlyCollection<CreditNote>? creditNotes = null) => new()
+        IReadOnlyCollection<CreditNote>? creditNotes = null,
+        // Defaulted, so the ~20 existing call sites are unchanged: an unattributed invoice and one whose caller did
+        // not resolve names both render « non attribué », which is the honest reading of both.
+        string? doctorName = null) => new()
     {
         Id = invoice.Id,
         PatientId = invoice.PatientId,
         PatientName = patientName,
         DentalRecordId = invoice.DentalRecordId,
         AppointmentId = invoice.AppointmentId,
+        DoctorId = invoice.DoctorId,
+        DoctorName = doctorName,
         TreatmentPlanId = invoice.TreatmentPlanId,
         Number = invoice.Number,
         IssueDate = invoice.IssueDate,

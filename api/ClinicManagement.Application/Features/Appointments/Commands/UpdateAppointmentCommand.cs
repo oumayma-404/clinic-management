@@ -371,7 +371,26 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                     return Result<AppointmentDto>.Failure($"Statut de rendez-vous invalide : « {request.Status} ».");
                 }
 
-                if (appointment.Status != newStatus)
+                /*
+                 * ⚠️ Compared against **oldStatus** — the status the caller was looking at — not against
+                 * `appointment.Status`, which the date block above may already have moved.
+                 *
+                 * This is the order-independence half of L2a, and it closes a blocker. Rescheduling a no-show
+                 * posted `status: "noshow"` (the hydrated value) with a new date. The date is applied first,
+                 * `Reschedule()` correctly drops the absence to `Scheduled` — and then this block compared the
+                 * posted `NoShow` against the *just-changed* `Scheduled`, found `Scheduled → NoShow` legal, and
+                 * marked the patient absent again for a visit that had only been moved. Three knock-ons rode on
+                 * it, all of which disappear with the status: the outbound reminder took the
+                 * `VoidForAppointmentAsync` branch instead of being re-enqueued for the new day, the hard
+                 * collision guard below skips `NoShow` and so **let someone else be booked on top**, and so did
+                 * the working-hours check.
+                 *
+                 * `newStatus == oldStatus` means "the caller is not asking for a transition", whatever this
+                 * handler has done to the appointment since. That is a statement about the request, so it cannot
+                 * be re-broken by reordering the blocks above — which the client-side fix (stop posting an
+                 * unchanged status) cannot promise for the other callers.
+                 */
+                if (newStatus != oldStatus && appointment.Status != newStatus)
                 {
                     // AC-P1.2 / AC-P1.3: ask the domain's declared transition set instead of the fall-through
                     // `switch` that used to live here. Every arm of that switch was a silent no-op guard, so
@@ -456,8 +475,12 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
             var scheduleChanged = appointment.AppointmentDateTime != oldDateTime
                                   || appointment.Duration != oldDuration
                                   || appointment.DoctorId != oldDoctorId;
+            // ⚠️ `&& appointment.DoctorId.HasValue` used to stand here as well — a **second copy** of the gate that
+            // lived inside `FindCollisionAsync`, so removing it from the helper alone would have left this path
+            // exempt and the two would have disagreed about the same rule. The helper is the only authority now:
+            // it decides what competes with what (`CompetesFor`), including the unassigned « créneau occupé » rows
+            // that a named practitioner must also respect.
             if (scheduleChanged
-                && appointment.DoctorId.HasValue
                 && appointment.Status != AppointmentStatus.Cancelled
                 && appointment.Status != AppointmentStatus.Completed
                 && appointment.Status != AppointmentStatus.NoShow)

@@ -198,7 +198,7 @@ public class NotificationGenerator : INotificationGenerator
                     return false;
                 }
 
-                existing.RestateStockExpiry(title, message);
+                existing.Restate(title, message);
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
                 return true;
             }
@@ -226,6 +226,62 @@ public class NotificationGenerator : INotificationGenerator
             if (existing == null)
             {
                 return false; // nothing flagged — the overwhelmingly common case on a daily scan
+            }
+
+            await _notifications.RemoveAsync(existing, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return true; // the row left the feed → clients refetch
+        }, cancellationToken);
+    }
+
+    public async Task EnsureBackupStaleAsync(
+        Guid clinicId, DateTime? lastSuccessUtc, int staleAfterHours,
+        CancellationToken cancellationToken = default)
+    {
+        await SafelyAsync(clinicId, async () =>
+        {
+            var title = BackupStaleTitle;
+            var message = BackupStaleMessage(lastSuccessUtc, staleAfterHours);
+
+            var existing = await _notifications.GetBackupStaleAsync(clinicId, cancellationToken);
+            if (existing != null)
+            {
+                // Already flagged. Restate only when the *fact* changed — matched on the stable prefix, not the
+                // whole message, exactly as the expiry alert does: the message carries an elapsed count that
+                // ticks up every day, and comparing the whole thing would turn this ensure into a daily
+                // broadcast (the churn the pair exists to avoid).
+                if (existing.Message.StartsWith(BackupStaleKey(lastSuccessUtc), StringComparison.Ordinal))
+                {
+                    return false;
+                }
+
+                existing.Restate(title, message);
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+                return true;
+            }
+
+            var notification = new StaffNotification(
+                Guid.NewGuid(), clinicId, NotificationCategory.BackupStale,
+                title, message,
+                DateTime.UtcNow,
+                NotificationTargetKind.BackupSettings,
+                actorUserId: null, // nobody "did" a staleness → visible to all staff, like low stock and expiry
+                stockItemId: null);
+
+            await _notifications.AddAsync(notification, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return true;
+        }, cancellationToken);
+    }
+
+    public async Task ClearBackupStaleAsync(Guid clinicId, CancellationToken cancellationToken = default)
+    {
+        await SafelyAsync(clinicId, async () =>
+        {
+            var existing = await _notifications.GetBackupStaleAsync(clinicId, cancellationToken);
+            if (existing == null)
+            {
+                return false; // nothing flagged — the common case on a clinic that backs up every night
             }
 
             await _notifications.RemoveAsync(existing, cancellationToken);
@@ -381,6 +437,37 @@ public class NotificationGenerator : INotificationGenerator
     // would turn the "ensure" into a daily broadcast — the exact churn this alert is meant not to cause.
     private static string StockExpiringSoonKey(string itemName, DateTime earliestExpiryUtc) =>
         $"Péremption proche : {itemName} — un lot expire le {FormatFrDate(earliestExpiryUtc)} (";
+
+    private const string BackupStaleTitle = "Sauvegarde à vérifier";
+
+    /// <summary>
+    /// Two wordings, because « jamais sauvegardé » and « la dernière remonte à trois jours » demand different
+    /// things of the reader — and firing the alarming one on a clinic created this morning is how an alert gets
+    /// dismissed permanently on day one.
+    /// </summary>
+    private static string BackupStaleMessage(DateTime? lastSuccessUtc, int staleAfterHours)
+    {
+        if (lastSuccessUtc is not DateTime last)
+        {
+            return "Aucune sauvegarde n'a encore été effectuée. Ouvrez « Paramètres » puis « Sauvegarde » "
+                   + "pour en lancer une et vérifier le dossier de destination.";
+        }
+
+        // Whole hours, and derived here rather than passed in, so the count can never disagree with the date.
+        var hours = Math.Max(0, (int)(DateTime.UtcNow - last).TotalHours);
+        return $"{BackupStaleKey(last)} (il y a {hours} h, seuil : {staleAfterHours} h). "
+               + "Vérifiez le dossier de destination dans « Paramètres ».";
+    }
+
+    /// <summary>
+    /// The stable part of the message — everything up to the elapsed count. Two messages sharing this prefix are
+    /// about the same last-successful-backup, so the daily re-evaluation restates nothing and makes nobody
+    /// refetch.
+    /// </summary>
+    private static string BackupStaleKey(DateTime? lastSuccessUtc) =>
+        lastSuccessUtc is DateTime last
+            ? $"Dernière sauvegarde réussie le {FormatFr(last)}"
+            : "Aucune sauvegarde n'a encore été effectuée.";
 
     private const string ReminderTitle = "Rappel de rendez-vous";
 

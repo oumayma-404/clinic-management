@@ -16,6 +16,15 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
     private readonly IClinicRepository _clinicRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
+
+    /// <summary>
+    /// L3b — <b>this class is a real write path for appointments and had no reminder wiring at all.</b> It called
+    /// <c>Reschedule(...)</c> and committed straight through the repository, so a visit moved in Google kept its
+    /// reminder frozen at the old day and the patient was told the wrong date; an appointment *created* in Google
+    /// got no reminder whatsoever. Every other writer goes through the appointment handlers, which is why the
+    /// omission was invisible.
+    /// </summary>
+    private readonly IReminderScheduler _reminderScheduler;
     private readonly ILogger<GoogleCalendarSyncService> _logger;
 
     public GoogleCalendarSyncService(
@@ -25,6 +34,7 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
         IClinicRepository clinicRepository,
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
+        IReminderScheduler reminderScheduler,
         ILogger<GoogleCalendarSyncService> logger)
     {
         _googleCalendarService = googleCalendarService;
@@ -33,6 +43,7 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
         _clinicRepository = clinicRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
+        _reminderScheduler = reminderScheduler;
         _logger = logger;
     }
 
@@ -515,12 +526,14 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
         try
         {
             var updated = false;
+            var moved = false;
 
             // Update appointment time if changed
             if (appointment.AppointmentDateTime != googleEvent.StartDateTime)
             {
                 appointment.Reschedule(googleEvent.StartDateTime);
                 updated = true;
+                moved = true;
             }
 
             // Update duration if changed
@@ -547,12 +560,45 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                 await _appointmentRepository.UpdateAsync(appointment, cancellationToken);
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
                 _logger.LogInformation("Updated appointment {AppointmentId} from Google Calendar event {EventId}", appointment.Id, googleEvent.Id);
+
+                // L3b — void-and-re-enqueue the reminder, post-commit, exactly as the appointment handlers do.
+                // Only on a MOVE: a notes-only edit leaves the queued reminder correct, and re-enqueuing it would
+                // reset a tier that has already been reached.
+                if (moved)
+                {
+                    await RescheduleRemindersAsync(appointment, cancellationToken);
+                }
             }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error updating appointment {AppointmentId} from Google Calendar event", appointment.Id);
         }
+    }
+
+    /// <summary>
+    /// Re-queues the outbound reminders for an appointment whose time changed on the Google side.
+    ///
+    /// <para>Post-commit and best-effort, the same contract the appointment handlers use — <c>IReminderScheduler</c>
+    /// swallows its own failures, and a reminder must never roll back a sync that has already written the new
+    /// time. A busy slot (no patient) has nobody to remind, so it is skipped rather than passed a null id.</para>
+    /// </summary>
+    private async Task RescheduleRemindersAsync(Appointment appointment, CancellationToken cancellationToken)
+    {
+        if (appointment.PatientId is not Guid patientId)
+        {
+            return;
+        }
+
+        var patient = appointment.Patient ?? await _patientRepository.GetByIdAsync(patientId, cancellationToken);
+        if (patient == null)
+        {
+            return;
+        }
+
+        await _reminderScheduler.RescheduleForAppointmentAsync(
+            appointment.ClinicId, appointment.Id, patientId, patient.GetFullName(),
+            appointment.AppointmentDateTime, cancellationToken);
     }
 
     private async Task<bool> CreateAppointmentFromGoogleEventAsync(
@@ -744,9 +790,16 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
             await _appointmentRepository.AddAsync(appointment, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            _logger.LogInformation("Created appointment {AppointmentId} from Google Calendar event {EventId} for patient {PatientName}", 
+            _logger.LogInformation("Created appointment {AppointmentId} from Google Calendar event {EventId} for patient {PatientName}",
                 appointment.Id, googleEvent.Id, patientName);
-            
+
+            // L3b — an appointment created in Google is an appointment, and it used to enqueue no reminder at
+            // all: the dentist who types a visit into their own calendar got a silently reminder-less booking.
+            // Post-commit and best-effort, like every other reminder call in the product.
+            await _reminderScheduler.ScheduleForAppointmentAsync(
+                patient.ClinicId, appointment.Id, patient.Id, patient.GetFullName(),
+                appointmentDateTime, cancellationToken);
+
             return true;
         }
         catch (Exception ex)

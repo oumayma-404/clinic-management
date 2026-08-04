@@ -61,7 +61,42 @@ Infrastructure/ → service/repo/persistence tests: renderers, senders, e-invoic
   date and not today, and (as pure tests over `DentalRecordInvoiceLines`) the per-tooth pricing rule that used to
   live in the browser. `SessionTtc = 331m` is spelled out because a new `Clinic` enables the 1,000 DT timbre fiscal
   by default — a fixture quietly assuming 330 would have read as a pricing bug.
-- **`Infrastructure/Persistence/*SeedTests.cs`** — CNAM + medication catalog seed integrity.
+- **`Common/Csv/CsvTableTests.cs`** (`adoption-qa-l` L5) — the CSV writer, and the clearest example in the suite of a
+  test earning its place immediately: it caught that **`CsvTable` emitted no BOM**. `new UTF8Encoding(true)` only
+  changes what `GetPreamble()` returns — `GetBytes` never emits it — so every export was a BOM-less UTF-8 file that
+  Excel on Windows reads in the system codepage, turning « Béchir » into « BÃ©chir ». The file is valid UTF-8 and
+  opens correctly in everything that is *not* Excel, which is exactly why nothing else would have found it. Also
+  pins the `;` delimiter (Excel's list separator in fr-TN), the RFC 4180 quoting including **leading/trailing
+  whitespace** (a spreadsheet silently trims it, so a phone number would round-trip differently), money as three
+  decimals with a comma and **no thousands separator** (a space makes a spreadsheet treat the cell as text and
+  refuse to sum the column — the whole reason an accountant asked for the file), and that an *instant* is exported
+  in the clinic's day while a *calendar day* is not converted at all.
+- **`Infrastructure/Persistence/*SeedTests.cs`** — CNAM + medication + **DCH dental-act** catalog seed integrity.
+  `DentalActCatalogSeedTests` (`adoption-qa-k`) carries the one that matters most: **`The_Two_Catalogues_Are_Disjoint`**
+  pins *why* K1 existed — `CnamCatalogSeed`'s `CodeActe` values are 26 internal mnemonics (`DETART`, `OBT-2F`…)
+  while the real nomenclature is the 100 `DCH…` codes here, and the BS1 picker was reading the former, so every
+  bulletin was refused at the caisse on the code column. It asserts the sets do not intersect *and* that no
+  mnemonic looks like a DCH code, so "unifying" the two catalogues has to be a deliberate edit of this test rather
+  than something that quietly makes the two reads interchangeable again. It also pins K11 (no Prothèse act requires
+  an accord préalable) and that the families the research **could not verify** are deliberately left flagged —
+  inventing that list is the failure mode the spec names. `CnamCatalogSeedTests` gained the K10 convention values
+  (`Cd 30,000` / `Cds 45,000` / `D 3,000`, derived from `Domain/Services/CnamConventionTariffs` rather than retyped)
+  and `SupersededLetterValue`, the third term of the startup correction's predicate.
+- **`Features/Documents/BulletinMandatoryFieldsTests.cs`** (`adoption-qa-k` K2/K7) — the bulletin write gate. Its
+  load-bearing case is `Every_Regime_And_Lien_Value_Is_Accepted` plus the two near-miss theories: the régime and
+  lien are French strings the renderer matches with `==`, so « Convention bilaterale » without its accent printed
+  an **empty** régime box while every layer reported success. Nothing else in the suite can fail on that — it is a
+  silent no-op, not an exception.
+- **`Features/Documents/CnamClosedSetContractTests.cs`** (`adoption-qa-k` K2) — the browser's copy of those closed
+  sets. Parses `web/lib/cnam.ts` via `[CallerFilePath]` (same reason as `RealtimeResourceResolverTests`: the suite
+  is routinely built to a scratch `OutDir` outside the repo) and asserts its arrays **equal** `CnamInfo`'s, ordered,
+  plus that the digit-cell count is one number and not two. ⚠️ Its shape guard strips `//` and `/* */` comments
+  before scanning for stray literals — without that it matches the module's own prose (which quotes words like
+  "normalise") and a guard that fires on its own documentation gets deleted rather than fixed.
+- **`Api/MedicalDocumentPdfErrorTests.cs`** (`adoption-qa-k` K9) — the PDF-download failure path. The canonical
+  `{ error }` shape is `ApiControllerBaseTests`' business; this covers only *which* exception is surfaced verbatim
+  (`InvalidOperationException`, the type the three fail-fast French operator messages use) and — the case that
+  matters as much — that any other exception's message **does not leak** a path or a connection string.
 - **`Infrastructure/Services/`** e-invoicing depth: `TeifXmlGeneratorTests` (TTN TEIF XML), `XadesEInvoiceSignerTests` (XAdES signature), `QrCodeGeneratorTests`, `SandboxTtnClientTests`; reminders: `ReminderChannelSenderTests`/`ReminderScheduler`/`ReminderSettingsProvider`/`ReminderPhone`/`ReminderSchedule`; plus `CertificateProvisionerTests`, `PgDumpBackupServiceTests`, `InternetProbeTests`, `CnamBs1BulletinRendererTests`, document renderers (`Certificat`/`Liaison`/`Generic`/`PractitionerRenderSnapshot`).
 
 ## Gotchas

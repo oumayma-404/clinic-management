@@ -35,7 +35,12 @@ public sealed record CaisseInstallmentPaymentRow(
     DateTime PaidOn,
     bool IsVoided,
     string? VoidReason,
-    string? VoidedByName);
+    string? VoidedByName,
+    // Cheque identity (L8) — see the sibling on `CaissePaymentRow`. Both ledgers carry it, because an échéancier
+    // paid with a book of post-dated cheques is the archetypal case.
+    string? ChequeNumber = null,
+    string? ChequeBankName = null,
+    DateTime? ChequeDueDate = null);
 
 public interface ITreatmentPlanRepository
 {
@@ -160,6 +165,43 @@ public interface ITreatmentPlanRepository
         DateTime from,
         DateTime toInclusive,
         IReadOnlyCollection<Guid> excludedPlanIds,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The plan half of la caisse's per-method breakdown — the same money
+    /// <see cref="GetInstallmentCollectedBetweenAsync"/> sums, split by <c>PaymentMethod</c>.
+    /// <para>
+    /// ⚠️ Predicate-for-predicate identical to that SUM (committed plans only, bridged plans excluded, voided
+    /// rows dropped, same inclusive bounds), for the same reason its invoice-side twin mirrors
+    /// <c>GetCollectedByMethodBetweenAsync</c>: the breakdown is presented directly under <c>CashIn</c>, so
+    /// <c>Σ breakdown == CashIn</c> has to be a property of the queries rather than a claim about them.
+    /// </para>
+    /// </summary>
+    Task<IReadOnlyList<PaymentMethodTotal>> GetInstallmentCollectedByMethodBetweenAsync(
+        Guid clinicId,
+        DateTime from,
+        DateTime toInclusive,
+        IReadOnlyCollection<Guid> excludedPlanIds,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Every **cheque** échéance collection of the clinic's committed plans, non-voided, optionally bounded by the
+    /// cheque's own <c>ChequeDueDate</c> — the devis half of « chèques à encaisser ». First reader of
+    /// <c>IX_InstallmentPayments_ChequeDueDate</c>.
+    /// <para>
+    /// ⚠️ <paramref name="excludedPlanIds"/> is <b>required</b> here too, and it is load-bearing rather than
+    /// merely consistent: <c>IssueInvoiceCommand</c> carries a bridged plan's cheque onto the invoice payment
+    /// (<c>InstallmentPayment.ToChequeDetails</c>), so without the exclusion one physical cheque would appear
+    /// twice in the list of cheques to bank — and the two rows would be indistinguishable from two real cheques
+    /// of the same amount.
+    /// </para>
+    /// <para>Rows with no due date are always returned, whatever the bounds — see the invoice-side twin.</para>
+    /// </summary>
+    Task<IReadOnlyList<CaisseInstallmentPaymentRow>> GetInstallmentChequePaymentsAsync(
+        Guid clinicId,
+        IReadOnlyCollection<Guid> excludedPlanIds,
+        DateTime? dueFrom = null,
+        DateTime? dueTo = null,
         CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<(Guid PatientId, decimal Outstanding, DateTime? OldestOverdueDueDate)>> GetInstallmentOutstandingByPatientAsync(

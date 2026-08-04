@@ -124,21 +124,50 @@ export function KpiCard({
       aria-label={`${label} : ${value}. Voir le détail.`}
     >
       <div className="min-w-0 space-y-1">
-        {/* A 6px accent dot restores a little identity to the label row without the 40px filled tiles that were
-            most of what made the old grid feel heavy. Decoration, hence aria-hidden — the label is the name. */}
+        {/*
+          The icon, in a tinted chip.
+
+          ⚠️ Until now `icon` was destructured, forwarded to `HeroKpi`, and **rendered nowhere else** — all
+          fourteen glyphs the dashboard passes (`Wallet`, `Receipt`, `PackageMinus`, `Undo2`, `HandCoins`,
+          `CalendarCheck`, `UserPlus`, `AlertCircle`, `BadgeCheck`, `FileText`, `FlaskConical`, `Hourglass`,
+          `Users`, `Scale`) were imported, threaded through the `kpi()` helper and silently discarded. A 6 px
+          dot stood in their place, which is why sixteen figures read as sixteen identical grey label/number
+          pairs: nothing on the card was scannable except by reading it.
+
+          A chip rather than a bare glyph, because a bare icon beside grey label text is just more grey. The
+          wash gives the row an anchor the eye can land on, and it is the same idiom `/documents` already uses
+          for its template tiles — the one page in the app that looked designed.
+
+          It stays out of `compact`: the à-traiter counts are single digits whose *label* is what you scan, and
+          six chips down a dense block would be six things competing with the numbers they belong to.
+        */}
         <p
           className={cn(
             "flex items-center gap-2 font-medium text-muted-foreground",
             isCompact ? "text-xs" : "text-sm",
           )}
         >
-          <span
-            aria-hidden="true"
-            className={cn(
-              "size-1.5 shrink-0 rounded-full",
-              variant === "urgent" ? "bg-destructive" : "bg-primary/70",
-            )}
-          />
+          {isCompact ? (
+            <span
+              aria-hidden="true"
+              className={cn(
+                "size-1.5 shrink-0 rounded-full",
+                variant === "urgent" ? "bg-destructive" : "bg-primary/70",
+              )}
+            />
+          ) : (
+            <span
+              aria-hidden="true"
+              className={cn(
+                "flex size-7 shrink-0 items-center justify-center rounded-lg transition-colors",
+                variant === "urgent"
+                  ? "bg-destructive-wash text-destructive"
+                  : "bg-primary/10 text-primary group-hover:bg-primary/15",
+              )}
+            >
+              <Icon className="size-4" strokeWidth={1.75} />
+            </span>
+          )}
           {/*
             Wraps rather than truncates. In two phone columns « Nouveaux patients » and « Taux d'absence »
             are wider than their cell, and a truncated KPI label is worse than a two-line one: « Nouveaux

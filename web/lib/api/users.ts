@@ -23,9 +23,26 @@ export interface ClinicUserDto {
   email?: string;
   fullName?: string;
   isActive: boolean;
+  /**
+   * Never been able to log in — a self-registration waiting for an admin's approval, as opposed to an account
+   * switched off after use. Both are `!isActive`; the badge wording differs because only one of them is somebody's
+   * first day.
+   */
+  isPendingActivation: boolean;
   mustChangePassword: boolean;
   lastLoginAt?: string;
   createdAt: string;
+}
+
+/**
+ * Mirrors the backend `ClinicUsersPageDto` — a page of staff plus the clinic-wide pending count.
+ *
+ * Structurally a `PagedResponse<ClinicUserDto>` with one extra field, so the shared pager consumes it unchanged.
+ * The count is **not** narrowed by the search term: it is the figure above the table, and an admin filtering for
+ * one name must still see that somebody else is waiting to be let in.
+ */
+export interface ClinicUsersPageDto extends PagedResponse<ClinicUserDto> {
+  pendingActivationCount: number;
 }
 
 // Mirrors the backend ResetPasswordResultDto (AC-5.2) — temp password returned once.
@@ -40,9 +57,12 @@ export const usersApi = {
     return unwrapPaged(await apiGet<PagedResponse<ClinicUserDto>>('/users'));
   },
 
-  /** One page of staff. `search` matches full name / email server-side over the whole clinic. */
-  listPaged: async (params: PageParams): Promise<PagedResponse<ClinicUserDto>> =>
-    apiGet<PagedResponse<ClinicUserDto>>('/users', params),
+  /**
+   * One page of staff. `search` matches full name / email server-side over the whole clinic; the response also
+   * carries `pendingActivationCount` over the whole clinic (I5).
+   */
+  listPaged: async (params: PageParams): Promise<ClinicUsersPageDto> =>
+    apiGet<ClinicUsersPageDto>('/users', params),
 
   // AC-5.2: reset a user's password → temporary password returned once for the admin to relay.
   resetPassword: async (id: string): Promise<ResetPasswordResultDto> => {

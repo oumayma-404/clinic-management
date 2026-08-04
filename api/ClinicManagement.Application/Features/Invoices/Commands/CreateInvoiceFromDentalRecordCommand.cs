@@ -10,6 +10,7 @@ using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Domain.Services;
+using ClinicManagement.Domain.ValueObjects;
 
 namespace ClinicManagement.Application.Features.Invoices.Commands;
 
@@ -60,6 +61,19 @@ public class DentalRecordPaymentRequest
     /// on the day it happened, and booking that cash to today would put it in the wrong day's caisse.
     /// </summary>
     public DateTime? PaidOn { get; set; }
+
+    /// <summary>
+    /// The cheque's number, bank and due date (L8) — optional, and refused for any method but <c>Cheque</c>. A
+    /// patient handing over a cheque at the end of a session is exactly as common here as at the till, so the
+    /// fiche's own billing path carries the fields rather than being the one route that drops them.
+    /// </summary>
+    public string? ChequeNumber { get; set; }
+
+    /// <inheritdoc cref="ChequeNumber"/>
+    public string? ChequeBankName { get; set; }
+
+    /// <inheritdoc cref="ChequeNumber"/>
+    public DateTime? ChequeDueDate { get; set; }
 }
 
 public class CreateInvoiceFromDentalRecordCommandHandler
@@ -148,6 +162,7 @@ public class CreateInvoiceFromDentalRecordCommandHandler
             // would leave a numbered, unpaid note behind for a typo in a date field.
             PaymentMethod? method = null;
             DateTime paidOn = default;
+            ChequeDetails? cheque = null;
             if (request.PaidNow is { } paidNow)
             {
                 if (paidNow.Amount <= 0m)
@@ -159,6 +174,20 @@ public class CreateInvoiceFromDentalRecordCommandHandler
                     return Result<InvoiceDto>.Failure("Mode de paiement invalide.");
                 }
                 method = parsedMethod;
+
+                // Resolved HERE, with the rest of the pre-flight, and not at the `RecordPayment` call below: this
+                // command's whole shape is that every refusal happens before a gapless number is consumed, and
+                // `ChequeDetails.For` throws on cheque details attached to a non-cheque method. Building it inside
+                // the transaction would leave a numbered, unpaid note behind for a mis-set form field.
+                try
+                {
+                    cheque = ChequeDetails.For(
+                        parsedMethod, paidNow.ChequeNumber, paidNow.ChequeBankName, paidNow.ChequeDueDate);
+                }
+                catch (ArgumentException ex)
+                {
+                    return Result<InvoiceDto>.Failure(ex.Message);
+                }
 
                 paidOn = paidNow.PaidOn ?? record.InterventionDate;
                 var dateError = PaymentDateRules.Validate(paidOn, "La date de paiement");
@@ -185,6 +214,12 @@ public class CreateInvoiceFromDentalRecordCommandHandler
             }
 
             var invoice = new Invoice(Guid.NewGuid(), clinicId, record.PatientId, dentalRecordId: record.Id);
+
+            // L9 — the attribution travels with the money. The fiche already knows who performed the séance, so
+            // the note d'honoraires it produces takes that practitioner verbatim rather than re-deriving it: this
+            // command bills work that has already happened, and « who earned it » was settled when the fiche was
+            // saved. Re-resolving here would let the *biller* (often reception) be credited instead.
+            invoice.SetDoctor(record.DoctorId);
             invoice.SetLines(lines.Select(l =>
                 (l.Designation, l.Quantity, l.UnitPriceHt, (Guid?)record.Id, (Guid?)null, (string?)null)));
 
@@ -213,7 +248,8 @@ public class CreateInvoiceFromDentalRecordCommandHandler
                             // Already bounded above; the aggregate refuses an over-payment too, so a drift between
                             // the pre-check and `Issue`'s own arithmetic surfaces as a rolled-back failure rather
                             // than a wrong total.
-                            invoice.RecordPayment(request.PaidNow!.Amount, resolvedMethod, paidOn);
+                            invoice.RecordPayment(
+                                request.PaidNow!.Amount, resolvedMethod, paidOn, cheque: cheque);
                         }
                     }
                     else

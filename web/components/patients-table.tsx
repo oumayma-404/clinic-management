@@ -10,8 +10,11 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { Users, Flag, FileText, Folder, Trash2, Pencil, MoreHorizontal } from "lucide-react"
+import { Users, Flag, FileText, Folder, Trash2, Pencil, MoreHorizontal, Plus, SearchX } from "lucide-react"
 import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
+import { EmptyState } from "@/components/ui/empty-state"
+import { patientFlagLabel } from "@/components/patient/patient-flag-labels"
+import { ZONES, zoneChipClass } from "@/lib/zones"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -39,6 +42,16 @@ interface PatientsTableProps {
    */
   createdFrom?: string
   createdTo?: string
+  /**
+   * Opens the create-patient dialog — the **invite** half of the empty state.
+   *
+   * <p>The page owns that dialog, so the table cannot open it on its own; passing the callback down is what lets
+   * « Aucun patient enregistré » carry the action that resolves it instead of being a dead sentence. Optional, so
+   * a surface that embeds this table without a create flow simply gets no button.</p>
+   */
+  onCreatePatient?: () => void
+  /** Clears search + flag + date window, for the « nothing matching » empty state. Same reason it is a prop. */
+  onClearFilters?: () => void
 }
 
 /**
@@ -47,7 +60,14 @@ interface PatientsTableProps {
  */
 const PATIENT_COLUMN_WIDTHS = ["w-[22%]", "w-[16%]", "w-[16%]", "w-[22%]", "w-[14%]", "w-[10%]"] as const
 
-export function PatientsTable({ searchQuery, showFlaggedOnly, createdFrom, createdTo }: PatientsTableProps) {
+export function PatientsTable({
+  searchQuery,
+  showFlaggedOnly,
+  createdFrom,
+  createdTo,
+  onCreatePatient,
+  onClearFilters,
+}: PatientsTableProps) {
   const router = useRouter()
   // Bumped to refetch the current page after a mutation (edit / archive / delete). The list is server-paged, so
   // patching a row in place is no longer right: an edit can change the patient's name and therefore which page
@@ -218,6 +238,60 @@ export function PatientsTable({ searchQuery, showFlaggedOnly, createdFrom, creat
     return patient.flags && patient.flags.some(flag => flag.isActive)
   }
 
+  /**
+   * Is the list empty because the clinic has no patients, or because a filter excluded them all? They are
+   * different facts and `EmptyState` exists to keep them apart.
+   *
+   * <p>All three narrowing controls count, not just the search box: the flag chip and the dashboard's
+   * registration-date drill-through can each empty the list, and offering « Ajouter un patient » there invites a
+   * duplicate of a patient who is sitting one filter away.</p>
+   */
+  const isFiltered = isSearching || showFlaggedOnly || Boolean(createdFrom || createdTo)
+
+  const emptyState = (
+    <EmptyState
+      size="compact"
+      // The patient file is the « Quotidien » zone (`lib/zones.ts` maps `/patients` there), so even the
+      // nothing-here screen carries the hue the rail is highlighting.
+      chipClassName={zoneChipClass(ZONES.daily)}
+      icon={isFiltered ? SearchX : Users}
+      title={
+        isSearching
+          ? `Aucun résultat pour « ${searchQuery.trim()} »`
+          : showFlaggedOnly
+            ? "Aucun patient signalé"
+            : isFiltered
+              ? "Aucun patient sur cette période"
+              : "Aucun patient enregistré"
+      }
+      description={
+        isFiltered
+          ? undefined
+          : "Créez le premier dossier de la clinique : identité, coordonnées et antécédents."
+      }
+      /*
+        ⚠️ No « Ajouter » on a filtered-empty list, ever. The patient may well exist and the search simply
+        mistyped — « Ben Salh » finds nothing and the record is under « Ben Salah » — so an add button here is an
+        invitation to create the duplicate. See the same rule stated in `ui/empty-state.tsx`.
+      */
+      action={
+        !isFiltered && onCreatePatient ? (
+          <Button onClick={onCreatePatient} className="gap-2">
+            <Plus className="h-4 w-4" />
+            Ajouter un patient
+          </Button>
+        ) : undefined
+      }
+      secondaryAction={
+        isFiltered && onClearFilters ? (
+          <Button variant="outline" onClick={onClearFilters}>
+            {isSearching ? "Effacer la recherche" : "Effacer les filtres"}
+          </Button>
+        ) : undefined
+      }
+    />
+  )
+
   return (
     <Card>
       <CardHeader>
@@ -235,28 +309,36 @@ export function PatientsTable({ searchQuery, showFlaggedOnly, createdFrom, creat
             {error}
           </div>
         )}
-        {loading ? (
-          // AC-P3.35/3.36 — a skeleton shaped like the table it is standing in for, so the page does not
-          // jump when the rows arrive. Follows the only existing precedent (`stats-card.tsx`):
-          // `animate-pulse rounded bg-muted`, announced once via aria-label rather than per cell.
-          <div className="space-y-3" role="status" aria-label="Chargement des patients">
-            <div className="flex gap-4 border-b pb-3">
-              {PATIENT_COLUMN_WIDTHS.map((width, i) => (
-                <div key={i} className={`h-4 animate-pulse rounded bg-muted ${width}`} />
-              ))}
-            </div>
-            {Array.from({ length: 6 }).map((_, row) => (
-              <div key={row} className="flex items-center gap-4">
+        {/* `refreshing` dims the rows already on screen instead of blanking them, so a debounced search does not
+            strobe the table between keystrokes. */}
+        <div className={refreshing ? "opacity-60 transition-opacity" : undefined}>
+          {/*
+            ⚠️ The table skeleton is `TABLE_ONLY`, and the card list does its OWN loading state.
+
+            This branch used to short-circuit above `<CardList>` entirely, so a phone waited on six grey slivers
+            in a shape it never renders and then watched the region turn into a stack of cards — the page changed
+            shape the moment the data landed, which is the one thing a skeleton exists to prevent. `CardList`
+            already ships `loading`/`skeletonRows` for exactly this, so each width now stands in for itself.
+
+            AC-P3.35/3.36 — the desktop half keeps its column-shaped skeleton (`animate-pulse rounded bg-muted`,
+            announced once via aria-label rather than per cell), mirroring `PATIENT_COLUMN_WIDTHS`.
+          */}
+          {loading && (
+            <div className={`${TABLE_ONLY} space-y-3`} role="status" aria-label="Chargement des patients">
+              <div className="flex gap-4 border-b pb-3">
                 {PATIENT_COLUMN_WIDTHS.map((width, i) => (
-                  <div key={i} className={`h-5 animate-pulse rounded bg-muted ${width}`} />
+                  <div key={i} className={`h-4 animate-pulse rounded bg-muted ${width}`} />
                 ))}
               </div>
-            ))}
-          </div>
-        ) : (
-          // `refreshing` dims the rows already on screen instead of blanking them, so a debounced search does not
-          // strobe the table between keystrokes.
-          <div className={refreshing ? "opacity-60 transition-opacity" : undefined}>
+              {Array.from({ length: 6 }).map((_, row) => (
+                <div key={row} className="flex items-center gap-4">
+                  {PATIENT_COLUMN_WIDTHS.map((width, i) => (
+                    <div key={i} className={`h-5 animate-pulse rounded bg-muted ${width}`} />
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
           {/*
             Four unlabelled icon buttons become one menu below `md:` (AC-15). ⚠️ « Non renseigné » is NOT
             carried over: AC-17 omits an absent field rather than printing a placeholder for it — on a phone a
@@ -265,6 +347,8 @@ export function PatientsTable({ searchQuery, showFlaggedOnly, createdFrom, creat
           <CardList
             className={CARDS_ONLY}
             ariaLabel="Patients"
+            loading={loading}
+            skeletonRows={6}
             items={patients}
             getKey={(p) => p.id}
             title={(p) => getPatientName(p)}
@@ -280,7 +364,9 @@ export function PatientsTable({ searchQuery, showFlaggedOnly, createdFrom, creat
                     .map((flag) => (
                       <Badge key={flag.id} variant="destructive" className="gap-1">
                         <Flag className="h-3 w-3" />
-                        {flag.flagType}
+                        {/* The enum name was rendered raw — « HighPriority » in a red badge beside a patient's
+                            name, in an otherwise entirely French UI. See `patient-flag-labels.ts`. */}
+                        {patientFlagLabel(flag.flagType)}
                       </Badge>
                     ))}
                 </span>
@@ -327,14 +413,10 @@ export function PatientsTable({ searchQuery, showFlaggedOnly, createdFrom, creat
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
-            empty={
-              isSearching
-                ? "Aucun patient ne correspond à votre recherche"
-                : showFlaggedOnly
-                  ? "Aucun patient signalé"
-                  : "Aucun patient"
-            }
+            empty={emptyState}
           />
+          {!loading && (
+            <>
           <Table containerClassName={TABLE_ONLY}>
             <TableHeader>
               <TableRow>
@@ -349,14 +431,10 @@ export function PatientsTable({ searchQuery, showFlaggedOnly, createdFrom, creat
             <TableBody>
               {patients.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="h-24 text-center">
-                    <p className="text-muted-foreground">
-                      {isSearching
-                        ? "Aucun patient ne correspond à votre recherche"
-                        : showFlaggedOnly
-                          ? "Aucun patient signalé"
-                          : "Aucun patient"}
-                    </p>
+                  {/* `p-0` so the shared `EmptyState` owns its own vertical rhythm instead of being centred
+                      inside a fixed `h-24` cell — the two paddings fought and the icon chip was clipped. */}
+                  <TableCell colSpan={6} className="p-0">
+                    {emptyState}
                   </TableCell>
                 </TableRow>
               ) : (
@@ -392,7 +470,7 @@ export function PatientsTable({ searchQuery, showFlaggedOnly, createdFrom, creat
                             {patient.flags?.filter(flag => flag.isActive).map((flag) => (
                               <Badge key={flag.id} variant="destructive" className="gap-1">
                                 <Flag className="h-3 w-3" />
-                                {flag.flagType}
+                                {patientFlagLabel(flag.flagType)}
                               </Badge>
                             ))}
                           </div>
@@ -471,8 +549,9 @@ export function PatientsTable({ searchQuery, showFlaggedOnly, createdFrom, creat
             loading={refreshing}
             label={["patient", "patients"]}
           />
-          </div>
-        )}
+            </>
+          )}
+        </div>
       </CardContent>
 
       <EditPatientDialog

@@ -31,6 +31,13 @@ public static class ReminderSettingsMappings
                 (settings?.WhatsAppConnectionStatus ?? Domain.Enums.WhatsAppConnectionStatus.NotConnected).ToString(),
             WhatsAppLastError = settings?.WhatsAppLastError,
             WhatsAppConnectedAt = settings?.WhatsAppConnectedAt,
+            SmtpHost = settings?.SmtpHost,
+            SmtpPort = settings?.SmtpPort,
+            SmtpUseTls = settings?.SmtpUseTls,
+            SmtpUsername = settings?.SmtpUsername,
+            SmtpPasswordConfigured = !string.IsNullOrEmpty(settings?.SmtpPasswordEncrypted),
+            SmtpFromAddress = settings?.SmtpFromAddress,
+            SmtpFromName = settings?.SmtpFromName,
         };
     }
 }

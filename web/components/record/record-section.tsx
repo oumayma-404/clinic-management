@@ -26,7 +26,10 @@ export function RecordSection({ title, summary, open, onToggle, children, highli
         type="button"
         onClick={onToggle}
         aria-expanded={open}
-        className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left hover:bg-muted"
+        // `touch-target` — the header is ~30px painted and is the ONLY way to reach a folded section's fields
+        // (AC-10). An overlay is right here rather than a painted floor: the sections stack with a 12px gap, so
+        // 44px centred on 30px stops exactly where the next section's own header begins.
+        className="touch-target flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left hover:bg-muted"
       >
         {open ? (
           <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />

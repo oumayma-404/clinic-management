@@ -1,6 +1,7 @@
 using ClinicManagement.Domain.Common;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Services;
+using ClinicManagement.Domain.ValueObjects;
 
 namespace ClinicManagement.Domain.Entities;
 
@@ -15,6 +16,41 @@ public class TreatmentPlan : AggregateRoot<Guid>
 {
     public Guid ClinicId { get; private set; }
     public Guid PatientId { get; private set; }
+    /// <summary>
+    /// Which practitioner earned this — nullable, and nullable means nullable (L9 attribution).
+    ///
+    /// <para><b>What was missing.</b> <c>DoctorId</c> existed on exactly three entities in the whole model
+    /// (<c>Appointment</c> — the only real FK to <c>Doctors</c> — <c>RecurringAppointment</c>, and
+    /// <c>WaitingListEntry.PreferredDoctorId</c>, which was not even an FK), and on nothing that carries money or
+    /// clinical work. So « combien a produit ce praticien ce mois ? » had no answer, and
+    /// <c>Features/Dashboard/</c> contained <b>zero</b> occurrences of <c>Doctor</c> across all four readers.</para>
+    ///
+    /// <para>⚠️ <b>Historical rows legitimately have none</b> — the column did not exist when they were written,
+    /// and the migration only backfills where a linked appointment names a practitioner. Every read must therefore
+    /// tolerate null rather than treating it as « the clinic », which would silently attribute one dentist's work
+    /// to whoever the filter happens to select.</para>
+    ///
+    /// <para>This is <b>attribution, not authorization</b>: it answers who earned a figure. Per-practitioner data
+    /// scoping (« this dentist sees only their own patients ») is a separate decision with its own blast radius and
+    /// is deliberately out of scope.</para>
+    /// </summary>
+    public Guid? DoctorId { get; private set; }
+
+    /// <summary>The practitioner navigation, for the read-side name resolution. Null when unattributed.</summary>
+    public Doctor? Doctor { get; private set; }
+
+    /// <summary>
+    /// Attribute (or un-attribute) this record to a practitioner. Deliberately its own mutator rather than a ctor
+    /// parameter on every construction path: the answer is often only known *after* the aggregate exists (it comes
+    /// from the appointment the record was written against), and a required ctor argument would have forced every
+    /// caller to guess.
+    /// </summary>
+    public void SetDoctor(Guid? doctorId)
+    {
+        DoctorId = doctorId == Guid.Empty ? null : doctorId;
+        Touch();
+    }
+
 
     /// <summary>Sequential number <c>AAAA-NNNN</c>; null while a draft (assigned at acceptance).</summary>
     public string? Number { get; private set; }
@@ -256,13 +292,19 @@ public class TreatmentPlan : AggregateRoot<Guid>
     /// Record a payment against one installment. Allowed on an accepted, in-progress <b>or completed</b> plan —
     /// see <see cref="EnsurePayable"/>. A payment never re-opens a completed plan.
     /// </summary>
-    public InstallmentPayment RecordInstallmentPayment(Guid installmentId, decimal amount, PaymentMethod method, DateTime paidOn)
+    /// <param name="cheque">The cheque's number, bank and due date (L8). Null for any other method.</param>
+    public InstallmentPayment RecordInstallmentPayment(
+        Guid installmentId,
+        decimal amount,
+        PaymentMethod method,
+        DateTime paidOn,
+        ChequeDetails? cheque = null)
     {
         EnsurePayable();
         var installment = _installments.FirstOrDefault(i => i.Id == installmentId)
             ?? throw new InvalidOperationException("Échéance introuvable.");
 
-        var payment = installment.RecordPayment(amount, method, paidOn);
+        var payment = installment.RecordPayment(amount, method, paidOn, cheque);
         if (Status == TreatmentPlanStatus.Accepted)
             Status = TreatmentPlanStatus.InProgress;
         Touch();

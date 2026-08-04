@@ -70,7 +70,7 @@ public class InstallmentOverdueBoundaryTests
         _invoices.Setup(i => i.GetFilteredAsync(
                 ClinicId, It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<Guid?>(),
                 It.IsAny<InvoiceStatus?>(), It.IsAny<string?>(), It.IsAny<PageRequest?>(),
-                It.IsAny<CancellationToken>()))
+                It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((new List<Invoice>()).AsPage());
         _plans.Setup(p => p.GetFilteredAsync(
                 ClinicId, It.IsAny<Guid?>(), It.IsAny<TreatmentPlanStatus?>(), It.IsAny<DateTime?>(),

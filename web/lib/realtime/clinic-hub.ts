@@ -43,6 +43,10 @@ export const RealtimeResource = {
   // worklist gets a new home.
   Recall: "recall",
   WaitingList: "waitinglist", // /waiting-list — the canonical two-user screen (salle d'attente)
+  // Derived from Features/DocumentEmails/Commands. Declared because the queue command broadcasts it, and the
+  // send history is genuinely two-user: one person queues « Envoyer par email », the row's status then changes
+  // under them when the dispatcher picks it up a minute later.
+  DocumentEmails: "documentemails",
 } as const
 
 export type RealtimeResourceKey = (typeof RealtimeResource)[keyof typeof RealtimeResource]

@@ -8,13 +8,16 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { AlertTriangle, Loader2, Receipt } from "lucide-react"
 import { toast } from "sonner"
 import { invoicesApi } from "@/lib/api/invoices"
 import { getErrorMessage } from "@/lib/errors"
-import { formatDT, formatDate, todayLocalIso } from "@/lib/format"
+import { formatAmount, formatDT, formatDate, parseAmountInput, todayLocalIso } from "@/lib/format"
+import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
+import { DiscardChangesDialog } from "@/components/ui/discard-changes-dialog"
 import type { DentalRecordDto } from "@/lib/api/types"
 import { PAYMENT_METHODS, paymentMethodLabel } from "./invoice-labels"
 
@@ -55,12 +58,21 @@ export function BillDentalRecordDialog({
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  /*
+   * Money being entered is not discarded by a stray tap (J9). This dialog is the sharpest case of the six: it
+   * is the *last* step of a session, the amount has already been handed over in cash, and re-opening it means
+   * re-reading the acts to work out what was owed.
+   *
+   * ⚠️ The root is open-driven by `record`, not by an `open` boolean, so the guard is fed `!!record`.
+   */
+  const guard = useDirtyGuard(!!record, (next) => { if (!next) onOpenChange(false) })
+
   useEffect(() => {
     if (!record) return
     setCollectNow(true)
     // Pre-filled with the full fee — the common case is the patient settling the session in full. It stays
     // editable for a part-payment.
-    setAmount(record.cost > 0 ? String(record.cost) : "")
+    setAmount(record.cost > 0 ? formatAmount(record.cost) : "")
     setMethod("Cash")
     // The session's own date, not today: a fiche recorded two days late was paid on the day it happened, and
     // booking that cash to today puts it in the wrong day's caisse.
@@ -74,7 +86,7 @@ export function BillDentalRecordDialog({
 
     let paidNow: { amount: number; method: string; paidOn: string } | null = null
     if (collectNow) {
-      const parsed = Number(amount)
+      const parsed = parseAmountInput(amount)
       if (!Number.isFinite(parsed) || parsed <= 0) {
         setError("Saisissez un montant encaissé supérieur à 0, ou décochez « Encaisser maintenant ».")
         return
@@ -103,7 +115,9 @@ export function BillDentalRecordDialog({
   const acts = record?.acts ?? []
 
   return (
-    <Dialog open={!!record} onOpenChange={(open) => { if (!open && !submitting) onOpenChange(false) }}>
+    <>
+    {/* Only the ROOT and « Annuler » route through the guard — the save path calls the raw prop (§ 5). */}
+    <Dialog open={!!record} onOpenChange={(open) => { if (!open && !submitting) guard.onOpenChange(false) }}>
       <DialogContent className="md:max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -145,22 +159,29 @@ export function BillDentalRecordDialog({
             )}
           </div>
 
-          {/* The irreversibility has to be stated before the click, not discovered after it. */}
-          <div className="flex gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/20">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden="true" />
-            <p className="text-xs text-amber-800 dark:text-amber-300">
+          {/* The irreversibility has to be stated before the click, not discovered after it.
+              On the theme's warning family — `--warning-wash` with `--warning-ink` — rather than an `amber-50 /
+              dark:amber-950` pair maintained by hand. `text-warning-ink` and not `text-warning`: the plain step
+              measures ~3.5:1 on its own wash, and this is the one paragraph in the flow that must be read. */}
+          <div className="flex gap-2 rounded-md border border-warning/30 bg-warning-wash p-3">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning-ink" aria-hidden="true" />
+            <p className="text-xs text-warning-ink">
               La note d&apos;honoraires est <strong>émise immédiatement</strong> et reçoit un numéro définitif.
               Une erreur de montant se corrige ensuite par un <strong>avoir</strong>, pas par une modification.
             </p>
           </div>
 
+          {/*
+            The `Checkbox` primitive, not a raw `<input type="checkbox">`. `globals.css` deliberately EXCLUDES
+            checkboxes from the 44 px coarse-pointer floor because `ui/checkbox.tsx` carries `touch-target`
+            itself — so a hand-rolled one gets neither, and lands at 16 × 16 px under a gloved finger. This is
+            the control that decides whether the cash the patient just handed over reaches la caisse at all.
+          */}
           <div className="flex items-center gap-2">
-            <input
+            <Checkbox
               id="collectNow"
-              type="checkbox"
-              className="h-4 w-4 rounded border-input"
               checked={collectNow}
-              onChange={(e) => setCollectNow(e.target.checked)}
+              onCheckedChange={(checked) => setCollectNow(checked === true)}
               disabled={submitting}
             />
             <Label htmlFor="collectNow" className="cursor-pointer text-sm font-medium">
@@ -177,11 +198,13 @@ export function BillDentalRecordDialog({
             <div className="grid gap-3 sm:grid-cols-3">
               <div className="space-y-1.5">
                 <Label htmlFor="billAmount" className="text-sm">Montant encaissé</Label>
+                {/* `text` + `inputMode="decimal"`, never `type="number"` (J8): a number input refuses the comma
+                    this product prints with, and a rejected keystroke returns an EMPTY value — so the amount
+                    looked typed and the submit sent nothing. The numeric keypad still appears. */}
                 <Input
                   id="billAmount"
-                  type="number"
-                  step="0.001"
-                  min="0"
+                  type="text"
+                  inputMode="decimal"
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
                   disabled={submitting}
@@ -190,7 +213,9 @@ export function BillDentalRecordDialog({
               <div className="space-y-1.5">
                 <Label htmlFor="billMethod" className="text-sm">Mode</Label>
                 <Select value={method} onValueChange={setMethod} disabled={submitting}>
-                  <SelectTrigger id="billMethod">
+                  {/* `w-full`: `ui/select.tsx` ships `w-fit`, so without this the trigger renders narrower than
+                      the two `Input`s beside it in the same three-column grid. */}
+                  <SelectTrigger id="billMethod" className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -215,7 +240,7 @@ export function BillDentalRecordDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
+          <Button variant="outline" onClick={() => guard.onOpenChange(false)} disabled={submitting}>
             Annuler
           </Button>
           <Button onClick={handleSubmit} disabled={submitting}>
@@ -225,5 +250,7 @@ export function BillDentalRecordDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+    <DiscardChangesDialog guard={guard} />
+    </>
   )
 }

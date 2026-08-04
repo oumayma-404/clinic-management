@@ -99,10 +99,23 @@ public class DentalRecordActHandlerTests
         /// </summary>
         public Mock<ISender> Sender { get; } = new();
 
-        public CreateDentalRecordCommandHandler CreateHandler() => new(
-            Patients.Object, Records.Object, ToothStates.Object, Plans.Object, Appointments.Object,
-            Resolver.Object, Uow.Object, Generator.Object, StockConsumption.Object, Realtime.Object,
-            Sender.Object, NullLogger<CreateDentalRecordCommandHandler>.Instance);
+        // L9 — arranged to reproduce this harness's ORIGINAL behaviour: an empty roster and no caller doctor means
+        // `PractitionerAttribution.Resolve` finds no candidate, so the fiche stays unattributed exactly as before.
+        public Mock<IDoctorRepository> Doctors { get; } = new();
+        public Mock<IClinicContext> Context { get; } = new();
+
+        public CreateDentalRecordCommandHandler CreateHandler()
+        {
+            Doctors.Setup(r => r.GetByClinicIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(Array.Empty<Doctor>());
+            Context.Setup(c => c.GetUserId()).Returns((string?)null);
+            return CreateHandlerCore();
+        }
+
+        private CreateDentalRecordCommandHandler CreateHandlerCore() => new(
+            Patients.Object, Records.Object, ToothStates.Object, Plans.Object, Doctors.Object, Context.Object,
+            Appointments.Object, Resolver.Object, Uow.Object, Generator.Object, StockConsumption.Object,
+            Realtime.Object, Sender.Object, NullLogger<CreateDentalRecordCommandHandler>.Instance);
 
         public UpdateDentalRecordCommandHandler UpdateHandler() => new(
             Records.Object, Patients.Object, ToothStates.Object, Plans.Object, Resolver.Object, Uow.Object,

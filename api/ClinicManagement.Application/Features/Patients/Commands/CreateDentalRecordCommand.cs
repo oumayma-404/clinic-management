@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.DTOs;
@@ -28,6 +29,12 @@ public class CreateDentalRecordCommand : IRequest<Result<DentalRecordDto>>
     /// <summary>Optional appointment this record documents — completing it and dismissing its post-visit review
     /// prompt (finding #10), so recording the dental work (not only a medical document) closes the loop.</summary>
     public Guid? AppointmentId { get; set; }
+
+    /// <summary>
+    /// Which practitioner performed the séance (L9). Optional — omit it and the documented appointment's
+    /// practitioner is used, else the caller's own <c>Doctor</c> record.
+    /// </summary>
+    public Guid? DoctorId { get; set; }
 }
 
 public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalRecordCommand, Result<DentalRecordDto>>
@@ -36,6 +43,8 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
     private readonly IDentalRecordRepository _dentalRecordRepository;
     private readonly IToothStateRepository _toothStateRepository;
     private readonly ITreatmentPlanRepository _treatmentPlanRepository;
+    private readonly IDoctorRepository _doctorRepository;
+    private readonly IClinicContext _clinicContext;
     private readonly IAppointmentRepository _appointmentRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
@@ -50,6 +59,8 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
         IDentalRecordRepository dentalRecordRepository,
         IToothStateRepository toothStateRepository,
         ITreatmentPlanRepository treatmentPlanRepository,
+        IDoctorRepository doctorRepository,
+        IClinicContext clinicContext,
         IAppointmentRepository appointmentRepository,
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
@@ -63,6 +74,8 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
         _dentalRecordRepository = dentalRecordRepository;
         _toothStateRepository = toothStateRepository;
         _treatmentPlanRepository = treatmentPlanRepository;
+        _doctorRepository = doctorRepository;
+        _clinicContext = clinicContext;
         _appointmentRepository = appointmentRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
@@ -114,6 +127,15 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
                 request.AppointmentId);
 
             record.SetActs(parsed.Value!);
+
+            // L9 — who performed the séance. Derived from the documented appointment when there is one (that is the
+            // most reliable source: the visit was booked with a practitioner), else the caller's own Doctor record.
+            // A fiche with no attribution is a real outcome and is left null rather than guessed at.
+            var recordAppointmentDoctorId = request.AppointmentId.HasValue
+                ? (await _appointmentRepository.GetByIdAsync(request.AppointmentId.Value, cancellationToken))?.DoctorId
+                : null;
+            record.SetDoctor(await ResolveAttributedDoctorAsync(
+                request.DoctorId, recordAppointmentDoctorId, clinicResult.Value, cancellationToken));
 
             await _dentalRecordRepository.AddAsync(record, cancellationToken);
 
@@ -232,4 +254,32 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
             _logger.LogError(ex, "Post-visit completion side-effect failed for appointment {AppointmentId}", appointmentId);
         }
     }
+
+    /// <summary>
+    /// The practitioner to attribute this to, through the one shared precedence rule
+    /// (<see cref="PractitionerAttribution"/>): an explicitly named one, else the visit's, else the caller's own
+    /// <c>Doctor</c> record.
+    /// <para>
+    /// The caller is the <b>last</b> resort, not the first: a secretary recording a dentist's work must not credit
+    /// themselves. In the common Tunisian single-dentist practice the owner *is* the caller, which is exactly where
+    /// the fall-back is correct.
+    /// </para>
+    /// </summary>
+    private async Task<Guid?> ResolveAttributedDoctorAsync(
+        Guid? explicitDoctorId, Guid? appointmentDoctorId, Guid clinicId, CancellationToken cancellationToken)
+    {
+        var clinicDoctorIds = await PractitionerAttribution.LoadClinicDoctorIdsAsync(
+            _doctorRepository, clinicId, cancellationToken);
+
+        Guid? callerDoctorId = null;
+        var userId = _clinicContext.GetUserId();
+        if (!string.IsNullOrEmpty(userId))
+        {
+            callerDoctorId = (await _doctorRepository.GetByUserIdAsync(userId, cancellationToken))?.Id;
+        }
+
+        return PractitionerAttribution.Resolve(
+            explicitDoctorId, appointmentDoctorId, callerDoctorId, clinicDoctorIds);
+    }
+
 }

@@ -1,5 +1,6 @@
 using ClinicManagement.Domain.Common;
 using ClinicManagement.Domain.Enums;
+using ClinicManagement.Domain.ValueObjects;
 
 namespace ClinicManagement.Domain.Entities;
 
@@ -54,6 +55,18 @@ public class Payment : Entity<Guid>
     /// </summary>
     public Guid? SourceInstallmentPaymentId { get; private set; }
 
+    /// <summary>
+    /// The cheque's number, when <see cref="Method"/> is <see cref="PaymentMethod.Cheque"/> (L8). Null for every
+    /// other method — the invariant is enforced once, in <see cref="ChequeDetails.For"/>.
+    /// </summary>
+    public string? ChequeNumber { get; private set; }
+
+    /// <inheritdoc cref="ChequeDetails.BankName"/>
+    public string? ChequeBankName { get; private set; }
+
+    /// <inheritdoc cref="ChequeDetails.DueDate"/>
+    public DateTime? ChequeDueDate { get; private set; }
+
     private Payment() { } // For EF Core
 
     public Payment(
@@ -62,7 +75,8 @@ public class Payment : Entity<Guid>
         decimal amount,
         PaymentMethod method,
         DateTime paidOn,
-        Guid? sourceInstallmentPaymentId = null)
+        Guid? sourceInstallmentPaymentId = null,
+        ChequeDetails? cheque = null)
     {
         if (amount <= 0)
             throw new ArgumentException("Le montant du paiement doit être supérieur à 0.", nameof(amount));
@@ -73,6 +87,11 @@ public class Payment : Entity<Guid>
         Method = method;
         PaidOn = paidOn;
         SourceInstallmentPaymentId = sourceInstallmentPaymentId;
+        // Flattened into three columns rather than kept as an owned type: the number is searched and the due date
+        // is sorted on, both on their own. See `ChequeDetails` for why the rule still lives in exactly one place.
+        ChequeNumber = cheque?.Number;
+        ChequeBankName = cheque?.BankName;
+        ChequeDueDate = cheque?.DueDate;
         CreatedAt = DateTime.UtcNow;
     }
 

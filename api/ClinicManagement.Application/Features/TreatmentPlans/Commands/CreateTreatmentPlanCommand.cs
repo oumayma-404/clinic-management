@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
@@ -30,6 +31,9 @@ namespace ClinicManagement.Application.Features.TreatmentPlans.Commands;
 public class CreateTreatmentPlanCommand : IRequest<Result<TreatmentPlanDto>>
 {
     public Guid PatientId { get; set; }
+
+    /// <summary>Which practitioner quoted this devis (L9). Optional — defaults to the caller's own <c>Doctor</c> record.</summary>
+    public Guid? DoctorId { get; set; }
     public string Title { get; set; } = string.Empty;
     public string? Notes { get; set; }
     public List<TreatmentPlanItemRequest> Items { get; set; } = new();
@@ -42,6 +46,8 @@ public class CreateTreatmentPlanCommandHandler : IRequestHandler<CreateTreatment
     private readonly IPatientRepository _patientRepository;
     private readonly IDentalActCodeRepository _dentalActRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
+    private readonly IDoctorRepository _doctorRepository;
+    private readonly IClinicContext _clinicContext;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<CreateTreatmentPlanCommandHandler> _logger;
 
@@ -50,6 +56,8 @@ public class CreateTreatmentPlanCommandHandler : IRequestHandler<CreateTreatment
         IPatientRepository patientRepository,
         IDentalActCodeRepository dentalActRepository,
         ICurrentClinicResolver clinicResolver,
+        IDoctorRepository doctorRepository,
+        IClinicContext clinicContext,
         IUnitOfWork unitOfWork,
         ILogger<CreateTreatmentPlanCommandHandler> logger)
     {
@@ -57,6 +65,8 @@ public class CreateTreatmentPlanCommandHandler : IRequestHandler<CreateTreatment
         _patientRepository = patientRepository;
         _dentalActRepository = dentalActRepository;
         _clinicResolver = clinicResolver;
+        _doctorRepository = doctorRepository;
+        _clinicContext = clinicContext;
         _unitOfWork = unitOfWork;
         _logger = logger;
     }
@@ -79,6 +89,10 @@ public class CreateTreatmentPlanCommandHandler : IRequestHandler<CreateTreatment
             }
 
             var plan = new TreatmentPlan(Guid.NewGuid(), clinicId, request.PatientId, request.Title, request.Notes);
+
+            // L9 — who quoted the devis. There is no appointment in scope here (a plan is drawn up with the patient
+            // in the chair, not against a booking), so the precedence collapses to « explicit, else the caller ».
+            plan.SetDoctor(await ResolveAttributedDoctorAsync(request.DoctorId, null, clinicId, cancellationToken));
             var items = await TreatmentPlanItemPricing.ResolveAsync(request.Items, clinicId, _dentalActRepository, cancellationToken);
             plan.SetItems(items);
             plan.SetInstallments(request.Installments.Select(i => (i.DueDate, i.Amount)));
@@ -114,4 +128,32 @@ public class CreateTreatmentPlanCommandHandler : IRequestHandler<CreateTreatment
             return Result<TreatmentPlanDto>.Failure("Erreur lors de la création du plan de traitement.");
         }
     }
+
+    /// <summary>
+    /// The practitioner to attribute this to, through the one shared precedence rule
+    /// (<see cref="PractitionerAttribution"/>): an explicitly named one, else the visit's, else the caller's own
+    /// <c>Doctor</c> record.
+    /// <para>
+    /// The caller is the <b>last</b> resort, not the first: a secretary recording a dentist's work must not credit
+    /// themselves. In the common Tunisian single-dentist practice the owner *is* the caller, which is exactly where
+    /// the fall-back is correct.
+    /// </para>
+    /// </summary>
+    private async Task<Guid?> ResolveAttributedDoctorAsync(
+        Guid? explicitDoctorId, Guid? appointmentDoctorId, Guid clinicId, CancellationToken cancellationToken)
+    {
+        var clinicDoctorIds = await PractitionerAttribution.LoadClinicDoctorIdsAsync(
+            _doctorRepository, clinicId, cancellationToken);
+
+        Guid? callerDoctorId = null;
+        var userId = _clinicContext.GetUserId();
+        if (!string.IsNullOrEmpty(userId))
+        {
+            callerDoctorId = (await _doctorRepository.GetByUserIdAsync(userId, cancellationToken))?.Id;
+        }
+
+        return PractitionerAttribution.Resolve(
+            explicitDoctorId, appointmentDoctorId, callerDoctorId, clinicDoctorIds);
+    }
+
 }

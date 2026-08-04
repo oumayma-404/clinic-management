@@ -14,7 +14,7 @@ import { toast } from "sonner"
 import { treatmentPlansApi, type TreatmentPlanInstallmentInput } from "@/lib/api/treatment-plans"
 import { ApiError } from "@/lib/api/client"
 import type { TreatmentPlanDto } from "@/lib/api/types"
-import { formatDT, todayLocalIso } from "@/lib/format"
+import { formatAmount, formatDT, parseAmountInput, todayLocalIso } from "@/lib/format"
 
 interface Row {
   /** The existing échéance this row revises; null for a row the user just added. */
@@ -53,7 +53,7 @@ export function ReviseInstallmentsModal({ open, onOpenChange, plan, onSuccess }:
       plan.installments.map((inst) => ({
         id: inst.id,
         dueDate: inst.dueDate.slice(0, 10),
-        amount: String(inst.amount),
+        amount: formatAmount(inst.amount),
         amountPaid: inst.amountPaid,
       })),
     )
@@ -72,7 +72,7 @@ export function ReviseInstallmentsModal({ open, onOpenChange, plan, onSuccess }:
   const removeRow = (index: number) => setRows((prev) => prev.filter((_, i) => i !== index))
 
   const sum = rows.reduce((acc, r) => {
-    const amt = Number(r.amount)
+    const amt = parseAmountInput(r.amount)
     return Number.isFinite(amt) ? acc + amt : acc
   }, 0)
 
@@ -93,7 +93,7 @@ export function ReviseInstallmentsModal({ open, onOpenChange, plan, onSuccess }:
         setError("Chaque échéance doit avoir une date.")
         return
       }
-      const amount = Number(row.amount)
+      const amount = parseAmountInput(row.amount)
       if (!Number.isFinite(amount) || amount <= 0) {
         setError("Le montant de l'échéance doit être supérieur à 0.")
         return
@@ -128,7 +128,7 @@ export function ReviseInstallmentsModal({ open, onOpenChange, plan, onSuccess }:
     const payload: TreatmentPlanInstallmentInput[] = rows.map((r) => ({
       id: r.id,
       dueDate: `${r.dueDate}T00:00:00`,
-      amount: Number(r.amount),
+      amount: parseAmountInput(r.amount),
     }))
 
     setLoading(true)
@@ -198,10 +198,13 @@ export function ReviseInstallmentsModal({ open, onOpenChange, plan, onSuccess }:
                     </div>
                     <div className="w-36 space-y-1">
                       {index === 0 && <span className="text-xs text-muted-foreground">Montant (DT)</span>}
+                      {/* `text` + `inputMode="decimal"`, never `type="number"` (J8): a number input refuses the
+                          comma this product prints with, and a rejected keystroke returns an EMPTY value. The
+                          `min` it also drops was never the real guard — the server refuses an échéance below what
+                          it has collected, and this modal states that rule in prose above. */}
                       <Input
-                        type="number"
-                        min={collected ? row.amountPaid : 0}
-                        step="0.001"
+                        type="text"
+                        inputMode="decimal"
                         value={row.amount}
                         onChange={(e) => updateRow(index, { amount: e.target.value })}
                         disabled={loading}
@@ -237,7 +240,10 @@ export function ReviseInstallmentsModal({ open, onOpenChange, plan, onSuccess }:
           </div>
 
           <div className="flex justify-end text-sm">
-            <span className={matchesTotal ? "text-muted-foreground" : "text-amber-600 dark:text-amber-400"}>
+            {/* `text-warning-ink`, not `amber-600` + a hand-written `dark:` twin. The token flips with the
+                palette on its own, and `--warning-ink` is the step chosen for legibility as small text —
+                `--warning` itself sits at L 0.62 and is under the contrast floor at this size. */}
+            <span className={matchesTotal ? "text-muted-foreground" : "text-warning-ink"}>
               Total des échéances : {formatDT(sum)} / {formatDT(plan.totalPlanned)}
               {!matchesTotal && " — les deux doivent être égaux."}
             </span>

@@ -213,8 +213,12 @@ public class RecallDeliveryTruthTests
         public JobHarness(Patient patient, Notification due, IEnumerable<Notification> batch)
         {
             _due = due;
-            _notifications.Setup(r => r.GetPendingNotificationsAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            _notifications.Setup(r => r.GetDueForDispatchAsync(
+                    It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(new[] { due });
+            // L3a — the dispatcher reviews parked rows after the batch; none here.
+            _notifications.Setup(r => r.GetBlockedForReviewAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(Array.Empty<Notification>());
             _notifications.Setup(r => r.UpdateAsync(It.IsAny<Notification>(), It.IsAny<CancellationToken>()))
                 .Returns(Task.CompletedTask);
             _notifications.Setup(r => r.GetRecallBatchAsync(patient.Id, SendTime, It.IsAny<CancellationToken>()))
@@ -248,7 +252,10 @@ public class RecallDeliveryTruthTests
                 _notifications.Object, _patients.Object, new Mock<IAppointmentRepository>().Object, uow.Object,
                 probe.Object, settings.Object, config,
                 new IReminderChannelSender[] { new StubSender(_due.Type, result) },
-                Generator.Object, NullLogger<NotificationJob>.Instance);
+                Generator.Object,
+                // I6: the job names itself as the audit actor. Permissive mock — unobserved here.
+                new Mock<IAuditActorProvider>().Object,
+                NullLogger<NotificationJob>.Instance);
         }
     }
 

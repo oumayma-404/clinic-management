@@ -112,6 +112,30 @@
   --hero-glow: oklch(0.60 0.115 185);
   --hero-foreground: oklch(0.99 0.005 190);
 
+  /*
+   * ── Zone hues ─────────────────────────────────────────────────────────────────────────────────────────────
+   *
+   * One colour per area of the app — see `lib/zones.ts` for what they mean and the three places they are allowed
+   * to appear. They exist because the rail's five groups and `PageHeader`'s `zone` prop were both already there
+   * and both rendered grey, so the app's own structure was invisible.
+   *
+   * ⚠️ Every one sits at L 0.46–0.49, the same step as `--primary`, and that is a contrast requirement rather
+   * than a stylistic one. These are used as INK — an 11 px uppercase eyebrow and a 20 px icon on `--card`
+   * (pure white). L 0.52 measures ~4.2:1 against white, under the 4.5:1 floor; L 0.48 measures ~4.8:1. A zone
+   * hue chosen for how it looks in a swatch rather than for its lightness is a legend the reader cannot read.
+   *
+   * `daily` is exactly `--primary`, not a near-miss: the everyday screens ARE the accent's home, and two teals
+   * four hundredths apart is the kind of difference that reads as a mistake rather than as a distinction.
+   *
+   * `config` is near-neutral (chroma 0.02) on purpose. A fifth saturated hue turns the rail into a paint chart,
+   * and settings is the one group whose job is to stay out of the way until wanted.
+   */
+  --zone-daily: oklch(0.49 0.105 188);
+  --zone-clinical: oklch(0.49 0.13 295);
+  --zone-money: oklch(0.48 0.105 68);
+  --zone-ops: oklch(0.48 0.11 155);
+  --zone-config: oklch(0.46 0.02 235);
+
   --chart-1: oklch(0.60 0.12 187);
   --chart-2: oklch(0.58 0.14 240);
   --chart-3: oklch(0.62 0.13 300);
@@ -165,6 +189,17 @@
   --hero-to: oklch(0.295 0.06 197);
   --hero-glow: oklch(0.55 0.10 186);
   --hero-foreground: oklch(0.98 0.005 190);
+
+  /*
+   * Zone hues, lifted for a dark ground. The card sits at L 0.185, and the 4.5:1 floor against it starts at
+   * about L 0.61 — so these are not the light values with a tweak, they are a different step of the same hue.
+   * Chroma comes down slightly as lightness rises, or a saturated pastel on near-black reads as neon.
+   */
+  --zone-daily: oklch(0.74 0.095 188);
+  --zone-clinical: oklch(0.75 0.105 295);
+  --zone-money: oklch(0.78 0.10 75);
+  --zone-ops: oklch(0.74 0.10 155);
+  --zone-config: oklch(0.70 0.018 235);
 
   --chart-1: oklch(0.70 0.115 186);
   --chart-2: oklch(0.66 0.14 245);
@@ -245,6 +280,94 @@
    */
   --bottom-bar-h: 3.5rem;
   --bottom-inset: calc(var(--bottom-bar-h) + env(safe-area-inset-bottom, 0px));
+
+  /*
+   * ── Elevation ─────────────────────────────────────────────────────────────────────────────────────────────
+   *
+   * These REDEFINE Tailwind's stock `shadow-*`, deliberately and with the redefinition risk understood: every
+   * existing `shadow-xs` / `shadow-sm` in the app re-points to these, which is the entire point — there are ~40
+   * of them and none should be pure black.
+   *
+   * Two changes from stock, both structural rather than decorative:
+   *
+   *   • **The shadow is tinted.** Stock Tailwind shadows are `rgb(0 0 0 / …)`. Neutral black over a ground that
+   *     is tinted at hue 215 produces a grey halo that reads as dirt rather than as depth, and it is one of the
+   *     two reasons the app looked washed out (the other, the 1 %-apart ground/card gap, was already fixed).
+   *     Casting the shadow in the SAME hue as the neutrals makes a lifted card look lifted instead of smudged.
+   *
+   *   • **Two layers per step, not one.** A single blur is a glow. Real depth is a tight contact shadow that
+   *     says "this edge touches" plus a wide ambient one that says "this is above" — which is why `shadow-md`
+   *     upward carries both, at different offsets and opacities.
+   *
+   * Opacities stay low (4–12 %). This is a clinical tool read under bright surgery lighting, and heavy shadows
+   * on a white ground are the fastest way to make software look like a 2013 template.
+   *
+   * ⚠️ Dark mode is not given a darker version of these. On a dark ground a shadow is nearly invisible whatever
+   * its opacity, and the palette already carries elevation properly — the ground/card gap is widened to a
+   * 5-point step there for exactly this reason. Adding stronger dark shadows would spend paint on nothing.
+   */
+  --shadow-2xs: 0 1px 2px 0 oklch(0.20 0.02 235 / 0.04);
+  --shadow-xs: 0 1px 2px 0 oklch(0.20 0.02 235 / 0.05);
+  --shadow-sm: 0 1px 2px 0 oklch(0.20 0.02 235 / 0.05), 0 1px 3px 0 oklch(0.20 0.02 235 / 0.04);
+  --shadow-md: 0 2px 4px -1px oklch(0.20 0.02 235 / 0.05), 0 5px 12px -2px oklch(0.20 0.02 235 / 0.07);
+  --shadow-lg: 0 4px 8px -2px oklch(0.20 0.02 235 / 0.06), 0 14px 28px -6px oklch(0.20 0.02 235 / 0.09);
+  --shadow-xl: 0 8px 16px -4px oklch(0.20 0.02 235 / 0.07), 0 28px 56px -12px oklch(0.20 0.02 235 / 0.11);
+  /* `2xl` is redefined too, even though the app should rarely reach it — leaving one step on Tailwind's pure
+     black would put a visibly *greyer* shadow above the tinted ones, i.e. the single most conspicuous place for
+     the inconsistency to show. It is used on the A4 document previews, where the paper metaphor wants depth. */
+  --shadow-2xl: 0 12px 24px -6px oklch(0.20 0.02 235 / 0.08), 0 40px 80px -16px oklch(0.20 0.02 235 / 0.14);
+
+  /*
+   * ── Entrance ──────────────────────────────────────────────────────────────────────────────────────────────
+   *
+   * `animate-rise` — 4 px up and a fade, 220 ms, once per navigation on the page's content wrapper.
+   *
+   * Sized against the rule that decides whether an animation should exist at all: how often will it be seen? A
+   * navigation happens dozens of times a day, which puts this firmly in "drastically reduce" territory — so it
+   * is 220 ms and 4 px, not 400 ms and 16 px. At that size it is not perceived as an animation; it is perceived
+   * as the page having arrived rather than having been swapped, which is the only thing it is for.
+   *
+   * `both` fill: without it the element paints at its natural opacity for one frame before the animation takes
+   * hold, which is a flash — the exact artefact the animation exists to remove.
+   *
+   * ⚠️ Deliberately NOT applied to list rows. Every list here refetches on a peer's SignalR edit, and a row
+   * that re-animates whenever a colleague saves something in another room is a distraction on a clinical
+   * screen. `prefers-reduced-motion` already collapses this to 0.01 ms via the base layer.
+   */
+  --animate-rise: rise 220ms var(--ease-snap) both;
+
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  /*
+   * `animate-page-in` — the shell's own entrance, and the reason it is separate from `rise`.
+   *
+   * ⚠️ It is **opacity-only, on purpose**. `AppShell` puts this on `<main>`, and `<main>` contains
+   * `position: fixed` descendants (the agenda's action bar, the AI launcher). A `transform` on an ancestor
+   * makes that ancestor the containing block for every fixed descendant — so a 4 px `rise` here would drag
+   * those elements 4 px and settle them with a visible jump on every navigation. `opacity` creates a stacking
+   * context but not a containing block, which makes it the only property safe to animate at this level.
+   *
+   * Use `rise` for a self-contained element with no fixed children; use this for a layout region.
+   */
+  --animate-page-in: page-in 200ms var(--ease-snap) both;
+
+  @keyframes page-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
 }
 
 @theme inline {
@@ -277,6 +400,19 @@
   --color-warning-wash: var(--warning-wash);
   --color-warning-ink: var(--warning-ink);
   --color-destructive-wash: var(--destructive-wash);
+  /*
+   * Zone hues as real colour utilities, so `text-zone-money` and `bg-zone-money/12` both exist.
+   *
+   * The wash is deliberately NOT a second token: Tailwind compiles `/12` to
+   * `color-mix(in oklab, var(--color-zone-money) 12%, transparent)`, which tracks the ink automatically. Ten
+   * hand-maintained tokens where five plus an opacity modifier will do is ten chances for a wash to stop
+   * matching its own ink after someone nudges a hue.
+   */
+  --color-zone-daily: var(--zone-daily);
+  --color-zone-clinical: var(--zone-clinical);
+  --color-zone-money: var(--zone-money);
+  --color-zone-ops: var(--zone-ops);
+  --color-zone-config: var(--zone-config);
   --color-hero-foreground: var(--hero-foreground);
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
@@ -333,13 +469,36 @@
    * because that is exactly the table-row-density regression `.touch-target` was written to avoid. A utility
    * class still wins where a component sets its own larger height — this is a floor, not an override.
    */
+  /*
+   * ⚠️ `select` is in this list because a **native** `<select>` matches none of the others and carries no
+   * `touch-target` either — it is not the shadcn `SelectTrigger`, so it fell through both halves of the floor.
+   * Four real controls were left under it, and the worst is the lab-orders stage select rendered inside the
+   * **phone card list** (`h-8`, 32 px): it exists only on a phone, and changing a prosthesis stage is that
+   * page's whole job. A native select is not a void element, so a `min-height` applies to it cleanly.
+   */
   @media (pointer: coarse) {
     input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),
     textarea,
+    select,
     [data-slot="select-trigger"] {
       min-height: 44px;
     }
   }
+
+  /*
+   * ⚠️ A `.lift` hover-elevation utility was written here and then removed before shipping, deliberately —
+   * recording it so it is not re-added on the same reasoning.
+   *
+   * The intent was sound: `ui/card.tsx` had no hover treatment, so every clickable card hand-rolled its own.
+   * But the two surfaces that would have used it turned out not to want it. `/documents`' tiles already chose a
+   * bolder `scale-[1.03]` + ring, commented and deliberate. `KpiCard` sits inside `KpiGrid`, which draws its
+   * hairlines as `gap-px` over a `bg-border` container — translating one cell tears the grid it is part of. And
+   * `CardList` renders only below `md:`, where a `hover: hover` rule emits nothing at all.
+   *
+   * What the audit actually identified was the missing *transition*, not a missing lift, and that now lives on
+   * `Card` itself. An unused utility in a design system is worse than none: the next person reads it as the
+   * house pattern and applies it to the grid cell that cannot take it.
+   */
 
   @media (pointer: coarse) {
     .touch-target {

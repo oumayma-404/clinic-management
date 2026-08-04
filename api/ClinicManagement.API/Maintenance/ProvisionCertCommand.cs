@@ -1,6 +1,7 @@
-using ClinicManagement.Infrastructure.Auth;
+﻿using ClinicManagement.Infrastructure.Auth;
 using ClinicManagement.Infrastructure.Security;
 using Microsoft.Extensions.Logging.Abstractions;
+using ClinicManagement.API.Startup;
 
 namespace ClinicManagement.API.Maintenance;
 
@@ -34,14 +35,7 @@ public static class ProvisionCertCommand
             // `ClinicManagement.API.exe provision-cert` works from any working directory. The cert set
             // likewise resolves against the install directory via LocalInstallPaths (used by the
             // CertificateProvisioner), so the CLI and the web host write/read the same .local/ folder.
-            var configuration = new ConfigurationBuilder()
-                .SetBasePath(AppContext.BaseDirectory)
-                .AddJsonFile("appsettings.json", optional: false)
-                .AddJsonFile(
-                    $"appsettings.{Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Production"}.json",
-                    optional: true)
-                .AddEnvironmentVariables()
-                .Build();
+            var configuration = InstallConfiguration.BuildForConsoleVerb();
 
             if (!LocalAuthConfig.IsLocalMode(configuration))
             {

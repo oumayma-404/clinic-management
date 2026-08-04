@@ -77,36 +77,73 @@ login. No internet, email, or cloud service is involved.
 
 ## Backup & restore (S1 — US-8 / FR-G)
 
-### Backup (in-app)
+### Backup — automatic, and verified (L4)
 
-An administrator runs **Settings → Sauvegarde → "Sauvegarder maintenant"** (Local mode only). This writes,
-into a timestamped `clinic-backup-<yyyyMMdd-HHmmss>` subfolder of the chosen destination:
+**Automatic, every day.** A recurring job backs the clinic up without anyone pressing anything. The schedule
+lives on the clinic, not in this file — **Paramètres → Sauvegarde**: on/off, the hour (clinic-local, default
+**02:00**), how many copies to keep (default **7**) and after how long without a success the admins are told
+(default **48 h**). The job runs **hourly** and asks each clinic whether it is due, which is what also covers a
+clinic PC that is switched off overnight: a fixed 02:00 cron on such a machine never runs at all.
+
+**Manual, any time.** An administrator can still run **Paramètres → Sauvegarde → « Sauvegarder maintenant »**.
+
+Either way, into a timestamped `clinic-backup-<yyyyMMdd-HHmmss>` subfolder of the destination:
 
 - `database.dump` — a PostgreSQL custom-format dump (via the bundled `pg_dump.exe`), and
 - `files/` — a recursive copy of the file-storage folder.
 
-The app reports the exact destination path and size on success, or a clear reason on failure (unwritable
-destination, insufficient disk space, `pg_dump` missing) — never silently (AC-8.2/8.3).
+Three things are new and worth knowing:
 
-### Restore (manual — FR-G3 / AC-8.4)
+- **The dump is verified readable before the backup is called a success.** `pg_dump` exiting 0 is not proof, and
+  the old implementation only measured the folder's size — a truncated or zero-byte dump has a size too. The
+  service now runs `pg_restore --list` on the output and requires a non-empty table of contents; the **object
+  count** is recorded, because « 3 objets » where the schema has thirty-eight tables is a detectable disaster.
+  A failed verification is a **failed backup**: the partial folder is deleted.
+- **There is a real default destination.** `<install>\api\Backups`, created by the installer and written into
+  `appsettings.Install.json`. Leaving the destination field blank in the app now works, which is what the screen
+  had always said. ⚠️ The app **warns prominently** when the destination is on the same volume as the live data —
+  which the default necessarily is. Point it at an external disk or a network share.
+- **Every attempt is recorded**, success or failure, and **Paramètres → Sauvegarde** leads with
+  « Dernière sauvegarde réussie ». Past the staleness threshold the admins get an in-app notification. A week of
+  nightly failures therefore reads as « it is trying and failing », not as « nobody has backed up » — two
+  entirely different conversations. `GET /api/backup/history` serves the same rows (admin-only, paged).
 
-There is **no in-app restore**. To restore a backup onto a server PC:
+**Retention.** After a successful run, folders beyond the clinic's retention count are pruned **oldest first**.
+It matches only `clinic-backup-*` names (your own folders in the same destination are not its business) and
+**never deletes the last surviving backup**, whatever the count says.
 
-1. **Stop the Clinic Management API service** (so nothing writes while restoring).
-2. **Restore the database** with `pg_restore` (bundled with PostgreSQL). Custom-format dumps support
-   `--clean --if-exists` to drop and recreate objects:
-   ```powershell
-   $env:PGPASSWORD = "<clinic_user password>"
-   & "<postgres>\bin\pg_restore.exe" `
-       --host localhost --port 5432 --username clinic_user `
-       --dbname clinic_management --clean --if-exists `
-       "<backup-folder>\clinic-backup-YYYYMMDD-HHMMSS\database.dump"
-   ```
-   (If the database was dropped entirely, create an empty `clinic_management` owned by `clinic_user`
-   first, then run `pg_restore` without `--clean`.)
-3. **Restore the files**: copy the contents of `<backup-folder>\...\files\` back into the file-storage
-   base folder (`FileStorage:BasePath`, under the install directory), overwriting existing files.
-4. **Start the Clinic Management API service.**
+**Before a migration.** An upgrade that carries a schema change now takes a backup **first** and **aborts the
+migration if that backup fails**, with a French message on the console, in the log and in the Event Log. The
+last migration is lossy by design with an empty `Down()`, so « rollback means restoring this backup » — a
+sentence that used to be true only if such a backup happened to exist.
+
+### Restore (`restore-backup`)
+
+There **is** a restore now, as a console verb — the same family as `reset-admin-password`, `reconcile-money`
+and `verify-schema`. It is not an in-app button on purpose: a restore drops and recreates every table the
+application is holding open, so an endpoint inside the app being replaced is the wrong shape.
+
+```powershell
+sc stop ClinicManagementApi
+& "<install>\api\ClinicManagement.API.exe" restore-backup "<backup-folder>\clinic-backup-YYYYMMDD-HHMMSS"
+sc start ClinicManagementApi
+```
+
+**Paramètres → Sauvegarde** prints that command with the resolved folder already filled in.
+
+What it does, in this order — every refusal happens **before** anything is destroyed:
+
+1. Validates the folder: `database.dump` present, non-empty, and readable by `pg_restore --list`.
+2. **Refuses if the application is still running** (it checks the app's own ports), naming the service to stop.
+3. **Takes a safety dump of the current state** into `clinic-pre-restore-<timestamp>` — deliberately *not* a
+   `clinic-backup-*` name, so retention can never prune it. If that dump fails, **the restore is abandoned**.
+4. `pg_restore --clean --if-exists --no-owner` into the configured database.
+5. Copies `files/` back. **Refuses** if the live file folder is not empty, unless you pass `--force`.
+6. **Invalidates every live session** (bumps each user's token version), so nobody keeps operating on a token
+   minted against the newer state. Everyone logs in again.
+7. Prints a French summary and the next steps. Exit code **0** restored, **1** refused or failed.
+
+Credentials come from the install's own configuration — no password is typed or prompted for.
 
 Restore over a quiet system for a consistent result.
 

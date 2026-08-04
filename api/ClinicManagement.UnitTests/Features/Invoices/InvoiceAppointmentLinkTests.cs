@@ -33,6 +33,12 @@ public class InvoiceAppointmentLinkTests
     private readonly Mock<IAppointmentRepository> _appointments = new();
     private readonly Mock<ICurrentClinicResolver> _clinicResolver = new();
     private readonly Mock<IUnitOfWork> _uow = new();
+    // L9 — the attribution dependencies. Deliberately arranged to reproduce this test's ORIGINAL behaviour: an
+    // empty roster and no caller doctor means `PractitionerAttribution.Resolve` finds no candidate and the
+    // aggregate stays unattributed, exactly as it was before the column existed. Attribution itself is covered by
+    // its own tests, not by re-purposing these.
+    private readonly Mock<IDoctorRepository> _doctors = new();
+    private readonly Mock<IClinicContext> _clinicContext = new();
 
     private static Patient NewPatient(Guid id, Guid clinicId) =>
         new(id, clinicId, "Amal", "Ben Salah", new DateTime(1990, 4, 3), "Femme");
@@ -43,11 +49,15 @@ public class InvoiceAppointmentLinkTests
             duration: TimeSpan.FromMinutes(30), doctorName: "Dr Test", notes: null);
 
     private CreateInvoiceCommandHandler CreateHandler() => new(
-        _invoices.Object, _patients.Object, _appointments.Object, _clinicResolver.Object, _uow.Object,
+        _invoices.Object, _patients.Object, _appointments.Object, _doctors.Object, _clinicContext.Object,
+        _clinicResolver.Object, _uow.Object,
         NullLogger<CreateInvoiceCommandHandler>.Instance);
 
     private void ArrangeClinicAndPatient()
     {
+        _doctors.Setup(r => r.GetByClinicIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<Doctor>());
+        _clinicContext.Setup(c => c.GetUserId()).Returns((string?)null);
         _clinicResolver.Setup(r => r.GetClinicIdAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(Result<Guid>.Success(ClinicId));
         _patients.Setup(r => r.GetByIdAsync(PatientId, It.IsAny<CancellationToken>()))

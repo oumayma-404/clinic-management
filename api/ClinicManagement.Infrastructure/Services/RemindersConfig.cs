@@ -31,6 +31,24 @@ public static class RemindersConfig
     /// table stops growing forever — nothing has ever purged it.
     /// </summary>
     private const int DefaultRetentionDays = 90;
+
+    /// <summary>
+    /// How many due rows a <b>single clinic</b> may contribute to one dispatch tick (L3a). The scan had no
+    /// clinic dimension, so on a shared install the practice with the oldest backlog owned every tick and
+    /// nobody else's reminders ever went out. 20 against a batch of 50 means no clinic can take more than
+    /// 40 % of a tick, while a single-clinic install is unaffected (that path is a flat batch).
+    /// </summary>
+    private const int DefaultPerClinicDispatchBound = 20;
+
+    /// <summary>
+    /// Clinic-local quiet hours: no reminder is sent from <see cref="DefaultQuietHoursStartLocal"/>:00 until
+    /// <see cref="DefaultQuietHoursEndLocal"/>:00. Without this floor the tiered send-time calculation happily
+    /// resolved to 02:00 for an 08:00 appointment booked ~22 h ahead — a message that wakes the patient is worse
+    /// than no message, and it is the fastest way to have a channel blocked at the handset.
+    /// </summary>
+    private const int DefaultQuietHoursStartLocal = 21;
+    private const int DefaultQuietHoursEndLocal = 8;
+
     private const string DefaultWhatsAppTemplateLanguage = "fr";
 
     private const string SmsChannel = "Sms";
@@ -85,6 +103,26 @@ public static class RemindersConfig
     /// <summary>Retention window for terminal rows (AC-P4.33). A non-positive override falls back.</summary>
     public static int RetentionDays(IConfiguration configuration) =>
         Positive(configuration.GetValue<int?>("Reminders:RetentionDays"), DefaultRetentionDays);
+
+    /// <summary>Per-clinic share of one dispatch tick (L3a). A non-positive override falls back.</summary>
+    public static int PerClinicDispatchBound(IConfiguration configuration) =>
+        Positive(configuration.GetValue<int?>("Reminders:PerClinicDispatchBound"), DefaultPerClinicDispatchBound);
+
+    /// <summary>
+    /// The clinic-local quiet window as <c>(startHour, endHour)</c> — no sends at or after <c>start</c>, none
+    /// before <c>end</c>. Equal values disable the floor entirely (« pas d'heures calmes »), which is the only
+    /// way to turn it off; out-of-range values fall back rather than being clamped into a different window than
+    /// the operator asked for.
+    /// </summary>
+    public static (int StartHour, int EndHour) QuietHoursLocal(IConfiguration configuration)
+    {
+        var start = Hour(configuration.GetValue<int?>("Reminders:QuietHoursStartLocal"), DefaultQuietHoursStartLocal);
+        var end = Hour(configuration.GetValue<int?>("Reminders:QuietHoursEndLocal"), DefaultQuietHoursEndLocal);
+        return (start, end);
+    }
+
+    private static int Hour(int? configured, int fallback) =>
+        configured is >= 0 and <= 23 ? configured.Value : fallback;
 
     /// <summary>
     /// A zero or negative override would silently disable the feature (a zero batch dispatches nothing; a zero

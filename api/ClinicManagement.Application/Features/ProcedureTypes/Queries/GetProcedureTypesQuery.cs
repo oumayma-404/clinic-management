@@ -19,6 +19,16 @@ public class GetProcedureTypesQuery : IRequest<Result<PagedResult<ProcedureTypeD
 
     /// <summary>Free-text filter, matched in SQL across the whole clinic — never only the requested page.</summary>
     public string? SearchTerm { get; set; }
+
+    /// <summary>
+    /// Narrow to one clinical discipline. Null / blank = every category, including unfiled acts.
+    /// <para>
+    /// Matched on the canonical spelling, and an <b>unknown</b> category is deliberately not an error: it simply
+    /// matches nothing, the same way the lab-order stage filter ignores a value it does not recognise. A stale
+    /// bookmark should show « aucun résultat », not a French failure.
+    /// </para>
+    /// </summary>
+    public string? Category { get; set; }
 }
 
 public class GetProcedureTypesQueryHandler : IRequestHandler<GetProcedureTypesQuery, Result<PagedResult<ProcedureTypeDto>>>
@@ -56,6 +66,7 @@ public class GetProcedureTypesQueryHandler : IRequestHandler<GetProcedureTypesQu
                 clinicId,
                 request.IncludeInactive,
                 request.SearchTerm,
+                request.Category,
                 PageRequest.From(request.Page, request.PageSize),
                 cancellationToken);
 

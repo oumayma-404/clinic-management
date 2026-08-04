@@ -62,9 +62,6 @@ public class FamilyHistoryEntryDto
 
 public class CreatePatientCommandHandler : IRequestHandler<CreatePatientCommand, Result<PatientDto>>
 {
-    // Description stamped on the flag created by the "Signaler ce patient" toggle.
-    private const string SignaledFlagDescription = "Patient signalé";
-
     private readonly IPatientRepository _patientRepository;
     private readonly IUserRepository _userRepository;
     private readonly IClinicContext _clinicContext;
@@ -102,112 +99,17 @@ public class CreatePatientCommandHandler : IRequestHandler<CreatePatientCommand,
 
             var clinicId = user.ClinicId;
 
-            // AC-5: a provided phone must be a deliverable Tunisian number (the same rule the reminder engine
-            // uses), else reject at entry so it never silently fails at dispatch. An empty phone is allowed —
-            // the patient simply can't receive reminders, and the form says so.
-            if (!string.IsNullOrWhiteSpace(request.PhoneNumber) && !PhoneNumber.IsDeliverable(request.PhoneNumber))
+            // Every validation and every field of a new patient — the phone rule, the blank-means-blank contact
+            // handling, the all-four-parts address, the dentition fallback, the flag. It lives in
+            // `PatientFromRequest` rather than here so the CSV import (L5) runs the identical rules without going
+            // through MediatR per row; see that file for why sending the command 3 000 times was not an option.
+            var built = PatientFromRequest.Build(request, clinicId);
+            if (built.IsFailure)
             {
-                return Result<PatientDto>.Failure(
-                    "Numéro de téléphone invalide. Utilisez un numéro tunisien à 8 chiffres (ou +216…).");
+                return Result<PatientDto>.FailureFrom(built);
             }
 
-            // Blank means blank. This used to manufacture noemail@example.com and a ten-zero phone so the
-            // NOT NULL columns would accept the row — which made "we have no way to reach this patient"
-            // indistinguishable from "we have their details", and put an address on file that would silently
-            // absorb any mail sent to it.
-            var email = string.IsNullOrWhiteSpace(request.Email) ? null : new Email(request.Email);
-            var phoneNumber = string.IsNullOrWhiteSpace(request.PhoneNumber)
-                ? null
-                : new PhoneNumber(request.PhoneNumber);
-
-            // Convert AddressDto to Address value object if provided and valid
-            Address? address = null;
-            if (request.Address != null && 
-                !string.IsNullOrWhiteSpace(request.Address.Street) &&
-                !string.IsNullOrWhiteSpace(request.Address.City) &&
-                !string.IsNullOrWhiteSpace(request.Address.State) &&
-                !string.IsNullOrWhiteSpace(request.Address.ZipCode))
-            {
-                address = new Address(
-                    request.Address.Street,
-                    request.Address.City,
-                    request.Address.State,
-                    request.Address.ZipCode,
-                    request.Address.Country);
-            }
-
-            // Convert InsuranceInfoDto to InsuranceInfo value object if provided and valid
-            InsuranceInfo? insuranceInfo = null;
-            if (request.InsuranceInfo != null &&
-                !string.IsNullOrWhiteSpace(request.InsuranceInfo.Provider) &&
-                !string.IsNullOrWhiteSpace(request.InsuranceInfo.PolicyNumber))
-            {
-                insuranceInfo = new InsuranceInfo(
-                    request.InsuranceInfo.Provider,
-                    request.InsuranceInfo.PolicyNumber,
-                    request.InsuranceInfo.GroupNumber,
-                    request.InsuranceInfo.ExpiryDate);
-            }
-
-            // Provide defaults for required fields if not provided
-            var dateOfBirth = request.DateOfBirth == default(DateTime) 
-                ? DateTime.UtcNow.AddYears(-30) // Default to 30 years ago if not provided
-                : request.DateOfBirth;
-            var gender = string.IsNullOrWhiteSpace(request.Gender) 
-                ? "Unknown" 
-                : request.Gender;
-
-            var patient = new Patient(
-                Guid.NewGuid(),
-                clinicId,
-                request.FirstName,
-                request.LastName,
-                dateOfBirth,
-                gender,
-                email,
-                phoneNumber,
-                address,
-                insuranceInfo);
-
-            // Set medical history and allergies after creation
-            if (!string.IsNullOrWhiteSpace(request.MedicalHistory) || !string.IsNullOrWhiteSpace(request.Allergies))
-            {
-                patient.UpdateMedicalHistory(request.MedicalHistory, request.Allergies);
-            }
-
-            // Optional CNAM identity (ToDomain returns null for an omitted/empty block).
-            patient.UpdateCnamInfo(request.CnamInfo.ToDomain());
-
-            // Optional emergency contact (finding #11): name + a Tunisian phone. An empty block clears both.
-            if (!string.IsNullOrWhiteSpace(request.EmergencyContactName) || !string.IsNullOrWhiteSpace(request.EmergencyContactPhone))
-            {
-                var emergencyPhone = string.IsNullOrWhiteSpace(request.EmergencyContactPhone)
-                    ? null
-                    : new PhoneNumber(request.EmergencyContactPhone);
-                patient.UpdateEmergencyContact(
-                    string.IsNullOrWhiteSpace(request.EmergencyContactName) ? null : request.EmergencyContactName.Trim(),
-                    emergencyPhone);
-            }
-
-            // Dentition: what the form chose, else what this patient's age implies. Applied after construction so
-            // the age fallback reads the SAME date of birth the entity was built with (defaults included) rather
-            // than the raw request, which may have been empty.
-            patient.SetDentition(
-                DentitionRules.Parse(request.Dentition) ?? DentitionRules.FromDateOfBirth(patient.DateOfBirth));
-
-            // Optional « adressé par » — blank/omitted leaves it null (the patient came on their own).
-            patient.SetReferredBy(request.ReferredBy);
-
-            // Optional patient-level notes — UpdateNotes normalizes blank to null, so an untouched section
-            // stores nothing rather than two empty strings.
-            patient.UpdateNotes(request.Notes, request.ImportantNotes);
-
-            // Optional "Signaler ce patient" flag at creation.
-            if (request.IsFlagged == true)
-            {
-                patient.AddFlag(new PatientFlag(
-                    Guid.NewGuid(), patient.Id, PatientFlagType.HighPriority, SignaledFlagDescription, request.FlagNotes));
-            }
+            var patient = built.Value!;
 
             await _patientRepository.AddAsync(patient, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);

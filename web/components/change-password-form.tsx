@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { FormErrorBanner } from '@/components/ui/form-error-banner'
 
 // Minimum password length policy (FR-B2), matching the backend.
 const MIN_PASSWORD_LENGTH = 8
@@ -74,11 +75,11 @@ export function ChangePasswordForm({ forced }: ChangePasswordFormProps) {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
-            {error && (
-              <div className="rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
-                {error}
-              </div>
-            )}
+            {/* The shared banner rather than a hand-rolled div: it already renders on `--destructive-wash`
+                and carries `role="alert"` + `aria-live`, which a failed password change — the one thing
+                standing between the user and the app — has to announce. */}
+            <FormErrorBanner message={error} />
+
             <div className="space-y-2">
               <Label htmlFor="current-password">
                 {forced ? 'Mot de passe temporaire' : 'Mot de passe actuel'}

@@ -113,6 +113,49 @@ public class User : AggregateRoot<string> // Using Auth0 sub as ID (Cloud) or "l
     }
 
     /// <summary>
+    /// Factory for a <b>self-registered</b> Local account — someone who typed the clinic code into
+    /// <c>POST /api/auth/register</c>. Identical to <see cref="CreateLocalUser"/> except that the account is
+    /// created <b>inactive</b>, so it exists but cannot log in until an admin activates it from « Utilisateurs ».
+    ///
+    /// <para><b>Why a separate factory and not an <c>isActive: false</c> argument.</b> The two paths that mint a
+    /// local account are first-run <c>setup</c> (the owner, who must be able to log in immediately — a pending
+    /// first admin would lock the clinic out of itself before it had anyone to approve them) and this one. A
+    /// defaulted boolean would put the security-relevant difference in a parameter a caller can omit; a named
+    /// factory puts it in the call site's own text.</para>
+    ///
+    /// <para><b>Why this was needed.</b> The clinic code is a <b>6-character</b> secret over a 36-symbol
+    /// alphabet, shown on a settings screen and known to everyone who ever worked at the practice — and it was
+    /// the <em>only</em> thing between a stranger and a working account that reads every patient record.
+    /// Rotating the code (which the product supports) does not retract an account already minted with it.
+    /// Approval is the missing step: the code decides which clinic you are asking to join, an admin decides
+    /// whether you join it.</para>
+    /// </summary>
+    public static User CreateSelfRegistered(
+        Guid clinicId,
+        string role,
+        string email,
+        string passwordHash,
+        string fullName)
+    {
+        var user = CreateLocalUser(clinicId, role, email, passwordHash, fullName);
+        user.IsActive = false;
+        return user;
+    }
+
+    /// <summary>
+    /// True when this account has never been able to log in — it is <b>awaiting an admin's approval</b> rather
+    /// than having been switched off. Read by « Utilisateurs » so the badge can say « En attente d'activation »
+    /// instead of « Désactivé », and to count how many people are waiting.
+    ///
+    /// <para>Derived rather than stored, so I5 needs no column on this table: an account that is inactive
+    /// <em>and</em> has never recorded a login is, by construction, one nobody has let in yet. A staff member
+    /// who has logged in before and is now inactive was deactivated on purpose, and reads as such. The one
+    /// blurred case — an admin deactivating an account before its owner's first login — resolves in the honest
+    /// direction: it still cannot log in, and « Activer » is still the button that fixes it.</para>
+    /// </summary>
+    public bool IsPendingActivation => !IsActive && LastLoginAt == null;
+
+    /// <summary>
     /// Move this account to another clinic role.
     /// <para>
     /// Replaces the former <c>Update(string role, string? email = null, string? fullName = null)</c>, which had

@@ -42,9 +42,11 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { Plus, Repeat, Loader2 } from "lucide-react"
+import { AlertTriangle, Plus, Repeat } from "lucide-react"
+import { EmptyState } from "@/components/ui/empty-state"
 import { appointmentsApi, type CreateRecurringSeriesPayload } from "@/lib/api/appointments"
 import { patientsApi } from "@/lib/api/patients"
+import { useDoctors } from "@/lib/hooks/use-doctors"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
 import { ApiError } from "@/lib/api/client"
 import type { PatientDto, ProcedureTypeDto, RecurringAppointmentDto } from "@/lib/api/types"
@@ -83,6 +85,11 @@ const formatEnd = (s: RecurringAppointmentDto): string => {
   return "—"
 }
 
+/** Column widths the loading skeleton mirrors, in the table's own order (8 columns). */
+const SERIES_COLUMN_WIDTHS = [
+  "w-[20%]", "w-[14%]", "w-[9%]", "w-[15%]", "w-[15%]", "w-[10%]", "w-[8%]", "w-[9%]",
+] as const
+
 const intervalLabel = (pattern: string, interval: number): string => {
   if (interval <= 1) return frequencyLabel(pattern)
   const unit =
@@ -103,6 +110,18 @@ interface NewSeriesDialogProps {
 }
 
 function NewSeriesDialog({ open, onOpenChange, patients, procedureTypes, onCreated }: NewSeriesDialogProps) {
+  /*
+   * The practitioner, and it is **required** — exactly as it is in the single-appointment dialog.
+   *
+   * ⚠️ This field did not exist, and its absence was a blocker rather than an omission. `doctorId` was therefore
+   * always null in the payload, and both of the server's collision branches were gated on `DoctorId.HasValue`, so a
+   * twelve-week series booked straight over twelve existing patients and reported a clean run. The database could
+   * not catch it either: the exclusion constraint is predicated on `DoctorId IS NOT NULL`. L2b fixed the server so a
+   * series with no practitioner is checked clinic-wide, but a *recurring* booking with no named dentist is not a
+   * thing a clinic means — it is what a « créneau occupé » block is for — so this asks.
+   */
+  const { doctors } = useDoctors()
+  const [doctorId, setDoctorId] = useState("")
   const [patientId, setPatientId] = useState("")
   const [startDateTime, setStartDateTime] = useState("")
   const [durationMinutes, setDurationMinutes] = useState("30")
@@ -138,6 +157,7 @@ function NewSeriesDialog({ open, onOpenChange, patients, procedureTypes, onCreat
   // Reset the form whenever the dialog is (re)opened.
   useEffect(() => {
     if (!open) return
+    setDoctorId("")
     setPatientId("")
     setStartDateTime("")
     setDurationMinutes("30")
@@ -154,6 +174,9 @@ function NewSeriesDialog({ open, onOpenChange, patients, procedureTypes, onCreat
   const validate = (): boolean => {
     const next: Record<string, string> = {}
     if (!patientId) next.patientId = "Sélectionnez un patient"
+    // Required, for the reason stated on `doctorId` above: a series is the writer that books the most slots, so it
+    // is the last one that should be exempt from the double-booking check.
+    if (!doctorId) next.doctorId = "Sélectionnez un praticien"
     if (!startDateTime) next.startDateTime = "La date de début est requise"
     if (durationMinutes === "" || Number(durationMinutes) <= 0) next.durationMinutes = "Durée invalide"
     if (interval === "" || Number(interval) < 1) next.interval = "L'intervalle doit être au moins 1"
@@ -165,12 +188,19 @@ function NewSeriesDialog({ open, onOpenChange, patients, procedureTypes, onCreat
     return Object.keys(next).length === 0
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!validate()) return
-
+  /**
+   * Create the series. `allowOverlap` is the confirmed override for the colliding occurrences the outcome panel
+   * has just listed — a second run that books them anyway rather than skipping them.
+   *
+   * ⚠️ `allowOverlap` was declared on `CreateRecurringSeriesPayload` with **no counterpart on the command**, so it
+   * had always been dropped on the floor; L2b wired the server side, and this is its caller. A flag with no caller
+   * is the failure `Clinic.SetStockExpiryLeadDays` is remembered for, and shipping the wiring without the button
+   * would have repeated it.
+   */
+  const submit = async (allowOverlap: boolean) => {
     const payload: CreateRecurringSeriesPayload = {
       patientId,
+      doctorId,
       startDateTime: new Date(startDateTime).toISOString(),
       durationMinutes: Number(durationMinutes),
       frequency,
@@ -179,6 +209,7 @@ function NewSeriesDialog({ open, onOpenChange, patients, procedureTypes, onCreat
       occurrenceCount: endMode === "count" && occurrenceCount !== "" ? Number(occurrenceCount) : null,
       procedureTypeId: procedureTypeId !== NO_PROCEDURE ? procedureTypeId : null,
       notes: notes.trim() || null,
+      allowOverlap: allowOverlap || undefined,
     }
 
     try {
@@ -186,6 +217,14 @@ function NewSeriesDialog({ open, onOpenChange, patients, procedureTypes, onCreat
       const result = await appointmentsApi.createRecurring(payload)
       toast.success(`${result.createdCount} rendez-vous créés`)
       onCreated()
+
+      // On a forced re-run the conflicts were created rather than skipped, so listing them again would offer
+      // « Replanifier » for visits that now exist. Close instead — the toast already says how many were booked.
+      if (allowOverlap) {
+        setOutcome(null)
+        onOpenChange(false)
+        return
+      }
 
       // AC-P1.36/1.37: the skipped dates used to be reduced to a COUNT in a toast, and the dialog closed
       // immediately — so the one piece of information the dentist needs (which dates did not get booked) was
@@ -207,6 +246,12 @@ function NewSeriesDialog({ open, onOpenChange, patients, procedureTypes, onCreat
     } finally {
       setSaving(false)
     }
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!validate()) return
+    await submit(false)
   }
 
   return (
@@ -235,7 +280,7 @@ function NewSeriesDialog({ open, onOpenChange, patients, procedureTypes, onCreat
             {outcome.conflicts.length > 0 && (
               <div className="space-y-2">
                 <p className="text-sm font-medium">
-                  {outcome.conflicts.length} créneau(x) déjà réservé(s) pour ce praticien :
+                  {outcome.conflicts.length} créneau(x) déjà réservé(s) :
                 </p>
                 <ul className="space-y-1">
                   {outcome.conflicts.map((iso) => (
@@ -268,7 +313,15 @@ function NewSeriesDialog({ open, onOpenChange, patients, procedureTypes, onCreat
               </div>
             )}
 
-            <DialogFooter>
+            <DialogFooter className="gap-2 sm:gap-2">
+              {/* The confirmed override, offered only where there is something to override. « Replanifier » above
+                  remains the recommended remedy — this is the second chair / the emergency squeezed in, and the
+                  server records each such row as a deliberate overlap rather than an accident. */}
+              {outcome.conflicts.length > 0 && (
+                <Button type="button" variant="outline" disabled={saving} onClick={() => void submit(true)}>
+                  Créer malgré {outcome.conflicts.length} conflit{outcome.conflicts.length > 1 ? "s" : ""}
+                </Button>
+              )}
               <Button type="button" onClick={() => { setOutcome(null); onOpenChange(false) }}>
                 Terminé
               </Button>
@@ -281,7 +334,7 @@ function NewSeriesDialog({ open, onOpenChange, patients, procedureTypes, onCreat
               Patient <span className="text-destructive">*</span>
             </Label>
             <Select value={patientId} onValueChange={setPatientId}>
-              <SelectTrigger id="patient">
+              <SelectTrigger id="patient" className="w-full">
                 <SelectValue placeholder="Sélectionner un patient" />
               </SelectTrigger>
               <SelectContent>
@@ -293,6 +346,32 @@ function NewSeriesDialog({ open, onOpenChange, patients, procedureTypes, onCreat
               </SelectContent>
             </Select>
             {errors.patientId && <p className="text-xs text-destructive">{errors.patientId}</p>}
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="doctor">
+              Praticien <span className="text-destructive">*</span>
+            </Label>
+            <Select value={doctorId} onValueChange={setDoctorId}>
+              <SelectTrigger id="doctor" className="w-full">
+                <SelectValue placeholder="Sélectionner un praticien" />
+              </SelectTrigger>
+              <SelectContent>
+                {doctors
+                  .filter((d) => d.id)
+                  .map((d) => (
+                    <SelectItem key={d.id} value={d.id!}>
+                      {d.name}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+            {/* Says why it is required, because « pourquoi dois-je choisir ? » is a fair question on a field that
+                did not exist yesterday — and the answer is the whole point of L2b. */}
+            <p className="text-xs text-muted-foreground">
+              Requis : c&apos;est ce qui permet de détecter les créneaux déjà réservés.
+            </p>
+            {errors.doctorId && <p className="text-xs text-destructive">{errors.doctorId}</p>}
           </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -331,7 +410,7 @@ function NewSeriesDialog({ open, onOpenChange, patients, procedureTypes, onCreat
                 Fréquence <span className="text-destructive">*</span>
               </Label>
               <Select value={frequency} onValueChange={setFrequency}>
-                <SelectTrigger id="frequency">
+                <SelectTrigger id="frequency" className="w-full">
                   <SelectValue placeholder="Fréquence" />
                 </SelectTrigger>
                 <SelectContent>
@@ -364,7 +443,7 @@ function NewSeriesDialog({ open, onOpenChange, patients, procedureTypes, onCreat
           <div className="space-y-2">
             <Label htmlFor="endMode">Fin de la série</Label>
             <Select value={endMode} onValueChange={(v) => setEndMode(v as EndMode)}>
-              <SelectTrigger id="endMode">
+              <SelectTrigger id="endMode" className="w-full">
                 <SelectValue placeholder="Type de fin" />
               </SelectTrigger>
               <SelectContent>
@@ -396,7 +475,7 @@ function NewSeriesDialog({ open, onOpenChange, patients, procedureTypes, onCreat
           <div className="space-y-2">
             <Label htmlFor="procedureType">Type d'acte</Label>
             <Select value={procedureTypeId} onValueChange={setProcedureTypeId}>
-              <SelectTrigger id="procedureType">
+              <SelectTrigger id="procedureType" className="w-full">
                 <SelectValue placeholder="Optionnel" />
               </SelectTrigger>
               <SelectContent>
@@ -530,6 +609,33 @@ export default function RecurringSeriesPage() {
     setCancelOpen(true)
   }
 
+  /**
+   * The two empty facts kept apart. The filtered branch stays a short line plus a way back — offering
+   * « Nouvelle série » there would invite a duplicate of a series the search simply failed to match.
+   */
+  const renderEmpty = (size: "default" | "compact") =>
+    debouncedSearch !== "" ? (
+      <div className="flex flex-col items-center gap-2 py-2">
+        <p className="text-sm text-muted-foreground">Aucune série ne correspond à votre recherche</p>
+        <Button variant="outline" size="sm" onClick={() => setSearch("")}>
+          Effacer la recherche
+        </Button>
+      </div>
+    ) : (
+      <EmptyState
+        icon={Repeat}
+        size={size}
+        title="Aucune série récurrente"
+        description="Pour un suivi qui revient à intervalle fixe — contrôle orthodontique, détartrage semestriel — créez la série une fois et l'application place tous les rendez-vous."
+        action={
+          <Button onClick={() => setDialogOpen(true)} className="gap-2">
+            <Plus className="h-4 w-4" />
+            Nouvelle série
+          </Button>
+        }
+      />
+    )
+
   const confirmCancel = async () => {
     if (!cancelTarget) return
     try {
@@ -549,10 +655,13 @@ export default function RecurringSeriesPage() {
   return (
     <ClinicGuard>
       <AppShell contentClassName="space-y-6">
-        {/* Page Header */}
-        <div className="flex items-center justify-between">
+        {/*
+          The row could not wrap against a ~180px button on a 390px screen. No `zone` either: `PageHeader`
+          derives it from the route (`/recurring-series` is « Quotidien »), and « Clinique » here contradicted
+          the rail.
+        */}
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <PageHeader
-            zone="Clinique"
             title="Rendez-vous récurrents"
             subtitle="Séries de rendez-vous répétés — planification et annulation."
           />
@@ -574,14 +683,21 @@ export default function RecurringSeriesPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {loading ? (
-              <div className="flex items-center justify-center py-12 text-muted-foreground">
-                <Loader2 className="h-5 w-5 animate-spin" />
+            {/* Retry banner (finding #2) + `loading` routed into the list rather than a lone spinner the full
+                table then replaces (finding #3). Shape from `dashboard/dashboard-section.tsx`. */}
+            {error ? (
+              <div
+                role="status"
+                className="flex flex-wrap items-center gap-3 rounded-lg border border-destructive/40 bg-destructive-wash p-3 text-sm"
+              >
+                <AlertTriangle className="h-4 w-4 shrink-0 text-destructive" aria-hidden="true" />
+                <span className="min-w-0 flex-1">{error}</span>
+                <Button size="sm" variant="outline" onClick={loadSeries}>
+                  Réessayer
+                </Button>
               </div>
-            ) : error ? (
-              <p className="py-12 text-center text-sm text-destructive">{error}</p>
             ) : (
-              <div className="overflow-x-auto">
+              <div>
                 <div className="mb-4">
                   <Label htmlFor="series-search" className="sr-only">
                     Rechercher une série
@@ -593,18 +709,12 @@ export default function RecurringSeriesPage() {
                     placeholder="Rechercher une série (patient, praticien, notes)…"
                   />
                 </div>
-                {series.length === 0 ? (
-                  <p className="py-12 text-center text-muted-foreground">
-                    {debouncedSearch
-                      ? "Aucune série ne correspond à votre recherche"
-                      : "Aucune série récurrente"}
-                  </p>
-                ) : (
-                <>
                 <CardList
                   className={CARDS_ONLY}
                   ariaLabel="Séries de rendez-vous récurrents"
                   items={series}
+                  loading={loading}
+                  empty={renderEmpty("compact")}
                   getKey={(s) => s.id}
                   title={(s) => s.patientName ?? "Patient inconnu"}
                   subtitle={(s) => frequencyLabel(s.recurrencePattern)}
@@ -645,7 +755,26 @@ export default function RecurringSeriesPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {series.map((s) => (
+                    {loading ? (
+                      Array.from({ length: 5 }).map((_, row) => (
+                        <TableRow key={`skeleton-${row}`}>
+                          {SERIES_COLUMN_WIDTHS.map((width, col) => (
+                            <TableCell key={col}>
+                              <div
+                                className={`h-5 animate-pulse rounded bg-muted ${width}`}
+                                role={row === 0 && col === 0 ? "status" : undefined}
+                                aria-label={row === 0 && col === 0 ? "Chargement des séries" : undefined}
+                              />
+                            </TableCell>
+                          ))}
+                        </TableRow>
+                      ))
+                    ) : series.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={8}>{renderEmpty("default")}</TableCell>
+                      </TableRow>
+                    ) : (
+                    series.map((s) => (
                       <TableRow key={s.id}>
                         <TableCell className="font-medium text-foreground">
                           {s.patientName ?? "—"}
@@ -672,18 +801,21 @@ export default function RecurringSeriesPage() {
                           </Button>
                         </TableCell>
                       </TableRow>
-                    ))}
+                    ))
+                    )}
                   </TableBody>
                 </Table>
-                </>
+                {/* Hidden while the skeletons are up: the pager reads its counts from an empty page, so it
+                    would print « Aucun … » under rows that are still loading. */}
+                {!loading && (
+                  <DataTablePagination
+                    page={seriesPage}
+                    onPageChange={setPage}
+                    onPageSizeChange={setPageSize}
+                    loading={loading}
+                    label={["série", "séries"]}
+                  />
                 )}
-                <DataTablePagination
-                  page={seriesPage}
-                  onPageChange={setPage}
-                  onPageSizeChange={setPageSize}
-                  loading={loading}
-                  label={["série", "séries"]}
-                />
               </div>
             )}
           </CardContent>

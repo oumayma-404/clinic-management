@@ -60,6 +60,10 @@ PrivilegesRequired=admin
 Name: "{app}\api\.local"
 Name: "{app}\api\Files"
 Name: "{app}\api\logs"
+; L4b -- the real default backup destination. The config used to carry "" for it while the settings
+; screen said "leave the field blank to use the server default folder", so the documented default path
+; failed on every fresh install. Created here and hardened with the other data directories below.
+Name: "{app}\api\Backups"
 Name: "{app}\pgdata"
 Name: "{commonappdata}\ClinicManagement"
 
@@ -176,7 +180,10 @@ procedure EnsureLocalModeConfig;
 var
   CfgPath: string;
 begin
-  CfgPath := ExpandConstant('{app}\api\appsettings.Production.json');
+  // L4e: seeded into the INSTALL layer, which WriteInstallConfig later overwrites in full. Seeding the
+  // operator layer instead would create the very file EnsureOperatorConfig must not overwrite, and its
+  // one-key content would then be frozen for the life of the install.
+  CfgPath := ExpandConstant('{app}\api\appsettings.Install.json');
   if not FileExists(CfgPath) then
     SaveStringToFile(CfgPath, '{ "Auth": { "Mode": "Local" } }' + #13#10, False);
 end;
@@ -313,21 +320,60 @@ begin
   Result := True;
 end;
 
-{ Write the machine-specific Local runtime config as appsettings.Production.json (the API service runs
-  in the Production environment). No real secrets here — they were scrubbed from the bundled
-  appsettings.json by publish-server.ps1; the signing key + HTTPS cert are self-generated on first boot. }
-procedure WriteProductionConfig;
+{ ============================================================================================
+  L4e -- config is written in TWO files, split by OWNERSHIP, and an upgrade no longer destroys the
+  operator's own values.
+
+  What it used to do: SaveStringToFile(appsettings.Production.json, Cfg, False) -- truncate --
+  unconditionally from ssPostInstall, with no "if not FileExists" guard, ALTHOUGH the author used that
+  exact idiom 25 lines away to gate initdb. So every upgrade silently erased every hand-edited value:
+  Cors:AllowedOrigins, Hosting:TrustPort, Security:EnableHsts, the reminder gateway keys -- all of them
+  documented in ..\README.md as things an operator edits by hand.
+
+  What it does now:
+    - appsettings.Install.json    installer-owned, machine-derived (connection string, bundled tool
+                                  paths, ports). REWRITTEN every install, because those values are about
+                                  THIS machine and a stale one is a broken install.
+    - appsettings.Production.json operator-owned. Written once when absent, with every key the README
+                                  tells operators to edit, and NEVER truncated again. The API loads it
+                                  AFTER the install layer, so an operator's value always wins.
+
+  A structural split rather than a JSON merge in Pascal, for one reason worth stating: a merge has to
+  decide what to do about a key the operator DELIBERATELY REMOVED, and both answers are wrong. Two files
+  make the question disappear. The API side is Startup\InstallConfiguration.cs.
+
+  Any pre-existing Production.json is copied to .bak-<timestamp> before anything else happens, so even a
+  bug in this procedure cannot be the end of an operator's configuration.
+  ============================================================================================ }
+procedure BackupExistingConfig(const CfgPath: string);
 var
-  Cfg, PgDump, Files, ConnStr, AppDir: string;
+  Stamp: string;
+begin
+  if not FileExists(CfgPath) then
+    Exit;
+
+  Stamp := GetDateTimeString('yyyymmdd-hhnnss', '-', '-');
+  // Best-effort: a failed copy must not abort the install, but it is logged by Inno's own log.
+  FileCopy(CfgPath, CfgPath + '.bak-' + Stamp, False);
+end;
+
+{ Installer-owned layer: everything derived from this machine. Rewritten on every install. }
+procedure WriteInstallConfig;
+var
+  Cfg, PgDump, PgRestore, Files, Backups, ConnStr, AppDir: string;
 begin
   AppDir := ExpandConstant('{app}');
-  PgDump := AppDir + '\postgres\bin\pg_dump.exe';
-  Files  := AppDir + '\api\Files';
+  PgDump    := AppDir + '\postgres\bin\pg_dump.exe';
+  PgRestore := AppDir + '\postgres\bin\pg_restore.exe';
+  Files     := AppDir + '\api\Files';
+  Backups   := AppDir + '\api\Backups';
   ConnStr := 'Host=localhost;Port={#DbPort};Database={#DbName};Username={#DbUser};Password=' + DbPassword;
 
   { Escape backslashes for JSON. }
   StringChangeEx(PgDump, '\', '\\', True);
+  StringChangeEx(PgRestore, '\', '\\', True);
   StringChangeEx(Files, '\', '\\', True);
+  StringChangeEx(Backups, '\', '\\', True);
   StringChangeEx(ConnStr, '\', '\\', True);
 
   Cfg :=
@@ -335,15 +381,79 @@ begin
     '  "Auth": { "Mode": "Local" },' + #13#10 +
     '  "ConnectionStrings": { "DefaultConnection": "' + ConnStr + '" },' + #13#10 +
     '  "FileStorage": { "BasePath": "' + Files + '" },' + #13#10 +
-    '  "Backup": { "PgDumpPath": "' + PgDump + '", "DefaultDestination": "", "TimeoutSeconds": 1800 },' + #13#10 +
-    // TrustPort is written explicitly rather than left to the API's own default: the firewall rule above
+    // L4b/L4c: a REAL default destination (not ""), and pg_restore beside pg_dump so a backup can be
+    // verified readable -- an unverified dump is not a backup, and the tool ships in the same folder.
+    '  "Backup": {' + #13#10 +
+    '    "PgDumpPath": "' + PgDump + '",' + #13#10 +
+    '    "PgRestorePath": "' + PgRestore + '",' + #13#10 +
+    '    "DefaultDestination": "' + Backups + '",' + #13#10 +
+    '    "TimeoutSeconds": 1800' + #13#10 +
+    '  },' + #13#10 +
+    // TrustPort is written explicitly rather than left to the API's own default: the firewall rule
     // opens {#TrustPort}, and a config that fell back to a different default would open a port nothing
-    // listens on while the page advertised a port the firewall blocks. One number, stated once, used by both.
+    // listens on while the page advertised a port the firewall blocks. One number, stated once.
     '  "Hosting": { "HttpPort": {#HttpPort}, "HttpsPort": {#HttpsPort}, "WebPort": {#WebPort}, "TrustPort": {#TrustPort} },' + #13#10 +
     '  "Https": { "CertPath": "" }' + #13#10 +
     '}' + #13#10;
 
-  SaveStringToFile(AppDir + '\api\appsettings.Production.json', Cfg, False);
+  SaveStringToFile(AppDir + '\api\appsettings.Install.json', Cfg, False);
+end;
+
+{ Operator-owned layer: written ONCE, when absent. Carries every key ..\README.md tells an operator to
+  hand-edit, with its default value, so the file is a menu rather than a blank page -- a generator that
+  writes fewer keys than the file legitimately holds is the bug (the spec's own wording). }
+procedure EnsureOperatorConfig;
+var
+  Cfg, CfgPath: string;
+begin
+  CfgPath := ExpandConstant('{app}\api\appsettings.Production.json');
+
+  { The pre-L4e installs wrote the FULL machine config here. Leave such a file completely alone: its
+    values are correct, they now simply sit above an install layer that repeats some of them, and the
+    operator layer wins -- which is the intended outcome either way. }
+  if FileExists(CfgPath) then
+    Exit;
+
+  Cfg :=
+    '{' + #13#10 +
+    '  // Ce fichier est le VOTRE : l''installateur ne le remplace jamais.' + #13#10 +
+    '  // Les valeurs propres a cette machine (base de donnees, chemins, ports) sont dans' + #13#10 +
+    '  // appsettings.Install.json, qui est regenere a chaque installation. Ce que vous ecrivez ici' + #13#10 +
+    '  // a la priorite. Voir README.md.' + #13#10 +
+    '' + #13#10 +
+    '  // HSTS : LAISSE A false EN LOCAL. Une fois memorise par un navigateur, il n''y a plus de' + #13#10 +
+    '  // "continuer quand meme" possible sur un certificat auto-signe.' + #13#10 +
+    '  "Security": { "EnableHsts": false },' + #13#10 +
+    '' + #13#10 +
+    '  // Origines supplementaires autorisees (postes du reseau local), ex. "https://192.168.1.20:5001".' + #13#10 +
+    '  "Cors": { "AllowedOrigins": [] },' + #13#10 +
+    '' + #13#10 +
+    '  // Mettre TrustPort a 0 desactive entierement la page d''installation du certificat.' + #13#10 +
+    '  "Hosting": { "TrustPort": {#TrustPort} },' + #13#10 +
+    '' + #13#10 +
+    '  // Rappels SMS / WhatsApp : les identifiants se saisissent dans l''application' + #13#10 +
+    '  // (Rappels -> Configurer les canaux). Ces cles ne servent que de valeurs par defaut' + #13#10 +
+    '  // pour toute l''installation.' + #13#10 +
+    '  "Reminders": {' + #13#10 +
+    '    "Channels": [],' + #13#10 +
+    '    "LeadTimesHours": [ 24, 6 ],' + #13#10 +
+    '    "QuietHoursStartLocal": 21,' + #13#10 +
+    '    "QuietHoursEndLocal": 8' + #13#10 +
+    '  }' + #13#10 +
+    '}' + #13#10;
+
+  SaveStringToFile(CfgPath, Cfg, False);
+end;
+
+{ Kept as the single entry point the install step calls, so the ordering lives in one place. }
+procedure WriteProductionConfig;
+var
+  CfgPath: string;
+begin
+  CfgPath := ExpandConstant('{app}\api\appsettings.Production.json');
+  BackupExistingConfig(CfgPath);
+  WriteInstallConfig;
+  EnsureOperatorConfig;
 end;
 
 { initdb a fresh cluster (password-enforced), register + start the PostgreSQL service, then create the DB +
@@ -619,6 +729,10 @@ begin
   Paths := Quoted(ExpandConstant('{app}\api\.local')) + ' ' +
            Quoted(ExpandConstant('{app}\api\Files')) + ' ' +
            Quoted(ExpandConstant('{app}\api\logs')) + ' ' +
+           // L4b: a backup folder is a full copy of every patient record, so it gets the same posture as
+           // the live data. PgDumpBackupService hardens each timestamped subfolder as well; this secures
+           // the root so a folder is never briefly readable between creation and hardening.
+           Quoted(ExpandConstant('{app}\api\Backups')) + ' ' +
            Quoted(ExpandConstant('{app}\pgdata'));
 
   Result := HardenDirectories(Paths, 'la sécurisation des droits d''accès aux données');
@@ -631,6 +745,51 @@ begin
   InitLog := ExpandConstant('{app}\initdb.log');
   if FileExists(InitLog) then
     DeleteFile(InitLog);
+end;
+
+{ ============================================================================================
+  L4f -- stop the running services BEFORE any file is copied over them.
+
+  [Files] copied the whole api\, web\ and node\ trees while the API and Node services were STILL
+  RUNNING: the only teardown in the script lived inside SetupAppServices, which runs from ssPostInstall,
+  i.e. AFTER the copy. Neither .iss had a PrepareToInstall, a CloseApplications or a ServicesStopped of
+  any kind. On Windows a running executable's image is locked, so the outcome was one of two bad ones --
+  the copy fails and the upgrade silently ships a half-updated tree, or it succeeds partially and the
+  service restarts on a mix of old and new assemblies.
+
+  PrepareToInstall is the correct hook: Inno calls it after the wizard and BEFORE the file copy, and a
+  non-empty return value aborts the install with that message. It is deliberately tolerant of "service
+  not found" (a first install has none) -- sc.exe's exit code is ignored for exactly that reason.
+  ============================================================================================ }
+procedure StopClinicServices;
+var
+  Rc: Integer;
+  Nssm: string;
+begin
+  Nssm := ExpandConstant('{app}\tools\nssm.exe');
+
+  { API first, then the web front end it proxies to: stopping the proxy target first would leave the
+    front door briefly answering 502s to anyone still on a page. }
+  Exec(ExpandConstant('{sys}\sc.exe'), 'stop {#ServiceApi}', '', SW_HIDE, ewWaitUntilTerminated, Rc);
+
+  if FileExists(Nssm) then
+    RunWait(Nssm, 'stop {#ServiceWeb}', '', Rc)
+  else
+    Exec(ExpandConstant('{sys}\sc.exe'), 'stop {#ServiceWeb}', '', SW_HIDE, ewWaitUntilTerminated, Rc);
+
+  { `sc stop` returns as soon as the STOP control is ACCEPTED, not once the process has exited -- so
+    without this wait the copy can still hit a locked image. Kestrel and Node both shut down in well
+    under this; the cost is a few seconds on an upgrade nobody is watching. }
+  Sleep(5000);
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  StopClinicServices;
+  { '' = proceed. Nothing here is fatal: a first install has no services to stop, and a service that
+    refuses to stop surfaces as a file-in-use error from the copy itself, which Inno already reports
+    with a retry. }
+  Result := '';
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);

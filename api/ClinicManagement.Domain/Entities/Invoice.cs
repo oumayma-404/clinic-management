@@ -1,6 +1,7 @@
 using ClinicManagement.Domain.Common;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Services;
+using ClinicManagement.Domain.ValueObjects;
 
 namespace ClinicManagement.Domain.Entities;
 
@@ -19,6 +20,41 @@ public class Invoice : AggregateRoot<Guid>
     /// <summary>The treatment plan (devis) this note was generated from, if any — the devis→facture link
     /// used by « Solde patient » to count the invoice instead of the plan (no double-count).</summary>
     public Guid? TreatmentPlanId { get; private set; }
+    /// <summary>
+    /// Which practitioner earned this — nullable, and nullable means nullable (L9 attribution).
+    ///
+    /// <para><b>What was missing.</b> <c>DoctorId</c> existed on exactly three entities in the whole model
+    /// (<c>Appointment</c> — the only real FK to <c>Doctors</c> — <c>RecurringAppointment</c>, and
+    /// <c>WaitingListEntry.PreferredDoctorId</c>, which was not even an FK), and on nothing that carries money or
+    /// clinical work. So « combien a produit ce praticien ce mois ? » had no answer, and
+    /// <c>Features/Dashboard/</c> contained <b>zero</b> occurrences of <c>Doctor</c> across all four readers.</para>
+    ///
+    /// <para>⚠️ <b>Historical rows legitimately have none</b> — the column did not exist when they were written,
+    /// and the migration only backfills where a linked appointment names a practitioner. Every read must therefore
+    /// tolerate null rather than treating it as « the clinic », which would silently attribute one dentist's work
+    /// to whoever the filter happens to select.</para>
+    ///
+    /// <para>This is <b>attribution, not authorization</b>: it answers who earned a figure. Per-practitioner data
+    /// scoping (« this dentist sees only their own patients ») is a separate decision with its own blast radius and
+    /// is deliberately out of scope.</para>
+    /// </summary>
+    public Guid? DoctorId { get; private set; }
+
+    /// <summary>The practitioner navigation, for the read-side name resolution. Null when unattributed.</summary>
+    public Doctor? Doctor { get; private set; }
+
+    /// <summary>
+    /// Attribute (or un-attribute) this record to a practitioner. Deliberately its own mutator rather than a ctor
+    /// parameter on every construction path: the answer is often only known *after* the aggregate exists (it comes
+    /// from the appointment the record was written against), and a required ctor argument would have forced every
+    /// caller to guess.
+    /// </summary>
+    public void SetDoctor(Guid? doctorId)
+    {
+        DoctorId = doctorId == Guid.Empty ? null : doctorId;
+        Touch();
+    }
+
 
     /// <summary>Sequential number <c>AAAA-NNNN</c>; null while a draft (assigned at issue).</summary>
     public string? Number { get; private set; }
@@ -216,11 +252,16 @@ public class Invoice : AggregateRoot<Guid>
     /// Record a payment. Allowed only on an issued/partially-paid invoice. An overpayment (collected
     /// beyond the TTC) is refused; reaching the TTC exactly moves the invoice to Paid.
     /// </summary>
+    /// <param name="cheque">
+    /// The cheque's number, bank and due date (L8) — required to be null for any method other than
+    /// <see cref="PaymentMethod.Cheque"/>, which <see cref="ChequeDetails.For"/> enforces before this is reached.
+    /// </param>
     public void RecordPayment(
         decimal amount,
         PaymentMethod method,
         DateTime paidOn,
-        Guid? sourceInstallmentPaymentId = null)
+        Guid? sourceInstallmentPaymentId = null,
+        ChequeDetails? cheque = null)
     {
         if (Status != InvoiceStatus.Issued && Status != InvoiceStatus.PartiallyPaid)
             throw new InvalidOperationException("Un paiement ne peut être enregistré que sur une facture émise.");
@@ -235,7 +276,7 @@ public class Invoice : AggregateRoot<Guid>
         if (InvoiceCalculator.RoundMoney(AmountCollected + rounded) > TotalTtc)
             throw new InvalidOperationException("Le paiement dépasse le montant restant dû.");
 
-        _payments.Add(new Payment(Guid.NewGuid(), Id, rounded, method, paidOn, sourceInstallmentPaymentId));
+        _payments.Add(new Payment(Guid.NewGuid(), Id, rounded, method, paidOn, sourceInstallmentPaymentId, cheque));
         RecomputeCollected();
         Touch();
     }
@@ -386,6 +427,29 @@ public class Invoice : AggregateRoot<Guid>
 
         CancellationReason = reason.Trim();
         Status = InvoiceStatus.Cancelled;
+
+        /*
+         * Dequeue the e-invoice (J4). The guard above refuses only the three states TTN has already seen
+         * (`Valid`/`Submitted`/`Validating`); `Queued` and `Signed` passed it, `CancelInvoiceCommand` never
+         * dequeued, and `EInvoiceService.ProcessAsync` never consulted this `Status` — so a cancelled note was
+         * still declared to El Fatoora by the next outbox tick and came back « validée ». A note validated at
+         * TTN can never be cancelled there, so the local cancellation and the national registry stayed
+         * permanently out of step in the one direction that cannot be undone.
+         *
+         * Dequeuing rather than refusing is deliberate: a mis-keyed note that happens to be queued must remain
+         * cancellable, and refusing would make it *uncancellable* — the retry budget is only exhausted after
+         * several minutely ticks, during which the only escape would be to let it be declared first.
+         *
+         * `NotSubmitted` is the honest resting state: nothing reached TTN. Any signed artifact already stored
+         * keeps its key — it is a record of what was built, and deleting it would lose the trail this whole
+         * state machine exists to keep.
+         */
+        if (EInvoiceStatus is EInvoiceStatus.Queued or EInvoiceStatus.Signed)
+        {
+            EInvoiceStatus = EInvoiceStatus.NotSubmitted;
+            EInvoiceNextAttemptAt = null;
+        }
+
         Touch();
     }
 

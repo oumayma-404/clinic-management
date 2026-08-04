@@ -5,6 +5,7 @@ import { Wifi, WifiOff, ServerOff } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { useConnectivity } from "@/lib/connectivity/connectivity"
+import { statusToneClass } from "@/components/ui/status-tone"
 import { cn } from "@/lib/utils"
 
 /**
@@ -26,17 +27,24 @@ export function ConnectivityIndicator() {
     icon = <ServerOff className="h-3.5 w-3.5" />
     label = "Serveur injoignable"
     description = "Impossible de joindre le serveur de la clinique. Vérifiez la connexion au réseau local."
-    className = "border-transparent bg-destructive text-white"
+    /*
+     * Deliberately NOT one of the six status tones: every tone is a tinted wash, and this is the one state
+     * where nothing works at all. A FILLED destructive badge keeps it visibly louder than the amber
+     * "no internet" case below it — the severity difference is the point of having three states.
+     */
+    className = "border-transparent bg-destructive text-destructive-foreground"
   } else if (!internetReachable) {
     icon = <WifiOff className="h-3.5 w-3.5" />
     label = "Hors ligne"
     description = "Pas de connexion internet. L'assistant IA et Google Agenda sont désactivés ; les autres fonctions restent disponibles."
-    className = "border-transparent bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-400"
+    // `active` = the amber wash + `--warning-ink`. The literal pair it replaces used `text-amber-800` on
+    // `bg-amber-100`, i.e. exactly the pairing `--warning-ink` exists for.
+    className = statusToneClass("active")
   } else {
     icon = <Wifi className="h-3.5 w-3.5" />
     label = "En ligne"
     description = "Le serveur et internet sont accessibles. Toutes les fonctions sont disponibles."
-    className = "border-transparent bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-400"
+    className = statusToneClass("positive")
   }
 
   return (

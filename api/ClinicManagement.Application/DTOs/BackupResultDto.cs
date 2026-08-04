@@ -17,6 +17,17 @@ public class BackupResultDto
     public DateTime TimestampUtc { get; set; }
 
     /// <summary>
+    /// How many objects <c>pg_restore --list</c> found in the dump (L4c).
+    ///
+    /// <para><c>pg_dump</c> exiting 0 is not proof that anything is restorable, and the service previously only
+    /// measured the folder's size — a truncated or zero-byte dump has a size too. Reading the table of contents
+    /// back is fast, read-only and needs no target database. The <b>count</b> is reported rather than a boolean
+    /// because « 3 objets » where the schema has thirty-eight tables is a detectable disaster that a green tick
+    /// cannot express.</para>
+    /// </summary>
+    public int VerifiedObjectCount { get; set; }
+
+    /// <summary>
     /// Set when the backup succeeded but could <b>not</b> be access-restricted — a removable or network
     /// destination, where NTFS permissions cannot be relied on (US-14 / AC-14.3). The backup is valid; the
     /// copy of the patient records in it is simply readable by anyone who can reach that medium, so the admin

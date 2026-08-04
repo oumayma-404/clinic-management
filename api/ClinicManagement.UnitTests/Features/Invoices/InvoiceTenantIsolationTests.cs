@@ -157,14 +157,21 @@ public class InvoiceTenantIsolationTests
         _invoices.Setup(r => r.GetFilteredAsync(
                 ClinicId, It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<Guid?>(),
                 It.IsAny<InvoiceStatus?>(), It.IsAny<string?>(), It.IsAny<PageRequest?>(),
-                It.IsAny<CancellationToken>()))
+                It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((Array.Empty<Invoice>()).AsPage());
         _patients.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<bool>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<PageRequest?>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync((Array.Empty<Patient>()).AsPage());
 
+        // L9 — the practitioner-roster read, mocked empty. That reproduces this test's ORIGINAL behaviour exactly:
+        // with no roster, no `DoctorName` resolves and each DTO carries null, which is what it carried before the
+        // column existed. Attribution has its own tests rather than being smuggled into these.
+        var doctors = new Mock<IDoctorRepository>();
+        doctors.Setup(r => r.GetByClinicIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<Doctor>());
+
         var handler = new GetInvoicesQueryHandler(
-            _invoices.Object, _patients.Object, _creditNotes.Object, _clinicResolver.Object,
+            _invoices.Object, _patients.Object, _creditNotes.Object, doctors.Object, _clinicResolver.Object,
             NullLogger<GetInvoicesQueryHandler>.Instance);
 
         var result = await handler.Handle(new GetInvoicesQuery(), CancellationToken.None);
@@ -173,6 +180,6 @@ public class InvoiceTenantIsolationTests
         _invoices.Verify(r => r.GetFilteredAsync(
             ClinicId, It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<Guid?>(),
             It.IsAny<InvoiceStatus?>(), It.IsAny<string?>(), It.IsAny<PageRequest?>(),
-                It.IsAny<CancellationToken>()), Times.Once);
+                It.IsAny<Guid?>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 }

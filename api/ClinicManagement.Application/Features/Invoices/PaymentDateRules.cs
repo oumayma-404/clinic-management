@@ -1,3 +1,5 @@
+using ClinicManagement.Application.Common;
+
 namespace ClinicManagement.Application.Features.Invoices;
 
 /// <summary>
@@ -27,7 +29,14 @@ public static class PaymentDateRules
 
         // Compared by calendar day, not instant: a payment recorded "today" from a client an hour ahead of the
         // server must not be rejected as being in the future.
-        var today = (nowUtc ?? DateTime.UtcNow).Date;
+        //
+        // ⚠️ The day is the **clinic's**, not UTC's (J3). `DateTime.UtcNow.Date` runs the clinic's calendar from
+        // 01:00 to 01:00 Tunis, so between 00:00 and 01:00 the date the client itself pre-filled with
+        // `todayLocalIso()` — the browser's own local day — was refused here as being « dans le futur ». The
+        // client and the server disagreed about what day it was, and the only screen that could reveal it was
+        // the one a dentist uses at the end of a late session. P6 fixed the numbering and la caisse's default
+        // and left the one validator every money date flows through.
+        var today = ClinicClock.ClinicToday(nowUtc);
         if (value.Date > today)
         {
             return $"{fieldLabel} ne peut pas être dans le futur.";

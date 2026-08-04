@@ -21,6 +21,8 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Pill, Pencil, Trash2, Plus, AlertTriangle, CheckCircle2, MoreHorizontal } from "lucide-react"
 import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
+import { EmptyState } from "@/components/ui/empty-state"
+import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -97,6 +99,35 @@ export function MedicationCatalogTable({ onEdit, onAdd, onChanged, reloadToken }
 
   const hasProvisional = medications.some((m) => m.isProvisional)
 
+  /**
+   * The two empty facts kept apart (finding #4). The list has a live search box and carried one message, so a
+   * mistyped brand name told the admin the whole médicament catalogue was empty. No « Ajouter » on the filtered
+   * branch: the médicament is probably there under another spelling, and adding it again duplicates it in the
+   * ordonnance picker.
+   */
+  const renderEmpty = (size: "default" | "compact") =>
+    isSearching ? (
+      <div className="flex flex-col items-center gap-2 py-2">
+        <p className="text-sm text-muted-foreground">Aucun médicament ne correspond à votre recherche</p>
+        <Button variant="outline" size="sm" onClick={() => setSearch("")}>
+          Effacer la recherche
+        </Button>
+      </div>
+    ) : (
+      <EmptyState
+        icon={Pill}
+        size={size}
+        title="Aucun médicament dans le catalogue"
+        description="Ce catalogue alimente le sélecteur de l'ordonnance : nom commercial, forme, dosage et molécules (DCI)."
+        action={
+          <Button onClick={onAdd} className="gap-2">
+            <Plus className="h-4 w-4" />
+            Ajouter un médicament
+          </Button>
+        }
+      />
+    )
+
   if (loading) {
     return (
       <Card>
@@ -110,7 +141,9 @@ export function MedicationCatalogTable({ onEdit, onAdd, onChanged, reloadToken }
   return (
     <>
       {hasProvisional && (
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+        /* On the theme's warning family (`--warning-wash` / `--warning-ink`), not `amber-*` literals with a
+           hand-maintained `dark:` twin. */
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-warning/40 bg-warning-wash p-3 text-sm text-warning-ink">
           <div className="flex items-center gap-2">
             <AlertTriangle className="h-4 w-4 shrink-0" />
             <span>
@@ -144,11 +177,14 @@ export function MedicationCatalogTable({ onEdit, onAdd, onChanged, reloadToken }
           </div>
         </CardHeader>
         <CardContent>
-          {error && (
-            <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
-              {error}
-            </div>
-          )}
+          {/* The shared primitive on the theme's own destructive family, plus a retry: this file carried a
+              hand-written `border-red-200 bg-red-50 … dark:` copy, so it maintained dark mode itself and the
+              only escape from a failed read was a browser reload. */}
+          <FormErrorBanner
+            className="mb-4"
+            message={error}
+            action={{ label: "Réessayer", onClick: onChanged }}
+          />
           <div className="mb-4">
             <Label htmlFor="medications-search" className="sr-only">
               Rechercher un médicament (marque, forme, dosage, DCI)…
@@ -160,7 +196,9 @@ export function MedicationCatalogTable({ onEdit, onAdd, onChanged, reloadToken }
               placeholder="Rechercher un médicament (marque, forme, dosage, DCI)…"
             />
           </div>
-          <div className={`overflow-x-auto${refreshing ? " opacity-60 transition-opacity" : ""}`}>
+          {/* No `overflow-x-auto` here: `ui/table.tsx` already wraps its own table in one, so this was a second
+              horizontal scroller nested around the first — the wrapper now carries only the refetch dimming. */}
+          <div className={refreshing ? "opacity-60 transition-opacity" : undefined}>
             <CardList
               className={CARDS_ONLY}
               ariaLabel="Catalogue de médicaments"
@@ -173,7 +211,7 @@ export function MedicationCatalogTable({ onEdit, onAdd, onChanged, reloadToken }
                 <>
                   {!m.isActive && <Badge variant="secondary">Inactif</Badge>}
                   {m.isProvisional && (
-                    <Badge variant="outline" className="border-amber-400 text-amber-700 dark:text-amber-300">
+                    <Badge variant="outline" className="border-warning/50 text-warning-ink">
                       À vérifier
                     </Badge>
                   )}
@@ -203,7 +241,7 @@ export function MedicationCatalogTable({ onEdit, onAdd, onChanged, reloadToken }
                   </DropdownMenuContent>
                 </DropdownMenu>
               )}
-              empty="Aucun médicament dans le catalogue"
+              empty={renderEmpty("compact")}
             />
             <Table containerClassName={TABLE_ONLY}>
               <TableHeader>
@@ -219,9 +257,7 @@ export function MedicationCatalogTable({ onEdit, onAdd, onChanged, reloadToken }
               <TableBody>
                 {medications.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="h-24 text-center">
-                      <p className="text-muted-foreground">Aucun médicament dans le catalogue</p>
-                    </TableCell>
+                    <TableCell colSpan={6}>{renderEmpty("default")}</TableCell>
                   </TableRow>
                 ) : (
                   medications.map((m) => (
@@ -234,7 +270,7 @@ export function MedicationCatalogTable({ onEdit, onAdd, onChanged, reloadToken }
                         <div className="flex flex-wrap gap-1">
                           {!m.isActive && <Badge variant="secondary">Inactif</Badge>}
                           {m.isProvisional && (
-                            <Badge variant="outline" className="border-amber-400 text-amber-700 dark:text-amber-300">
+                            <Badge variant="outline" className="border-warning/50 text-warning-ink">
                               À vérifier
                             </Badge>
                           )}

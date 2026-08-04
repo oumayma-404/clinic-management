@@ -1,5 +1,3 @@
-using System.Globalization;
-using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Domain.Entities;
@@ -23,10 +21,6 @@ public class ReminderScheduler : IReminderScheduler
     private const string ReminderSubject = "Rappel de rendez-vous";
     private const string RecallSubject = "Relance patient";
     private const string FallbackClinicName = "votre clinique";
-
-    // The app is Tunisia-targeted; appointment date/times are stored UTC but read best in local time.
-    // The conversion itself lives in ClinicClock (AC-P6.1) — this class used to carry its own private copy.
-    private static readonly CultureInfo FrCulture = CultureInfo.GetCultureInfo("fr-FR");
 
     private readonly INotificationRepository _notifications;
     private readonly IClinicRepository _clinics;
@@ -59,7 +53,9 @@ public class ReminderScheduler : IReminderScheduler
         CancellationToken cancellationToken = default) =>
         SafelyAsync(appointmentId, "schedule", async () =>
         {
-            await EnqueueRemindersAsync(clinicId, appointmentId, patientId, patientName, appointmentDateTimeUtc, cancellationToken);
+            await EnqueueRemindersAsync(
+                clinicId, appointmentId, patientId, patientName, appointmentDateTimeUtc,
+                voidedRowIds: new HashSet<Guid>(), cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
         });
 
@@ -68,8 +64,13 @@ public class ReminderScheduler : IReminderScheduler
         CancellationToken cancellationToken = default) =>
         SafelyAsync(appointmentId, "reschedule", async () =>
         {
-            await VoidUnsentAsync(appointmentId, cancellationToken);
-            await EnqueueRemindersAsync(clinicId, appointmentId, patientId, patientName, newAppointmentDateTimeUtc, cancellationToken);
+            // ⚠️ The voided ids are threaded into the enqueue deliberately. `RemoveAsync` only *stages* the
+            // delete, so the dedup read below still sees those rows (EF resolves the query back onto the same
+            // tracked, Deleted instances) — and a dedup that counted them would skip re-creating exactly the
+            // reminders this reschedule exists to replace.
+            var voided = await VoidUnsentAsync(appointmentId, cancellationToken);
+            await EnqueueRemindersAsync(
+                clinicId, appointmentId, patientId, patientName, newAppointmentDateTimeUtc, voided, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
         });
 
@@ -132,10 +133,11 @@ public class ReminderScheduler : IReminderScheduler
             return RecallDispatchOutcome.Enqueued;
         });
 
-    // Adds one Pending reminder per configured channel at the computed send time. Stages the rows only
-    // (the caller commits). No-op when no channels are configured or the appointment is too close/past.
+    // Adds one Pending reminder per (sendable channel × future lead tier). Stages the rows only (the caller
+    // commits). No-op when no channel can send or the appointment is too close/past.
     private async Task EnqueueRemindersAsync(
         Guid clinicId, Guid appointmentId, Guid patientId, string patientName, DateTime appointmentDateTimeUtc,
+        ISet<Guid> voidedRowIds,
         CancellationToken cancellationToken)
     {
         // Same enqueue-time gate as the recall path: no deliverable phone, no row.
@@ -150,39 +152,73 @@ public class ReminderScheduler : IReminderScheduler
         // AC-4: which channels to enqueue is per-clinic (its toggles where set, else the install default); the
         // full resolve also yields the per-clinic lead-time tiers + custom wording (else the install defaults).
         var settings = await _settingsProvider.ResolveAsync(clinicId, cancellationToken);
-        if (settings.EnabledChannels.Count == 0)
+
+        // L3a — **sendability is checked here, not only on the recall path.** A channel toggled on but missing
+        // its credentials produces a row that can never resolve: the dispatcher treats NotConfigured as
+        // deliberately-not-a-failure, so it used to sit Pending at the front of the due scan for ever. Not
+        // creating it is strictly better than creating one that has to be parked. (A channel configured *after*
+        // this point is why `Notification.Unblock()` exists for the rows that do get parked.)
+        var sendable = settings.EnabledChannels.Where(c => IsSendable(c, settings)).ToList();
+        if (sendable.Count == 0)
         {
+            _logger.LogInformation(
+                "Skipped reminders for appointment {AppointmentId}: clinic {ClinicId} has no sendable reminder channel.",
+                appointmentId, clinicId);
             return;
         }
 
         var appointmentUtc = NormalizeUtc(appointmentDateTimeUtc);
-        var sendTime = ReminderSchedule.ComputeSendTimeUtc(
+        var sendTimes = ReminderSchedule.ComputeSendTimesUtc(
             appointmentUtc,
             DateTime.UtcNow,
             settings.LeadTimeHours,
-            RemindersConfig.MinLeadHours(_configuration));
-        if (sendTime == null)
+            RemindersConfig.MinLeadHours(_configuration),
+            RemindersConfig.QuietHoursLocal(_configuration));
+        if (sendTimes.Count == 0)
         {
             return;
         }
 
+        // L3c idempotency — on **(appointment, channel, tier)**, and the tier's identity on the wire *is* its
+        // send instant: two rows for one appointment and one channel at the same instant are the same message.
+        // Without this the minutely job double-sends every tier the moment any path enqueues twice (a second
+        // update, a Google-side move racing an in-app one). Rows of ANY status count, `Sent` included — the
+        // whole point is not to re-create a message that has already gone out.
+        var existing = (await _notifications.GetByAppointmentIdAsync(appointmentId, cancellationToken))
+            .Where(n => !voidedRowIds.Contains(n.Id))
+            .Select(n => (n.Type, n.ScheduledFor))
+            .ToHashSet();
+
         var clinic = await _clinics.GetByIdAsync(clinicId, cancellationToken);
         var message = BuildMessage(patientName, appointmentUtc, clinic?.Name ?? FallbackClinicName, settings.MessageTemplateBody);
 
-        foreach (var channel in settings.EnabledChannels)
+        foreach (var channel in sendable)
         {
-            var reminder = new Notification(
-                Guid.NewGuid(), channel, ReminderSubject, message, sendTime.Value,
-                appointmentId: appointmentId, patientId: patientId, clinicId: clinicId);
-            await _notifications.AddAsync(reminder, cancellationToken);
+            foreach (var tier in sendTimes)
+            {
+                if (!existing.Add((channel, tier.SendAtUtc)))
+                {
+                    continue;
+                }
+
+                var reminder = new Notification(
+                    Guid.NewGuid(), channel, ReminderSubject, message, tier.SendAtUtc,
+                    appointmentId: appointmentId, patientId: patientId, clinicId: clinicId);
+                await _notifications.AddAsync(reminder, cancellationToken);
+            }
         }
     }
 
     /// <summary>
     /// Can this channel actually send right now? Reads the same `*Configured` predicates the senders and the
-    /// admin effective-status badge use, so enqueue, dispatch and UI cannot disagree. Only the recall path
-    /// consults this: an appointment reminder is enqueued hours ahead, so a channel configured in the meantime
-    /// should still send — a recall is due *now* and its caller is waiting for a yes/no.
+    /// admin effective-status badge use, so enqueue, dispatch and UI cannot disagree.
+    ///
+    /// <para>Consulted by <b>both</b> enqueue paths since L3a. It used to be the recall path's alone, on the
+    /// reasoning that an appointment reminder is enqueued hours ahead so a channel configured in the meantime
+    /// should still send. That is true and it was not worth the cost: the row cannot resolve until then, and an
+    /// unresolvable row sitting at the front of an oldest-first, batch-capped due scan starves the queue for the
+    /// whole install. The « configured in the meantime » case is preserved by <c>Notification.Unblock()</c>
+    /// instead, which recovers the rows already in the table.</para>
     /// </summary>
     private static bool IsSendable(NotificationType channel, ResolvedReminderSettings settings) => channel switch
     {
@@ -202,14 +238,23 @@ public class ReminderScheduler : IReminderScheduler
         return patient?.PhoneNumber != null && PhoneNumber.IsDeliverable(patient.PhoneNumber.Value);
     }
 
-    // Removes every unsent (Pending) reminder row for the appointment; Sent rows are left untouched.
-    private async Task VoidUnsentAsync(Guid appointmentId, CancellationToken cancellationToken)
+    // Removes every unsent reminder row for the appointment; Sent/Failed rows are left untouched.
+    //
+    // `Blocked` is unsent too, and dropping it here is required rather than tidy: a parked row still carries the
+    // body and send time frozen at enqueue, so surviving a cancel or a move it would later be unblocked and sent
+    // announcing a visit that is not happening, or one at the old hour.
+    private async Task<HashSet<Guid>> VoidUnsentAsync(Guid appointmentId, CancellationToken cancellationToken)
     {
+        var voided = new HashSet<Guid>();
         var existing = await _notifications.GetByAppointmentIdAsync(appointmentId, cancellationToken);
-        foreach (var reminder in existing.Where(n => n.Status == NotificationStatus.Pending))
+        foreach (var reminder in existing.Where(n =>
+                     n.Status is NotificationStatus.Pending or NotificationStatus.Blocked))
         {
             await _notifications.RemoveAsync(reminder, cancellationToken);
+            voided.Add(reminder.Id);
         }
+
+        return voided;
     }
 
     private async Task SafelyAsync(Guid appointmentId, string operation, Func<Task> work)
@@ -262,8 +307,10 @@ public class ReminderScheduler : IReminderScheduler
         return $"Rappel : {patientName}, vous avez un rendez-vous le {when} chez {clinicName}.";
     }
 
-    private static string FormatFr(DateTime utc) =>
-        ClinicClock.ToClinicLocal(utc).ToString("dd/MM/yyyy 'à' HH:mm", FrCulture);
+    // One formatter, shared with the dispatcher's staleness check (ReminderMessage): the check compares the
+    // body's stated moment against the appointment's current one, so a second copy of this format string here
+    // would make every reminder read as stale.
+    private static string FormatFr(DateTime utc) => ReminderMessage.FormatAppointmentMoment(utc);
 
     private static DateTime NormalizeUtc(DateTime dateTime) => dateTime.Kind switch
     {

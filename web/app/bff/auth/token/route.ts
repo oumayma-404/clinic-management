@@ -22,7 +22,11 @@ export async function GET(request: NextRequest) {
   if (resolveAuthMode() === 'local') {
     const sessionCredential = request.cookies.get(SESSION_COOKIE)?.value;
     if (!sessionCredential) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+      // French like every other `{ error }` in this file. The body is not currently read by `client.ts`'s
+      // `fetchAccessToken` (it branches on the status alone), but the contract here is the app-wide canonical
+      // `{ error }` shape, and every other refusal in this handler already answers in French — an English
+      // island is one `getErrorMessage` away from a dentist reading « Not authenticated ».
+      return NextResponse.json({ error: 'Session absente. Reconnectez-vous.' }, { status: 401 });
     }
 
     try {
@@ -92,26 +96,38 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // Cloud mode: return the Auth0 access token (unchanged).
+  // Cloud mode: return the Auth0 access token.
+  //
+  // The three refusals below were the file's remaining English strings — « Not authenticated », « No access
+  // token available », « Failed to get access token ». They sit on the auth path, which is the one path a user
+  // hits *before* anything else works, so an English sentence here is the first thing a French clinic reads
+  // when their session lapses. The wording also has to say what to DO: « Failed to get access token » names an
+  // internal step and leaves the user with no next move, where « Reconnectez-vous » is the actual remedy.
   try {
     const session = await auth0.getSession(request);
     if (!session) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+      return NextResponse.json({ error: 'Session absente. Reconnectez-vous.' }, { status: 401 });
     }
-    
+
     // Get access token - In Auth0 v4 App Router, getAccessToken() can be called without parameters
     // It automatically uses the request context (cookies/headers) from the route handler
     // GetAccessTokenOptions only supports: refresh, scope, audience
     const tokenResult = await auth0.getAccessToken();
-    
+
     if (!tokenResult || !tokenResult.token) {
-      return NextResponse.json({ error: 'No access token available' }, { status: 401 });
+      return NextResponse.json(
+        { error: 'Votre session a expiré. Reconnectez-vous.' },
+        { status: 401 }
+      );
     }
-    
+
     return NextResponse.json({ accessToken: tokenResult.token });
   } catch (error) {
     console.error('Error getting access token:', error);
-    return NextResponse.json({ error: 'Failed to get access token' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Impossible de renouveler votre session. Reconnectez-vous.' },
+      { status: 500 }
+    );
   }
 }
 

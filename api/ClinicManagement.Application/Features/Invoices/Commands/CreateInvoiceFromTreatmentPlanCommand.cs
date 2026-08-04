@@ -105,6 +105,12 @@ public class CreateInvoiceFromTreatmentPlanCommandHandler
                 appointmentId: null,
                 treatmentPlanId: plan.Id);
 
+            // L9 — same rule as the fiche bridge: the devis already knows which practitioner quoted it, so the note
+            // d'honoraires derived from it carries that attribution across instead of re-deriving it from whoever
+            // happens to be issuing. This is the hop where an attribution is most easily lost, because the plan and the
+            // invoice are two aggregates and nothing else copies anything between them.
+            invoice.SetDoctor(plan.DoctorId);
+
             // Map each planned act to an invoice line (quantity 1, PlannedCost as unit HT, carry the CNAM/DCH link).
             invoice.SetLines(plan.Items.Select(i =>
                 (i.DesignationFr, 1, i.PlannedCost, (Guid?)null, i.DentalActCodeId, i.CodeActe)));

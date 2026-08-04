@@ -13,7 +13,7 @@ namespace ClinicManagement.API.Controllers;
 
 [ApiController]
 [Route("api/dental-acts")]
-[Authorize]
+[Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
 public class DentalActsController : ApiControllerBase
 {
     private readonly IMediator _mediator;

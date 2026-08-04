@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
+using ClinicManagement.Application.Common.Authorization;
 using Microsoft.AspNetCore.Http;
 using MediatR;
 using ClinicManagement.Application.DTOs;
@@ -10,7 +11,7 @@ namespace ClinicManagement.API.Controllers;
 
 [ApiController]
 [Route("api/patients/{patientId:guid}/odontogram")]
-[Authorize]
+[Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
 public class OdontogramController : ApiControllerBase
 {
     private readonly IMediator _mediator;

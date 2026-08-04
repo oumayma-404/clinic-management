@@ -45,25 +45,37 @@ export function ActDetailFields({ draft, toothCount, dispatch, disabled }: ActDe
           <Input
             value={draft.procedureName}
             onChange={(e) => dispatch({ type: "patchDraft", patch: { procedureName: e.target.value } })}
-            className="h-8 min-w-[10rem] flex-1 text-sm"
+            className={cn(
+              "h-8 min-w-[10rem] flex-1 text-sm",
+              draft.procedureName.trim() === "" && "border-destructive",
+            )}
             disabled={disabled}
             aria-label="Désignation de l'acte"
+            // A free-text act with no name is silently DROPPED on save (`parsedActs` filters it out), so the
+            // fiche saves fewer acts than the dentist charted. Marking the field is what makes that visible
+            // before « Confirmer » rather than through a toast afterwards.
+            aria-invalid={draft.procedureName.trim() === ""}
           />
         </div>
       )}
 
       <div className="flex flex-wrap items-center gap-2">
         <span className="shrink-0 text-2xs text-muted-foreground">Tarif</span>
+        {/* `text` + `inputMode="decimal"`, never `type="number"` (J8). This is the field that seeds every
+            invoice line, so it is the worst place for a comma to be refused and for `step="0.001"` to make the
+            millime awkward — see `hasInvalidPrice` for the parsing half. The keypad still appears on a phone. */}
         <Input
-          type="number"
-          min="0"
-          step="0.001"
+          type="text"
+          inputMode="decimal"
           value={draft.unitCost}
           onChange={(e) => dispatch({ type: "patchDraft", patch: { unitCost: e.target.value } })}
           className={cn("h-8 w-28 text-right tabular-nums", priceInvalid && "border-destructive")}
-          placeholder="0.000"
+          placeholder="0,000"
           disabled={disabled}
           aria-label={draft.perTooth ? "Prix par dent (DT)" : "Montant forfaitaire (DT)"}
+          // The red border said it to a sighted reader only; `aria-invalid` is what makes the refusal reach a
+          // screen reader, and what pairs the field with the « Montant invalide » save refusal.
+          aria-invalid={priceInvalid}
         />
         <div className="flex items-center gap-1 rounded-lg bg-muted p-0.5">
           <Button
@@ -101,7 +113,9 @@ export function ActDetailFields({ draft, toothCount, dispatch, disabled }: ActDe
         </span>
         {priceInvalid && <span className="text-xs text-destructive">Montant invalide</span>}
         {!priceInvalid && draft.unitCost.trim() === "" && (
-          <span className="text-xs text-amber-600 dark:text-amber-500">Sans tarif — à compléter plus tard</span>
+          // `--warning-ink`, not `text-amber-600`: the palette literal had no `dark:` pair worth the name and
+          // measured ~3.2:1 on the card. Same token as the fiche's « Reste à payer ».
+          <span className="text-xs text-warning-ink">Sans tarif — à compléter plus tard</span>
         )}
       </div>
 
@@ -140,14 +154,26 @@ export function ActDetailFields({ draft, toothCount, dispatch, disabled }: ActDe
 
       <div className="flex flex-wrap items-center gap-2">
         <span className="shrink-0 text-2xs text-muted-foreground">Faces</span>
-        <div className="flex items-center gap-1">
+        {/*
+          ⚠️ `gap-2` + `coarse:size-11`, not `gap-1` + `h-8 w-8`.
+          Five 32px buttons at `gap-1` sit on a 36px pitch, and `buttonVariants` already centres a 44px
+          `touch-target` overlay on each — so every adjacent pair overlapped by 8px, and the later sibling wins.
+          Tapping the right edge of « O » toggled « D »: the act is then recorded on the wrong tooth SURFACE,
+          which is what the odontogram and the fiche both carry forward. Painting the 44px on a coarse pointer
+          makes the hit area the button again.
+
+          `size-8` rather than `h-8 w-8` so the base and the `coarse:` override are the same tailwind-merge
+          group — with `h-8 w-8` the variant would be a different group and CSS source order, not intent, would
+          decide which wins.
+        */}
+        <div className="flex items-center gap-2">
           {SURFACE_ORDER.map((s) => (
             <Button
               key={s}
               type="button"
               size="sm"
               variant={draft.surfaces.has(s) ? "default" : "outline"}
-              className="h-8 w-8 p-0 text-xs"
+              className="size-8 p-0 text-xs coarse:size-11"
               onClick={() => toggleSurface(s)}
               disabled={disabled}
               title={SURFACE_LABELS[s]}

@@ -4,12 +4,13 @@ using MediatR;
 using ClinicManagement.Application.Features.Files.Commands;
 using ClinicManagement.Application.Features.Files.Queries;
 using System.Security.Claims;
+using ClinicManagement.Application.Common.Authorization;
 
 namespace ClinicManagement.API.Controllers;
 
 [ApiController]
 [Route("api/patients/{patientId}/files")]
-[Authorize]
+[Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
 public class PatientFilesController : ApiControllerBase
 {
     private readonly IMediator _mediator;
@@ -169,7 +170,11 @@ public class PatientFilesController : ApiControllerBase
         return File(fileDto.FileStream, fileDto.ContentType, fileDto.FileName);
     }
 
+    // Reception scans documents *in* — uploading, listing and downloading are the front desk's job, which is
+    // why the class policy is open. Removing a scanned document is not: nothing on any screen afterwards says
+    // it was ever there.
     [HttpDelete("{fileId}")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
     public async Task<IActionResult> DeleteFile(
         Guid patientId,
         Guid fileId,
@@ -192,6 +197,7 @@ public class PatientFilesController : ApiControllerBase
     }
 
     [HttpDelete("folders/{folderId}")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
     public async Task<IActionResult> DeleteFolder(
         Guid patientId,
         Guid folderId,

@@ -88,7 +88,7 @@ public class CaisseLedgerTests
 
         // The totals side, wired to whatever the row fixtures imply, so the two can be compared.
         _invoices.Setup(r => r.GetCollectedBetweenAsync(
-                ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+                ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((payments ?? Array.Empty<CaissePaymentRow>()).Where(p => !p.IsVoided).Sum(p => p.Amount));
         _plans.Setup(r => r.GetInstallmentCollectedBetweenAsync(
                 ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(),
@@ -116,6 +116,17 @@ public class CaisseLedgerTests
 
     private async Task<CaisseSummaryDto> SummaryAsync()
     {
+        // L8 slice B — the caisse summary now also reads the per-method breakdown. Moq returns `null` for an
+        // unstubbed Task<IReadOnlyList<T>>, which the handler's merge dereferences, so an unstubbed read turns every
+        // assertion in this file into « Result.IsSuccess == false ». Empty lists reproduce the original behaviour:
+        // the four totals are unchanged and the breakdown is all zeros, which no test here asserts on.
+        _invoices.Setup(r => r.GetCollectedByMethodBetweenAsync(
+                It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<PaymentMethodTotal>());
+        _plans.Setup(r => r.GetInstallmentCollectedByMethodBetweenAsync(
+                It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<DateTime>(),
+                It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<PaymentMethodTotal>());
         var handler = new GetCaisseSummaryQueryHandler(
             _invoices.Object, _plans.Object, _expenses.Object, _creditNotes.Object, _clinicResolver.Object,
             NullLogger<GetCaisseSummaryQueryHandler>.Instance);

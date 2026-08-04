@@ -285,3 +285,20 @@ function isEmptyValue(value: React.ReactNode): boolean {
  */
 export const CARDS_ONLY = "md:hidden"
 export const TABLE_ONLY = "hidden md:block"
+
+/**
+ * The same pair, hinged at `lg:` (1024 px) instead — **for the widest tables only**.
+ *
+ * <p>`md:` is the right switch for a six-column list, and the wrong one for a ten-column one. An iPad portrait
+ * is 820 px and therefore already `md:`, so it gets the desktop table *and* the 256 px rail: 820 − 256 − 32 =
+ * **532 px of content** for `/lab-orders`' ten columns or the invoice table's nine. Every `TableHead` and
+ * `TableCell` in `ui/table.tsx` is `whitespace-nowrap`, so no cell can compress to fit — the table simply
+ * scrolls sideways, and until now it did so with no affordance at all, which made columns 6–10 read as
+ * non-existent rather than as off-screen.</p>
+ *
+ * <p>That tablet is the device a dentist holds at the chair, so it is the least acceptable place to hide
+ * columns. Surfaces with roughly eight or more columns should use this pair; the rest stay on `md:`, because
+ * showing a four-column table as cards on a 900 px screen wastes the width it has.</p>
+ */
+export const CARDS_ONLY_LG = "lg:hidden"
+export const TABLE_ONLY_LG = "hidden lg:block"

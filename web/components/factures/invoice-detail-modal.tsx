@@ -9,6 +9,8 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
+import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { Loader2, FileDown, Undo2, CalendarClock, Mail } from "lucide-react"
 import { toast } from "sonner"
 import { invoicesApi } from "@/lib/api/invoices"
@@ -17,10 +19,13 @@ import { billingApi } from "@/lib/api/billing"
 import { ApiError } from "@/lib/api/client"
 import type { AppointmentDto, CreditNoteDto, InvoiceDto, PaymentDto } from "@/lib/api/types"
 import { formatDT, formatDateFr, formatDateTime } from "@/lib/format"
+import { cn } from "@/lib/utils"
 import { downloadBlob } from "@/lib/download"
 import { useSession } from "@/lib/auth/session"
 import { canReverseFinancials, REVERSAL_FORBIDDEN_HINT } from "@/lib/auth/can"
-import { invoiceStatusLabel, paymentMethodLabel } from "./invoice-labels"
+import {
+  invoiceStatusBadgeClass, invoiceStatusLabel, paymentMethodLabel, VOIDED_PAYMENT_BADGE_CLASS,
+} from "./invoice-labels"
 import { SendDocumentEmailDialog } from "@/components/send-document-email-dialog"
 import { DOCUMENT_EMAIL_KINDS, type DocumentEmailKind } from "@/lib/api/document-emails"
 
@@ -168,8 +173,14 @@ export function InvoiceDetailModal({ open, onOpenChange, invoiceId, onChanged }:
         <DialogHeader>
           <DialogTitle className="flex flex-wrap items-center gap-2">
             {invoice?.number ? `Facture ${invoice.number}` : "Facture"}
+            {/* Through `invoiceStatusBadgeClass`, exactly as the row behind this modal renders it. It used to be a
+                bare `variant="secondary"` pill, so opening a note d'honoraires *removed* its status colour — a
+                « Payée » green in the list turned neutral grey the moment you clicked it, and « Annulée » lost
+                its red. A status that changes colour when you look closer is a status nobody trusts. */}
             {invoice && (
-              <Badge variant="secondary">{invoiceStatusLabel(invoice.status)}</Badge>
+              <Badge variant="secondary" className={invoiceStatusBadgeClass(invoice.status)}>
+                {invoiceStatusLabel(invoice.status)}
+              </Badge>
             )}
           </DialogTitle>
           <DialogDescription>
@@ -209,8 +220,33 @@ export function InvoiceDetailModal({ open, onOpenChange, invoiceId, onChanged }:
             {/* ---- Acts ---- */}
             <section className="space-y-2">
               <h3 className="text-sm font-semibold">Actes</h3>
-              <div className="rounded-md border overflow-x-auto">
-                <Table>
+              <div className="rounded-md border">
+                {/*
+                  Below `md:` the four-column table is replaced, not scrolled. The dialog is ~358 px wide on a
+                  390 px phone, so « Désignation · Qté · P.U. HT · Total HT » runs off the right edge inside a
+                  surface the user cannot see the edge of — and the sibling « Paiements » block eight lines below
+                  is already a `divide-y` list, so the same modal was showing two shapes for two lists of lines.
+                */}
+                <ul className={cn("divide-y", CARDS_ONLY)}>
+                  {invoice.lines.length === 0 ? (
+                    <li className="py-6 text-center text-sm text-muted-foreground">Aucune ligne.</li>
+                  ) : (
+                    invoice.lines.map((line) => (
+                      <li key={line.id} className="space-y-0.5 p-3">
+                        <div className="flex items-baseline justify-between gap-3">
+                          <span className="min-w-0 text-sm [overflow-wrap:anywhere]">{line.designation}</span>
+                          <span className="shrink-0 text-sm font-medium tabular-nums">
+                            {formatDT(line.lineTotalHt)}
+                          </span>
+                        </div>
+                        <p className="text-xs tabular-nums text-muted-foreground">
+                          {line.quantity} × {formatDT(line.unitPriceHt)} HT
+                        </p>
+                      </li>
+                    ))
+                  )}
+                </ul>
+                <Table containerClassName={TABLE_ONLY}>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Désignation</TableHead>
@@ -260,7 +296,13 @@ export function InvoiceDetailModal({ open, onOpenChange, invoiceId, onChanged }:
                           </span>
                         </div>
                         <div className="flex items-center gap-1">
-                          {payment.isVoided && <Badge variant="outline">Annulé</Badge>}
+                          {/* Same tone module as every other fiscal badge: a voided payment is `negative`,
+                              because it is money that was taken back. An `outline` pill said nothing. */}
+                          {payment.isVoided && (
+                            <Badge variant="secondary" className={VOIDED_PAYMENT_BADGE_CLASS}>
+                              Annulé
+                            </Badge>
+                          )}
                           <Button
                             variant="ghost"
                             size="sm"
@@ -338,11 +380,9 @@ export function InvoiceDetailModal({ open, onOpenChange, invoiceId, onChanged }:
                               placeholder="Ex. erreur de saisie du montant"
                             />
                           </div>
-                          {voidError && (
-                            <div className="rounded-lg border border-red-200 bg-red-50 p-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
-                              {voidError}
-                            </div>
-                          )}
+                          {/* The shared banner: `--destructive-wash` with its own dark values, rather than a
+                              fifth hand-maintained `red-50 / dark:red-950` pair. */}
+                          <FormErrorBanner message={voidError} />
                           <div className="flex justify-end gap-2">
                             <Button
                               variant="outline"
@@ -411,7 +451,7 @@ export function InvoiceDetailModal({ open, onOpenChange, invoiceId, onChanged }:
                       </div>
                       <p className="text-xs text-muted-foreground">Motif : {creditNote.reason}</p>
                       {creditNote.correctedInvoiceIsTtnRegistered && (
-                        <p className="text-xs text-amber-700 dark:text-amber-400">
+                        <p className="text-xs text-warning-ink">
                           Facture télétransmise à TTN : l&apos;avoir ne l&apos;est pas — la régularisation
                           auprès d&apos;El Fatoora reste à faire.
                         </p>
@@ -436,9 +476,9 @@ export function InvoiceDetailModal({ open, onOpenChange, invoiceId, onChanged }:
                       <span className="ml-1 text-xs">(hors paiements annulés)</span>
                     )}
                   </dt>
-                  <dd className="font-medium text-green-700 dark:text-green-400">
-                    {formatDT(invoice.amountCollected)}
-                  </dd>
+                  {/* One green for « encaissé » across the product: `text-success`, the same token la caisse's
+                      totals and its statement rows now use. */}
+                  <dd className="font-medium text-success">{formatDT(invoice.amountCollected)}</dd>
                 </div>
                 {invoice.creditedTotal > 0 && (
                   <div className="flex justify-between">
@@ -450,9 +490,7 @@ export function InvoiceDetailModal({ open, onOpenChange, invoiceId, onChanged }:
                 )}
                 <div className="flex justify-between">
                   <dt className="text-muted-foreground">Reste à payer</dt>
-                  <dd className="font-semibold text-amber-700 dark:text-amber-400">
-                    {formatDT(invoice.outstanding)}
-                  </dd>
+                  <dd className="font-semibold text-warning-ink">{formatDT(invoice.outstanding)}</dd>
                 </div>
               </dl>
             </section>

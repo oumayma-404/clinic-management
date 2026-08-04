@@ -4,8 +4,11 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
+import { EmptyState } from "@/components/ui/empty-state"
+import { BellOff, SearchX, Send } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { formatDateTime } from "@/lib/format"
+import { ZONES, zoneChipClass } from "@/lib/zones"
 import type { ReminderDeliveryStatus, ReminderStatusDto } from "@/lib/api/reminder-settings"
 
 /**
@@ -62,48 +65,58 @@ export function ReminderLogTable({
   }
 
   if (rows.length === 0) {
+    /*
+     * Three distinct emptinesses, because the ways out differ. Collapsing them into one « aucun message » would
+     * leave a clinic that has never configured a channel waiting for reminders that can never be sent.
+     *
+     * ⚠️ The filtered case gets « Effacer les filtres » and never « Configurer les canaux »: the messages very
+     * likely exist and the window is simply too narrow, and pushing a settings screen at that user answers a
+     * question they did not ask.
+     *
+     * The « Aucun canal actif » pill that used to sit above the title is gone — it restated the heading directly
+     * below it. Its warning tone moved onto the icon chip, which is where the primitive puts the one piece of
+     * decoration it sanctions.
+     */
     return (
       <div className="rounded-xl border">
-        <div className="flex flex-col items-center gap-2 px-5 py-11 text-center">
-          {/*
-            Three distinct emptinesses, because the ways out differ. Collapsing them into one « aucun message »
-            would leave a clinic that has never configured a channel waiting for reminders that can never be sent.
-          */}
-          {noChannelConfigured ? (
-            <>
-              <Badge className="bg-warning-wash text-warning">Aucun canal actif</Badge>
-              <p className="text-base font-semibold">Les rappels ne sont pas encore activés</p>
-              <p className="max-w-[46ch] text-sm text-muted-foreground">
-                Ni SMS ni WhatsApp n&apos;est configuré, donc aucun message ne part. Renseignez un canal pour
-                commencer à envoyer des rappels de rendez-vous.
-              </p>
-              {onConfigure && (
-                <Button size="sm" className="mt-1" onClick={onConfigure}>
+        {noChannelConfigured ? (
+          <EmptyState
+            icon={BellOff}
+            // `text-warning-ink`, not `text-warning`: --warning sits at L 0.62 and lands near 3.5:1 on its own
+            // wash, under the floor. --warning-ink is the darkened step that exists for exactly this pairing.
+            chipClassName="bg-warning-wash text-warning-ink"
+            title="Les rappels ne sont pas encore activés"
+            description="Ni SMS ni WhatsApp n'est configuré, donc aucun message ne part. Renseignez un canal pour commencer à envoyer des rappels de rendez-vous."
+            action={
+              onConfigure && (
+                <Button size="sm" onClick={onConfigure}>
                   Configurer les canaux
                 </Button>
-              )}
-            </>
-          ) : isFiltered ? (
-            <>
-              <p className="text-base font-semibold">Aucun message ne correspond</p>
-              <p className="max-w-[46ch] text-sm text-muted-foreground">
-                Aucun envoi ne correspond à ces filtres. Élargissez la période ou retirez un filtre.
-              </p>
-              {onResetFilters && (
-                <Button size="sm" variant="outline" className="mt-1" onClick={onResetFilters}>
-                  Réinitialiser les filtres
+              )
+            }
+          />
+        ) : isFiltered ? (
+          <EmptyState
+            icon={SearchX}
+            chipClassName={OPS_CHIP}
+            title="Aucun message ne correspond"
+            description="Aucun envoi ne correspond à ces filtres. Élargissez la période ou retirez un filtre."
+            secondaryAction={
+              onResetFilters && (
+                <Button size="sm" variant="outline" onClick={onResetFilters}>
+                  Effacer les filtres
                 </Button>
-              )}
-            </>
-          ) : (
-            <>
-              <p className="text-base font-semibold">Aucun message pour le moment</p>
-              <p className="max-w-[46ch] text-sm text-muted-foreground">
-                Les rappels partent automatiquement avant chaque rendez-vous, selon les délais configurés.
-              </p>
-            </>
-          )}
-        </div>
+              )
+            }
+          />
+        ) : (
+          <EmptyState
+            icon={Send}
+            chipClassName={OPS_CHIP}
+            title="Aucun message pour le moment"
+            description="Les rappels partent automatiquement avant chaque rendez-vous, selon les délais configurés."
+          />
+        )}
       </div>
     )
   }
@@ -139,7 +152,7 @@ export function ReminderLogTable({
           </>
         )}
         subtitle={(r) =>
-          r.failureReason ? <span className="text-destructive">{r.failureReason}</span> : null
+          r.failureReason ? <span className={REASON_CLASS[r.status]}>{r.failureReason}</span> : null
         }
         fields={(r) => [
           { label: "Canal", value: <span className="font-mono text-2xs">{r.channel}</span> },
@@ -215,7 +228,7 @@ export function ReminderLogTable({
                   actionable, and a tooltip is unreachable on the tablet a dentist actually holds.
                 */}
                 {row.failureReason && (
-                  <p className="mt-1 max-w-[38ch] text-xs text-destructive">{row.failureReason}</p>
+                  <p className={cn("mt-1 max-w-[38ch] text-xs", REASON_CLASS[row.status])}>{row.failureReason}</p>
                 )}
               </TableCell>
             </TableRow>
@@ -226,17 +239,34 @@ export function ReminderLogTable({
   )
 }
 
+/** « Rappels » lives in the Gestion zone; its empty states wear the hue the rail and the page eyebrow already do. */
+const OPS_CHIP = zoneChipClass(ZONES.ops)
+
 const STATUS_LABEL: Record<ReminderDeliveryStatus, string> = {
   sent: "Envoyé",
   pending: "En attente",
   failed: "Échec",
+  // « Bloqué » and not « En attente »: the row is not queued behind others, it is not going anywhere until
+  // somebody changes a setting. The reason beside it says which one.
+  blocked: "Bloqué",
 }
 
-/** Semantic theme tokens, never hardcoded Tailwind colour pairs — dark mode follows with no `dark:` variant. */
+/**
+ * Semantic theme tokens, never hardcoded Tailwind colour pairs — dark mode follows with no `dark:` variant.
+ *
+ * ⚠️ `pending` is `text-warning-ink`, not `text-warning`. `--warning` sits at L 0.62, which measures around
+ * 3.5:1 against its own wash — under the floor for badge-sized text, and this pill appears on every queued row.
+ * `--warning-ink` is the darkened step added for exactly this pairing (`ui/status-tone.ts` carries the same note);
+ * `--success` and `--destructive` clear it at their normal step, which is why only the amber differs.
+ */
 const STATUS_CLASS: Record<ReminderDeliveryStatus, string> = {
   sent: "bg-success-wash text-success",
-  pending: "bg-warning-wash text-warning",
+  pending: "bg-warning-wash text-warning-ink",
   failed: "bg-destructive-wash text-destructive",
+  // Amber like `pending`, because a blocked row is not a delivery failure — nothing was attempted and the
+  // message will still go out once the channel works. It is « à régler », not « perdu », and painting it red
+  // beside real failures would bury the ones that need a phone call.
+  blocked: "bg-warning-wash text-warning-ink",
 }
 
 /**
@@ -247,8 +277,22 @@ const STATUS_CLASS: Record<ReminderDeliveryStatus, string> = {
  * colours and letting both read it beats a class map plus a parallel colour map that can disagree about what
  * « failed » looks like.
  */
+/**
+ * The tone of the row's reason line. It follows the **status**, not the mere presence of a reason: a blocked
+ * row's reason is « le canal SMS n'est pas configuré », which is an instruction, not an incident. Rendering it in
+ * the same red as a real delivery failure is what would make a screen full of misconfiguration look like a screen
+ * full of patients who were never reached.
+ */
+const REASON_CLASS: Record<ReminderDeliveryStatus, string> = {
+  sent: "text-muted-foreground",
+  pending: "text-muted-foreground",
+  failed: "text-destructive",
+  blocked: "text-warning-ink",
+}
+
 const STRIPE: Record<ReminderDeliveryStatus, string> = {
   sent: "var(--color-success)",
   pending: "var(--color-warning)",
   failed: "var(--color-destructive)",
+  blocked: "var(--color-warning)",
 }

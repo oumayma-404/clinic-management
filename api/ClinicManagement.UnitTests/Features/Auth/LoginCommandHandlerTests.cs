@@ -248,4 +248,47 @@ public class LoginCommandHandlerTests
         Assert.True(result.IsFailure);
         _auth.Verify(a => a.VerifyPassword(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
     }
+    /// <summary>
+    /// [I5] A pending account is told an admin must activate it — not that it « a été désactivé ».
+    ///
+    /// <para>Both states are <c>!IsActive</c>, and the wording is the whole difference. « Ce compte a été
+    /// désactivé » on an account created ninety seconds ago reads as a bug in the registration the person has
+    /// just completed, and they have no way to ask anyone through the product. Disclosed only after the correct
+    /// password, like the deactivated message it replaces.</para>
+    /// </summary>
+    [Fact]
+    public async Task Handle_Should_Tell_A_Pending_Account_That_An_Admin_Must_Activate_It()
+    {
+        var user = User.CreateSelfRegistered(ClinicId, "secretary", "doc@clinic.com", "STORED-HASH", "Sam");
+        _users.Setup(r => r.GetByEmailAsync("doc@clinic.com", It.IsAny<CancellationToken>())).ReturnsAsync(user);
+        _auth.Setup(a => a.VerifyPassword("STORED-HASH", "s3cret!!")).Returns(PasswordVerificationOutcome.Success);
+        SaveSucceeds();
+
+        var result = await Handler().Handle(Command(), CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Contains("activé", result.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("désactivé", result.Error, StringComparison.OrdinalIgnoreCase);
+        // No token is issued either way — the refusal is real, not cosmetic.
+        _auth.Verify(a => a.GenerateRefreshToken(It.IsAny<User>()), Times.Never);
+    }
+
+    // [I5] …and an account switched off after use keeps the original wording. Two messages, two situations; if
+    // both said the same thing the pending branch would be pointless.
+    [Fact]
+    public async Task Handle_Should_Keep_The_Deactivated_Wording_For_An_Account_That_Had_Logged_In()
+    {
+        var user = LocalUser();
+        user.RecordSuccessfulLogin();
+        user.Deactivate();
+        _users.Setup(r => r.GetByEmailAsync("doc@clinic.com", It.IsAny<CancellationToken>())).ReturnsAsync(user);
+        _auth.Setup(a => a.VerifyPassword("STORED-HASH", "s3cret!!")).Returns(PasswordVerificationOutcome.Success);
+        SaveSucceeds();
+
+        var result = await Handler().Handle(Command(), CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Contains("désactivé", result.Error, StringComparison.OrdinalIgnoreCase);
+    }
+
 }

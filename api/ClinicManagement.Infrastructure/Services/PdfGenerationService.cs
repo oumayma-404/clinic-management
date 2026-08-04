@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Features.Documents;
@@ -16,13 +17,47 @@ public class PdfGenerationService : IPdfGenerationService
     // renderer used by every other document type.
     private const string BulletinCnamType = DocumentTypes.BulletinCnam;
 
+    // Likewise the arrêt de travail, stamped onto the official CNAM P 061 form (L11). Two overlay types now, and
+    // they stay two separate renderers: the forms share nothing but their pattern — different asset, different
+    // page geometry, and every one of ~30 coordinates different.
+    private const string ArretTravailType = DocumentTypes.ArretTravail;
+
     // Documents are Tunisian: French month names + TND formatting come from a fixed fr-FR culture, never
     // the ambient thread culture (which may be invariant/en in the background PDF job).
     private static readonly CultureInfo FrCulture = CultureInfo.GetCultureInfo("fr-FR");
 
+    /// <summary>
+    /// A stored instant as the calendar day the <b>clinic</b> was in — the one date authority every money
+    /// document renders through (J3).
+    ///
+    /// <para>
+    /// Every date on these documents is a UTC instant, and the renderer used to format it raw. Tunisia is
+    /// UTC+1, so for the first hour of every clinic day the raw instant is still on the *previous* date: a note
+    /// d'honoraires issued at 00h30 on 1 January was numbered <c>2027-0001</c> (the sequence takes its year from
+    /// <see cref="ClinicClock.ClinicYear"/>) and printed « Le 31/12/2026 ». A 2027 number on a 2026-dated
+    /// document is what an accountant rejects, and a document's number is legal identity — there is no
+    /// correcting it afterwards. The same split existed on the avoir and the devis.
+    /// </para>
+    /// <para>
+    /// ⚠️ The fix is deliberately here and <b>not</b> in what <c>Invoice.Issue</c> stores. The stored instant is
+    /// already right: every money read buckets on it through <c>ClinicClock</c>'s local-day bounds, so a note
+    /// issued at 00h30 Tunis on 1 January already books into January. Storing a clinic-local wall-clock value
+    /// instead would make the print agree at the cost of shifting the instant by an hour — which
+    /// <c>ApplicationDbContext</c> (Unspecified is written as UTC) would bake in, moving which month every past
+    /// note books into. Rendering is the half that was wrong; reading was not.
+    /// </para>
+    /// <para>
+    /// A date the user typed is unaffected: it arrives as midnight, and midnight UTC is 01:00 on the same
+    /// clinic day.
+    /// </para>
+    /// </summary>
+    private static string FrDay(DateTime instant) =>
+        ClinicClock.ToClinicLocal(instant).ToString("dd/MM/yyyy", FrCulture);
+
     private readonly ILogger<PdfGenerationService> _logger;
     private readonly IFileStorage _fileStorage;
     private readonly CnamBs1BulletinRenderer _bs1Renderer;
+    private readonly CnamArretTravailRenderer _arretTravailRenderer;
 
     public PdfGenerationService(ILogger<PdfGenerationService> logger, IFileStorage fileStorage)
     {
@@ -30,6 +65,7 @@ public class PdfGenerationService : IPdfGenerationService
         _fileStorage = fileStorage;
         // Pass the logger so the BS1 renderer can surface a Warning when it silently drops malformed acts.
         _bs1Renderer = new CnamBs1BulletinRenderer(logger);
+        _arretTravailRenderer = new CnamArretTravailRenderer();
         // Set QuestPDF license (free for non-commercial use, or use your license key)
         QuestPDF.Settings.License = LicenseType.Community;
     }
@@ -55,6 +91,16 @@ public class PdfGenerationService : IPdfGenerationService
                 var bulletinBytes = await Task.Run(() => _bs1Renderer.Render(documentData), cancellationToken);
                 _logger.LogInformation("BS1 bulletin PDF generated successfully, size: {Size} bytes", bulletinBytes.Length);
                 return bulletinBytes;
+            }
+
+            // arret-travail is stamped onto the genuine CNAM P 061 form (same contract: fails fast if the asset is
+            // missing, rather than falling through to the generic renderer — a free-text « certificat » in place of
+            // the official form is precisely what the caisse refuses, and it would look like a success).
+            if (string.Equals(documentData.DocumentType, ArretTravailType, StringComparison.OrdinalIgnoreCase))
+            {
+                var arretBytes = await Task.Run(() => _arretTravailRenderer.Render(documentData), cancellationToken);
+                _logger.LogInformation("P61 arrêt de travail PDF generated successfully, size: {Size} bytes", arretBytes.Length);
+                return arretBytes;
             }
 
             // FR-3.2: load the practitioner cachet blob (if snapshotted) before entering the sync render.
@@ -177,8 +223,18 @@ public class PdfGenerationService : IPdfGenerationService
                                 {
                                     col.Item().Text($"N° {data.Number}").FontSize(12).Bold().FontFamily("Helvetica");
                                     col.Item().Text($"Patient : {data.PatientName}").FontSize(11).FontFamily("Helvetica");
+
+                                    // The patient's address, when they have one (J10). Conditional, not blank:
+                                    // it is not legally required of a private patient, so an addressless patient
+                                    // gets one line fewer rather than an empty « Adresse : » the reader has to
+                                    // interpret.
+                                    if (!string.IsNullOrWhiteSpace(data.PatientAddress))
+                                    {
+                                        col.Item().Text(data.PatientAddress).FontSize(10)
+                                            .FontColor(Colors.Grey.Darken2).FontFamily("Helvetica");
+                                    }
                                 });
-                                row.RelativeItem().AlignRight().Text($"Le {data.IssueDate:dd/MM/yyyy}").FontSize(11).FontFamily("Helvetica");
+                                row.RelativeItem().AlignRight().Text($"Le {FrDay(data.IssueDate)}").FontSize(11).FontFamily("Helvetica");
                             });
 
                             // Lines table
@@ -262,7 +318,16 @@ public class PdfGenerationService : IPdfGenerationService
                         page.Footer().PaddingTop(20).Column(footer =>
                         {
                             footer.Item().LineHorizontal(0.5f).LineColor(Colors.Grey.Medium);
-                            footer.Item().PaddingTop(6).Text("Note d'honoraires soumise au timbre fiscal — Montants exprimés en dinars tunisiens (DT).")
+
+                            // Gated on the timbre actually applying (J10). The mention was unconditional while the
+                            // timbre *line* above it is conditional, so a note issued by a clinic with the timbre
+                            // switched off asserted a droit de timbre it had neither charged nor collected — the
+                            // document contradicted its own totals. The currency half of the sentence is true
+                            // either way, so only the timbre clause is conditional.
+                            var mention = data.StampDutyAmount > 0m
+                                ? "Note d'honoraires soumise au timbre fiscal — Montants exprimés en dinars tunisiens (DT)."
+                                : "Montants exprimés en dinars tunisiens (DT).";
+                            footer.Item().PaddingTop(6).Text(mention)
                                 .FontSize(8).FontColor(Colors.Grey.Darken1).FontFamily("Helvetica");
                         });
                     });
@@ -326,7 +391,7 @@ public class PdfGenerationService : IPdfGenerationService
                                     if (!string.IsNullOrWhiteSpace(data.Title))
                                         col.Item().Text($"Plan : {data.Title}").FontSize(11).FontFamily("Helvetica");
                                 });
-                                row.RelativeItem().AlignRight().Text($"Le {data.Date:dd/MM/yyyy}").FontSize(11).FontFamily("Helvetica");
+                                row.RelativeItem().AlignRight().Text($"Le {FrDay(data.Date)}").FontSize(11).FontFamily("Helvetica");
                             });
 
                             // Act lines table
@@ -402,7 +467,7 @@ public class PdfGenerationService : IPdfGenerationService
                                     foreach (var installment in data.Installments)
                                     {
                                         table.Cell().Element(BodyCell).Text(index.ToString());
-                                        table.Cell().Element(BodyCell).Text($"{installment.DueDate:dd/MM/yyyy}");
+                                        table.Cell().Element(BodyCell).Text(FrDay(installment.DueDate));
                                         table.Cell().Element(BodyCell).AlignRight().Text(FormatDt(installment.Amount));
                                         index++;
                                     }
@@ -475,7 +540,7 @@ public class PdfGenerationService : IPdfGenerationService
                             if (data.IsVoided)
                             {
                                 column.Item().PaddingTop(4).AlignCenter()
-                                    .Text($"REÇU ANNULÉ{(data.VoidedOn.HasValue ? $" LE {data.VoidedOn.Value:dd/MM/yyyy}" : "")}")
+                                    .Text($"REÇU ANNULÉ{(data.VoidedOn.HasValue ? $" LE {FrDay(data.VoidedOn.Value)}" : "")}")
                                     .FontSize(13).Bold().FontColor(Colors.Red.Darken2).FontFamily("Helvetica");
 
                                 if (!string.IsNullOrWhiteSpace(data.VoidReason))
@@ -506,7 +571,7 @@ public class PdfGenerationService : IPdfGenerationService
                                     table.Cell().Element(BodyCell).Text(value).FontFamily("Helvetica");
                                 }
 
-                                Row("Date", $"{data.PaidOn:dd/MM/yyyy}");
+                                Row("Date", FrDay(data.PaidOn));
                                 Row("Patient", data.PatientName);
                                 Row("Objet", data.For);
                                 Row("Mode de règlement", data.Method);
@@ -595,8 +660,8 @@ public class PdfGenerationService : IPdfGenerationService
                                     table.Cell().Element(BodyCell).Text(value).FontFamily("Helvetica");
                                 }
 
-                                Row("Date d'établissement", $"{data.IssueDate:dd/MM/yyyy}");
-                                Row("Date de remboursement", $"{data.RefundedOn:dd/MM/yyyy}");
+                                Row("Date d'établissement", FrDay(data.IssueDate));
+                                Row("Date de remboursement", FrDay(data.RefundedOn));
                                 Row("Patient", data.PatientName);
 
                                 // Mandatory on an avoir: the document it corrects. Rendering it blank would
@@ -604,7 +669,7 @@ public class PdfGenerationService : IPdfGenerationService
                                 var invoiceRef = string.IsNullOrWhiteSpace(data.InvoiceNumber)
                                     ? "Facture non numérotée"
                                     : data.InvoiceIssueDate.HasValue
-                                        ? $"N° {data.InvoiceNumber} du {data.InvoiceIssueDate.Value:dd/MM/yyyy}"
+                                        ? $"N° {data.InvoiceNumber} du {FrDay(data.InvoiceIssueDate.Value)}"
                                         : $"N° {data.InvoiceNumber}";
                                 Row("Facture corrigée", invoiceRef);
 
@@ -625,11 +690,18 @@ public class PdfGenerationService : IPdfGenerationService
                             {
                                 totals.Spacing(3);
                                 // The split is only meaningful when the corrected invoice carried VAT;
-                                // otherwise the single TTC figure is the honest presentation.
+                                // otherwise the single TTC figure is the honest presentation. The **timbre** is a
+                                // separate line for the same reason it is a separate field (J6): it sits outside
+                                // the VAT base, so folding it into HT would make the printed TVA disagree with
+                                // the TVA the note actually charged.
                                 if (data.VatApplicable && data.VatRate > 0m)
                                 {
                                     totals.Item().Text($"Montant HT : {FormatDt(data.AmountHt)}").FontSize(11).FontFamily("Helvetica");
                                     totals.Item().Text($"TVA ({data.VatRate:0.##} %) : {FormatDt(data.AmountVat)}").FontSize(11).FontFamily("Helvetica");
+                                }
+                                if (data.AmountStamp > 0m)
+                                {
+                                    totals.Item().Text($"Timbre fiscal : {FormatDt(data.AmountStamp)}").FontSize(11).FontFamily("Helvetica");
                                 }
                                 totals.Item().PaddingTop(3).Text($"Montant remboursé : {FormatDt(data.AmountTtc)}")
                                     .FontSize(14).Bold().FontColor(Colors.Blue.Darken2).FontFamily("Helvetica");
@@ -688,9 +760,14 @@ public class PdfGenerationService : IPdfGenerationService
             {
                 column.Spacing(4);
                 column.Item().Text(data.ClinicName).FontSize(14).Bold().FontColor(Colors.Blue.Darken2).FontFamily("Helvetica");
-                column.Item().Text(data.ClinicAddress).FontSize(11).FontFamily("Helvetica");
-                column.Item().Text($"Tél: {data.ClinicPhone}").FontSize(11).FontFamily("Helvetica");
-                column.Item().Text($"{data.DoctorName} - {data.DoctorSpecialty}").FontSize(11).Bold().FontFamily("Helvetica");
+
+                // Every prescriber/cabinet line comes from DocumentIdentity, so the ordonnance, the certificat,
+                // the lettre de liaison and the bulletin all identify the practitioner the same way — including
+                // the CNOMDT number an ordonnance is legally required to carry and used to omit entirely.
+                foreach (var line in DocumentIdentity.PrescriberLines(data))
+                {
+                    column.Item().Text(line).FontSize(11).FontFamily("Helvetica");
+                }
             });
         };
     }
@@ -742,24 +819,46 @@ public class PdfGenerationService : IPdfGenerationService
             container.Padding(12).PaddingBottom(15).Column(column =>
             {
                 column.Spacing(6);
-                column.Item().Row(row =>
+
+                // DocumentIdentity owns which patient lines a document must carry and in what order (nom, date
+                // de naissance, sexe, poids, médecin traitant). Laid out two per row so the block stays compact
+                // however many lines it yields; the patient's name is emphasised as the first one.
+                var lines = DocumentIdentity.PatientLines(data);
+                for (var index = 0; index < lines.Count; index += 2)
                 {
-                    row.RelativeItem().Column(col =>
+                    var left = lines[index];
+                    var right = index + 1 < lines.Count ? lines[index + 1] : null;
+
+                    column.Item().Row(row =>
                     {
-                        col.Item().Text("Patient").FontSize(9).FontColor(Colors.Grey.Darken2).FontFamily("Helvetica");
-                        col.Item().Text(data.PatientName).FontSize(12).Bold().FontFamily("Helvetica");
-                    });
-                    if (!string.IsNullOrEmpty(data.PatientAge))
-                    {
-                        row.RelativeItem().Column(col =>
+                        row.RelativeItem().Element(c => RenderIdentityLine(c, left, bold: index == 0));
+                        if (right != null)
                         {
-                            col.Item().Text("Date de naissance").FontSize(9).FontColor(Colors.Grey.Darken2).FontFamily("Helvetica");
-                            col.Item().Text(data.PatientAge).FontSize(12).FontFamily("Helvetica");
-                        });
-                    }
-                });
+                            row.RelativeItem().Element(c => RenderIdentityLine(c, right, bold: false));
+                        }
+                        else
+                        {
+                            // Keep the grid honest: an odd final line must not stretch across both columns.
+                            row.RelativeItem();
+                        }
+                    });
+                }
             });
         };
+    }
+
+    /// <summary>Renders one <see cref="IdentityLine"/> as a small grey label above its value.</summary>
+    private static void RenderIdentityLine(IContainer container, IdentityLine line, bool bold)
+    {
+        container.Column(col =>
+        {
+            col.Item().Text(line.Label).FontSize(9).FontColor(Colors.Grey.Darken2).FontFamily("Helvetica");
+            var value = col.Item().Text(line.Value).FontSize(12).FontFamily("Helvetica");
+            if (bold)
+            {
+                value.Bold();
+            }
+        });
     }
 
     private Action<IContainer> ComposeContent(MedicalDocumentPdfData data)
@@ -773,76 +872,36 @@ public class PdfGenerationService : IPdfGenerationService
                 switch (data.DocumentType.ToLowerInvariant())
                 {
                     case DocumentTypes.Prescription:
-                        if (data.Content.TryGetValue("medications", out var medications))
+                        // PrescriptionContent owns the whole body — the per-line norm formatting (DCI, posologie,
+                        // voie, quantité, durée) and the per-ordonnance renewal mention. It also absorbs the
+                        // legacy-string and malformed-JSON fallbacks that used to be three catch/else branches here.
+                        var prescription = PrescriptionContent.Build(data.Content);
+                        column.Item().PaddingBottom(8).Text("Prescription:").FontSize(12).Bold().FontFamily("Helvetica");
+
+                        if (prescription.Lines.Count == 0)
                         {
-                            column.Item().PaddingBottom(8).Text("Prescription:").FontSize(12).Bold().FontFamily("Helvetica");
-                            
-                            // Try to parse as JSON array (new format)
-                            try
+                            column.Item().PaddingBottom(4).Text("Aucune prescription").FontSize(11).FontFamily("Helvetica");
+                        }
+                        else
+                        {
+                            foreach (var line in prescription.Lines)
                             {
-                                if (!string.IsNullOrWhiteSpace(medications))
-                                {
-                                    // Check if it's a JSON array (starts with '[')
-                                    if (medications.TrimStart().StartsWith("["))
-                                    {
-                                        var options = new JsonSerializerOptions
-                                        {
-                                            PropertyNameCaseInsensitive = true
-                                        };
-                                        var medicationsArray = JsonSerializer.Deserialize<List<MedicationData>>(medications, options);
-                                        if (medicationsArray != null && medicationsArray.Count > 0)
-                                        {
-                                            foreach (var med in medicationsArray)
-                                            {
-                                                var medText = med.Name ?? "Médicament";
-                                                if (!string.IsNullOrWhiteSpace(med.Dosage))
-                                                    medText += $" {med.Dosage}";
-                                                if (!string.IsNullOrWhiteSpace(med.TimesPerDay))
-                                                    medText += $", {med.TimesPerDay}x par jour";
-                                                if (!string.IsNullOrWhiteSpace(med.Duration))
-                                                {
-                                                    var medDuration = med.Duration;
-                                                    var isPlural = int.TryParse(medDuration, out var days) && days > 1;
-                                                    medText += $" pendant {medDuration} jour{(isPlural ? "s" : "")}";
-                                                }
-                                                // Print the active ingredient(s) / DCI when captured (finding #12).
-                                                if (med.Dci != null && med.Dci.Count > 0)
-                                                {
-                                                    var dciText = string.Join(", ", med.Dci.Where(d => !string.IsNullOrWhiteSpace(d)));
-                                                    if (!string.IsNullOrWhiteSpace(dciText))
-                                                        medText += $" (DCI : {dciText})";
-                                                }
-                                                column.Item().PaddingBottom(4).Text(medText).FontSize(11).FontFamily("Helvetica");
-                                            }
-                                        }
-                                        else
-                                        {
-                                            column.Item().PaddingBottom(4).Text("Aucune prescription").FontSize(11).FontFamily("Helvetica");
-                                        }
-                                    }
-                                    else
-                                    {
-                                        // Old string format (backward compatibility)
-                                        column.Item().PaddingBottom(4).Text(medications).FontSize(11).FontFamily("Helvetica");
-                                    }
-                                }
-                                else
-                                {
-                                    column.Item().PaddingBottom(4).Text("Aucune prescription").FontSize(11).FontFamily("Helvetica");
-                                }
+                                column.Item().PaddingBottom(4).Text(line.Text).FontSize(11).FontFamily("Helvetica");
                             }
-                            catch (JsonException)
-                            {
-                                // Fallback to old string format (backward compatibility)
-                                column.Item().PaddingBottom(4).Text(medications).FontSize(11).FontFamily("Helvetica");
-                            }
+                        }
+
+                        // Governs the document, so it renders once below the lines rather than against one of them.
+                        if (prescription.RenewalMention != null)
+                        {
+                            column.Item().PaddingTop(6).Text(prescription.RenewalMention)
+                                .FontSize(11).Italic().FontFamily("Helvetica");
                         }
                         break;
 
                     case DocumentTypes.Liaison:
-                        // FR-4.2: render only the filled guided sections (motif / examen clinique / examen
-                        // radiologique / actes réalisés / prescriptions), each under its heading; empty fields
-                        // are omitted. A legacy letter's free-text body renders as one unlabelled section.
+                        // Render only the filled sections, in the norm reading order LiaisonContent declares.
+                        // The free-text body is one of them (unlabelled) and no longer excludes the guided
+                        // fields — a letter routinely carries prose AND structured norm sections.
                         foreach (var section in LiaisonContent.Build(data.Content))
                         {
                             column.Item().Column(sec =>
@@ -861,15 +920,13 @@ public class PdfGenerationService : IPdfGenerationService
                     // Invoices). The old euro-denominated QuestPDF block is removed; no generic doc renders "€".
 
                     case DocumentTypes.Certificat:
-                        // FR-2: light generalization — free objet/motif body + optional repos clause. The ordre
-                        // comes from the authoritative profile snapshot (Part C, key doctorOrdreNumber); fall
-                        // back to any legacy typed value for documents created before the snapshot existed.
+                        // Free objet/motif body + optional repos clause. The practitioner's ordre number and the
+                        // cabinet address are NOT passed here any more — DocumentIdentity renders them in the
+                        // shared header for every document type, so the attestation formula names the registering
+                        // body without restating the number.
                         var objetMotif = data.Content.GetValueOrDefault("objetMotif", "");
                         var startDate = data.Content.GetValueOrDefault("startDate", "");
                         var duration = data.Content.GetValueOrDefault("duration", "");
-                        var ordreNumber = !string.IsNullOrWhiteSpace(data.DoctorOrdreNumber)
-                            ? data.DoctorOrdreNumber
-                            : data.Content.GetValueOrDefault("doctorOrderNumber", "");
 
                         string? startDateFormatted = null;
                         if (!string.IsNullOrEmpty(startDate) && DateTime.TryParse(startDate, out var startDateParsed))
@@ -885,7 +942,7 @@ public class PdfGenerationService : IPdfGenerationService
                         }
 
                         var certificat = CertificatTextBuilder.Build(
-                            data.DoctorName, data.DoctorSpecialty, ordreNumber, data.ClinicAddress,
+                            data.DoctorName, data.DoctorSpecialty,
                             data.PatientName, patientDobFormatted, objetMotif, duration, startDateFormatted);
 
                         foreach (var paragraph in certificat.BodyParagraphs)

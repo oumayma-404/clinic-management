@@ -19,7 +19,15 @@ public sealed class PractitionerRenderSnapshot
     public const string DoctorCachetKeyKey = "doctorCachetKey";
     public const string DoctorCachetContentTypeKey = "doctorCachetContentType";
 
+    /// <summary>
+    /// The cabinet's email — part of the prescriber contact details a prescription must carry (R.5132-3). A
+    /// reserved key like the other four: server-resolved and stripped from any client payload, because the
+    /// document identifies who issued it and a caller must not be able to put another cabinet's address on it.
+    /// </summary>
+    public const string ClinicEmailKey = "clinicEmail";
+
     public string? ClinicCity { get; init; }
+    public string? ClinicEmail { get; init; }
     public string? DoctorOrdreNumber { get; init; }
     public string? DoctorCachetKey { get; init; }
     public string? DoctorCachetContentType { get; init; }
@@ -30,6 +38,7 @@ public sealed class PractitionerRenderSnapshot
     /// <summary>True when at least one value is present (worth writing onto the document).</summary>
     public bool HasAny =>
         !string.IsNullOrWhiteSpace(ClinicCity)
+        || !string.IsNullOrWhiteSpace(ClinicEmail)
         || !string.IsNullOrWhiteSpace(DoctorOrdreNumber)
         || !string.IsNullOrWhiteSpace(DoctorCachetKey);
 
@@ -58,12 +67,15 @@ public sealed class PractitionerRenderSnapshot
         }
 
         content.Remove(ClinicCityKey);
+        content.Remove(ClinicEmailKey);
         content.Remove(DoctorOrdreNumberKey);
         content.Remove(DoctorCachetKeyKey);
         content.Remove(DoctorCachetContentTypeKey);
 
         if (!string.IsNullOrWhiteSpace(ClinicCity))
             content[ClinicCityKey] = ClinicCity;
+        if (!string.IsNullOrWhiteSpace(ClinicEmail))
+            content[ClinicEmailKey] = ClinicEmail;
         if (!string.IsNullOrWhiteSpace(DoctorOrdreNumber))
             content[DoctorOrdreNumberKey] = DoctorOrdreNumber;
         if (!string.IsNullOrWhiteSpace(DoctorCachetKey))
@@ -101,6 +113,7 @@ public sealed class PractitionerRenderSnapshot
         return new PractitionerRenderSnapshot
         {
             ClinicCity = ReadString(content, ClinicCityKey),
+            ClinicEmail = ReadString(content, ClinicEmailKey),
             DoctorOrdreNumber = ReadString(content, DoctorOrdreNumberKey),
             DoctorCachetKey = ReadString(content, DoctorCachetKeyKey),
             DoctorCachetContentType = ReadString(content, DoctorCachetContentTypeKey)
@@ -118,6 +131,7 @@ public sealed class PractitionerRenderSnapshot
         return new PractitionerRenderSnapshot
         {
             ClinicCity = !string.IsNullOrWhiteSpace(ClinicCity) ? ClinicCity : fallback.ClinicCity,
+            ClinicEmail = !string.IsNullOrWhiteSpace(ClinicEmail) ? ClinicEmail : fallback.ClinicEmail,
             DoctorOrdreNumber = !string.IsNullOrWhiteSpace(DoctorOrdreNumber) ? DoctorOrdreNumber : fallback.DoctorOrdreNumber,
             DoctorCachetKey = hasCachet ? DoctorCachetKey : fallback.DoctorCachetKey,
             DoctorCachetContentType = hasCachet ? DoctorCachetContentType : fallback.DoctorCachetContentType
@@ -157,6 +171,7 @@ public sealed class PractitionerRenderSnapshot
         return new PractitionerRenderSnapshot
         {
             ClinicCity = clinic?.City,
+            ClinicEmail = clinic?.Email,
             DoctorOrdreNumber = doctor?.OrdreNumberCnomdt,
             DoctorCachetKey = doctor?.CachetStorageKey,
             DoctorCachetContentType = doctor?.CachetContentType

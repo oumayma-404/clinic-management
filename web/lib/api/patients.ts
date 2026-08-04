@@ -1,5 +1,5 @@
 import { apiGet, apiPost, apiPut, apiDelete } from './client';
-import type { PatientDto, PatientDeletionCheckDto } from './types';
+import type { CnamInfo, PatientDto, PatientDeletionCheckDto } from './types';
 import { unwrapPaged, type PagedResponse, type PageParams } from './paging';
 
 export const patientsApi = {
@@ -40,11 +40,6 @@ export const patientsApi = {
     return apiGet<PatientDto>(`/patients/${id}`);
   },
 
-  // Live, AI-generated French summary (not persisted). 404 = missing/other-clinic; 400 = AI unavailable.
-  getAiSummary: async (patientId: string): Promise<{ summary: string }> => {
-    return apiGet<{ summary: string }>(`/patients/${patientId}/ai-summary`);
-  },
-
   create: async (data: {
     firstName: string;
     lastName: string;
@@ -57,29 +52,26 @@ export const patientsApi = {
     phoneNumber?: string | null;
     medicalHistory?: string;
     allergies?: string;
+    /** `null` is accepted so one expression can serve create and update — on create it is simply "no address". */
     address?: {
       street: string;
       city: string;
       state: string;
       zipCode: string;
       country?: string;
-    };
+    } | null;
     insuranceInfo?: {
       provider: string;
       policyNumber: string;
       groupNumber?: string;
       expiryDate?: string;
     };
-    cnamInfo?: {
-      identifiantUnique?: string | null;
-      regime?: string | null;
-      assureFirstName?: string | null;
-      assureLastName?: string | null;
-      assureAddress?: string | null;
-      assurePostalCode?: string | null;
-      maladeLien?: string | null;
-      maladeLienRang?: string | null;
-    };
+    /**
+     * The CNAM identity block, as the shared `CnamInfo` rather than a re-listed literal. It used to be spelled out
+     * inline here, so L10's two ceiling fields typechecked on the update path (which reads `CnamInfo`) and failed on
+     * this one — a copy of a shape is a copy that goes one field out of date.
+     */
+    cnamInfo?: CnamInfo;
     medicalHistoryEntries?: Array<{
       description: string;
       date?: string;

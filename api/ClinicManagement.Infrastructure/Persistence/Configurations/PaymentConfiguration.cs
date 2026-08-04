@@ -51,11 +51,31 @@ public class PaymentConfiguration : IEntityTypeConfiguration<Payment>
         // Soft link to the installment payment this was carried over from (devis→facture bridge).
         builder.Property(p => p.SourceInstallmentPaymentId);
 
+        // Cheque identity (L8). Null for every method but Cheque — the invariant lives in `ChequeDetails.For`,
+        // not here: a CHECK constraint could express it, but it would then be a second copy of a rule the domain
+        // already enforces, and the one that fires would produce a 500 rather than the French refusal.
+        builder.Property(p => p.ChequeNumber)
+            .HasMaxLength(50);
+
+        builder.Property(p => p.ChequeBankName)
+            .HasMaxLength(200);
+
+        builder.Property(p => p.ChequeDueDate);
+
         builder.HasIndex(p => p.InvoiceId);
 
         // The caisse sums payments by date and must skip voided rows; a partial index keeps that read cheap
         // and stops it degrading as voids accumulate.
         builder.HasIndex(p => new { p.InvoiceId, p.PaidOn })
             .HasFilter("NOT \"IsVoided\"");
+
+        // « Chèques à encaisser », ordered by the day they may be banked.
+        //
+        // ⚠️ The filter is `ChequeDueDate IS NOT NULL`, deliberately **not** `Method = 1`. By the domain
+        // invariant only a cheque can carry a due date, so the two are equally selective — and the enum form
+        // would bake `PaymentMethod.Cheque`'s ordinal into SQL, a magic number in the one place no compiler
+        // checks it.
+        builder.HasIndex(p => p.ChequeDueDate)
+            .HasFilter("\"ChequeDueDate\" IS NOT NULL AND NOT \"IsVoided\"");
     }
 }

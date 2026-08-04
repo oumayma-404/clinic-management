@@ -42,11 +42,13 @@ public class InvoiceFromDentalRecordTests
         new(PatientId, clinicId, "Amal", "Ben Salah", new DateTime(1990, 4, 3), "Femme");
 
     /// <summary>
-    /// The session's TTC: 60 (flat exam) + 90 × 3 (per-tooth composite) = 330 HT, plus the <b>timbre fiscal</b>.
-    /// A new <c>Clinic</c> enables stamp duty at 1,000 DT by default and applies no VAT, so the note settles at
-    /// 331,000 — worth spelling out, because a fixture that quietly assumed 330 would have read as a pricing bug.
+    /// The session's TTC: 60 (flat exam) + 90 × 3 (per-tooth composite) = 330 HT, plus <b>TVA</b> and the
+    /// <b>timbre fiscal</b>. A new <c>Clinic</c> now applies VAT at 7 % (J11 — dental acts are taxable at the
+    /// reduced rate, Tableau « B » nouveau § II n° 1) and enables stamp duty at 1,000 DT, so the note settles at
+    /// 330,000 + 23,100 + 1,000 = <b>354,100</b> — worth spelling out, because a fixture quietly assuming 330
+    /// would have read as a pricing bug.
     /// </summary>
-    private const decimal SessionTtc = 331m;
+    private const decimal SessionTtc = 354.100m;
 
     /// <summary>A two-act session: a flat 60 DT exam plus a per-tooth composite at 90 DT × 3 teeth.</summary>
     private static DentalRecord RecordFixture()
@@ -109,7 +111,9 @@ public class InvoiceFromDentalRecordTests
         Assert.Equal(SessionTtc, _saved.AmountCollected);
         Assert.Equal(record.Id, _saved.DentalRecordId);
 
-        // 330 HT + the clinic's timbre fiscal, and a full settlement lands on Paid rather than PartiallyPaid.
+        // 330 HT plus the clinic's TVA and timbre fiscal, and a full settlement lands on Paid, not PartiallyPaid.
+        // HT is asserted separately because it is the figure the *acts* determine — it must not move when the
+        // clinic's tax posture does.
         Assert.Equal(SessionTtc, _saved.TotalTtc);
         Assert.Equal(330m, _saved.TotalHt);
         Assert.Equal(InvoiceStatus.Paid, _saved.Status);
@@ -274,7 +278,7 @@ public class InvoiceFromDentalRecordTests
             new CreateInvoiceFromDentalRecordCommand
             {
                 DentalRecordId = record.Id,
-                // The session settles at 331,000 DT (330 HT + timbre).
+                // The session settles at 354,100 DT (330 HT + 7 % TVA + timbre), so 500 over-pays it.
                 PaidNow = new DentalRecordPaymentRequest { Amount = 500m, Method = "Cash" },
             },
             CancellationToken.None);

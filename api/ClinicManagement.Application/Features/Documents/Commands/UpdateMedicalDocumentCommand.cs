@@ -101,6 +101,35 @@ public class UpdateMedicalDocumentCommandHandler : IRequestHandler<UpdateMedical
                     "Le nom du confrère destinataire est obligatoire pour une lettre de liaison.");
             }
 
+            // Mirror the create-path bulletin gate — but only for a genuine user edit. ⚠️ `user == null` is the
+            // background PdfGenerationJob feeding a stored document's own ContentJson back through here to
+            // re-render it. A bulletin saved before this gate existed may legitimately be missing a régime or a
+            // code conventionnel, and refusing it here would make an existing document permanently
+            // unre-renderable — the validation would have turned « incomplete » into « unprintable », which is
+            // the opposite of the point. The user who opens such a bulletin gets the refusal on their next save.
+            if (user != null
+                && document.DocumentType.Trim().ToLowerInvariant() == DocumentTypes.BulletinCnam)
+            {
+                var bulletinProblem = BulletinCnamValidation.Validate(request.ContentJson);
+                if (bulletinProblem != null)
+                {
+                    return Result<MedicalDocumentDto>.Failure(bulletinProblem);
+                }
+            }
+
+            // Same gate, same `user != null` condition and for the identical reason: the background
+            // PdfGenerationJob re-renders a stored document with no caller, and refusing there would make an
+            // already-saved arrêt permanently unprintable.
+            if (user != null
+                && document.DocumentType.Trim().ToLowerInvariant() == DocumentTypes.ArretTravail)
+            {
+                var arretProblem = ArretTravailValidation.Validate(request.ContentJson);
+                if (arretProblem != null)
+                {
+                    return Result<MedicalDocumentDto>.Failure(arretProblem);
+                }
+            }
+
             // FR-2.2 / FR-3.3: re-apply the practitioner/clinic snapshot on a genuine user edit, exactly as
             // the create path does — otherwise the structured editor (which rebuilds ContentJson from its
             // own form fields) would drop the cachet key + cabinet city + ordre on every save. Only when a

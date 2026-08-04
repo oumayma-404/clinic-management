@@ -26,5 +26,15 @@ public enum NotificationCategory
     /// (<see cref="Entities.Clinic.StockExpiryLeadDays"/>, default 30 days) — AC-P4.6. The counterpart to
     /// <see cref="LowStock"/>: low stock is "you will run out", this is "you will have to throw it away".
     /// </summary>
-    StockExpiringSoon = 8
+    StockExpiringSoon = 8,
+
+    /// <summary>
+    /// No successful backup for longer than <see cref="Entities.Clinic.BackupStaleAfterHours"/> (L4d).
+    ///
+    /// <para>Modelled as an <b>ensure/clear pair</b> like <see cref="StockExpiringSoon"/> and for the same
+    /// reason: staleness is crossed by the <i>passage of time</i>, so the daily job re-evaluates the same fact
+    /// every run and a fire-once call would write a duplicate row every day. It clears itself when a backup
+    /// succeeds, which is what makes it a state rather than an accumulating pile of alerts.</para>
+    /// </summary>
+    BackupStale = 9
 }

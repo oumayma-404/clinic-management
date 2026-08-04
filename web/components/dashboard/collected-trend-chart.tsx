@@ -10,9 +10,12 @@ import {
   XAxis,
   YAxis,
 } from "recharts"
+import { TrendingUp } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { EmptyState } from "@/components/ui/empty-state"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { ZONES, zoneChipClass } from "@/lib/zones"
 import { formatDT } from "@/lib/format"
 import type { MonthlyCollectedPointDto } from "@/lib/api/types"
 import { formatMonthLong, formatMonthShort } from "./dashboard-labels"
@@ -75,7 +78,23 @@ export function CollectedTrendChart({ points, loading = false }: CollectedTrendC
 
       <CardContent className="space-y-4">
         {loading ? (
-          <div className="h-52 animate-pulse rounded bg-muted" aria-label="Chargement du graphique" />
+          <div className="h-52 animate-pulse rounded-lg bg-muted" aria-label="Chargement du graphique" />
+        ) : points.length === 0 ? (
+          /*
+           * An empty branch, which this chart had none of.
+           *
+           * With zero points it rendered `<AreaChart data={[]}>` under a header reading « Total sur la période :
+           * 0,000 DT » — axes, gridlines and no line. A new clinic's first month is indistinguishable from a
+           * broken chart, and that is the one moment a user has no basis to tell the difference.
+           */
+          <EmptyState
+            icon={TrendingUp}
+            size="compact"
+            className="h-52"
+            title="Pas encore d'encaissements"
+            description="La courbe apparaîtra dès le premier paiement enregistré sur une note d'honoraires."
+            chipClassName={zoneChipClass(ZONES.money)}
+          />
         ) : (
           <>
             {/* Height covers the plot AND the x-axis band, so the card never grows a nested scrollbar. */}

@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Mvc;
 using MediatR;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Appointments.Commands;
@@ -6,12 +6,13 @@ using ClinicManagement.Application.Features.Appointments.Queries;
 using ClinicManagement.Application.Common.Authorization;
 using ClinicManagement.Domain.Common;
 using Microsoft.AspNetCore.Authorization;
+using ClinicManagement.Application.Common.Csv;
 
 namespace ClinicManagement.API.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize]
+[Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
 public class AppointmentsController : ApiControllerBase
 {
     private readonly IMediator _mediator;
@@ -24,6 +25,35 @@ public class AppointmentsController : ApiControllerBase
     /// <summary>
     /// Get all appointments for the current user's clinic
     /// </summary>
+
+    /// <summary>
+    /// « Exporter » (L5) — the same list, as a CSV.
+    ///
+    /// <para>⚠️ It re-sends the <b>identical query with no paging</b>, which the paging primitive models as a
+    /// first-class case rather than as a huge page. That is what makes « honours the current filters, exports the
+    /// whole filtered set, never the current page » true by construction rather than by discipline.</para>
+    /// </summary>
+    [HttpGet("export")]
+    public async Task<ActionResult> ExportAppointments(
+        [FromQuery] DateTime? startDate = null,
+        [FromQuery] DateTime? endDate = null,
+        [FromQuery] Guid? doctorId = null)
+    {
+        var result = await _mediator.Send(new GetAppointmentsQuery
+        {
+            StartDate = startDate,
+            EndDate = endDate,
+            DoctorId = doctorId,
+        });
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+
+        return Csv(ExportTables.Appointments(result.Value!), "rendez-vous");
+    }
+
     [HttpGet]
     public async Task<ActionResult<IEnumerable<AppointmentDto>>> GetAppointments(
         [FromQuery] DateTime? startDate,

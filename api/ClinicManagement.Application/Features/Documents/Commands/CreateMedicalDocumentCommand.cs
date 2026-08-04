@@ -99,6 +99,31 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
                     "Le nom du confrère destinataire est obligatoire pour une lettre de liaison.");
             }
 
+            // A bulletin de soins is the one document here that a third party refuses: the caisse rejects it on
+            // any missing mandatory field, and every one of those fields degraded silently before this (a blank
+            // is simply not drawn, an unrecognised régime ticks no box). Refusing at the write is what makes an
+            // unstampable bulletin unsaveable rather than quietly wrong — see BulletinCnamValidation.
+            if (request.DocumentType.Trim().ToLowerInvariant() == DocumentTypes.BulletinCnam)
+            {
+                var bulletinProblem = BulletinCnamValidation.Validate(request.ContentJson);
+                if (bulletinProblem != null)
+                {
+                    return Result<MedicalDocumentDto>.Failure(bulletinProblem);
+                }
+            }
+
+            // An arrêt de travail is the second document a third party refuses, and its renderer is silent in the
+            // same way (a blank duration simply is not drawn), so it gets the same gate from the start rather than
+            // after the first rejected form — see ArretTravailValidation.
+            if (request.DocumentType.Trim().ToLowerInvariant() == DocumentTypes.ArretTravail)
+            {
+                var arretProblem = ArretTravailValidation.Validate(request.ContentJson);
+                if (arretProblem != null)
+                {
+                    return Result<MedicalDocumentDto>.Failure(arretProblem);
+                }
+            }
+
             // Authoritative tenant guard: resolve the caller's clinic from the DB and verify the patient
             // belongs to it before creating any document/file/folder (the primary gate; the side-effect
             // helpers below re-resolve independently). Defense-in-depth, independent of the fail-open global

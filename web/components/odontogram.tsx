@@ -18,11 +18,12 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
+import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { cn } from "@/lib/utils"
 import { odontogramApi } from "@/lib/api/odontogram"
 import { dentalRecordsApi } from "@/lib/api/dental-records"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
-import { isAdultDentition } from "@/lib/dentition"
+import { dentitionViewFor, dentitionViewForTeeth, type DentitionView } from "@/lib/dentition"
 import type { ToothStateDto, ProcedureTypeDto, DentalRecordDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import { formatDateFr } from "@/lib/format"
@@ -30,8 +31,9 @@ import { CONDITION_ORDER, conditionStyle, SURFACE_LABELS, serializeSurfaces } fr
 import { OdontogramActsChart } from "@/components/odontogram-acts-chart"
 // One source for the FDI quadrant layout — `tooth-multiselect` is the client-side authority for a tooth's
 // dentition (mirroring the backend `FdiTooth.IsAdult`), and this file used to carry a second copy.
-import { ADULT_TEETH, CHILD_TEETH } from "@/components/tooth-multiselect"
-import { ToothArchLayout } from "@/components/tooth-arch-layout"
+import { TEETH_BY_VIEW, isAdultTooth } from "@/components/tooth-multiselect"
+import { DentitionViewSwitch } from "@/components/dentition-view-switch"
+import { ToothArchLayout, type ToothArch } from "@/components/tooth-arch-layout"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 
@@ -76,11 +78,14 @@ export interface OdontogramPlanSeed {
 interface OdontogramProps {
   patientId: string
   /**
-   * The patient's stored dentition (`"Child"` | `"Adult"`), which decides the arch shown.
+   * The patient's stored dentition (`"Child"` | `"Adult"`) — which arch the chart **opens** on.
    *
-   * This replaced a local Adulte/Enfant toggle. The toggle asked, on every single visit to this chart, a question
-   * that is a fixed property of the patient — and it defaulted to Adulte, so a child's chart opened on the wrong
-   * teeth until someone noticed and flipped it. It is answered once now, in patient info.
+   * A local Adulte/Enfant toggle defaulting to Adulte came first: it asked on every visit a question that is
+   * largely a property of the patient, and a child's chart opened on the wrong teeth until someone flipped it. So
+   * it became a pure derivation from this field — which then made the *mixed* stage unchartable, because a mouth
+   * with both sets had no arch that showed it. Both halves are kept now: this seeds the view, and the
+   * `DentitionViewSwitch` (Adulte / Enfant / **Mixte**) lets the dentist say otherwise. A charted tooth outside the
+   * seeded view widens the seed on its own, so an existing diagnosis can never be hidden by the default.
    */
   dentition: string
   /** Called with one seed per tooth carrying an open diagnosis, to pre-fill a new treatment plan. */
@@ -88,11 +93,13 @@ interface OdontogramProps {
 }
 
 export function Odontogram({ patientId, dentition, onCreatePlan }: OdontogramProps) {
-  const isAdult = isAdultDentition(dentition)
+  const [chosenView, setChosenView] = useState<DentitionView | null>(null)
   const [byTooth, setByTooth] = useState<Map<number, ToothStateDto[]>>(new Map())
   // The patient's fiches, joined to the treatment-sourced states for the act names.
   const [records, setRecords] = useState<DentalRecordDto[]>([])
   const [procedureTypes, setProcedureTypes] = useState<ProcedureTypeDto[]>([])
+  /** The act catalogue read failed — so a seeded plan would carry no tarifs. Distinct from "no acts configured". */
+  const [catalogFailed, setCatalogFailed] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -133,15 +140,51 @@ export function Odontogram({ patientId, dentition, onCreatePlan }: OdontogramPro
     load()
   }, [load])
 
-  // Procedure catalog — used only to prefill a seeded plan line's cost (by resulting condition).
-  useEffect(() => {
-    procedureTypesApi.list(false).then(setProcedureTypes).catch(() => setProcedureTypes([]))
+  /*
+   * Procedure catalog — used only to prefill a seeded plan line's cost (by resulting condition).
+   *
+   * ⚠️ A failure is **recorded**, not written back as `[]`. The empty write was a no-op (the state starts empty)
+   * that produced a wrong *number*: with no catalogue every seed's `matchedCost` falls back to 0, so
+   * « Créer un plan depuis l'odontogramme » would quietly produce a devis of free treatment. Nothing on the chart
+   * said so, because a missing tarif and a tarif of zero are the same value.
+   */
+  const loadCatalog = useCallback(async () => {
+    try {
+      setProcedureTypes(await procedureTypesApi.list(false))
+      setCatalogFailed(false)
+    } catch {
+      setCatalogFailed(true)
+    }
   }, [])
+
+  useEffect(() => {
+    void loadCatalog()
+  }, [loadCatalog])
 
   // The odontogram also changes through the dental-record flow (broadcasts "patients"), so refresh live.
   useClinicRealtime(RealtimeResource.Patients, load)
 
-  const teeth = isAdult ? ADULT_TEETH : CHILD_TEETH
+  /*
+   * The view: the user's choice if they made one, else the widest of "what the patient is" and "what is already
+   * charted".
+   *
+   * The second half matters more than it looks. A child charted `Adult` whose 75 carries a diagnosis would, on the
+   * patient's value alone, open on an arch that does not draw 75 — so the chart would assert « rien sur cette dent »
+   * about a tooth it simply refuses to show. Widening the seed from `byTooth` means an existing diagnosis is never
+   * hidden by a default; the switch still overrides it in either direction.
+   *
+   * ⚠️ Late-binding on purpose (`chosenView === null` ≠ "adult"): `byTooth` is populated by an async read, so a
+   * `useState` seed would be computed on the frame before the data arrived and never revised.
+   */
+  const dentitionView = useMemo<DentitionView>(() => {
+    if (chosenView) return chosenView
+    const seeded = dentitionViewFor(dentition)
+    const charted = dentitionViewForTeeth(Array.from(byTooth.keys()), isAdultTooth)
+    if (!charted || charted === seeded) return seeded
+    return "mixed"
+  }, [chosenView, dentition, byTooth])
+
+  const teeth = TEETH_BY_VIEW[dentitionView]
 
   // A charted diagnosis names the desired end-state (e.g. "Couronne"); a procedure whose ResultingCondition
   // is that state is its treatment, so its default cost is the planned cost. Pathology diagnoses (Carie…)
@@ -188,6 +231,25 @@ export function Odontogram({ patientId, dentition, onCreatePlan }: OdontogramPro
     return seeds
   }, [byTooth, procedureByCondition])
 
+  /**
+   * Which arch the phone opens on. Below `md:` `ToothArchLayout` shows one at a time and used to always start on
+   * MAXILLAIRE, so a patient charted only on the mandible cost a tap before a single tooth was visible.
+   *
+   * Lowest charted FDI number decides — a `Map`'s iteration order is insertion order, i.e. whatever order the API
+   * happened to return, which would make the answer differ between two loads of the same patient. Quadrants 1/2
+   * (permanent) and 5/6 (deciduous) are maxillary.
+   */
+  const defaultArch = useMemo<ToothArch | undefined>(() => {
+    let lowest: number | undefined
+    for (const [tooth, entries] of byTooth) {
+      if (entries.length === 0) continue
+      if (lowest === undefined || tooth < lowest) lowest = tooth
+    }
+    if (lowest === undefined) return undefined
+    const quadrant = Math.floor(lowest / 10)
+    return quadrant === 1 || quadrant === 2 || quadrant === 5 || quadrant === 6 ? "upper" : "lower"
+  }, [byTooth])
+
   return (
     <div className="w-full space-y-3">
       {error && (
@@ -201,8 +263,8 @@ export function Odontogram({ patientId, dentition, onCreatePlan }: OdontogramPro
       ) : (
         /* Two views over the same mouth. « Diagnostics » is the chart that has always been here and stays the
            default — it is where charting happens. « Actes réalisés » is read-only and reflects what the fiches
-           recorded, which the server writes on its own. Both read the arch from the patient's stored dentition, so
-           there is no per-tab setting that could disagree. */
+           recorded, which the server writes on its own. Both read the arch from **one** `dentitionView` above the
+           tabs, so there is no per-tab setting that could disagree. */
         <Tabs defaultValue="diagnostics" className="w-full">
           {/* The view switch and the create-plan action share one row.
               They used to be two stacked rows — the button right-aligned on its own line, the tabs left-aligned on
@@ -210,10 +272,15 @@ export function Odontogram({ patientId, dentition, onCreatePlan }: OdontogramPro
               naturally: both act on the whole odontogram, and putting them at opposite ends of one row reads as
               « which view » on the left and « what to do with it » on the right. */}
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <TabsList>
-              <TabsTrigger value="diagnostics">Diagnostics</TabsTrigger>
-              <TabsTrigger value="acts">Actes réalisés</TabsTrigger>
-            </TabsList>
+            {/* The dentition switch sits beside the view tabs, not inside a tab body: it applies to **both**
+                charts, and a per-tab copy could have the Diagnostics arch disagreeing with the Actes one. */}
+            <div className="flex flex-wrap items-center gap-2">
+              <TabsList>
+                <TabsTrigger value="diagnostics">Diagnostics</TabsTrigger>
+                <TabsTrigger value="acts">Actes réalisés</TabsTrigger>
+              </TabsList>
+              <DentitionViewSwitch value={dentitionView} onChange={setChosenView} />
+            </div>
             {onCreatePlan && (
               <Button
                 size="sm"
@@ -223,11 +290,23 @@ export function Odontogram({ patientId, dentition, onCreatePlan }: OdontogramPro
                 onClick={() => onCreatePlan(planSeeds)}
                 title={planSeeds.length === 0 ? "Aucun diagnostic à planifier" : undefined}
               >
-                <ClipboardList className="h-3.5 w-3.5" />
+                <ClipboardList className="h-3.5 w-3.5" aria-hidden="true" />
                 Créer un plan depuis l'odontogramme
               </Button>
             )}
           </div>
+
+          {/* Said where the consequence is: a plan seeded without the catalogue carries no tarifs, and « 0,000 DT »
+              is indistinguishable from « gratuit ». Only shown where the action exists. */}
+          {onCreatePlan && catalogFailed && (
+            <LoadFailureNotice
+              variant="inline"
+              message="Les tarifs du catalogue n'ont pas pu être chargés."
+              detail="Un plan créé depuis l'odontogramme partira sans montants."
+              onRetry={() => void loadCatalog()}
+              className="mt-2"
+            />
+          )}
 
           {/* The instruction line that stood here is gone: it repeated the card's own description almost word for
               word, so the same sentence was on screen twice and cost a third row. The card header keeps it. */}
@@ -237,6 +316,7 @@ export function Odontogram({ patientId, dentition, onCreatePlan }: OdontogramPro
             addressable at once. */}
         <ToothArchLayout
           teeth={teeth}
+          defaultArch={defaultArch}
           renderTooth={(t) => (
             <ToothCell key={t} toothNum={t} entries={byTooth.get(t) ?? []} patientId={patientId} onChanged={load} />
           )}
@@ -389,11 +469,19 @@ function ToothCell({ toothNum, entries, patientId, onChanged }: ToothCellProps) 
             ? `Dent ${toothNum} — aucun état enregistré`
             : `Dent ${toothNum} — ${entries.length} état${entries.length > 1 ? "s" : ""} enregistré${entries.length > 1 ? "s" : ""}`
         }
-        // Movement hover gated behind `hover-hover:` per the policy in globals.css: a tap fires `:hover` and
-        // leaves it applied, so on a tablet the tooth stayed enlarged and read as a stuck selection (AC-11).
-        // `touch-target` gives a 44px tappable area on a coarse pointer without changing the painted cell
-        // (AC-33) — the same primitive P2 built.
-        className="touch-target group rounded-md transition-all hover-hover:hover:scale-105 focus:outline-none focus:ring-1 focus:ring-ring"
+        /*
+         * Movement hover gated behind `hover-hover:` per the policy in globals.css: a tap fires `:hover` and
+         * leaves it applied, so on a tablet the tooth stayed enlarged and read as a stuck selection (AC-11).
+         *
+         * ⚠️ `coarse:min-w-11` and deliberately NOT `touch-target`, which is what stood here. The painted cell
+         * is `h-9 w-7` (28px) on a `gap-0.5` row, so a centred 44px overlay reached 8px into each neighbour;
+         * both cells are `position: relative` with `z-index: auto`, so the LATER sibling won and the right edge
+         * of every tooth opened the editor for the tooth beside it — one tap from charting a diagnosis on the
+         * wrong tooth. Widening the paint is safe here for the same reason as in `record-tooth-chart`: the arch
+         * lives in `ToothArchLayout`'s `overflow-x-auto` scroll box, so wider cells scroll rather than clip.
+         * `box` is a block-level flex column, so it fills the widened button and stays centred.
+         */
+        className="group rounded-md transition-all focus:outline-none focus:ring-1 focus:ring-ring coarse:min-w-11 hover-hover:hover:scale-105"
       >
         {box}
       </button>
@@ -441,7 +529,17 @@ function ToothCell({ toothNum, entries, patientId, onChanged }: ToothCellProps) 
           </Tooltip>
         </TooltipProvider>
       )}
-      <PopoverContent className="w-80 space-y-3" align="center">
+      {/*
+        ⚠️ `max-h-[70dvh] overflow-y-auto` — Radix does not bound a popover's height, and this one grows without
+        limit: it lists EVERY recorded state for the tooth and then carries the whole add-diagnosis form
+        (condition, MODVL faces, note, save). A molar with a few charted states already renders taller than a
+        phone, and « Ajouter le diagnostic » sits at the very bottom — so the control the popover exists for
+        became unreachable, with nothing to scroll because the overflow was the popover itself.
+
+        `dvh`, not `vh`, for the reason `check-responsive`'s `sheet-vh` states: `vh` does not shrink when the
+        on-screen keyboard opens, and this panel contains a textarea.
+      */}
+      <PopoverContent className="w-80 max-h-[70dvh] space-y-3 overflow-y-auto" align="center">
         <div>
           <p className="text-sm font-semibold">Dent {toothNum}</p>
           <p className="text-xs text-muted-foreground">
@@ -517,16 +615,22 @@ function ToothCell({ toothNum, entries, patientId, onChanged }: ToothCellProps) 
               ))}
             </SelectContent>
           </Select>
-          {/* Surfaces (MODVL) — optional, finding #19 */}
-          <div className="flex flex-wrap gap-1">
+          {/* Surfaces (MODVL) — optional, finding #19.
+              `gap-2` + `coarse:h-11`: five 28px buttons at `gap-1` are a 32px pitch, and `buttonVariants`
+              already overlays each with a 44px `touch-target` — so 12px of every pair overlapped and the later
+              sibling won, recording the act on the wrong surface. Painting the height on a coarse pointer makes
+              the hit area equal the button again; the wider gap keeps the row honest. `coarse:h-11` rather than
+              `coarse:size-11` so it stays in the same tailwind-merge group as the base `h-7` and reliably wins. */}
+          <div className="flex flex-wrap gap-2">
             {Object.entries(SURFACE_LABELS).map(([code, label]) => (
               <Button
                 key={code}
                 type="button"
                 variant={surfaces.has(code) ? "default" : "outline"}
                 size="sm"
-                className="h-7 px-2 text-xs"
+                className="h-7 px-2 text-xs coarse:h-11 coarse:min-w-11"
                 title={label}
+                aria-pressed={surfaces.has(code)}
                 onClick={() => toggleSurface(code)}
               >
                 {code}
@@ -539,7 +643,14 @@ function ToothCell({ toothNum, entries, patientId, onChanged }: ToothCellProps) 
             placeholder="Note (optionnelle)"
             className="min-h-[52px] text-xs"
           />
-          <Button size="sm" className="h-8 w-full gap-1.5 text-xs" onClick={handleDiagnose} disabled={saving}>
+          {/* The popover's primary action, at 32px. `coarse:h-11` paints the floor rather than overlaying it —
+              it is the last control in the panel, so an overlay would hang past the popover's own edge. */}
+          <Button
+            size="sm"
+            className="h-8 w-full gap-1.5 text-xs coarse:h-11"
+            onClick={handleDiagnose}
+            disabled={saving}
+          >
             <Plus className="h-3.5 w-3.5" />
             {saving ? "Enregistrement…" : "Ajouter le diagnostic"}
           </Button>

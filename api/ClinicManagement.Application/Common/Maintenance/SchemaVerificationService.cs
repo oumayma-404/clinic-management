@@ -93,6 +93,7 @@ public class SchemaVerificationService
         VerifyIndexes(facts, findings);
         VerifyForeignKeys(facts, findings);
         VerifyDecimalPrecision(facts, findings);
+        VerifyAuditLedger(facts, findings);
         VerifyDataMigrations(facts, findings);
 
         return new SchemaVerificationReport(findings);
@@ -242,6 +243,68 @@ public class SchemaVerificationService
             string.Equals(e.Table, table, StringComparison.OrdinalIgnoreCase)
             && string.Equals(e.Column, column, StringComparison.OrdinalIgnoreCase));
 
+    // ------------------------------------------------------------------ the audit ledger
+
+    /// <summary>
+    /// The audit ledger's two properties that the model cannot state and whose violation is <b>silent</b>.
+    ///
+    /// <para>Its indexes are deliberately <em>not</em> named here — <c>AuditEntryConfiguration</c> declares both,
+    /// so the model-driven diff in <see cref="VerifyIndexes"/> already covers them, and repeating them would be
+    /// the hand-maintained expectation list this whole verb exists to avoid. What is left is the residue: the
+    /// nullability the interceptor depends on, and the absence of the foreign keys the table deliberately does
+    /// not have.</para>
+    /// </summary>
+    private static void VerifyAuditLedger(SchemaFacts facts, List<SchemaVerificationFinding> findings)
+    {
+        if (!facts.AuditLedger.TableExists)
+        {
+            // Named rather than skipped, for the reason the stock-batch phases document: a check that quietly
+            // vanishes from the report is indistinguishable from one that was forgotten, and the before/after
+            // diff only works if every line is accounted for.
+            // Built inline rather than through `NotApplicable`, which hardcodes the « Data migrations » section.
+            foreach (var check in new[] { "audit-ledger-clinic-nullable", "audit-ledger-has-no-foreign-keys" })
+            {
+                findings.Add(new SchemaVerificationFinding(
+                    "Audit ledger",
+                    check,
+                    "not applicable — AuditEntries does not exist yet",
+                    SchemaVerificationSeverity.Info));
+            }
+
+            return;
+        }
+
+        var nullable = facts.AuditLedger.ClinicIdIsNullable == true;
+        findings.Add(new SchemaVerificationFinding(
+            "Audit ledger",
+            "audit-ledger-clinic-nullable",
+            nullable
+                ? "AuditEntries.ClinicId is nullable — an unattributable mutation can still be recorded"
+                : "AuditEntries.ClinicId is NOT NULL — every job/CLI mutation with no clinic in scope will fail "
+                  + "its insert inside the interceptor's own swallow-and-log, so the ledger stops recording silently",
+            nullable ? SchemaVerificationSeverity.Info : SchemaVerificationSeverity.Drift));
+
+        // The one assertion in this whole report that looks for something that must be ABSENT, and the reason it
+        // is here: VerifyForeignKeys only diffs model → database, so it reports a *missing* FK and can never see
+        // an *extra* one. A well-meaning migration adding AuditEntries.ClinicId → Clinics ON DELETE CASCADE would
+        // delete a clinic's entire audit history along with the clinic, which is the one thing a ledger must never
+        // do — and nothing else in the codebase would notice.
+        var unexpected = facts.Database.ForeignKeys
+            .Where(fk => string.Equals(fk.Table, "AuditEntries", StringComparison.OrdinalIgnoreCase))
+            .Select(fk => fk.Signature)
+            .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        findings.Add(new SchemaVerificationFinding(
+            "Audit ledger",
+            "audit-ledger-has-no-foreign-keys",
+            unexpected.Count == 0
+                ? "AuditEntries references nothing — the ledger outlives the clinics and accounts it describes"
+                : $"AuditEntries has {unexpected.Count} foreign key(s) it must not have ({string.Join(", ", unexpected)}) "
+                  + "— a cascade from Clinics or Users would erase the evidence with its subject",
+            unexpected.Count == 0 ? SchemaVerificationSeverity.Info : SchemaVerificationSeverity.Drift));
+    }
+
     // ------------------------------------------------------------------ data migrations
 
     private static void VerifyDataMigrations(SchemaFacts facts, List<SchemaVerificationFinding> findings)
@@ -273,6 +336,52 @@ public class SchemaVerificationService
             n => n == 0
                 ? "0 appointment(s) name an act with no AppointmentProcedures row"
                 : $"{n} appointment(s) name an act with NO AppointmentProcedures row — the backfill missed them",
+            n => n == 0);
+
+        // The category move. Its failure mode is *quiet*, which is why it is worth a line: the column, the API and
+        // the UI can all be present and correct while an act's discipline is still sitting in its Description —
+        // and such an act renders as merely unfiled, indistinguishable from one nobody ever categorised. Nothing
+        // in the unit-test suite can see this, since none of it touches a database.
+        Add("procedure-type-category-move", counts.ProcedureTypesWithCategoryStillInDescription,
+            n => n == 0
+                ? "0 procedure type(s) still carry a discipline in Description"
+                : $"{n} procedure type(s) still carry a discipline in Description — the backfill missed them",
+            n => n == 0);
+
+        // L4a's backfill, and the same kind of quiet failure: EF's differ scaffolds `defaultValue: 0` for a new
+        // non-nullable int, so a clinic left at zero has a retention policy of « keep nothing » and a staleness
+        // threshold that fires immediately — while the columns, the endpoint and the settings screen are all
+        // present and correct. Nothing in the test suite can see it, since none of it touches a database.
+        Add("backup-schedule-backfill", counts.ClinicsWithUnsetBackupSchedule,
+            n => n == 0
+                ? "0 clinic(s) have a non-positive backup retention or staleness threshold"
+                : $"{n} clinic(s) have a retention or staleness threshold of 0 — the backfill missed them, "
+                  + "so retention means « keep nothing »",
+            n => n == 0);
+
+        // L8's cheque columns. Their shape — six columns, two widths, two partial indexes — is diffed against the
+        // catalog for free by the model comparison, so nothing about it is repeated here. What the model cannot
+        // express is the invariant, and that is the whole reason this line exists: cheque details belong only to a
+        // cheque, enforced once in `ChequeDetails.For` rather than as a CHECK constraint (a second copy of the rule
+        // whose failure would be a 500 instead of a French refusal). A non-zero count therefore means a write path
+        // reached the columns without passing the guard — a cheque number sitting on a cash payment, which would
+        // make « chèques à encaisser » list a row that is not a cheque.
+        Add("cheque-details-only-on-cheques", counts.PaymentsWithChequeDetailsOnNonCheque,
+            n => n == 0
+                ? "0 payment(s) carry cheque details on a non-cheque method, across both ledgers"
+                : $"{n} payment(s) carry cheque details on a NON-cheque method — some write path bypassed "
+                  + "ChequeDetails.For",
+            n => n == 0);
+
+        // L9's backfill. A non-zero count means a row whose practitioner was knowable from its own visit was left
+        // unattributed — which renders as « non attribué » and is indistinguishable on every screen from a row that
+        // genuinely has none. That is exactly the class of drift only this verb can see: the columns, the indexes and
+        // the four FKs are all checked against the catalog by the model diff above.
+        Add("practitioner-attribution-backfill", counts.RowsAttributableFromAppointmentButUnattributed,
+            n => n == 0
+                ? "0 invoice/fiche row is unattributed while its appointment names a practitioner"
+                : $"{n} invoice/fiche row(s) could be attributed from their appointment and were not — "
+                  + "the L9 backfill did not reach them",
             n => n == 0);
 
         // Phase 1 (pre-migration): did every item with a legacy scalar expiry get an opening batch? Once the

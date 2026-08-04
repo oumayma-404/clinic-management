@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using MediatR;
 using ClinicManagement.Application.DTOs;
@@ -6,6 +6,8 @@ using ClinicManagement.Application.Features.LabOrders.Commands;
 using ClinicManagement.Application.Features.LabOrders.Queries;
 
 using ClinicManagement.Domain.Common;
+using ClinicManagement.Application.Common.Authorization;
+using ClinicManagement.Application.Common.Csv;
 
 namespace ClinicManagement.API.Controllers;
 
@@ -15,7 +17,7 @@ namespace ClinicManagement.API.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/lab-orders")]
-[Authorize]
+[Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
 public class LabOrdersController : ApiControllerBase
 {
     private readonly IMediator _mediator;
@@ -28,6 +30,36 @@ public class LabOrdersController : ApiControllerBase
     /// <summary>List the clinic's lab work orders, or a single patient's when patientId is given (newest first).</summary>
     /// <param name="status">Optional stage filter (Sent / InProgress / Received / Fitted). An unknown value is
     /// ignored rather than refused, so a stale deep link lands on the full list instead of an error.</param>
+
+    /// <summary>
+    /// « Exporter » (L5) — the same list, as a CSV.
+    ///
+    /// <para>⚠️ It re-sends the <b>identical query with no paging</b>, which the paging primitive models as a
+    /// first-class case rather than as a huge page. That is what makes « honours the current filters, exports the
+    /// whole filtered set, never the current page » true by construction instead of by discipline — the export
+    /// cannot see a page to accidentally export.</para>
+    /// </summary>
+    [HttpGet("export")]
+    public async Task<ActionResult> ExportLabWorkOrders(
+        [FromQuery] Guid? patientId = null,
+        [FromQuery] string? status = null,
+        [FromQuery] string? search = null)
+    {
+        var result = await _mediator.Send(new GetLabWorkOrdersQuery
+        {
+            PatientId = patientId,
+            Status = status,
+            SearchTerm = search,
+        });
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+
+        return Csv(ExportTables.LabOrders(result.Value!.Items), "bons-de-prothese");
+    }
+
     [HttpGet]
     /// <param name="page">1-based page number. Omit both paging parameters to get every match.</param>
     /// <param name="pageSize">Rows per page, clamped to <c>PageRequest.MaxPageSize</c>.</param>

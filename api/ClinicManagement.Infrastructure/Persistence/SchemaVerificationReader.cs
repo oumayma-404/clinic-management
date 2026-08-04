@@ -40,8 +40,10 @@ public class SchemaVerificationReader : ISchemaVerificationReader
         var model = ReadModelSide();
         var mappedDecimals = ReadMappedDecimals();
         var dataMigrations = await ReadDataMigrationCountsAsync(connection, cancellationToken);
+        var auditLedger = await ReadAuditLedgerFactsAsync(connection, cancellationToken);
 
-        return new SchemaFacts(extensions, constraints, model, database, mappedDecimals, dataMigrations);
+        return new SchemaFacts(
+            extensions, constraints, model, database, mappedDecimals, dataMigrations, auditLedger);
     }
 
     // ------------------------------------------------------------------ the EF model side
@@ -412,9 +414,75 @@ public class SchemaVerificationReader : ISchemaVerificationReader
                       SELECT 1 FROM "AppointmentProcedures" p WHERE p."AppointmentId" = a."Id")
                 """);
 
+        // The category move. Guarded on `Category` (not `Description`, which predates it by years), so before the
+        // migration runs this reads « not applicable » rather than counting rows nothing was going to touch.
+        // The label list is inlined for the same reason it is inlined in the migration: this measures what THAT
+        // migration was supposed to move, and must keep doing so after the canonical set grows.
+        var categoryStillInDescription = await ScalarOrNullAsync(connection, cancellationToken,
+            requiredTable: "ProcedureTypes",
+            requiredColumn: "Category",
+            sql: """
+                SELECT COUNT(*)
+                FROM "ProcedureTypes"
+                WHERE TRIM("Description") IN (
+                    'Consultation', 'Radiologie', 'Soins conservateurs', 'Endodontie', 'Parodontologie',
+                    'Chirurgie/Extraction', 'Prothèse fixe', 'Prothèse amovible', 'Implantologie',
+                    'Orthodontie', 'Esthétique', 'Pédodontie')
+                """);
+
+        // L4a's backfill. Guarded on `BackupRetentionCount`, so before the migration runs this reads « not
+        // applicable » rather than counting rows nothing was going to touch. It measures the *outcome* rather than
+        // the row count, which is what makes it durable: whatever the migration did, no clinic may be left with a
+        // retention or staleness threshold of zero.
+        var unsetBackupSchedule = await ScalarOrNullAsync(connection, cancellationToken,
+            requiredTable: "Clinics",
+            requiredColumn: "BackupRetentionCount",
+            sql: """
+                SELECT COUNT(*)
+                FROM "Clinics"
+                WHERE "BackupRetentionCount" <= 0 OR "BackupStaleAfterHours" <= 0
+                """);
+
+        // L8's invariant, over BOTH ledgers in one figure — a single number is the right shape because the answer
+        // that matters is « did any write path bypass ChequeDetails.For? », not which table it happened in.
+        //
+        // ⚠️ `"Method" <> 1` is PaymentMethod.Cheque's ordinal, and it is spelled out here on purpose: this is the
+        // one place the check has to reach *into* the stored representation, because the whole point is to catch a
+        // row the domain never validated. Every other reference to that value in the solution goes through the
+        // enum. If PaymentMethod is ever reordered, this line — and the persisted data — both need revisiting.
+        var chequeDetailsOnNonCheque = await ScalarOrNullAsync(connection, cancellationToken,
+            requiredTable: "Payments",
+            requiredColumn: "ChequeNumber",
+            sql: """
+                SELECT
+                    (SELECT COUNT(*) FROM "Payments"
+                     WHERE "Method" <> 1
+                       AND ("ChequeNumber" IS NOT NULL OR "ChequeBankName" IS NOT NULL OR "ChequeDueDate" IS NOT NULL))
+                  + (SELECT COUNT(*) FROM "InstallmentPayments"
+                     WHERE "Method" <> 1
+                       AND ("ChequeNumber" IS NOT NULL OR "ChequeBankName" IS NOT NULL OR "ChequeDueDate" IS NOT NULL))
+                """);
+
+        // L9's backfill, measured as an OUTCOME rather than as a row count: whatever the migration did, no invoice
+        // and no fiche whose visit names a practitioner may be left unattributed. Guarded on `Invoices.DoctorId`, so
+        // before the migration this reads « not applicable » rather than a reassuring 0.
+        var attributableButUnattributed = await ScalarOrNullAsync(connection, cancellationToken,
+            requiredTable: "Invoices",
+            requiredColumn: "DoctorId",
+            sql: """
+                SELECT
+                    (SELECT COUNT(*) FROM "Invoices" i
+                     JOIN "Appointments" a ON a."Id" = i."AppointmentId"
+                     WHERE i."DoctorId" IS NULL AND a."DoctorId" IS NOT NULL)
+                  + (SELECT COUNT(*) FROM "DentalRecords" r
+                     JOIN "Appointments" a ON a."Id" = r."AppointmentId"
+                     WHERE r."DoctorId" IS NULL AND a."DoctorId" IS NOT NULL)
+                """);
+
         return new DataMigrationCounts(
             typePrefix, overlaps, legacyExpiry, legacyExpiryWithoutBatch, stockWithoutBatch,
-            missingNormalized, patientsTotal, actScalarWithoutRow);
+            missingNormalized, patientsTotal, actScalarWithoutRow, categoryStillInDescription,
+            unsetBackupSchedule, chequeDetailsOnNonCheque, attributableButUnattributed);
     }
 
     /// <summary>
@@ -437,6 +505,30 @@ public class SchemaVerificationReader : ISchemaVerificationReader
         await using var command = new NpgsqlCommand(sql, connection);
         var value = await command.ExecuteScalarAsync(cancellationToken);
         return value is null or DBNull ? null : Convert.ToInt32(value);
+    }
+
+    /// <summary>
+    /// The audit ledger's one model-inexpressible fact: is <c>ClinicId</c> still nullable? Read from
+    /// <c>information_schema</c> rather than from the model, because the drift this catches is a database that
+    /// disagrees with the model — comparing the model to itself would report success either way.
+    /// </summary>
+    private static async Task<AuditLedgerFacts> ReadAuditLedgerFactsAsync(
+        NpgsqlConnection connection, CancellationToken cancellationToken)
+    {
+        const string sql = """
+            SELECT is_nullable
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = 'AuditEntries' AND column_name = 'ClinicId'
+            """;
+
+        await using var command = new NpgsqlCommand(sql, connection);
+        var value = await command.ExecuteScalarAsync(cancellationToken);
+
+        return value is null or DBNull
+            ? new AuditLedgerFacts(TableExists: false, ClinicIdIsNullable: null)
+            : new AuditLedgerFacts(
+                TableExists: true,
+                ClinicIdIsNullable: string.Equals(value.ToString(), "YES", StringComparison.OrdinalIgnoreCase));
     }
 
     private static async Task<bool> ColumnExistsAsync(

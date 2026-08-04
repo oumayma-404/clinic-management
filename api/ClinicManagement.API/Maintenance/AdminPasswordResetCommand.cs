@@ -1,8 +1,9 @@
-using ClinicManagement.Application.Common.Interfaces;
+﻿using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Maintenance;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Infrastructure;
 using ClinicManagement.Infrastructure.Auth;
+using ClinicManagement.API.Startup;
 
 namespace ClinicManagement.API.Maintenance;
 
@@ -34,14 +35,7 @@ public static class AdminPasswordResetCommand
             // `ClinicManagement.API.exe reset-admin-password` works from any working directory
             // (this is the sole offline admin-recovery path — FR-B6). The signing key likewise resolves
             // against the install directory via LocalAuthConfig.
-            var configuration = new ConfigurationBuilder()
-                .SetBasePath(AppContext.BaseDirectory)
-                .AddJsonFile("appsettings.json", optional: false)
-                .AddJsonFile(
-                    $"appsettings.{Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Production"}.json",
-                    optional: true)
-                .AddEnvironmentVariables()
-                .Build();
+            var configuration = InstallConfiguration.BuildForConsoleVerb();
 
             if (!LocalAuthConfig.IsLocalMode(configuration))
             {
@@ -57,6 +51,12 @@ public static class AdminPasswordResetCommand
 
             await using var provider = services.BuildServiceProvider();
             using var scope = provider.CreateScope();
+
+            // I6: this verb is the one write path with no HTTP request behind it, and it changes a *credential* —
+            // exactly the event an owner should be able to find in « Journal d'activité » afterwards. Naming it
+            // makes the audit row read « Tâche automatique (reset-admin-password) » instead of « unknown ».
+            // Resolves to `ProcessAuditActorProvider` here: this container has no `AddApplication` and no claims.
+            scope.ServiceProvider.GetRequiredService<IAuditActorProvider>().RunAs(CommandName);
 
             var recovery = new AdminPasswordRecoveryService(
                 scope.ServiceProvider.GetRequiredService<IUserRepository>(),

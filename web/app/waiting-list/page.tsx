@@ -40,8 +40,29 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { ClipboardList, Plus, Pencil, Trash2, UserPlus, Loader2, MoreHorizontal } from "lucide-react"
+import {
+  AlertTriangle,
+  Check,
+  ChevronsUpDown,
+  ClipboardList,
+  Loader2,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  Trash2,
+  UserPlus,
+} from "lucide-react"
 import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
+import { EmptyState } from "@/components/ui/empty-state"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -85,6 +106,10 @@ function priorityBadgeVariant(priority: string): "destructive" | "secondary" | "
   }
 }
 
+/** Column widths the loading skeleton mirrors, in the table's own order — Patient, Priorité, Créneau, Note,
+ *  Date d'ajout, Actions. Kept beside the table so the two cannot drift into different shapes. */
+const WAITING_LIST_COLUMN_WIDTHS = ["w-[24%]", "w-[12%]", "w-[18%]", "w-[22%]", "w-[14%]", "w-[10%]"] as const
+
 // French short date (e.g. "17 juil. 2026"); tolerant of an unparseable value.
 function formatAddedDate(iso: string): string {
   try {
@@ -119,6 +144,19 @@ export default function WaitingListPage() {
   const [note, setNote] = useState("")
   const [formError, setFormError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  // The patient picker is a searchable Popover+Command, not a `<select>` — see the note at its call site.
+  const [patientPickerOpen, setPatientPickerOpen] = useState(false)
+  /**
+   * The picked patient's name for the trigger. Falls back to the entry's own snapshot: on edit the picker is
+   * disabled and the patient list may not contain that patient (it is a `list()` of the clinic, and an archived
+   * patient is excluded), so resolving from `patients` alone would show « Sélectionner un patient » over a row
+   * that plainly has one.
+   */
+  const selectedPatientName = (() => {
+    const match = patients.find((p) => p.id === patientId)
+    if (match) return `${match.firstName} ${match.lastName}`.trim()
+    return editingEntry?.patientId === patientId ? (editingEntry?.patientName ?? "") : ""
+  })()
 
   // Per-row promote state (disable the button while in flight).
   const [promotingId, setPromotingId] = useState<string | null>(null)
@@ -278,6 +316,36 @@ export default function WaitingListPage() {
     setDeleteDialogOpen(true)
   }
 
+  /**
+   * Whether the list is currently narrowed. « la liste d'attente est vide » and « aucun patient ne correspond à
+   * votre recherche » are different facts and must not share copy — and only the first may offer « Ajouter »,
+   * since on the second the entry probably exists and the term was simply mistyped.
+   */
+  const isSearching = debouncedSearch !== ""
+
+  const renderEmpty = (size: "default" | "compact") =>
+    isSearching ? (
+      <div className="flex flex-col items-center gap-2 py-2">
+        <p className="text-sm text-muted-foreground">Aucun patient ne correspond à votre recherche</p>
+        <Button variant="outline" size="sm" onClick={() => setSearch("")}>
+          Effacer la recherche
+        </Button>
+      </div>
+    ) : (
+      <EmptyState
+        icon={ClipboardList}
+        size={size}
+        title="La liste d'attente est vide"
+        description="Inscrivez ici les patients qui attendent un créneau : dès qu'une place se libère, « Promouvoir » ouvre le rendez-vous avec le patient déjà sélectionné."
+        action={
+          <Button onClick={handleAddNew} className="gap-2">
+            <Plus className="h-4 w-4" />
+            Ajouter à la liste
+          </Button>
+        }
+      />
+    )
+
   const confirmDelete = async () => {
     if (!entryToDelete) return
     try {
@@ -297,10 +365,15 @@ export default function WaitingListPage() {
   return (
     <ClinicGuard>
       <AppShell contentClassName="space-y-6">
-        {/* Page Header */}
-        <div className="flex items-center justify-between">
+        {/*
+          The row could not wrap: `flex items-center justify-between` against a ~190px button leaves the title
+          nothing to give on a 390px screen. `/caisse` already had the working shape.
+
+          No `zone`: `PageHeader` derives it from the route (`/waiting-list` is « Quotidien »), and the
+          hardcoded « Clinique » here contradicted the rail.
+        */}
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <PageHeader
-            zone="Clinique"
             title="Salle d&apos;attente"
             subtitle="Patients en attente d&apos;un créneau de rendez-vous."
           />
@@ -323,14 +396,25 @@ export default function WaitingListPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {loading ? (
-              <div className="flex items-center justify-center py-12 text-muted-foreground">
-                <Loader2 className="h-5 w-5 animate-spin" />
+            {/*
+              A failed read used to be a bare red <p> with no way out but a browser reload (finding #2) — and the
+              loading state was a lone spinner in a ~100px box that the full table then replaced, jumping the
+              page, while the skeletons `CardList` already draws sat unreachable behind it (finding #3). The
+              retry banner is the `dashboard/dashboard-section.tsx` shape; `loading` now flows into the list.
+            */}
+            {error ? (
+              <div
+                role="status"
+                className="flex flex-wrap items-center gap-3 rounded-lg border border-destructive/40 bg-destructive-wash p-3 text-sm"
+              >
+                <AlertTriangle className="h-4 w-4 shrink-0 text-destructive" aria-hidden="true" />
+                <span className="min-w-0 flex-1">{error}</span>
+                <Button size="sm" variant="outline" onClick={loadEntries}>
+                  Réessayer
+                </Button>
               </div>
-            ) : error ? (
-              <p className="py-12 text-center text-sm text-destructive">{error}</p>
             ) : (
-              <div className="overflow-x-auto">
+              <div>
                 <div className="mb-4">
                   <Label htmlFor="waiting-list-search" className="sr-only">
                     Rechercher un patient
@@ -348,6 +432,7 @@ export default function WaitingListPage() {
                   className={CARDS_ONLY}
                   ariaLabel="Salle d'attente"
                   items={entries}
+                  loading={loading}
                   getKey={(e) => e.id}
                   title={(e) => e.patientName ?? "Patient inconnu"}
                   status={(e) => (
@@ -369,7 +454,10 @@ export default function WaitingListPage() {
                         <DropdownMenuItem onSelect={() => handleEdit(e)}>Modifier</DropdownMenuItem>
                         <DropdownMenuItem
                           className="text-destructive focus:text-destructive"
-                          onSelect={() => setEntryToDelete(e)}
+                          /* `handleDelete`, not `setEntryToDelete`: the confirm dialog is gated on
+                             `deleteDialogOpen`, which only `handleDelete` sets — so on a phone « Retirer »
+                             silently did nothing. */
+                          onSelect={() => handleDelete(e)}
                         >
                           Retirer
                         </DropdownMenuItem>
@@ -394,7 +482,7 @@ export default function WaitingListPage() {
                       Promouvoir en rendez-vous
                     </Button>
                   )}
-                  empty="La liste d'attente est vide"
+                  empty={renderEmpty("compact")}
                 />
                 <Table containerClassName={TABLE_ONLY}>
                   <TableHeader>
@@ -408,11 +496,25 @@ export default function WaitingListPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {entries.length === 0 ? (
+                    {/* The desktop half of the skeleton: a shape like the rows it replaces, so the arriving
+                        list does not shift the page. */}
+                    {loading ? (
+                      Array.from({ length: 5 }).map((_, row) => (
+                        <TableRow key={`skeleton-${row}`}>
+                          {WAITING_LIST_COLUMN_WIDTHS.map((width, col) => (
+                            <TableCell key={col}>
+                              <div
+                                className={`h-5 animate-pulse rounded bg-muted ${width}`}
+                                role={row === 0 && col === 0 ? "status" : undefined}
+                                aria-label={row === 0 && col === 0 ? "Chargement de la liste d'attente" : undefined}
+                              />
+                            </TableCell>
+                          ))}
+                        </TableRow>
+                      ))
+                    ) : entries.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={6} className="h-24 text-center">
-                          <p className="text-muted-foreground">La liste d&apos;attente est vide</p>
-                        </TableCell>
+                        <TableCell colSpan={6}>{renderEmpty("default")}</TableCell>
                       </TableRow>
                     ) : (
                       entries.map((entry) => (
@@ -473,13 +575,17 @@ export default function WaitingListPage() {
                     )}
                   </TableBody>
                 </Table>
-                <DataTablePagination
-                  page={entryPage}
-                  onPageChange={setPage}
-                  onPageSizeChange={setPageSize}
-                  loading={loading}
-                  label={["patient", "patients"]}
-                />
+                {/* Hidden while the skeletons are up: the pager reads its counts from an empty page, so it
+                    would print « Aucun … » under rows that are still loading. */}
+                {!loading && (
+                  <DataTablePagination
+                    page={entryPage}
+                    onPageChange={setPage}
+                    onPageSizeChange={setPageSize}
+                    loading={loading}
+                    label={["patient", "patients"]}
+                  />
+                )}
               </div>
             )}
           </CardContent>
@@ -501,32 +607,71 @@ export default function WaitingListPage() {
               <Label htmlFor="patient">
                 Patient <span className="text-destructive">*</span>
               </Label>
-              <select
-                id="patient"
-                value={patientId}
-                onChange={(e) => setPatientId(e.target.value)}
-                disabled={!!editingEntry}
-                className={cn(
-                  "border-input h-9 w-full min-w-0 rounded-md border bg-transparent px-3 py-1 text-base shadow-xs outline-none transition-[color,box-shadow] md:text-sm",
-                  "focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]",
-                  "disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50",
-                )}
-              >
-                <option value="" disabled>
-                  Sélectionner un patient
-                </option>
-                {patients.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.firstName + " " + p.lastName}
-                  </option>
-                ))}
-              </select>
+              {/*
+                A searchable Popover+Command, not a native `<select>` (the pattern
+                `create-appointment-dialog.tsx` already established). Two defects it closes: a clinic's whole
+                patient list in an unfilterable dropdown is unusable past a few dozen names, and the native
+                control rendered at `h-9` — 36px — which is under the 44px touch floor, because `globals.css`
+                only raises `input`, `textarea` and `[data-slot="select-trigger"]`, never a bare `<select>`.
+
+                `modal` is required: the parent Dialog disables pointer events outside its content, so a
+                non-modal Popover portalled to <body> inherits `pointer-events: none` and its options can only
+                be reached by keyboard.
+              */}
+              <Popover open={patientPickerOpen} onOpenChange={setPatientPickerOpen} modal>
+                <PopoverTrigger asChild>
+                  <Button
+                    id="patient"
+                    type="button"
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={patientPickerOpen}
+                    disabled={!!editingEntry}
+                    className="h-10 w-full justify-between font-normal"
+                  >
+                    <span className={cn("truncate", !patientId && "text-muted-foreground")}>
+                      {selectedPatientName || "Sélectionner un patient"}
+                    </span>
+                    <ChevronsUpDown className="ms-2 h-4 w-4 shrink-0 opacity-50" aria-hidden="true" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="p-0" align="start" style={{ width: "var(--radix-popover-trigger-width)" }}>
+                  <Command>
+                    <CommandInput placeholder="Rechercher un patient…" />
+                    <CommandList>
+                      <CommandEmpty>Aucun patient trouvé.</CommandEmpty>
+                      <CommandGroup>
+                        {patients.map((p) => {
+                          const fullName = `${p.firstName} ${p.lastName}`.trim()
+                          return (
+                            <CommandItem
+                              key={p.id}
+                              value={fullName}
+                              onSelect={() => {
+                                setPatientId(p.id)
+                                setPatientPickerOpen(false)
+                              }}
+                            >
+                              <Check
+                                className={cn("me-2 h-4 w-4", patientId === p.id ? "opacity-100" : "opacity-0")}
+                              />
+                              {fullName}
+                            </CommandItem>
+                          )
+                        })}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
               {formError && <p className="text-xs text-destructive">{formError}</p>}
             </div>
             <div className="space-y-2">
               <Label htmlFor="priority">Priorité</Label>
+              {/* `w-full`: `ui/select.tsx`'s trigger ships `w-fit`, so it rendered narrower than every other
+                  field in this form. */}
               <Select value={priority} onValueChange={(v) => setPriority(v as Priority)}>
-                <SelectTrigger id="priority">
+                <SelectTrigger id="priority" className="w-full">
                   <SelectValue placeholder="Priorité" />
                 </SelectTrigger>
                 <SelectContent>
@@ -581,7 +726,8 @@ export default function WaitingListPage() {
         <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Êtes-vous sûr ?</AlertDialogTitle>
+            {/* The title names the object. « Êtes-vous sûr ? » was the same sentence used to delete a patient. */}
+            <AlertDialogTitle>Retirer ce patient de la liste d&apos;attente ?</AlertDialogTitle>
             <AlertDialogDescription>
               Cette action retirera{" "}
               <span className="font-semibold">{entryToDelete?.patientName ?? "ce patient"}</span> de la liste

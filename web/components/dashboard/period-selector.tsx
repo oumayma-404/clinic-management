@@ -44,7 +44,12 @@ export function PeriodSelector({ value, onChange, disabled = false }: PeriodSele
             disabled={disabled}
             onClick={() => onChange(period)}
             className={cn(
-              "rounded-full px-3.5 py-1.5 text-sm transition-colors duration-150 ease-out",
+              // `coarse:min-h-11` — these are plain `<button>`s rather than `ui/button.tsx`, so they inherit
+              // neither `touch-target` nor any floor: `py-1.5` on a 20px line box is a 32px target, sitting
+              // 2px from its neighbours. This is the dashboard's only filter — the control that rescopes every
+              // figure on the page — so a mis-tap silently reads the wrong period. Growing the row is right
+              // here rather than an overlay, for the same reason as a menu item: they are adjacent.
+              "rounded-full px-3.5 py-1.5 text-sm transition-colors duration-150 ease-snap coarse:min-h-11 coarse:px-4",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-card",
               "disabled:cursor-not-allowed disabled:opacity-60 motion-reduce:transition-none",
               selected

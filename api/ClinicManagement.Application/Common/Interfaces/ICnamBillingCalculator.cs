@@ -26,4 +26,34 @@ public interface ICnamBillingCalculator
         DateTime? patientDateOfBirth,
         DateTime careDate,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The same reimbursable estimate as <see cref="ComputeAsync"/>, split by whether each act <b>consumes the
+    /// patient's annual ceiling</b> (L10). Feeds « Reste sur le plafond annuel ».
+    ///
+    /// <para>A member on this interface rather than a second calculator, deliberately: it resolves the same acts
+    /// against the same catalogue and applies the same per-act <c>CnamReimbursementCalculator</c>, so a separate
+    /// implementation would be a second authority over a reimbursement figure — precisely the defect
+    /// <c>GetReimbursementEstimatesQuery</c> was added to remove on the client side.</para>
+    ///
+    /// <para>⚠️ Unlike <see cref="ComputeAsync"/> it takes <b>no document total and applies no cap</b>. The two
+    /// caps there exist so a split always sums to the document; here the question is how much CNAM has been asked
+    /// to pay, and clamping it to what the clinic happened to charge would under-report consumption on a
+    /// discounted invoice — which inflates the remaining ceiling, the exact over-promise L10 removes.</para>
+    /// </summary>
+    Task<CnamCeilingConsumption> ComputeCeilingConsumptionAsync(
+        IReadOnlyCollection<CnamBillingLine> lines,
+        DateTime? patientDateOfBirth,
+        DateTime careDate,
+        CancellationToken cancellationToken = default);
 }
+
+/// <summary>
+/// How much reimbursement a set of lines represents, split by whether it counts against the annual ceiling.
+/// <para>
+/// <see cref="HorsPlafond"/> is reported rather than dropped: « 320,000 DT dont 200,000 hors plafond » is a
+/// different conversation from « 120,000 DT », and a patient told their ceiling is nearly untouched needs to see
+/// why. <c>CnamPlafond.ConsumesCeiling</c> is the single rule that sorts a line between the two.
+/// </para>
+/// </summary>
+public readonly record struct CnamCeilingConsumption(decimal Consuming, decimal HorsPlafond);

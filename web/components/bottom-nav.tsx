@@ -5,7 +5,8 @@ import { usePathname } from "next/navigation"
 import { MoreHorizontal } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useSidebar } from "@/contexts/sidebar-context"
-import { baseSections, type NavItem } from "@/lib/nav"
+import { baseSections, isNavItemVisible, type NavItem } from "@/lib/nav"
+import { useSession } from "@/lib/auth/session"
 
 /**
  * The phone's primary navigation (AC-7).
@@ -49,6 +50,19 @@ const SHORT_LABEL: Record<string, string> = {
 
 export function BottomNav() {
   const pathname = usePathname()
+  /*
+   * I3: a secretary's bar drops « Accueil ».
+   *
+   * `GET /api/dashboard` is `AdminOrDoctor` since I1, so for reception that first tab was a permanent 403 — and
+   * on a phone it is the *leftmost, thumb-nearest* control on every screen, which makes it the most-tapped dead
+   * end in the product. Filtered through the same `isNavItemVisible` the rail and the drawer use, so the three
+   * navigations cannot disagree about what a role can reach.
+   *
+   * The lookup below still spans the FULL `baseSections`, deliberately: its throw is a guard against a renamed
+   * href, and narrowing the source first would turn a real breakage into a silently shorter bar.
+   */
+  const { user } = useSession()
+  const items = barItems.filter((item) => isNavItemVisible(item.href, user?.role))
   // Reuses the drawer's own state — no third piece of sidebar state, so AC-P3.18 still holds: nothing a phone
   // session does can overwrite the persisted desktop rail preference.
   const { setMobileOpen } = useSidebar()
@@ -68,7 +82,7 @@ export function BottomNav() {
         "[body[data-sheet-open]_&]:hidden"
       )}
     >
-      {barItems.map((item) => {
+      {items.map((item) => {
         const active = isActive(item.href)
         return (
           <Link

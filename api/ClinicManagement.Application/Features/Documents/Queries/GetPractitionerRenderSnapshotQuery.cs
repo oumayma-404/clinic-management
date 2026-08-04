@@ -19,6 +19,7 @@ public class GetPractitionerRenderSnapshotQuery : IRequest<Result<PractitionerRe
 public class PractitionerRenderSnapshotDto
 {
     public string? ClinicCity { get; set; }
+    public string? ClinicEmail { get; set; }
     public string? DoctorOrdreNumber { get; set; }
     public string? DoctorCachetKey { get; set; }
     public string? DoctorCachetContentType { get; set; }
@@ -67,6 +68,7 @@ public class GetPractitionerRenderSnapshotQueryHandler
             return Result<PractitionerRenderSnapshotDto>.Success(new PractitionerRenderSnapshotDto
             {
                 ClinicCity = snapshot.ClinicCity,
+                ClinicEmail = snapshot.ClinicEmail,
                 DoctorOrdreNumber = snapshot.DoctorOrdreNumber,
                 DoctorCachetKey = snapshot.DoctorCachetKey,
                 DoctorCachetContentType = snapshot.DoctorCachetContentType

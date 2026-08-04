@@ -14,7 +14,7 @@ namespace ClinicManagement.API.Controllers;
 
 [ApiController]
 [Route("api/cnam-nomenclature")]
-[Authorize]
+[Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
 public class CnamNomenclatureController : ApiControllerBase
 {
     private readonly IMediator _mediator;

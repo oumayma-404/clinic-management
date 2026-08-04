@@ -9,9 +9,13 @@ export const procedureTypesApi = {
     );
   },
 
-  /** One page of acts. `search` matches nom / description server-side over the whole catalog. */
+  /**
+   * One page of acts, ordered by catégorie then nom. `search` matches nom / catégorie / description server-side
+   * over the whole catalog; `category` narrows to one discipline — also server-side, because narrowing an
+   * already-cut page shrinks pages unpredictably. An unrecognised `category` matches nothing rather than failing.
+   */
   listPaged: async (
-    params: PageParams & { includeInactive?: boolean },
+    params: PageParams & { includeInactive?: boolean; category?: string },
   ): Promise<PagedResponse<ProcedureTypeDto>> =>
     apiGet<PagedResponse<ProcedureTypeDto>>('/procedure-types', params),
 
@@ -25,6 +29,7 @@ export const procedureTypesApi = {
     defaultCost?: number | null;
     colorHex: string;
     description?: string;
+    category?: string;
     resultingCondition?: string | null;
   }): Promise<ProcedureTypeDto> => {
     return apiPost<ProcedureTypeDto>('/procedure-types', {
@@ -33,6 +38,7 @@ export const procedureTypesApi = {
       defaultCost: data.defaultCost,
       colorHex: data.colorHex,
       description: data.description,
+      category: data.category,
       resultingCondition: data.resultingCondition,
     });
   },
@@ -43,6 +49,8 @@ export const procedureTypesApi = {
     defaultCost?: number | null;
     colorHex?: string;
     description?: string;
+    /** Tri-state, like every field here: omit = unchanged, `""` = unfile the act, a label = file it. */
+    category?: string;
     resultingCondition?: string | null;
   }): Promise<ProcedureTypeDto> => {
     return apiPut<ProcedureTypeDto>(`/procedure-types/${id}`, data);
@@ -71,6 +79,18 @@ export const procedureTypesApi = {
    */
   getColors: async (): Promise<string[]> => {
     return apiGet<string[]>('/procedure-types/colors');
+  },
+
+  /**
+   * The categories to offer when filing or filtering an act: the suggested clinical disciplines in clinical order,
+   * followed by any category this clinic invented for itself.
+   *
+   * Fetched rather than hardcoded for the same reason `getColors` is — but with a stronger one: half the list is
+   * *data*. Only the server knows which categories the clinic has used, and a suggestion list missing them is what
+   * makes the next admin retype « endodontie » and split a discipline in two.
+   */
+  getCategories: async (): Promise<string[]> => {
+    return apiGet<string[]>('/procedure-types/categories');
   },
 
   delete: async (id: string): Promise<void> => {

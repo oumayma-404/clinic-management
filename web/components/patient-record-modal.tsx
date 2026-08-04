@@ -1,7 +1,8 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { Button } from "@/components/ui/button"
+import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
@@ -10,7 +11,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
 import { DiscardChangesDialog } from "@/components/ui/discard-changes-dialog"
-import { Trash2, Plus, AlertTriangle, Stethoscope } from "lucide-react"
+import { Trash2, Plus, Stethoscope } from "lucide-react"
+import { PatientAlertPanel } from "@/components/patient/patient-alert-panel"
 import { dentalRecordsApi } from "@/lib/api/dental-records"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
 import { odontogramApi } from "@/lib/api/odontogram"
@@ -26,12 +28,13 @@ import type {
   ToothStateDto,
   AppointmentDto,
 } from "@/lib/api/types"
-import { formatDT, roundMillimes } from "@/lib/format"
+import { formatAmount, formatDT, parseAmountInput, roundMillimes, todayLocalIso, toLocalIso } from "@/lib/format"
 import {
   CONDITION_ORDER, conditionStyle, needsTreatment, serializeSurfaces,
 } from "@/components/odontogram-conditions"
-import { ADULT_FDI, CHILD_FDI, isAdultTooth } from "@/components/tooth-multiselect"
-import { isAdultDentition } from "@/lib/dentition"
+import { ARCH_QUADRANTS_BY_VIEW, FDI_BY_VIEW, isAdultTooth } from "@/components/tooth-multiselect"
+import { dentitionViewFor, dentitionViewForTeeth, type DentitionView } from "@/lib/dentition"
+import { DentitionViewSwitch } from "@/components/dentition-view-switch"
 import { RecordToothChart, type ToothPaint } from "@/components/record-tooth-chart"
 import { ActSlot } from "@/components/record/act-slot"
 import { ActDetailFields } from "@/components/record/act-detail-fields"
@@ -98,23 +101,51 @@ export function PatientRecordModal({
   onSuccess,
 }: PatientRecordModalProps) {
   const [patientName, setPatientName] = useState(initialPatientName)
-  const [interventionDate, setInterventionDate] = useState(new Date().toISOString().split("T")[0])
-  /**
-   * Which dentition the chart displays — **derived, no longer a toggle**.
+  /*
+   * ⚠️ `todayLocalIso()`, never `new Date().toISOString().split("T")[0]` (AC-P6.5).
    *
-   * It used to be a local Adulte/Enfant switch defaulting to Adulte, so recording a child's visit began by noticing
-   * the chart was wrong and flipping it. The answer is a property of the patient and is now stored on them.
-   *
-   * When *editing*, the record's own `isAdultTeeth` wins over the patient's current value: a fiche written years ago
-   * on baby teeth must reopen on baby teeth even if that child is since charted as an adult, or the acts it holds
-   * would all count as "on the other dentition" and the chart would open empty.
+   * `toISOString` converts to UTC first, so between 00:00 and 01:00 in Tunis (UTC+1) it pre-filled *yesterday* —
+   * and on the 1st, the previous month. This particular date is not cosmetic: it is inherited by
+   * `POST /invoices/from-dental-record` as the note d'honoraires' date and by every `ToothState.treatmentDate`
+   * the fiche writes, so it is a money date AND a clinical one, landing in the form as a plausible value nobody
+   * re-reads.
    */
-  const isAdultView = record ? record.isAdultTeeth : isAdultDentition(patient?.dentition)
+  const [interventionDate, setInterventionDate] = useState(todayLocalIso())
+  /**
+   * Which dentition the chart displays — **seeded, then the user's**.
+   *
+   * <p>Three states, and the distinction between them is the whole fix. It began as a local Adulte/Enfant switch
+   * defaulting to Adulte (so a child's visit started by noticing the chart was wrong), which was then replaced by a
+   * pure derivation from the patient — and *that* is what made the mixed stage unchartable: an eight-year-old
+   * charted `Child` had no way to record a permanent 36, and one charted `Adult` had no way to record a remaining
+   * 75. The server always allowed both (`DentalRecordActParser`), so the UI was the narrower half.</p>
+   *
+   * <p>`chosenView === null` means "the user has not chosen", **not** "adult" — the same distinction
+   * `ToothArchLayout` draws for `defaultArch`, and for the same reason: `patient` arrives from an async read, so
+   * seeding `useState(...)` would freeze the answer at the frame before the data existed. Resolving at render lets
+   * a late seed land, and any deliberate tap wins from then on.</p>
+   *
+   * <p>The seed keeps what the old derivation protected: a fiche saved on baby teeth reopens on baby teeth, or its
+   * acts would all read as "on the other dentition" and the chart would open empty. It reads the record's **own
+   * acts** rather than its `isAdultTeeth` flag, so a fiche that genuinely spans both dentitions reopens on Mixte —
+   * which the flag, being one boolean over a whole session, cannot say.</p>
+   */
+  const [chosenView, setChosenView] = useState<DentitionView | null>(null)
+  const seededView = useMemo<DentitionView>(
+    () =>
+      record
+        ? (dentitionViewForTeeth(record.toothNumbers, isAdultTooth) ?? (record.isAdultTeeth ? "adult" : "child"))
+        : dentitionViewFor(patient?.dentition),
+    [record, patient?.dentition],
+  )
+  const dentitionView = chosenView ?? seededView
   const [amountPaid, setAmountPaid] = useState("")
   const [paidDirty, setPaidDirty] = useState(false)
   const [notes, setNotes] = useState<string[]>([])
   const [importantNotes, setImportantNotes] = useState<string[]>([])
   const [procedureTypes, setProcedureTypes] = useState<ProcedureTypeDto[]>([])
+  /** The catalogue read failed — kept apart from a clinic that genuinely has no act configured. */
+  const [catalogFailed, setCatalogFailed] = useState(false)
   const [priorStates, setPriorStates] = useState<ToothStateDto[]>([])
   const [linkedPlanItemId, setLinkedPlanItemId] = useState<string>(NO_PLAN_ITEM)
   const [openSections, setOpenSections] = useState({ details: false, acts: false, notes: false })
@@ -123,25 +154,52 @@ export function PatientRecordModal({
   // A save conflict stays in the form; everything else keeps the existing toast.
   const conflict = useConflict()
 
+  /**
+   * The refusal that blocked the last « Confirmer », **anchored to the part of the form that caused it**.
+   *
+   * <p>All three of this dialog's validation refusals used to be toasts and nothing else. On a phone sonner lands
+   * bottom-centre — directly over this dialog's own footer, i.e. over the button just pressed — and is gone in
+   * four seconds, so the dentist presses « Confirmer la séance » again and gets the same flash. Nothing on the
+   * form itself ever said which field was wrong; « Montant invalide » does not say *which act's* montant, and the
+   * offending one may be three sections down and folded shut.</p>
+   *
+   * <p>The toast is kept as the *secondary* announcement (it is what a user glancing away notices), but the
+   * authority is now the inline message: it persists, it names the act, and the region it belongs to is scrolled
+   * into view. `aria-invalid` lives on the individual inputs in `ActDetailFields`, which is where a screen reader
+   * expects it.</p>
+   */
+  const [saveError, setSaveError] = useState<{ anchor: "act" | "details"; message: string } | null>(null)
+  const actAnchorRef = useRef<HTMLDivElement>(null)
+  const detailsAnchorRef = useRef<HTMLDivElement>(null)
+
   const { acts, selection, draft, hasDraft, draftTotal, grandTotal, editingAct, editingKey, dispatch } =
     useSessionActs(record)
 
   const toggleSection = (key: keyof typeof openSections) =>
     setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }))
 
-  // Active point-of-care alerts for this patient (allergies / flags / medical history).
-  const activeFlags = (patient?.flags ?? []).filter((f) => f.isActive)
-  const hasAlerts =
-    Boolean(patient?.allergies?.trim()) || activeFlags.length > 0 || Boolean(patient?.medicalHistory?.trim())
+  /*
+   * Load the active procedure catalog (the picker's source) when the modal opens.
+   *
+   * ⚠️ A failure is **recorded**, not written back as `[]`. An empty catalogue is not a neutral state here: the act
+   * picker falls through to its free-text row, so the dentist names the act by hand and the fiche is saved with no
+   * `procedureTypeId` — no tarif, no état résultant, nothing for the odontogram to paint and nothing for the note
+   * d'honoraires to price. « Aucun acte au catalogue » and « le catalogue n'a pas répondu » look identical and only
+   * one of them means "type it yourself".
+   */
+  const loadCatalog = useCallback(async () => {
+    try {
+      setProcedureTypes((await procedureTypesApi.list(false)) || [])
+      setCatalogFailed(false)
+    } catch {
+      setCatalogFailed(true)
+    }
+  }, [])
 
-  // Load the active procedure catalog (the picker's source) when the modal opens.
   useEffect(() => {
     if (!open) return
-    procedureTypesApi
-      .list(false)
-      .then((data) => setProcedureTypes(data || []))
-      .catch(() => setProcedureTypes([]))
-  }, [open])
+    void loadCatalog()
+  }, [open, loadCatalog])
 
   // Load the patient's odontogram so the chart shows what is already on record (incl. « à traiter »
   // diagnoses) while the dentist charts today's work. Failure is silent — it is an overlay, not a gate.
@@ -167,11 +225,16 @@ export function PatientRecordModal({
     if (!open) return
     setPatientName(initialPatientName)
     setLinkedPlanItemId(NO_PLAN_ITEM)
+    // Back to the seed: an arch the user picked for the *previous* fiche must not decide this one's.
+    setChosenView(null)
     dispatch({ type: "reset", record })
 
     if (record) {
-      setInterventionDate(new Date(record.interventionDate).toISOString().split("T")[0])
-      setAmountPaid(String(record.amountPaid))
+      // The read-back half of the same defect: the stored instant was round-tripped through UTC, so a fiche
+      // saved late in the evening reopened showing the previous calendar day — and re-saving wrote that day back.
+      setInterventionDate(toLocalIso(new Date(record.interventionDate)))
+      // `formatAmount`, never `String(...)` (J8) — the field accepts the comma form the product prints with.
+      setAmountPaid(formatAmount(record.amountPaid))
       setPaidDirty(true) // a saved amount is the user's, never re-mirrored from the total
       setNotes([...record.notes])
       setImportantNotes([...record.importantNotes])
@@ -182,7 +245,7 @@ export function PatientRecordModal({
         notes: record.notes.length > 0 || record.importantNotes.length > 0,
       })
     } else {
-      setInterventionDate(new Date().toISOString().split("T")[0])
+      setInterventionDate(todayLocalIso())
       setAmountPaid("")
       setPaidDirty(false)
       setNotes([])
@@ -227,7 +290,7 @@ export function PatientRecordModal({
   // « Montant payé » mirrors the running total until the user takes the field over.
   useEffect(() => {
     if (paidDirty || isInvoiced) return
-    setAmountPaid(grandTotal > 0 ? String(grandTotal) : "")
+    setAmountPaid(grandTotal > 0 ? formatAmount(grandTotal) : "")
   }, [grandTotal, paidDirty, isInvoiced])
 
   // Latest recorded state per tooth, EXCLUDING the record being edited — its own tooth states are this
@@ -304,16 +367,17 @@ export function PatientRecordModal({
     return map
   }, [priorByTooth, acts, selection])
 
-  // Acts charted on the dentition that is not currently displayed — surfaced so nothing hides behind the toggle.
-  const hiddenDentitionActs = useMemo(
-    () => acts.filter((a) => a.toothNumbers.some((t) => isAdultTooth(t) !== isAdultView)).length,
-    [acts, isAdultView],
-  )
-
-  const viewTeeth = isAdultView ? ADULT_FDI : CHILD_FDI
-  const upperQuadrants = isAdultView ? [1, 2] : [5, 6]
-  const lowerQuadrants = isAdultView ? [3, 4] : [7, 8]
+  const viewTeeth = FDI_BY_VIEW[dentitionView]
+  const { upper: upperQuadrants, lower: lowerQuadrants } = ARCH_QUADRANTS_BY_VIEW[dentitionView]
   const teethInQuadrants = (quadrants: number[]) => viewTeeth.filter((t) => quadrants.includes(Math.floor(t / 10)))
+
+  // Acts charted on teeth the current view does not draw — surfaced so nothing hides behind the switch. Tested
+  // against the view's own tooth set rather than `isAdultTooth`, which is what makes the count read **zero** on
+  // Mixte: that view draws both dentitions, so there is nothing left off-screen to warn about.
+  const hiddenDentitionActs = useMemo(
+    () => acts.filter((a) => a.toothNumbers.some((t) => !viewTeeth.includes(t))).length,
+    [acts, viewTeeth],
+  )
 
   // Linking a plan step carries its designation / cost / teeth into the draft, so the dentist does not
   // retype what the plan already knows. Only an untouched draft is prefilled.
@@ -329,7 +393,27 @@ export function PatientRecordModal({
     setOpenSections((prev) => ({ ...prev, details: true }))
   }
 
-  const reste = Math.max(0, roundMillimes(grandTotal - (Number.parseFloat(amountPaid) || 0)))
+  const reste = Math.max(0, roundMillimes(grandTotal - (parseAmountInput(amountPaid) || 0)))
+
+  /**
+   * Refuse the save: mark the region, scroll it into view, and *also* toast.
+   *
+   * <p>Order matters — the state is set before the scroll so the message exists by the time the region is on
+   * screen, and `block: "center"` rather than `"nearest"` because the offending field is often just above the
+   * footer the user is looking at, where "nearest" would move nothing at all.</p>
+   */
+  const refuseSave = (anchor: "act" | "details", message: string, description?: string) => {
+    setSaveError({ anchor, message })
+    const target = anchor === "act" ? actAnchorRef.current : detailsAnchorRef.current
+    target?.scrollIntoView({ block: "center", behavior: "smooth" })
+    toast.error(message, description ? { description } : undefined)
+  }
+
+  // Any edit to the acts or the draft clears the refusal: an inline error that outlives the thing it described
+  // is worse than none, because the next press is refused for a reason the message no longer names.
+  useEffect(() => {
+    setSaveError(null)
+  }, [acts, draft])
 
   /**
    * Everything that will be persisted: the confirmed acts, with the in-progress draft folded in. Pressing
@@ -349,16 +433,18 @@ export function PatientRecordModal({
     }
 
     if (actsToPersist.length === 0) {
-      toast.error("Ajoutez au moins un acte", { description: "Choisissez l'acte réalisé, puis les dents." })
+      refuseSave("act", "Ajoutez au moins un acte", "Choisissez l'acte réalisé, puis les dents.")
       return
     }
 
     const badPrice = actsToPersist.find((a) => hasInvalidPrice(a.unitCost))
     if (badPrice) {
       setOpenSections((prev) => ({ ...prev, details: true }))
-      toast.error("Montant invalide", {
-        description: `Vérifiez le tarif de l'acte « ${badPrice.procedureName} ».`,
-      })
+      refuseSave(
+        "details",
+        `Montant invalide pour « ${badPrice.procedureName} »`,
+        "Corrigez le tarif de l'acte, puis confirmez.",
+      )
       return
     }
 
@@ -380,21 +466,24 @@ export function PatientRecordModal({
       })
 
     if (parsedActs.length === 0) {
-      toast.error("Ajoutez au moins un acte", { description: "Chaque acte nécessite une désignation." })
+      // Reached only when every act was filtered out for having no name — which is a *désignation* problem, so
+      // it anchors on the detail fields (where the editable désignation lives) rather than on the act slot.
+      setOpenSections((prev) => ({ ...prev, details: true }))
+      refuseSave("details", "Chaque acte nécessite une désignation", "Nommez l'acte avant d'enregistrer.")
       return
     }
 
     // The record's dentition flag is derived, not read from the toggle: a session may legitimately chart both
     // dentitions, so it is only a display hint — "enfant" when every charted tooth is deciduous.
     const chartedTeeth = parsedActs.flatMap((a) => a.toothNumbers)
-    const isAdultTeeth = chartedTeeth.length === 0 ? isAdultView : chartedTeeth.some(isAdultTooth)
+    const isAdultTeeth = chartedTeeth.length === 0 ? dentitionView !== "child" : chartedTeeth.some(isAdultTooth)
 
     setLoading(true)
     try {
       const linkedItem = planItems.find((p) => p.itemId === linkedPlanItemId)
       const recordData = {
         interventionDate,
-        amountPaid: Number.parseFloat(amountPaid) || 0,
+        amountPaid: parseAmountInput(amountPaid) || 0,
         isAdultTeeth,
         notes: notes.filter((n) => n.trim()).map((n) => n.trim()),
         importantNotes: importantNotes.filter((n) => n.trim()).map((n) => n.trim()),
@@ -542,34 +631,12 @@ export function PatientRecordModal({
         <FormErrorBanner message={conflict.error} />
 
         {/* Point-of-care medical alerts — surfaced before treatment (safety). */}
-        {hasAlerts && (
-          <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/40">
-            <p className="flex items-center gap-1.5 text-sm font-semibold text-amber-800 dark:text-amber-200">
-              <AlertTriangle className="h-4 w-4" /> Alertes médicales
-            </p>
-            <div className="mt-2 space-y-1.5 text-xs">
-              {patient?.allergies?.trim() && (
-                <p className="text-red-700 dark:text-red-300">
-                  <span className="font-semibold">Allergies :</span> {patient.allergies}
-                </p>
-              )}
-              {activeFlags.length > 0 && (
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {activeFlags.map((f) => (
-                    <Badge key={f.id} variant="destructive" className="text-2xs">
-                      {f.description || f.flagType}
-                    </Badge>
-                  ))}
-                </div>
-              )}
-              {patient?.medicalHistory?.trim() && (
-                <p className="text-amber-800 dark:text-amber-200">
-                  <span className="font-semibold">Antécédents :</span> {patient.medicalHistory}
-                </p>
-              )}
-            </div>
-          </div>
-        )}
+        {/* Extracted to `patient/patient-alert-panel.tsx` — it lived here, inline, which is why the document editor
+            (where an ordonnance is written) and the résumé modal had nothing of the kind. Two bugs it also fixed on
+            the way out: the flag badge printed the raw enum (« HighPriority ») instead of going through
+            `patientFlagLabel`, and the allergy line used `red-700` + a hand-maintained `dark:` twin rather than the
+            `text-destructive` token. */}
+        {patient && <PatientAlertPanel patient={patient} />}
 
         {/* Session header: patient, date, dentition view, optional plan-step link */}
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -594,9 +661,9 @@ export function PatientRecordModal({
           {hiddenDentitionActs > 0 && (
             <div className="space-y-1.5">
               <Label>Autre dentition</Label>
-              <p className="text-2xs text-amber-600 dark:text-amber-500">
-                {hiddenDentitionActs} acte{hiddenDentitionActs > 1 ? "s" : ""} sur l&apos;autre dentition
-                (conservé{hiddenDentitionActs > 1 ? "s" : ""})
+              <p className="text-2xs text-warning-ink">
+                {hiddenDentitionActs} acte{hiddenDentitionActs > 1 ? "s" : ""} sur des dents que cette vue n&apos;affiche
+                pas (conservé{hiddenDentitionActs > 1 ? "s" : ""}) — choisissez « Mixte » pour les voir.
               </p>
             </div>
           )}
@@ -623,16 +690,32 @@ export function PatientRecordModal({
         </div>
 
         {/* THE ACT — proposed from the appointment, or picked from the catalogue. One slot, two states. */}
-        <ActSlot
-          draft={draft}
-          hasDraft={hasDraft}
-          draftTotal={draftTotal}
-          procedureTypes={procedureTypes}
-          proposedFromAppointment={proposedFromAppointment}
-          editingAct={editingAct}
-          dispatch={dispatch}
-          disabled={loading}
-        />
+        <div ref={actAnchorRef} className="space-y-1.5">
+          {/* Above the picker, because that is where the consequence lands: an empty list invites a free-text act. */}
+          {catalogFailed && (
+            <LoadFailureNotice
+              variant="inline"
+              message="Le catalogue des actes n'a pas pu être chargé."
+              detail="Un acte saisi à la main n'aura ni tarif ni état résultant."
+              onRetry={() => void loadCatalog()}
+            />
+          )}
+          <ActSlot
+            draft={draft}
+            hasDraft={hasDraft}
+            draftTotal={draftTotal}
+            procedureTypes={procedureTypes}
+            proposedFromAppointment={proposedFromAppointment}
+            editingAct={editingAct}
+            dispatch={dispatch}
+            disabled={loading}
+          />
+          {saveError?.anchor === "act" && (
+            <p role="alert" className="text-xs font-medium text-destructive">
+              {saveError.message}
+            </p>
+          )}
+        </div>
 
         {/*
           The rest of the séance. An appointment can carry several acts, and only the first one is *proposed* —
@@ -714,8 +797,17 @@ export function PatientRecordModal({
             </div>
           </div>
 
+          {/* The dentition switch sits directly above the arch it changes — a control whose effect is one row
+              down needs no explanation. Full width below `sm:` so the three segments keep their 44px on a phone. */}
+          <DentitionViewSwitch
+            value={dentitionView}
+            onChange={setChosenView}
+            disabled={loading}
+            className="sm:max-w-xs"
+          />
+
           <RecordToothChart
-            isAdult={isAdultView}
+            view={dentitionView}
             paint={toothPaint}
             onToggleTooth={(tooth) => dispatch({ type: "toggleTooth", tooth })}
             disabled={loading}
@@ -728,11 +820,17 @@ export function PatientRecordModal({
               onClick={() =>
                 dispatch({
                   type: "selectMany",
-                  teeth: openDiagnosisTeeth.filter((t) => isAdultTooth(t) === isAdultView),
+                  // Only the teeth the current view actually draws — selecting one that is off-screen would put a
+                  // tooth in the act with nothing on the chart to show it.
+                  teeth: openDiagnosisTeeth.filter((t) => viewTeeth.includes(t)),
                   additive: true,
                 })
               }
-              className="flex w-full items-center gap-1.5 rounded-md border border-orange-300 bg-orange-50 px-2 py-1.5 text-left text-2xs text-orange-800 hover:bg-orange-100 disabled:cursor-not-allowed dark:border-orange-900 dark:bg-orange-950/40 dark:text-orange-200"
+              // `touch-target min-h-11`: a bare 28px banner that BULK-SELECTS every tooth needing treatment —
+              // one of the highest-consequence taps in the fiche, and it was the smallest. `min-h-11` paints the
+              // floor rather than only overlaying it, because the chart sits directly above and an overlay would
+              // reach into the last row of teeth.
+              className="touch-target flex min-h-11 w-full items-center gap-1.5 rounded-md border border-orange-300 bg-orange-50 px-2 py-1.5 text-left text-2xs text-orange-800 hover:bg-orange-100 disabled:cursor-not-allowed dark:border-orange-900 dark:bg-orange-950/40 dark:text-orange-200"
             >
               <Stethoscope className="h-3.5 w-3.5 shrink-0" />
               <span>
@@ -786,21 +884,28 @@ export function PatientRecordModal({
         </div>
 
         {/* THE DETAIL — folded, never removed, always summarised. */}
-        <RecordSection
-          title="Détails de l'acte"
-          summary={detailsSummary}
-          open={openSections.details}
-          onToggle={() => toggleSection("details")}
-        >
-          {hasDraft ? (
-            <ActDetailFields draft={draft} toothCount={selection.length} dispatch={dispatch} disabled={loading} />
-          ) : (
-            <p className="text-xs italic text-muted-foreground">
-              Choisissez d&apos;abord un acte : son tarif et son état résultant seront préremplis depuis le
-              catalogue.
+        <div ref={detailsAnchorRef} className="space-y-1.5">
+          <RecordSection
+            title="Détails de l'acte"
+            summary={detailsSummary}
+            open={openSections.details}
+            onToggle={() => toggleSection("details")}
+          >
+            {hasDraft ? (
+              <ActDetailFields draft={draft} toothCount={selection.length} dispatch={dispatch} disabled={loading} />
+            ) : (
+              <p className="text-xs italic text-muted-foreground">
+                Choisissez d&apos;abord un acte : son tarif et son état résultant seront préremplis depuis le
+                catalogue.
+              </p>
+            )}
+          </RecordSection>
+          {saveError?.anchor === "details" && (
+            <p role="alert" className="text-xs font-medium text-destructive">
+              {saveError.message}
             </p>
           )}
-        </RecordSection>
+        </div>
 
         <RecordSection
           title="Actes de la séance"
@@ -890,7 +995,7 @@ export function PatientRecordModal({
             <div className="space-y-2">
               <Label className="text-xs">
                 Notes importantes
-                <span className="ml-2 text-2xs text-amber-600 dark:text-amber-500">⚠ Mises en évidence</span>
+                <span className="ml-2 text-2xs text-warning-ink">⚠ Mises en évidence</span>
               </Label>
               {importantNotes.map((note, index) => (
                 <div key={index} className="flex gap-2">
@@ -932,74 +1037,109 @@ export function PatientRecordModal({
           </div>
         </RecordSection>
 
-        {/* Totals + payment — the number that will be saved, always on screen. */}
-        <div className="grid gap-3 rounded-lg border bg-muted/30 p-3 sm:grid-cols-3">
-          <div className="flex items-center gap-2">
-            <Label htmlFor="paid" className="shrink-0 text-xs text-muted-foreground">
-              Payé
-            </Label>
-            <Input
-              id="paid"
-              type="number"
-              min="0"
-              step="0.001"
-              className="h-8 text-right tabular-nums"
-              value={amountPaid}
-              onChange={(e) => {
-                setPaidDirty(true)
-                setAmountPaid(e.target.value)
-              }}
-              placeholder="0.000"
-              disabled={loading || isInvoiced}
-            />
-          </div>
-          <div className="flex items-center text-xs">
-            {isInvoiced ? (
-              <p className="text-muted-foreground">Facturé — le paiement est géré par la facture.</p>
-            ) : (
-              <p className="text-muted-foreground">
-                Reste à payer :{" "}
-                <span className={reste > 0 ? "font-semibold text-amber-600" : "font-medium text-foreground"}>
-                  {formatDT(reste)}
-                </span>
-              </p>
-            )}
-          </div>
-          <div className="flex items-center justify-end gap-2 text-sm">
-            <span className="text-muted-foreground">Total</span>
-            <span className="text-base font-semibold tabular-nums">{formatDT(grandTotal)}</span>
-          </div>
-        </div>
         </DialogBody>
 
-        <DialogFooter className="gap-2 sm:justify-between">
-          {/* Confirms the act in hand and clears the draft, keeping the selection so a second procedure on the
-              same tooth is one pick away. Saving does NOT require this — the draft is persisted either way. */}
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => {
-              dispatch({ type: "commitDraft" })
-              setOpenSections((prev) => ({ ...prev, acts: true }))
-            }}
-            disabled={loading || !hasDraft}
-            className="sm:mr-auto"
-          >
-            <Plus className="mr-1 h-4 w-4" /> Ajouter un autre acte
-          </Button>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={() => guard.onOpenChange(false)} disabled={loading}>
-              Annuler
+        {/*
+          ⚠️ The totals live in the FOOTER, not at the end of `DialogBody`.
+
+          Their old comment claimed « the number that will be saved, always on screen », and that was true only at
+          ≥768px. `DialogBody` is the scrolling middle of the sheet, so on a phone the block sat roughly 330px
+          below the tooth chart — off screen for the entire time the dentist is tapping teeth, which is exactly
+          when the running total is the thing being watched. The footer is `shrink-0` and outside the scroll
+          container, which is what « always on screen » actually requires.
+
+          `flex-col`, overriding the primitive's `flex-col-reverse sm:flex-row`: this footer has two stacked
+          bands (figures, then actions) rather than one row of buttons.
+        */}
+        <DialogFooter className="flex-col gap-3 sm:flex-col sm:justify-start">
+          <div className="flex w-full flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border bg-muted/30 p-3">
+            <div className="flex min-w-[9rem] flex-1 items-center gap-2">
+              <Label htmlFor="paid" className="shrink-0 text-xs text-muted-foreground">
+                Payé
+              </Label>
+              {/* `text` + `inputMode="decimal"`, never `type="number"` (J8): a number input refuses the comma
+                  this product prints with, and a rejected keystroke returns an EMPTY value — so « Payé » looked
+                  filled and saved nothing. The numeric keypad still appears on a phone. */}
+              <Input
+                id="paid"
+                type="text"
+                inputMode="decimal"
+                className="h-8 w-full text-right tabular-nums"
+                value={amountPaid}
+                onChange={(e) => {
+                  setPaidDirty(true)
+                  setAmountPaid(e.target.value)
+                }}
+                placeholder="0,000"
+                disabled={loading || isInvoiced}
+              />
+            </div>
+            <div className="flex shrink-0 items-center gap-1.5 text-sm">
+              <span className="text-muted-foreground">Total</span>
+              <span className="text-base font-semibold tabular-nums">{formatDT(grandTotal)}</span>
+            </div>
+            {/* Wraps to its own line below `sm:` — three figures do not fit 342px, and « Reste à payer » is the
+                one of the three that is a sentence rather than a number. */}
+            <div className="w-full text-xs sm:w-auto">
+              {isInvoiced ? (
+                <p className="text-muted-foreground">Facturé — le paiement est géré par la facture.</p>
+              ) : (
+                <p className="text-muted-foreground">
+                  Reste à payer :{" "}
+                  {/* `--warning-ink`, not `text-amber-600`: that literal had no `dark:` pair and measured
+                      ~3.2:1 on the card — on an outstanding-balance figure. The token was minted for this. */}
+                  <span className={reste > 0 ? "font-semibold text-warning-ink" : "font-medium text-foreground"}>
+                    {formatDT(reste)}
+                  </span>
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/*
+            `flex-col-reverse` on both levels below `sm:`, mirroring the primitive's own idiom: the DOM keeps the
+            desktop reading order (secondary → cancel → confirm) while a phone stacks them primary-first, each
+            full width. Three full-width rows rather than a cramped side-by-side, because « Confirmer la séance —
+            180,000 DT » is ~230px of unwrappable French and `buttonVariants` is `whitespace-nowrap`.
+          */}
+          <div className="flex w-full flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
+            {/* Confirms the act in hand and clears the draft, keeping the selection so a second procedure on the
+                same tooth is one pick away. Saving does NOT require this — the draft is persisted either way. */}
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                dispatch({ type: "commitDraft" })
+                setOpenSections((prev) => ({ ...prev, acts: true }))
+              }}
+              disabled={loading || !hasDraft}
+              className="w-full sm:w-auto"
+            >
+              <Plus className="mr-1 h-4 w-4" /> Ajouter un autre acte
             </Button>
-            <Button onClick={handleSave} disabled={loading} className="min-w-[150px]">
-              {loading
-                ? "Enregistrement…"
-                : record
-                  ? "Enregistrer"
-                  : appointmentId
-                    ? "Confirmer la séance"
-                    : "Créer la fiche"}
-            </Button>
+            <div className="flex w-full flex-col-reverse gap-2 sm:w-auto sm:flex-row">
+              <Button
+                variant="outline"
+                onClick={() => guard.onOpenChange(false)}
+                disabled={loading}
+                className="w-full sm:w-auto"
+              >
+                Annuler
+              </Button>
+              {/*
+                The amount rides ON the action. « Confirmer » and the figure it commits were two separate places
+                to look, and on a phone only one of them was visible — so the button now states what pressing it
+                will book. `formatDT`, never a hand-rolled `toFixed`: the millime and the decimal comma are the
+                product's, not this dialog's.
+              */}
+              <Button onClick={handleSave} disabled={loading} className="w-full sm:w-auto sm:min-w-[150px]">
+                {loading
+                  ? "Enregistrement…"
+                  : `${
+                      record ? "Enregistrer" : appointmentId ? "Confirmer la séance" : "Créer la fiche"
+                    }${grandTotal > 0 ? ` — ${formatDT(grandTotal)}` : ""}`}
+              </Button>
+            </div>
           </div>
         </DialogFooter>
       </DialogContent>

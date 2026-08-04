@@ -5,20 +5,27 @@ import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { Loader2, HandCoins } from "lucide-react"
+import { Loader2, HandCoins, SearchX } from "lucide-react"
 import { billingApi } from "@/lib/api/billing"
 import { ApiError } from "@/lib/api/client"
 import type { ReceivableDto } from "@/lib/api/types"
 import { formatDT, formatDateFr } from "@/lib/format"
+import { ZONES, zoneChipClass } from "@/lib/zones"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
+import { EmptyState } from "@/components/ui/empty-state"
+import { ExportButton } from "@/components/ui/export-button"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { DataTablePagination } from "@/components/ui/data-table-pagination"
 import { DEFAULT_PAGE_SIZE } from "@/lib/api/paging"
 import type { ReceivablesPageDto } from "@/lib/api/types"
+
+/** « Créances » is the Finances zone — the empty state's chip wears the hue the rail and the eyebrow already do. */
+const MONEY_CHIP = zoneChipClass(ZONES.money)
 
 export function ReceivablesTable() {
   const router = useRouter()
@@ -86,9 +93,25 @@ export function ReceivablesTable() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center justify-between">
-          <span className="flex items-center gap-2">
-            <HandCoins className="h-5 w-5 text-muted-foreground" />
+        {/*
+          The icon chip — `app/documents/page.tsx`'s template-tile idiom, sized for a header. The glyph was
+          `text-muted-foreground` beside foreground text: a grey mark next to black text is not an icon, it is a
+          faded word, and 43 headers were drawn that way. The hue is the `money` zone's rather than `primary`,
+          because « Créances » is a Finances screen and the rail and the page eyebrow already paint it amber.
+
+          ⚠️ `flex-wrap` + `gap-3` is not cosmetic: this row is `justify-between` with « Total dû : 12 345,000
+          DT » on the right, and the chip takes ~40px out of the left column. At 390px the two halves already
+          collided before the chip existed — without wrapping, the amount is what gets squeezed, and it is the
+          number the page is for.
+        */}
+        <CardTitle className="flex flex-wrap items-center justify-between gap-3">
+          <span className="flex min-w-0 items-center gap-2.5 leading-snug">
+            <span
+              aria-hidden="true"
+              className={`flex size-8 shrink-0 items-center justify-center rounded-lg ${zoneChipClass(ZONES.money)}`}
+            >
+              <HandCoins className="size-4" strokeWidth={1.75} />
+            </span>
             Créances{data && data.totalCount > 0 ? ` (${data.totalCount})` : ""}
           </span>
           {total > 0 && (
@@ -107,23 +130,60 @@ export function ReceivablesTable() {
           <div className="py-12 text-center text-sm text-destructive">{error}</div>
         ) : (
           <>
-            <div className="mb-4">
-              <Label htmlFor="receivables-search" className="sr-only">
-                Rechercher un patient
-              </Label>
-              <Input
-                id="receivables-search"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Rechercher un patient…"
+            {/*
+              L5 — « Exporter » sits BESIDE the filter it exports, not up in the page header, and that is the
+              deliberate half of the decision. This component owns the search term (and debounces it), so a
+              button in `PageHeader` would need a lifted copy of that state — a second authority on « what is on
+              screen », and the one property the file must have is that it *is* the list. Reading
+              `debouncedSearch` — the value the request actually carried, not the keystroke — is the same rule.
+
+              At 320 px the input takes its own row and the button wraps beneath it (`flex-wrap` + `w-full`).
+            */}
+            <div className="mb-4 flex flex-wrap items-center gap-2">
+              <div className="w-full min-w-0 flex-1 sm:w-auto sm:max-w-sm">
+                <Label htmlFor="receivables-search" className="sr-only">
+                  Rechercher un patient
+                </Label>
+                <Input
+                  id="receivables-search"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Rechercher un patient…"
+                />
+              </div>
+              <ExportButton
+                path="/billing/receivables/export"
+                label="créances"
+                compact
+                params={{ search: debouncedSearch || undefined }}
               />
             </div>
+            {/*
+              Two emptinesses that must not share copy. « Aucune créance » is GOOD news and therefore has no
+              action — there is nothing to create on a debt list, and offering one would be an invitation to
+              invent a debt. The filtered case is recoverable and says how.
+            */}
             {rows.length === 0 ? (
-              <div className="py-12 text-center text-sm text-muted-foreground">
-                {debouncedSearch
-                  ? "Aucun patient ne correspond à votre recherche."
-                  : "Aucune créance — tous les patients sont à jour."}
-              </div>
+              debouncedSearch ? (
+                <EmptyState
+                  icon={SearchX}
+                  chipClassName={MONEY_CHIP}
+                  title={`Aucun patient ne correspond à « ${debouncedSearch} »`}
+                  description="Le patient existe peut-être sans rien devoir : cette liste ne montre que les soldes dus."
+                  secondaryAction={
+                    <Button size="sm" variant="outline" onClick={() => setSearch("")}>
+                      Effacer les filtres
+                    </Button>
+                  }
+                />
+              ) : (
+                <EmptyState
+                  icon={HandCoins}
+                  chipClassName={MONEY_CHIP}
+                  title="Aucune créance"
+                  description="Tous les patients sont à jour : aucune facture ni échéance n'attend de règlement."
+                />
+              )
             ) : (
               <>
           {/*

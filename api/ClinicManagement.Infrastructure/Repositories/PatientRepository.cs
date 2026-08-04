@@ -47,6 +47,27 @@ public class PatientRepository : IPatientRepository
             .ToDictionaryAsync(p => p.Id, cancellationToken);
     }
 
+    public async Task<IReadOnlyList<PatientIdentity>> GetIdentitiesAsync(
+        Guid clinicId,
+        CancellationToken cancellationToken = default)
+    {
+        // `IgnoreQueryFilters` + an explicit `ClinicId` — the same shape `GetByIdsAsync` uses and for the same
+        // reason: the filter is a backstop, the explicit predicate is the authoritative check. Archived patients
+        // are deliberately in scope (see the interface), so nothing narrows this beyond the clinic.
+        return await _context.Patients
+            .Where(p => p.ClinicId == clinicId)
+            .Select(p => new PatientIdentity(
+                p.Id,
+                p.FirstName,
+                p.LastName,
+                p.DateOfBirth,
+                // The stored value, warts and all. The import normalises both sides through `PhoneNumber.ToE164`
+                // before comparing — it has to, because the hand-typed write path stores whatever was typed, so
+                // « 20 123 456 » and « +21620123456 » are the same patient and two different strings.
+                p.PhoneNumber != null ? p.PhoneNumber.Value : null))
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<Patient?> GetByIdWithAppointmentsAsync(Guid id, CancellationToken cancellationToken = default)
     {
         return await _context.Patients

@@ -72,6 +72,62 @@ public class CnamBillingCalculator : ICnamBillingCalculator
         return new CnamSplit(reimbursable, outOfPocket);
     }
 
+    public async Task<CnamCeilingConsumption> ComputeCeilingConsumptionAsync(
+        IReadOnlyCollection<CnamBillingLine> lines,
+        DateTime? patientDateOfBirth,
+        DateTime careDate,
+        CancellationToken cancellationToken = default)
+    {
+        if (lines.Count == 0)
+        {
+            return new CnamCeilingConsumption(0m, 0m);
+        }
+
+        await EnsureCatalogLoadedAsync(cancellationToken);
+
+        var consuming = 0m;
+        var horsPlafond = 0m;
+
+        foreach (var line in lines)
+        {
+            // Identical resolution to ComputeAsync's loop, and identically forgiving: a free-text line, an act with
+            // no cotation, or a lettre clé with no VLC yields no estimate and therefore consumes nothing. That is
+            // the right direction here too — an act CNAM will not reimburse cannot use up a reimbursement ceiling.
+            if (line.DentalActCodeId is null || !_actsById!.TryGetValue(line.DentalActCodeId.Value, out var act))
+            {
+                continue;
+            }
+
+            if (act.Coefficient is null)
+            {
+                continue;
+            }
+
+            decimal? vlc = _vlcByLettreCle!.TryGetValue(act.LettreCle, out var value) ? value : null;
+            var estimate = CnamReimbursementCalculator.Estimate(act.Coefficient.Value, vlc, patientDateOfBirth, careDate);
+            if (estimate is null)
+            {
+                continue;
+            }
+
+            // No per-line Math.Min against the charged amount, unlike ComputeAsync. See the interface: what the
+            // clinic charged bounds the *split*, not what CNAM has been asked to reimburse, and clamping here would
+            // under-report consumption on a discounted invoice and so over-state the ceiling left.
+            if (CnamPlafond.ConsumesCeiling(act.Category))
+            {
+                consuming += estimate.Value;
+            }
+            else
+            {
+                horsPlafond += estimate.Value;
+            }
+        }
+
+        return new CnamCeilingConsumption(
+            InvoiceCalculator.RoundMoney(consuming),
+            InvoiceCalculator.RoundMoney(horsPlafond));
+    }
+
     private async Task EnsureCatalogLoadedAsync(CancellationToken cancellationToken)
     {
         if (_actsById is not null && _vlcByLettreCle is not null)

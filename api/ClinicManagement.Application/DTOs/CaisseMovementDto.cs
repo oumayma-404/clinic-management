@@ -83,6 +83,25 @@ public class CaisseMovementDto
     public string? Method { get; set; }
 
     /// <summary>
+    /// The cheque's number, when this movement was paid by one (L8). Null for every other method, and null for a
+    /// cheque recorded before the fields existed.
+    ///
+    /// <para>On the statement this is what turns « Chèque · 450,000 » — which could be any of the six cheques a
+    /// patient handed over — into a line naming the paper somebody still has to take to the bank.</para>
+    /// </summary>
+    public string? ChequeNumber { get; set; }
+
+    /// <inheritdoc cref="ChequeNumber"/>
+    public string? ChequeBankName { get; set; }
+
+    /// <summary>
+    /// The day the cheque may be presented. ⚠️ <b>Not</b> <see cref="OccurredOn"/>: a post-dated cheque is
+    /// received — and appears in the till — on the day it is handed over, while the money only arrives on this
+    /// date. Conflating the two is precisely how an unbanked cheque becomes invisible.
+    /// </summary>
+    public DateTime? ChequeDueDate { get; set; }
+
+    /// <summary>
     /// The French one-line description (« Paiement facture 2026-0012 », « Dépense — Consommables »). Built
     /// server-side, once: four kinds × the client would be four copies of the wording to keep in step.
     /// </summary>

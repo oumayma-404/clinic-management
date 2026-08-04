@@ -1,11 +1,23 @@
 "use client"
 
+import { useMemo } from "react"
 import { cn } from "@/lib/utils"
 // The FDI quadrant layout is imported, not re-declared: `tooth-multiselect` is the single client-side
 // authority for a tooth's dentition (it mirrors the backend `FdiTooth.IsAdult`), and this file used to carry
 // its own copy of the same four arrays.
-import { ADULT_TEETH, CHILD_TEETH } from "@/components/tooth-multiselect"
-import { ToothArchLayout } from "@/components/tooth-arch-layout"
+import { TEETH_BY_VIEW } from "@/components/tooth-multiselect"
+import { ToothArchLayout, type ToothArch } from "@/components/tooth-arch-layout"
+import type { DentitionView } from "@/lib/dentition"
+
+/**
+ * Which arch an FDI number belongs to. Quadrants 1/2 (permanent) and 5/6 (deciduous) are maxillary; 3/4 and 7/8
+ * are mandibular. Kept here rather than in the layout because the layout deliberately knows nothing about teeth
+ * beyond the four arrays it is handed.
+ */
+function isUpperFdi(toothNumber: number): boolean {
+  const quadrant = Math.floor(toothNumber / 10)
+  return quadrant === 1 || quadrant === 2 || quadrant === 5 || quadrant === 6
+}
 
 // How a tooth should paint on the chart (computed by the parent from the acts + the patient's odontogram).
 export interface ToothPaint {
@@ -88,17 +100,30 @@ function ToothGlyph({
       fill="none"
       className={cn("transition-all", muted && "opacity-60")}
     >
+      {/*
+        ⚠️ The condition outline is drawn WHETHER OR NOT the tooth is selected.
+
+        It used to be `outline && !selected`, so the dashed « à traiter » ring — or the stroke recording what is
+        already on the tooth — vanished at the exact moment the dentist tapped that tooth to work on it. The one
+        instant the prior state matters most is the one where it disappeared, and what replaced it was a generic
+        primary stroke that says nothing clinical.
+
+        Selection is carried entirely by chrome that does not compete with the stroke: the wrapper's
+        `ring-2 ring-primary ring-offset-1` (the offset is what keeps the ring legible against a retained
+        coloured outline) plus a heavier stroke width here.
+      */}
       <path
         d={shape.d}
-        strokeWidth={outline ? 3 : 2}
+        strokeWidth={selected ? (outline ? 4 : 3) : outline ? 3 : 2}
         strokeDasharray={outline && dashedOutline ? "5 4" : undefined}
         style={{
           ...(fill ? { fill } : {}),
-          ...(outline && !selected ? { stroke: outline } : {}),
+          ...(outline ? { stroke: outline } : {}),
         }}
         className={cn(
           fill ? "" : "fill-white dark:fill-gray-100",
-          selected ? "stroke-primary" : outline ? "" : "stroke-gray-400",
+          // An inline `stroke` beats any class, so the class only has to answer the no-outline case.
+          outline ? "" : selected ? "stroke-primary" : "stroke-gray-400",
         )}
       />
     </svg>
@@ -106,7 +131,13 @@ function ToothGlyph({
 }
 
 interface RecordToothChartProps {
-  isAdult: boolean
+  /**
+   * Which arch to draw — `adult`, `child` or `mixed`.
+   *
+   * ⚠️ Was `isAdult: boolean`, which is why mixed dentition could not be charted: a boolean has no third state, so
+   * `TEETH_BY_VIEW` is now the one mapping and the caller decides the view (see `DentitionViewSwitch`).
+   */
+  view: DentitionView
   paint: Map<number, ToothPaint>
   onToggleTooth: (toothNumber: number) => void
   disabled?: boolean
@@ -121,8 +152,8 @@ interface RecordToothChartProps {
   toothTitle?: (toothNumber: number) => string
 }
 
-export function RecordToothChart({ isAdult, paint, onToggleTooth, disabled, toothTitle }: RecordToothChartProps) {
-  const teeth = isAdult ? ADULT_TEETH : CHILD_TEETH
+export function RecordToothChart({ view, paint, onToggleTooth, disabled, toothTitle }: RecordToothChartProps) {
+  const teeth = TEETH_BY_VIEW[view]
 
   const renderTooth = (num: number) => {
     const p = paint.get(num)
@@ -138,12 +169,36 @@ export function RecordToothChart({ isAdult, paint, onToggleTooth, disabled, toot
         disabled={disabled}
         onClick={() => onToggleTooth(num)}
         title={toothTitle?.(num) ?? `Dent ${num}`}
-        // `touch-target` gives the tooth a 44px tappable area on a coarse pointer without changing a painted
-        // pixel (AC-33) — the same primitive P2 built, not a second mechanism.
-        className="touch-target group flex flex-col items-center focus:outline-none disabled:cursor-not-allowed"
+        /*
+         * ⚠️ `coarse:min-w-11` — the paint is WIDENED, not overlaid. This deliberately does **not** use
+         * `touch-target`, which is the one place in the app where that primitive is the wrong tool.
+         *
+         * `touch-target` centres a 44px hit rectangle over a control without repainting it. That is exactly
+         * right for a table's 32px row icons, which sit far enough apart. A painted tooth is 18–22px wide on a
+         * ~24–26px pitch (`flex gap-0.5`), so a 44px overlay reaches 9–13px into each NEIGHBOUR — and both are
+         * `position: relative` with `z-index: auto`, so the later sibling wins. The right third of every tooth
+         * selected the tooth beside it, which charts and bills the wrong tooth. A clinical-safety defect, not a
+         * comfort one, and no amount of care at the call site could have made an overlay safe at this pitch.
+         *
+         * Widening is affordable here precisely because the arch is a scroll box: `ToothArchLayout` wraps the
+         * rows in `overflow-x-auto` over an `mx-auto w-max` block, so 16 cells at 44px simply extend the
+         * scrollable region — they are never clipped (that is the `arch-clipping` invariant the check enforces).
+         *
+         * Gated on `coarse:` for the same reason `touch-target` is: the overlap only exists for a finger, and on
+         * a mouse the arch fits a 780px dialog without scrolling today. Widening unconditionally would trade a
+         * touch defect for a desktop one.
+         */
+        className="group flex flex-col items-center focus:outline-none disabled:cursor-not-allowed coarse:min-w-11"
       >
-        {/* Movement hover gated behind `hover-hover:` (AC-11) — a tapped tooth kept the enlarged state. */}
-        <span className={cn("relative rounded-md p-0.5 transition-all hover-hover:group-hover:scale-105", selected && "ring-2 ring-primary")}>
+        {/* Movement hover gated behind `hover-hover:` (AC-11) — a tapped tooth kept the enlarged state.
+            `ring-offset-1` + `ring-offset-card`: the selection ring now sits beside a RETAINED condition
+            outline (see `ToothGlyph`), and without a gap the two colours touch and read as one smeared edge. */}
+        <span
+          className={cn(
+            "relative rounded-md p-0.5 transition-all hover-hover:group-hover:scale-105",
+            selected && "ring-2 ring-primary ring-offset-1 ring-offset-card",
+          )}
+        >
           <ToothGlyph
             kind={toothKind(num)}
             fill={fill}
@@ -167,8 +222,27 @@ export function RecordToothChart({ isAdult, paint, onToggleTooth, disabled, toot
     )
   }
 
+  /**
+   * Which arch the phone should open on. Below `md:` the layout shows one at a time and used to always start on
+   * MAXILLAIRE, so a fiche whose work is all on lower molars cost a tap before anything could be charted.
+   *
+   * The live selection wins over merely-painted teeth — it is what the dentist is doing right now — and within
+   * each kind the lowest FDI number decides, because a `Map`'s iteration order is insertion order and would
+   * otherwise make the answer depend on which effect happened to populate `paint` first.
+   */
+  const dataArch = useMemo<ToothArch | undefined>(() => {
+    let selected: number | undefined
+    let painted: number | undefined
+    for (const [tooth, p] of paint) {
+      if (p.selected) selected = selected === undefined ? tooth : Math.min(selected, tooth)
+      else if (p.count > 0 || p.existingColor) painted = painted === undefined ? tooth : Math.min(painted, tooth)
+    }
+    const lead = selected ?? painted
+    return lead === undefined ? undefined : isUpperFdi(lead) ? "upper" : "lower"
+  }, [paint])
+
   // The geometry (scroll box, rows, midline, labels, the below-`md:` arch switch) lives in `ToothArchLayout`.
   // Everything above — paint, selection, `disabled`, the native `title` — stays here, which is exactly the
   // contract that lets the read-only summary reuse this chart. See the layout's own note.
-  return <ToothArchLayout teeth={teeth} renderTooth={renderTooth} />
+  return <ToothArchLayout teeth={teeth} renderTooth={renderTooth} defaultArch={dataArch} />
 }

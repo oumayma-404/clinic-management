@@ -94,20 +94,40 @@ public class GetCreditNotePdfQueryHandler : IRequestHandler<GetCreditNotePdfQuer
 
     private static AvoirPdfData BuildPdfData(CreditNote creditNote, Invoice invoice, Clinic? clinic, string patientName)
     {
-        // The avoir stores one TTC scalar, so the split is derived by applying the corrected invoice's frozen
-        // VAT posture to it — the same rate the patient was charged. Not applicable ⇒ the whole amount is HT,
-        // which is how the invoice itself renders in that case.
+        /*
+         * The avoir stores one TTC scalar, so the split is **derived from the corrected invoice's own frozen
+         * totals, proportionally** — never by de-VATing the credited amount (J6).
+         *
+         * De-VATing was wrong because the **timbre fiscal sits outside the VAT base**: the note's TTC is
+         * `ht + vat + stamp`, so dividing the whole TTC by `1 + rate` attributes a slice of the 1 DT stamp to the
+         * VAT base and over-reports the TVA being reversed. On the review's case — 100 DT HT, 7 %, 1 DT stamp — a
+         * full-value avoir declared HT 100,935 + TVA 7,065 rather than HT 100,000 + TVA 7,000 + timbre 1,000. An
+         * avoir reverses the tax that was actually charged; a figure it invents is a figure the clinic has to
+         * defend.
+         *
+         * Proportional, because a **partial** avoir credits a proportion of the note and each of the three
+         * components with it. The HT share is then the remainder rather than a fourth rounding, so the printed
+         * lines always sum **exactly** to « Montant remboursé » — a document whose parts do not add up to its
+         * total is not usable.
+         */
+        var invoiceTtc = invoice.TotalTtc;
         decimal amountHt;
         decimal amountVat;
-        if (invoice.VatApplicable && invoice.VatRate > 0m)
+        decimal amountStamp;
+        if (invoiceTtc > 0m)
         {
-            amountHt = InvoiceCalculator.RoundMoney(creditNote.Amount / (1m + invoice.VatRate / 100m));
-            amountVat = InvoiceCalculator.RoundMoney(creditNote.Amount - amountHt);
+            var creditedShare = creditNote.Amount / invoiceTtc;
+            amountStamp = InvoiceCalculator.RoundMoney(invoice.StampDutyAmount * creditedShare);
+            amountVat = InvoiceCalculator.RoundMoney(invoice.TotalVat * creditedShare);
+            amountHt = InvoiceCalculator.RoundMoney(creditNote.Amount - amountVat - amountStamp);
         }
         else
         {
+            // A note with no TTC has no posture to apportion (it cannot have been paid either, so an avoir on it
+            // is already anomalous). Report the credited amount as HT rather than fabricating a split.
             amountHt = creditNote.Amount;
             amountVat = 0m;
+            amountStamp = 0m;
         }
 
         return new AvoirPdfData
@@ -124,6 +144,7 @@ public class GetCreditNotePdfQueryHandler : IRequestHandler<GetCreditNotePdfQuer
             InvoiceIssueDate = invoice.IssueDate,
             AmountHt = amountHt,
             AmountVat = amountVat,
+            AmountStamp = amountStamp,
             AmountTtc = creditNote.Amount,
             VatApplicable = invoice.VatApplicable,
             VatRate = invoice.VatRate,

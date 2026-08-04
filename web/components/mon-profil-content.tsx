@@ -9,12 +9,27 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Upload, Trash2, UserCircle, Stethoscope } from "lucide-react"
+import { ZONES, zoneChipClass } from "@/lib/zones"
 import { toast } from "sonner"
 import { doctorsApi } from "@/lib/api/doctors"
 import { ApiError } from "@/lib/api/client"
 import type { DoctorProfileDto } from "@/lib/api/types"
 import { specialtyLabel } from "@/lib/specialties"
 import { DoctorWorkingHoursCard } from "@/components/doctor-working-hours-card"
+
+/**
+ * The icon chip both section headings on this page wear.
+ *
+ * <p>`app/documents/page.tsx`'s template-tile idiom, sized down for a card heading: the glyph sits in a tinted
+ * `rounded-lg` square instead of loose beside the text in the heading's own ink, where it is not an icon at all
+ * — it is more text, and it was the largest single reason the app read as grey.</p>
+ *
+ * <p>The hue is the `config` zone's, because « Mon profil » is a Configuration route (`lib/zones.ts`) and the
+ * rail already paints it that way. It is also the near-neutral zone by design, which is what keeps three of
+ * these stacked down one page from reading as decoration — the third comes from `DoctorWorkingHoursCard`,
+ * which renders un-embedded here and uses the same tint for that reason.</p>
+ */
+const CONFIG_CHIP = `flex size-8 shrink-0 items-center justify-center rounded-lg ${zoneChipClass(ZONES.config)}`
 
 export function MonProfilContent() {
   const [profile, setProfile] = useState<DoctorProfileDto | null>(null)
@@ -140,7 +155,13 @@ export function MonProfilContent() {
     <div className="space-y-6">
       {/* Identity (read-only) */}
       <Card className="p-6">
-        <div className="flex items-center gap-2 font-semibold mb-4"><UserCircle className="h-5 w-5" /> Identité</div>
+        {/* See CONFIG_CHIP. This heading is not a `CardTitle`, but it is the same defect and takes the same fix. */}
+        <div className="mb-4 flex min-w-0 items-center gap-2.5 font-semibold leading-snug">
+          <span aria-hidden="true" className={CONFIG_CHIP}>
+            <UserCircle className="size-4" strokeWidth={1.75} />
+          </span>
+          Identité
+        </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
           <div>
             <div className="text-xs text-muted-foreground">Nom complet</div>
@@ -157,7 +178,12 @@ export function MonProfilContent() {
 
       {/* Document identity (editable) */}
       <Card className="p-6 space-y-5">
-        <div className="flex items-center gap-2 font-semibold"><Stethoscope className="h-5 w-5" /> Informations pour les documents</div>
+        <div className="flex min-w-0 items-center gap-2.5 font-semibold leading-snug">
+          <span aria-hidden="true" className={CONFIG_CHIP}>
+            <Stethoscope className="size-4" strokeWidth={1.75} />
+          </span>
+          Informations pour les documents
+        </div>
 
         <div className="space-y-1.5 max-w-md">
           <Label htmlFor="ordre" className="text-sm">
@@ -177,6 +203,9 @@ export function MonProfilContent() {
           <Label className="text-sm">Cachet / signature</Label>
           <div className="flex items-center gap-4">
             {cachetPreview ? (
+              /* `bg-white` stays, and is not an unconverted literal: a cachet is a scanned image whose own
+                 background is white, and it is printed onto paper. This is the document-surface case
+                 `globals.css` carves out — a signature that inverts on screen is not what the patient gets. */
               <div className="relative w-40 h-24 rounded-lg border-2 border-primary/30 overflow-hidden bg-white group">
                 <Image src={cachetPreview} alt="Cachet" fill className="object-contain" unoptimized />
                 {/*
@@ -192,20 +221,22 @@ export function MonProfilContent() {
                   className="absolute inset-0 hidden bg-black/50 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100 hover-hover:flex items-center justify-center"
                   aria-label="Supprimer le cachet"
                 >
-                  <span className="bg-white rounded-full p-1.5"><Trash2 className="h-4 w-4 text-destructive" /></span>
+                  {/* `bg-card`, not `bg-white`: this chip is app chrome sitting ON the cachet, not part of
+                      the document — it had no `dark:` twin, so it stayed white against a dark theme. */}
+                  <span className="bg-card rounded-full p-1.5"><Trash2 className="h-4 w-4 text-destructive" /></span>
                 </button>
                 <button
                   type="button"
                   onClick={handleRemove}
                   disabled={saving}
-                  className="touch-target absolute -right-1 -top-1 hidden rounded-full bg-white p-1.5 shadow ring-1 ring-border coarse:block"
+                  className="touch-target absolute -right-1 -top-1 hidden rounded-full bg-card p-1.5 shadow ring-1 ring-border coarse:block"
                   aria-label="Supprimer le cachet"
                 >
                   <Trash2 className="h-4 w-4 text-destructive" />
                 </button>
               </div>
             ) : (
-              <label className="w-40 h-24 flex flex-col items-center justify-center border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-lg cursor-pointer hover:border-primary hover:bg-accent transition text-slate-400 hover:text-primary">
+              <label className="w-40 h-24 flex flex-col items-center justify-center border-2 border-dashed border-border rounded-lg cursor-pointer hover:border-primary hover:bg-accent transition text-muted-foreground hover:text-primary">
                 <Upload className="h-5 w-5" />
                 <span className="text-2xs font-medium mt-1">Charger</span>
                 <input type="file" accept="image/*" onChange={handleFile} className="hidden" disabled={saving} />

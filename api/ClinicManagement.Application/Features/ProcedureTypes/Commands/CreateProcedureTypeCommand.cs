@@ -18,6 +18,11 @@ public class CreateProcedureTypeCommand : IRequest<Result<ProcedureTypeDto>>
     public decimal? DefaultCost { get; set; }
     public string ColorHex { get; set; } = string.Empty;
     public string? Description { get; set; }
+    /// <summary>
+    /// Clinical discipline to file the act under; null/blank = unfiled. Accepted as typed and canonicalised by
+    /// the entity, so an unrecognised label is a new category rather than a validation failure.
+    /// </summary>
+    public string? Category { get; set; }
     /// <summary>Resulting odontogram state (ToothCondition name) for acts of this procedure; null/empty = none.</summary>
     public string? ResultingCondition { get; set; }
 }
@@ -107,15 +112,19 @@ public class CreateProcedureTypeCommandHandler : IRequestHandler<CreateProcedure
             }
 
             // Create procedure type
+            // Named arguments: `description` and `category` are adjacent nullable strings, and passing them
+            // positionally is how the catalogue seed spent its whole life writing the category into the
+            // description. See ProcedureTypeCatalogSeed.CreateFor.
             var procedureType = new ProcedureType(
-                Guid.NewGuid(),
-                clinicId,
-                request.Name,
-                request.DefaultDurationMinutes,
-                color,
-                request.Description,
-                request.DefaultCost,
-                resultingCondition);
+                id: Guid.NewGuid(),
+                clinicId: clinicId,
+                name: request.Name,
+                defaultDurationMinutes: request.DefaultDurationMinutes,
+                color: color,
+                description: request.Description,
+                defaultCost: request.DefaultCost,
+                resultingCondition: resultingCondition,
+                category: request.Category);
 
             await _procedureTypeRepository.AddAsync(procedureType, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);

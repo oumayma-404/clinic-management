@@ -96,6 +96,18 @@ public class UnitOfWork : IUnitOfWork
         entry.Property(nameof(ClinicManagement.Domain.Common.Entity<int>.Version)).OriginalValue = expectedVersion;
     }
 
+    public void StopTracking(object entity)
+    {
+        var entry = _context.Entry(entity);
+        if (entry.State != EntityState.Detached)
+        {
+            // `Detached` on the entry, not `ChangeTracker.Clear()`: the import's loop must release the row it has
+            // just committed without releasing anything else the request is holding — the caller's own `User`
+            // lookup, for one, which the next row still needs.
+            entry.State = EntityState.Detached;
+        }
+    }
+
     public async Task BeginTransactionAsync(CancellationToken cancellationToken = default)
     {
         _transaction = await _context.Database.BeginTransactionAsync(cancellationToken);

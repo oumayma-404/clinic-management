@@ -308,12 +308,16 @@ check(
   "agenda-scroll",
   "P5",
   "The agenda's week grid scrolls its own container, and the overlay's maths still lines up",
-  "Two invariants that only a human eye would otherwise catch, and only on a narrow screen. (a) The week " +
-    "grid must not be CLIPPED — `overflow-x-hidden` on the calendar is what AC-P3.14 forbids, and it is the " +
-    "one place in the app that did it. (b) `HOUR_HEIGHT` must stay 48 and the week columns 96px: the " +
-    "appointment overlay is positioned by `(100% - 60px) / 7` against a `w-max` wrapper of 60 + 7×96, so the " +
-    "two numbers are an arithmetic contract. Change one and every block drifts sideways a few pixels per " +
-    "column — a rendering-glitch-shaped maths error.",
+  "Three invariants that only a human eye would otherwise catch, and only at a width nobody develops at. " +
+    "(a) The week grid must not be CLIPPED — `overflow-x-hidden` on the calendar is what AC-P3.14 forbids, and " +
+    "it is the one place in the app that did it. (b) `HOUR_HEIGHT` must stay 48 and the week columns 120px: " +
+    "the appointment overlay is positioned by `(100% - 60px) / 7` against a `w-max` wrapper of 60 + 7×120, so " +
+    "the two numbers are an arithmetic contract. Change one and every block drifts sideways a few pixels per " +
+    "column — a rendering-glitch-shaped maths error. (c) The fluid override must be `lg:`, not `md:`. At `md:` " +
+    "the columns go `1fr` while the 256px rail is still expanded, so the whole 768–1023px tablet band shared " +
+    "~514px across seven days: a ~61px appointment block, of which padding, gap and the duration badge leave " +
+    "about 11px for the patient's name. The wrapper's own `md:w-full`/`lg:w-full` is half of the same " +
+    "contract, so it is checked too — moving one side alone is what puts every block in the wrong column.",
   () => {
     const file = ALL_FILES.find((f) => rel(f) === "components/appointment-calendar.tsx");
     // Derived, not listed: if the calendar is ever renamed or split, this reports rather than silently
@@ -334,15 +338,31 @@ check(
       }
     });
 
-    // The contract itself. Both numbers are read from the source rather than assumed, so this fails on a
-    // change to EITHER side of `60 + 7 * 96 === wrapper width`.
+    // The contract itself. Every number is read from the source rather than assumed, so this fails on a
+    // change to EITHER side of `60 + 7 * 120 === wrapper width`.
     const hourHeight = src.match(/const HOUR_HEIGHT = (\d+)/)?.[1];
     if (hourHeight !== "48") {
       hits.push({ file: rel(file), line: 0, text: `HOUR_HEIGHT = ${hourHeight ?? "?"}`, full: "must be 48 — rows taller than it make appointment blocks drift upward" });
     }
-    const weekCol = src.match(/grid-cols-\[60px_repeat\(7,(\d+)px\)\]/)?.[1];
-    if (weekCol !== "96") {
-      hits.push({ file: rel(file), line: 0, text: `week column = ${weekCol ?? "?"}px`, full: "must be 96px — `(100% - 60px) / 7` over a 60+7×96 wrapper resolves to exactly that" });
+    /*
+     * `minmax(120px,1fr)`, not a bare `120px`: the wrapper carries `min-w-full`, so a container wider than the
+     * grid's 900px intrinsic width stretches the wrapper while fixed tracks stay put — `100%` then means the
+     * wrapper and every block drifts. A flexible track with a 120px floor absorbs the surplus, and under `w-max`
+     * (indefinite space) it still resolves to exactly 120px. Both halves of the pattern are therefore checked.
+     */
+    const weekCol = src.match(/grid-cols-\[60px_repeat\(7,minmax\((\d+)px,1fr\)\)\]/)?.[1];
+    if (weekCol !== "120") {
+      hits.push({ file: rel(file), line: 0, text: `week column = ${weekCol ?? "?"}`, full: "must be `minmax(120px,1fr)` — `(100% - 60px) / 7` over a 60+7×120 wrapper resolves to exactly that" });
+    }
+    // The breakpoint at which the columns go fluid, and the wrapper that must switch with them.
+    const fluidAt = src.match(/\b(sm|md|lg|xl):grid-cols-\[60px_repeat\(7,minmax\(0,1fr\)\)\]/)?.[1];
+    if (fluidAt !== "lg") {
+      hits.push({ file: rel(file), line: 0, text: `fluid columns at ${fluidAt ?? "?"}:`, full: "must be `lg:` — at `md:` the 768-1023px tablet band shares ~514px across seven days and the patient's name gets ~11px" });
+    }
+    // Quoted, so the prose above the constant cannot satisfy the check on its own — this file's comments
+    // deliberately quote the classes they discuss, which is the same trap `commentMask` exists for.
+    if (!/"w-max min-w-full lg:w-full"/.test(src)) {
+      hits.push({ file: rel(file), line: 0, text: "week wrapper", full: "must be `w-max min-w-full lg:w-full` — it has to go fluid at the same breakpoint as WEEK_COLS or the overlay's `100%` stops meaning the grid" });
     }
     return hits;
   }
@@ -370,6 +390,48 @@ check(
       hits.push({ file: rel(file), line: 0, text: "Menu", full: "imported from lucide-react but never rendered" });
     }
     return hits;
+  }
+);
+
+check(
+  "failed-read-as-empty",
+  "P1",
+  "No `.catch` that renders a failed read as an empty collection",
+  "A read that FAILED and a read that returned nothing are different facts, and only one of them is ever true. " +
+    "`.catch(() => [])` / `.catch(() => setX([]))` collapses them, so a dead endpoint renders as « Aucun " +
+    "antécédent médical » on the card a dentist checks before injecting, « Aucun patient trouvé » about a " +
+    "twelve-year patient, or an empty act catalogue that pushes the dentist into a free-text act with no tarif " +
+    "and no resulting condition. The rules name this pattern three times and five instances still shipped — " +
+    "prose has demonstrably failed, so it is mechanical now. Keep a `failed` flag distinct from " +
+    "`items.length === 0` and render `ui/load-failure.tsx` beside whatever did load.",
+  () => {
+    /*
+     * DERIVED, not an allow-list. The pattern is the *shape of the handler body*, which is what makes it precise
+     * enough to leave legitimate catches alone:
+     *
+     *   - `.catch(() => [])`                → the awaited value becomes the empty collection
+     *   - `.catch(() => setX([]))`          → state is emptied, which is the same thing one step later
+     *   - `.catch(() => ({}))` / `setX({})` → the object-shaped version (a summary, a map)
+     *
+     * Deliberately NOT flagged, because none of them turns a failure into data:
+     *   - `.catch(() => null)` / `undefined` — a nullable result the caller must branch on; `null` is not a
+     *     renderable "empty list", and every one of these in the tree is a route handler or a blob fetch.
+     *   - `.catch(() => { … })` with a real body — it may log, toast, or set a `failed` flag. Reading inside a
+     *     multi-statement body is where a grep starts guessing; the single-expression form is unambiguous.
+     *   - anything inside a comment (`commentMask`), since this file's own doc blocks quote the banned shape.
+     *
+     * ⚠️ Never add a per-file exemption here. A surface that legitimately has nothing to report on failure does
+     * not need to *empty* anything — it can simply not set state.
+     */
+    const emptyLiteral = String.raw`(?:\[\s*\]|\(\s*\[\s*\]\s*\)|\{\s*\}|\(\s*\{\s*\}\s*\))`;
+    const setterCall = String.raw`set[A-Z]\w*\s*\(\s*${emptyLiteral}\s*\)`;
+    const pattern = new RegExp(
+      String.raw`\.catch\(\s*\(\s*\)\s*=>\s*(?:${emptyLiteral}|${setterCall})\s*\)`,
+    );
+    return scanLines(
+      ALL_FILES.filter((f) => /^(app|components)[\\/]/.test(relative(WEB_ROOT, f))),
+      pattern,
+    );
   }
 );
 

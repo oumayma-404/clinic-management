@@ -19,6 +19,7 @@ public class EInvoiceOutboxJob
     private readonly IEInvoiceService _eInvoiceService;
     private readonly IInternetProbe _internetProbe;
     private readonly IConfiguration _configuration;
+    private readonly IAuditActorProvider _auditActor;
     private readonly ILogger<EInvoiceOutboxJob> _logger;
 
     public EInvoiceOutboxJob(
@@ -26,12 +27,14 @@ public class EInvoiceOutboxJob
         IEInvoiceService eInvoiceService,
         IInternetProbe internetProbe,
         IConfiguration configuration,
+        IAuditActorProvider auditActor,
         ILogger<EInvoiceOutboxJob> logger)
     {
         _invoiceRepository = invoiceRepository;
         _eInvoiceService = eInvoiceService;
         _internetProbe = internetProbe;
         _configuration = configuration;
+        _auditActor = auditActor;
         _logger = logger;
     }
 
@@ -39,6 +42,10 @@ public class EInvoiceOutboxJob
     [AutomaticRetry(Attempts = 3)]
     public async Task DispatchQueuedInvoices()
     {
+        // I6: a job has no token, so without naming itself every row it writes would read « Tâche automatique »
+        // with no clue which one. The declaration happens before anything is saved — see IAuditActorProvider.RunAs.
+        _auditActor.RunAs(nameof(EInvoiceOutboxJob));
+
         // The server (not a LAN client) is the source of truth for internet egress. Offline ⇒ dispatch
         // nothing and leave invoices Queued; the next tick with connectivity picks them up.
         if (!await _internetProbe.IsInternetReachableAsync())

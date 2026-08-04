@@ -15,8 +15,15 @@ namespace ClinicManagement.Application.DTOs;
 /// <para>Not "today", deliberately: a send that failed at 23:00 would drop out of the counter at midnight, before
 /// anyone arrived to see it. A failure is the one counter here that must survive the night.</para>
 /// </param>
+/// <param name="Blocked">
+/// Queued but not sendable — the channel is off, unconfigured or unimplemented (L3a).
+/// <para>The counter this whole status exists for. A queue that silently stops sending is the defect; « N rappels
+/// bloqués » with the reason beside each row is what makes it a thing someone can fix. Unbounded by date, like
+/// <paramref name="Pending"/>: the oldest blocked row is the one most worth noticing.</para>
+/// </param>
 public record ReminderLogDto(
     PagedResult<ReminderStatusDto> Page,
     int SentToday,
     int Pending,
-    int FailedRecent);
+    int FailedRecent,
+    int Blocked);

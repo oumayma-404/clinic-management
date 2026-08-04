@@ -5,6 +5,7 @@ using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Billing.Queries;
+using ClinicManagement.Application.Features.Invoices.Queries;
 using ClinicManagement.Application.Features.Dashboard;
 using ClinicManagement.Application.Features.Dashboard.Readers;
 using ClinicManagement.Domain.Entities;
@@ -28,6 +29,14 @@ namespace ClinicManagement.UnitTests.Features.Billing;
 /// <c>TreatmentPlanRepository</c> / <c>InvoiceRepository</c> do in SQL (the status filters and the
 /// excluded-plan filter), so the test proves the <b>handlers</b> feed those repositories the same rule —
 /// which is the part that was actually broken.
+/// </para>
+/// <para>
+/// [J5] It now covers the <b>cash</b> side to the same standard: la caisse, the dashboard's « Encaissé » AND
+/// « Total encaissé » on <c>/factures</c>. That third read is why the extension was necessary rather than
+/// optional — it counted invoice payments only while both siblings added devis instalments, and it survived
+/// precisely because this file pinned <i>two</i> of the three. A consistency test that omits one read cannot
+/// catch the read that drifts, so « extend it » is the fix and « add a parallel class » would have repeated
+/// the mistake.
 /// </para>
 /// </summary>
 public class MoneyReadConsistencyTests
@@ -103,6 +112,17 @@ public class MoneyReadConsistencyTests
     /// </summary>
     private void Wire(IReadOnlyList<Invoice> invoices, IReadOnlyList<TreatmentPlan> plans)
     {
+        // L8 slice B — the caisse summary now also reads the per-method breakdown. Moq returns `null` for an
+        // unstubbed Task<IReadOnlyList<T>>, which the handler's merge dereferences, so an unstubbed read turns every
+        // assertion in this file into « Result.IsSuccess == false ». Empty lists reproduce the original behaviour:
+        // the four totals are unchanged and the breakdown is all zeros, which no test here asserts on.
+        _invoices.Setup(r => r.GetCollectedByMethodBetweenAsync(
+                It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<PaymentMethodTotal>());
+        _plans.Setup(r => r.GetInstallmentCollectedByMethodBetweenAsync(
+                It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<DateTime>(),
+                It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<PaymentMethodTotal>());
         _clinicResolver.Setup(r => r.GetClinicIdAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(Result<Guid>.Success(ClinicId));
         _clinicContext.Setup(c => c.GetUserId()).Returns(Auth0Sub);
@@ -131,7 +151,7 @@ public class MoneyReadConsistencyTests
         _invoices.Setup(r => r.GetFilteredAsync(
                 ClinicId, It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<Guid?>(),
                 It.IsAny<InvoiceStatus?>(), It.IsAny<string?>(), It.IsAny<PageRequest?>(),
-                It.IsAny<CancellationToken>()))
+                It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((invoices).AsPage());
         _plans.Setup(r => r.GetFilteredAsync(
                 ClinicId, It.IsAny<Guid?>(), It.IsAny<TreatmentPlanStatus?>(),
@@ -139,15 +159,19 @@ public class MoneyReadConsistencyTests
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync((plans).AsPage());
 
-        // Mirrors InvoiceRepository.GetOutstandingByPatientAsync: issued, non-cancelled, balance > 0.
+        // Mirrors InvoiceRepository.GetOutstandingByPatientAsync: issued, non-cancelled, balance > 0 — and,
+        // since J7, the oldest issue date among the patient's unpaid notes, which is what ages invoice debt.
         var invoiceOutstanding = invoices
             .Where(i => i.Status != InvoiceStatus.Draft && i.Status != InvoiceStatus.Cancelled)
             .GroupBy(i => i.PatientId)
-            .Select(g => (PatientId: g.Key, Outstanding: g.Sum(i => i.Outstanding)))
+            .Select(g => (
+                PatientId: g.Key,
+                Outstanding: g.Sum(i => i.Outstanding),
+                OldestUnpaidIssueDate: g.Where(i => i.Outstanding > 0m).Min(i => i.IssueDate)))
             .Where(r => r.Outstanding > 0m)
             .ToList();
         _invoices.Setup(r => r.GetOutstandingByPatientAsync(ClinicId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync((IReadOnlyList<(Guid, decimal)>)invoiceOutstanding);
+            .ReturnsAsync((IReadOnlyList<(Guid, decimal, DateTime?)>)invoiceOutstanding);
 
         // Mirrors InvoiceRepository.GetTreatmentPlanLinksAsync (cancelled bridges included — the caller decides).
         var links = invoices
@@ -160,9 +184,9 @@ public class MoneyReadConsistencyTests
         // Cash defaults. The outstanding-balance tests below are unaffected by these; the caisse-agreement test
         // overrides them with real figures so both reads have something non-trivial to disagree about.
         _invoices.Setup(r => r.GetCollectedBetweenAsync(
-            ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>())).ReturnsAsync(0m);
+            ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>())).ReturnsAsync(0m);
         _invoices.Setup(r => r.GetInvoicedBetweenAsync(
-            ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>())).ReturnsAsync(0m);
+            ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>())).ReturnsAsync(0m);
         _plans.Setup(r => r.GetInstallmentCollectedBetweenAsync(
             ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(),
             It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>())).ReturnsAsync(0m);
@@ -232,7 +256,7 @@ public class MoneyReadConsistencyTests
             _invoices.Object, _plans.Object, _expenses.Object, _creditNotes.Object);
 
         return await reader.ReadAsync(
-            ClinicId, DashboardPeriod.Resolve(DashboardPeriodKey.Month, FixedNow), FixedNow, CancellationToken.None);
+            ClinicId, DashboardPeriod.Resolve(DashboardPeriodKey.Month, FixedNow), FixedNow, doctorId: null, cancellationToken: CancellationToken.None);
     }
 
     private async Task<decimal> DashboardOutstandingAsync() => (await DashboardMoneyAsync()).Receivables.Total;
@@ -244,6 +268,21 @@ public class MoneyReadConsistencyTests
             NullLogger<GetCaisseSummaryQueryHandler>.Instance);
         var result = await handler.Handle(
             new GetCaisseSummaryQuery { From = period.From, To = period.ToInclusive }, CancellationToken.None);
+        Assert.True(result.IsSuccess);
+        return result.Value!;
+    }
+
+    /// <summary>
+    /// « Total encaissé » on <c>/factures</c> — the <b>third</b> cash read, and the one J5 brought into the
+    /// contract. <c>null</c> bounds exercise the no-period branch the page actually loads with.
+    /// </summary>
+    private async Task<InvoiceRevenueDto> RevenueAsync(DashboardPeriod? period = null)
+    {
+        var handler = new GetInvoiceRevenueQueryHandler(
+            _invoices.Object, _plans.Object, _creditNotes.Object, _clinicResolver.Object,
+            NullLogger<GetInvoiceRevenueQueryHandler>.Instance);
+        var result = await handler.Handle(
+            new GetInvoiceRevenueQuery { From = period?.From, To = period?.ToInclusive }, CancellationToken.None);
         Assert.True(result.IsSuccess);
         return result.Value!;
     }
@@ -360,7 +399,7 @@ public class MoneyReadConsistencyTests
         // Non-trivial figures on every component, including an avoir — the refund is the term that was missing
         // from the dashboard side, so a fixture without one could not catch the original defect.
         _invoices.Setup(r => r.GetCollectedBetweenAsync(
-            ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>())).ReturnsAsync(4200.500m);
+            ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>())).ReturnsAsync(4200.500m);
         _plans.Setup(r => r.GetInstallmentCollectedBetweenAsync(
             ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(),
             It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>())).ReturnsAsync(800.250m);
@@ -398,7 +437,7 @@ public class MoneyReadConsistencyTests
         Wire(Array.Empty<Invoice>(), Array.Empty<TreatmentPlan>());
 
         _invoices.Setup(r => r.GetCollectedBetweenAsync(
-            ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>())).ReturnsAsync(1000m);
+            ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>())).ReturnsAsync(1000m);
         _creditNotes.Setup(r => r.GetRefundedBetweenAsync(
             ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>())).ReturnsAsync(250m);
 
@@ -447,8 +486,8 @@ public class MoneyReadConsistencyTests
         DateTime? askedFrom = null;
         DateTime? askedTo = null;
         _invoices.Setup(r => r.GetCollectedBetweenAsync(
-                ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
-            .Callback((Guid _, DateTime from, DateTime to, CancellationToken _) => { askedFrom = from; askedTo = to; })
+                ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
+            .Callback((Guid _, DateTime from, DateTime to, Guid? _, CancellationToken _) => { askedFrom = from; askedTo = to; })
             .ReturnsAsync(0m);
 
         var handler = new GetCaisseSummaryQueryHandler(
@@ -469,6 +508,131 @@ public class MoneyReadConsistencyTests
         Assert.True(askedTo < ClinicClock.EndOfLocalDayUtc(ClinicClock.ClinicToday()));
     }
 
+    // ------------------------------------------------------------------ [J5] the THIRD cash read
+
+    /*
+     * [J5] « Total encaissé » on /factures joins la caisse and the dashboard.
+     *
+     * It counted **invoice payments only** while both siblings added devis instalments, so a practice collecting
+     * on an échéancier saw a smaller figure on /factures than on the two screens beside it, with nothing to
+     * explain the gap. And the reason it survived is written into this very file: the test that existed pinned
+     * caisse↔dashboard and **never touched the third read**. A consistency test that covers two of three reads
+     * does not catch the one that drifts — which is the whole argument for extending it rather than adding a
+     * parallel class.
+     *
+     * The arithmetic relating them: la caisse reports `CashIn` **gross** with `Refunds` as its own field, while
+     * /factures reports a single net « encaissé ». So the contract is
+     *     revenue.TotalCollected == caisse.CashIn − caisse.Refunds
+     * and that identity is what these tests hold.
+     */
+
+    // [J5] The load-bearing case: all THREE cash reads over one window, one fixture, non-trivial figures on every
+    // component including an avoir and a plan instalment — the two terms /factures used to be missing.
+    [Fact]
+    public async Task All_Three_Cash_Reads_Agree_Over_The_Same_Window()
+    {
+        Wire(Array.Empty<Invoice>(), Array.Empty<TreatmentPlan>());
+
+        _invoices.Setup(r => r.GetCollectedBetweenAsync(
+            ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>())).ReturnsAsync(4200.500m);
+        _plans.Setup(r => r.GetInstallmentCollectedBetweenAsync(
+            ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(),
+            It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>())).ReturnsAsync(800.250m);
+        _creditNotes.Setup(r => r.GetRefundedBetweenAsync(
+            ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>())).ReturnsAsync(150.750m);
+        _expenses.Setup(r => r.GetTotalBetweenAsync(
+            ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>())).ReturnsAsync(1300.000m);
+
+        var period = DashboardPeriod.Resolve(DashboardPeriodKey.Month, FixedNow);
+        var (money, _) = await DashboardMoneyAsync();
+        var caisse = await CaisseAsync(period);
+        var revenue = await RevenueAsync(period);
+
+        // The two that already agreed.
+        Assert.Equal(caisse.CashIn, money.Collected.Current);
+        Assert.Equal(caisse.Refunds, money.Refunds.Current);
+
+        // And the third. 4200,500 + 800,250 − 150,750 = 4850,000.
+        Assert.Equal(4850.000m, revenue.TotalCollected);
+        Assert.Equal(caisse.CashIn - caisse.Refunds, revenue.TotalCollected);
+        Assert.Equal(money.Collected.Current - money.Refunds.Current, revenue.TotalCollected);
+    }
+
+    // [J5] The defect itself, isolated: a window whose ONLY cash is a devis instalment. /factures used to report
+    // 0 here while la caisse reported 800,250 — the same money, two screens, one of them saying « rien encaissé ».
+    [Fact]
+    public async Task Revenue_Counts_A_Window_Whose_Only_Cash_Is_A_Devis_Instalment()
+    {
+        Wire(Array.Empty<Invoice>(), Array.Empty<TreatmentPlan>());
+
+        _plans.Setup(r => r.GetInstallmentCollectedBetweenAsync(
+            ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(),
+            It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>())).ReturnsAsync(800.250m);
+
+        var period = DashboardPeriod.Resolve(DashboardPeriodKey.Month, FixedNow);
+        var revenue = await RevenueAsync(period);
+        var caisse = await CaisseAsync(period);
+
+        Assert.Equal(800.250m, revenue.TotalCollected);
+        Assert.Equal(caisse.CashIn, revenue.TotalCollected);
+    }
+
+    // [J5] The plan side must go through the SAME billed-plan de-dup its siblings use, or a devis bridged into a
+    // note would have its carried-over payments counted twice — once on the invoice track, once on the plan.
+    [Fact]
+    public async Task Revenue_Passes_The_Billed_Plan_Ids_To_The_Installment_Read()
+    {
+        var plan = AcceptedPlan();
+        Wire(new[] { BridgeInvoiceFor(plan) }, new[] { plan });
+
+        await RevenueAsync(DashboardPeriod.Resolve(DashboardPeriodKey.Month, FixedNow));
+
+        _plans.Verify(r => r.GetInstallmentCollectedBetweenAsync(
+                ClinicId,
+                It.IsAny<DateTime>(),
+                It.IsAny<DateTime>(),
+                It.Is<IReadOnlyCollection<Guid>>(ids => ids.Count == 1 && ids.Contains(plan.Id)),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    // [J5] The no-period branch is what /factures loads on arrival (both date filters start empty), so it is the
+    // figure nearly every user actually sees — and it must count instalments too. Asserted separately because it
+    // is a genuinely different code path: it has no date-free plan aggregate, so it asks for the whole time axis.
+    [Fact]
+    public async Task Revenue_Without_A_Period_Also_Counts_Instalments()
+    {
+        Wire(Array.Empty<Invoice>(), Array.Empty<TreatmentPlan>());
+
+        _plans.Setup(r => r.GetInstallmentCollectedBetweenAsync(
+            ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(),
+            It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>())).ReturnsAsync(640.000m);
+
+        var revenue = await RevenueAsync();
+
+        Assert.Equal(640.000m, revenue.TotalCollected);
+    }
+
+    // [J5] Every figure leaves the read rounded through the one money authority. This was the only money read that
+    // did not, so a sum of two ledgers could print a fourth decimal the rest of the product never shows.
+    [Fact]
+    public async Task Revenue_Is_Rounded_To_The_Millime()
+    {
+        Wire(Array.Empty<Invoice>(), Array.Empty<TreatmentPlan>());
+
+        // Two ledgers whose sum has a fourth decimal — 100,00005 + 0,00005 = 100,0001.
+        _invoices.Setup(r => r.GetCollectedBetweenAsync(
+            ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>())).ReturnsAsync(100.00005m);
+        _plans.Setup(r => r.GetInstallmentCollectedBetweenAsync(
+            ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(),
+            It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>())).ReturnsAsync(0.00005m);
+
+        var revenue = await RevenueAsync(DashboardPeriod.Resolve(DashboardPeriodKey.Month, FixedNow));
+
+        // 100,000 — not 100,0001. Decimal equality is exact, so this assertion alone proves the rounding ran.
+        Assert.Equal(100.000m, revenue.TotalCollected);
+    }
+
     // [AC-3][AC-6] The previous window is read with its OWN bounds, not the current ones. Without this the delta on
     // every money card would be a comparison of a figure against itself — a feature that looks present and is inert.
     [Fact]
@@ -479,9 +643,9 @@ public class MoneyReadConsistencyTests
         var period = DashboardPeriod.Resolve(DashboardPeriodKey.Month, FixedNow);
 
         _invoices.Setup(r => r.GetCollectedBetweenAsync(
-            ClinicId, period.From, period.ToInclusive, It.IsAny<CancellationToken>())).ReturnsAsync(1000m);
+            ClinicId, period.From, period.ToInclusive, It.IsAny<Guid?>(), It.IsAny<CancellationToken>())).ReturnsAsync(1000m);
         _invoices.Setup(r => r.GetCollectedBetweenAsync(
-            ClinicId, period.PreviousFrom, period.PreviousToInclusive, It.IsAny<CancellationToken>())).ReturnsAsync(800m);
+            ClinicId, period.PreviousFrom, period.PreviousToInclusive, It.IsAny<Guid?>(), It.IsAny<CancellationToken>())).ReturnsAsync(800m);
 
         var (money, _) = await DashboardMoneyAsync();
 

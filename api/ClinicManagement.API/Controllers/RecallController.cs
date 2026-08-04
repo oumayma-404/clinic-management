@@ -16,7 +16,7 @@ namespace ClinicManagement.API.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/patients/recalls")]
-[Authorize]
+[Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
 public class RecallController : ApiControllerBase
 {
     private readonly IMediator _mediator;

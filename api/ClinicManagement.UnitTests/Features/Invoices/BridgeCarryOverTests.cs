@@ -94,8 +94,10 @@ public class BridgeCarryOverTests
 
         Assert.True(result.IsSuccess);
         Assert.Equal(600m, invoice.AmountCollected);
-        // Asserted against TotalTtc rather than a literal: the clinic's default billing settings add a 1,000 DT
-        // timbre fiscal at issue, so hard-coding 400 would be asserting the clinic's config, not the carry-over.
+        // Asserted against TotalTtc rather than a literal: the clinic's default billing settings add 7 % TVA and
+        // a 1,000 DT timbre fiscal at issue, so hard-coding 400 would be asserting the clinic's config rather
+        // than the carry-over — and it would have broken the day J11 corrected that default, which is exactly
+        // the churn writing it this way avoids.
         Assert.Equal(invoice.TotalTtc - 600m, invoice.Outstanding);
         Assert.Equal(InvoiceStatus.PartiallyPaid, invoice.Status);
     }

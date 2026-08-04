@@ -66,6 +66,15 @@ export function invoiceStatusBadgeClass(status: string): string {
   return statusToneClass(INVOICE_STATUS_TONE[status]);
 }
 
+/**
+ * The « Annulé » badge on a voided payment — `negative`, like a cancelled note: it is money that was taken back.
+ *
+ * <p>It lives here rather than inline in the detail modal for the same reason the status map does: the modal used
+ * to render it as a bare `<Badge variant="outline">` while everything else fiscal went through a tone, so the one
+ * badge that reports money leaving was the only one drawn in neutral grey.</p>
+ */
+export const VOIDED_PAYMENT_BADGE_CLASS = statusToneClass("negative");
+
 export function eInvoiceStatusBadgeClass(status: string): string {
   return statusToneClass(EINVOICE_STATUS_TONE[status]);
 }

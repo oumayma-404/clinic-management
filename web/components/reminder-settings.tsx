@@ -22,6 +22,7 @@ import {
   Clock,
   XCircle,
   RefreshCw,
+  Mail,
 } from "lucide-react"
 import { useSession } from "@/lib/auth/session"
 import { formatDateTime } from "@/lib/format"
@@ -99,6 +100,17 @@ export function ReminderSettings() {
   const [smsEffectiveStatus, setSmsEffectiveStatus] = useState<ReminderEffectiveStatus>("not_configured")
   const [whatsAppEffectiveStatus, setWhatsAppEffectiveStatus] = useState<ReminderEffectiveStatus>("not_configured")
 
+  // Outbound email (SMTP) — the channel that delivers generated documents by email.
+  const [smtpHost, setSmtpHost] = useState("")
+  const [smtpPort, setSmtpPort] = useState("")
+  const [smtpUseTls, setSmtpUseTls] = useState<Toggle>("inherit")
+  const [smtpUsername, setSmtpUsername] = useState("")
+  const [smtpPassword, setSmtpPassword] = useState("")
+  const [smtpPasswordConfigured, setSmtpPasswordConfigured] = useState(false)
+  const [smtpFromAddress, setSmtpFromAddress] = useState("")
+  const [smtpFromName, setSmtpFromName] = useState("")
+  const [emailEffectiveStatus, setEmailEffectiveStatus] = useState<ReminderEffectiveStatus>("not_configured")
+
   // Delivery-status surface (AC-3): recent reminder outbox rows + their state.
   const [deliveryRows, setDeliveryRows] = useState<ReminderStatusDto[]>([])
   const [deliveryLoading, setDeliveryLoading] = useState(true)
@@ -138,6 +150,14 @@ export function ReminderSettings() {
     setMessageTemplateBody(settings.messageTemplateBody ?? "")
     setSmsEffectiveStatus(settings.smsEffectiveStatus)
     setWhatsAppEffectiveStatus(settings.whatsAppEffectiveStatus)
+    setSmtpHost(settings.smtpHost ?? "")
+    setSmtpPort(settings.smtpPort != null ? String(settings.smtpPort) : "")
+    setSmtpUseTls(toToggle(settings.smtpUseTls))
+    setSmtpUsername(settings.smtpUsername ?? "")
+    setSmtpPasswordConfigured(settings.smtpPasswordConfigured)
+    setSmtpFromAddress(settings.smtpFromAddress ?? "")
+    setSmtpFromName(settings.smtpFromName ?? "")
+    setEmailEffectiveStatus(settings.emailEffectiveStatus)
     setWaStatus(settings.whatsAppConnectionStatus)
     setWaConnectedNumber(settings.whatsAppPhoneNumberId)
     setWaLastError(settings.whatsAppLastError)
@@ -298,10 +318,18 @@ export function ReminderSettings() {
         whatsAppApiUrl: whatsAppApiUrl.trim() || null,
         leadTimeHours: parseLeadTimes(leadTimeHours),
         messageTemplateBody: messageTemplateBody.trim() || null,
+        smtpHost: smtpHost.trim() || null,
+        // A blank or unparseable port means "inherit", never 0 — the server treats a non-positive port as unset.
+        smtpPort: Number.parseInt(smtpPort, 10) > 0 ? Number.parseInt(smtpPort, 10) : null,
+        smtpUseTls: fromToggle(smtpUseTls),
+        smtpUsername: smtpUsername.trim() || null,
+        smtpFromAddress: smtpFromAddress.trim() || null,
+        smtpFromName: smtpFromName.trim() || null,
       }
       // Secrets are write-only: only send them when the admin typed a new value (blank ⇒ unchanged).
       if (smsApiKey.trim()) payload.smsApiKey = smsApiKey.trim()
       if (whatsAppAccessToken.trim()) payload.whatsAppAccessToken = whatsAppAccessToken.trim()
+      if (smtpPassword.trim()) payload.smtpPassword = smtpPassword.trim()
 
       const updated = await reminderSettingsApi.update(payload)
       if (mounted.current) {
@@ -310,6 +338,7 @@ export function ReminderSettings() {
         hydrate(updated)
         setSmsApiKey("")
         setWhatsAppAccessToken("")
+        setSmtpPassword("")
       }
       toast.success("Paramètres de rappel enregistrés")
     } catch (err) {
@@ -323,7 +352,7 @@ export function ReminderSettings() {
   const secretBadge = (configured: boolean) =>
     configured ? (
       <Badge variant="secondary" className="text-2xs gap-1">
-        <CheckCircle2 className="w-3 h-3 text-green-600" /> Configuré
+        <CheckCircle2 className="w-3 h-3 text-success" /> Configuré
       </Badge>
     ) : (
       <Badge variant="outline" className="text-2xs">
@@ -331,16 +360,24 @@ export function ReminderSettings() {
       </Badge>
     )
 
-  // Channel readiness (AC-2): only surfaced when the admin explicitly turned the channel on. Green = the
-  // resolved settings + credentials make it sendable; amber = enabled but a URL/secret/template is missing.
+  /*
+   * Channel readiness (AC-2): only surfaced when the admin explicitly turned the channel on. Green = the
+   * resolved settings + credentials make it sendable; amber = enabled but a URL/secret/template is missing.
+   *
+   * ⚠️ The amber badges are `text-warning-ink`, not `text-warning`: `--warning` sits at L 0.62, which lands
+   * near 3.5:1 against a light surface — under the floor for 11px badge text. `--warning-ink` is the
+   * darkened step that exists for exactly this (see `ui/status-tone.ts`). The badges stay `variant="outline"`
+   * rather than routing through `statusToneClass`, because these three sit *inline beside a field label*
+   * and a filled pill there reads as a second control; the tone map is for status columns.
+   */
   const readinessBadge = (toggle: Toggle, status: ReminderEffectiveStatus) => {
     if (toggle !== "on") return null
     return status === "configured" ? (
       <Badge variant="secondary" className="text-2xs gap-1">
-        <CheckCircle2 className="w-3 h-3 text-green-600" /> Prêt à envoyer
+        <CheckCircle2 className="w-3 h-3 text-success" /> Prêt à envoyer
       </Badge>
     ) : (
-      <Badge variant="outline" className="text-2xs gap-1 text-amber-600 border-amber-400">
+      <Badge variant="outline" className="text-2xs gap-1 text-warning-ink border-warning/40">
         <AlertTriangle className="w-3 h-3" /> Configuration incomplète
       </Badge>
     )
@@ -350,26 +387,27 @@ export function ReminderSettings() {
     if (status === "sent") {
       return (
         <Badge variant="secondary" className="text-2xs gap-1">
-          <CheckCircle2 className="w-3 h-3 text-green-600" /> Envoyé
+          <CheckCircle2 className="w-3 h-3 text-success" /> Envoyé
         </Badge>
       )
     }
     if (status === "failed") {
       return (
-        <Badge variant="outline" className="text-2xs gap-1 text-red-600 border-red-300">
+        <Badge variant="outline" className="text-2xs gap-1 text-destructive border-destructive/40">
           <XCircle className="w-3 h-3" /> Échec
         </Badge>
       )
     }
     return (
-      <Badge variant="outline" className="text-2xs gap-1 text-amber-600 border-amber-400">
+      <Badge variant="outline" className="text-2xs gap-1 text-warning-ink border-warning/40">
         <Clock className="w-3 h-3" /> En attente
       </Badge>
     )
   }
 
   return (
-    <Card className="border border-gray-200 dark:border-slate-800">
+    // No border override: `Card` already renders `border`, painted `--border` by the base layer.
+    <Card>
       <CardHeader className="pb-3">
         <div className="flex items-center gap-2">
           <div className="w-1 h-6 bg-primary rounded-full" />
@@ -386,14 +424,18 @@ export function ReminderSettings() {
           secrètes ne sont jamais réaffichées ; laissez-les vides pour conserver la valeur enregistrée.
         </p>
 
+        {/* ⚠️ Every `<Input>`/`<Textarea>` below says `md:text-sm`, never a bare `text-sm`: `ui/input.tsx`
+            ships `text-base md:text-sm` as the iOS focus-zoom guard (Safari zooms into any field under 16px
+            and never zooms back), and tailwind-merge treats an unprefixed size at the call site as a
+            REPLACEMENT for `text-base` — so the class written to make a field compact disarms the guard. */}
         {loading ? (
           <p className="text-xs text-muted-foreground">Chargement…</p>
         ) : error ? (
-          <p className="text-xs text-red-600 dark:text-red-400">{error}</p>
+          <p className="text-xs text-destructive">{error}</p>
         ) : (
           <>
             {/* SMS */}
-            <div className="space-y-3 rounded-lg border border-gray-100 dark:border-slate-800 p-3">
+            <div className="space-y-3 rounded-lg border p-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-sm font-medium">
                   <MessageSquare className="w-4 h-4 text-primary" />
@@ -426,7 +468,7 @@ export function ReminderSettings() {
                   value={smsApiUrl}
                   onChange={(e) => setSmsApiUrl(e.target.value)}
                   disabled={saving}
-                  className="h-8 text-sm"
+                  className="h-8 md:text-sm"
                 />
               </div>
 
@@ -440,7 +482,7 @@ export function ReminderSettings() {
                   value={smsSenderId}
                   onChange={(e) => setSmsSenderId(e.target.value)}
                   disabled={saving}
-                  className="h-8 text-sm"
+                  className="h-8 md:text-sm"
                 />
               </div>
 
@@ -459,36 +501,36 @@ export function ReminderSettings() {
                   value={smsApiKey}
                   onChange={(e) => setSmsApiKey(e.target.value)}
                   disabled={saving}
-                  className="h-8 text-sm"
+                  className="h-8 md:text-sm"
                 />
               </div>
             </div>
 
             {/* WhatsApp */}
-            <div className="space-y-3 rounded-lg border border-gray-100 dark:border-slate-800 p-3">
+            <div className="space-y-3 rounded-lg border p-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-sm font-medium">
-                  <MessageSquare className="w-4 h-4 text-green-600" />
+                  <MessageSquare className="w-4 h-4 text-success" />
                   WhatsApp
                 </div>
                 {readinessBadge(whatsAppEnabled, whatsAppEffectiveStatus)}
               </div>
 
               {isCloud && (
-                <div className="space-y-2 rounded-lg border border-green-100 dark:border-green-900/40 bg-green-50/40 dark:bg-green-950/10 p-3">
+                <div className="space-y-2 rounded-lg border border-success/25 bg-success-wash/40 p-3">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-medium">Connexion (Embedded Signup)</span>
                     {waStatus === "Connected" && whatsAppEffectiveStatus === "configured" ? (
                       <Badge variant="secondary" className="text-2xs gap-1">
-                        <CheckCircle2 className="w-3 h-3 text-green-600" /> Connecté
+                        <CheckCircle2 className="w-3 h-3 text-success" /> Connecté
                       </Badge>
                     ) : waStatus === "Connected" ? (
                       // AC-2: OAuth is done but the resolved settings still can't send — warn instead of green.
-                      <Badge variant="outline" className="text-2xs gap-1 text-amber-600 border-amber-400">
+                      <Badge variant="outline" className="text-2xs gap-1 text-warning-ink border-warning/40">
                         <AlertTriangle className="w-3 h-3" /> Connexion incomplète
                       </Badge>
                     ) : waStatus === "Error" ? (
-                      <Badge variant="outline" className="text-2xs gap-1 text-red-600 border-red-300">
+                      <Badge variant="outline" className="text-2xs gap-1 text-destructive border-destructive/40">
                         <AlertCircle className="w-3 h-3" /> Erreur
                       </Badge>
                     ) : (
@@ -523,12 +565,18 @@ export function ReminderSettings() {
                       <p className="text-xs text-muted-foreground">
                         Connectez le compte WhatsApp Business de la clinique en un clic via Meta.
                       </p>
-                      {waLastError && <p className="text-xs text-red-600 dark:text-red-400">{waLastError}</p>}
+                      {waLastError && <p className="text-xs text-destructive">{waLastError}</p>}
                       <Button
                         size="sm"
                         onClick={handleConnect}
                         disabled={waBusy || !sdkReady}
-                        className="h-8 text-xs bg-green-600 hover:bg-green-700"
+                        /*
+                          The default (primary) fill, not `bg-green-600`. There is no solid-success token to
+                          convert to: `--success` is an ink for `--success-wash`, and white type on it at the
+                          dark-mode step (L 0.70) lands near 2.6:1. The panel around this button already
+                          carries the green wash, so the WhatsApp association is not lost.
+                        */
+                        className="h-8 text-xs"
                       >
                         {waBusy ? (
                           <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
@@ -573,7 +621,7 @@ export function ReminderSettings() {
                   value={whatsAppApiUrl}
                   onChange={(e) => setWhatsAppApiUrl(e.target.value)}
                   disabled={saving}
-                  className="h-8 text-sm"
+                  className="h-8 md:text-sm"
                 />
               </div>
 
@@ -595,7 +643,7 @@ export function ReminderSettings() {
                     value={whatsAppPhoneNumberId}
                     onChange={(e) => setWhatsAppPhoneNumberId(e.target.value)}
                     disabled={saving}
-                    className="h-8 text-sm"
+                    className="h-8 md:text-sm"
                   />
                 </div>
                 <div className="space-y-1">
@@ -608,7 +656,7 @@ export function ReminderSettings() {
                     value={whatsAppTemplateLanguage}
                     onChange={(e) => setWhatsAppTemplateLanguage(e.target.value)}
                     disabled={saving}
-                    className="h-8 text-sm"
+                    className="h-8 md:text-sm"
                   />
                 </div>
               </div>
@@ -623,7 +671,7 @@ export function ReminderSettings() {
                   value={whatsAppTemplateName}
                   onChange={(e) => setWhatsAppTemplateName(e.target.value)}
                   disabled={saving}
-                  className="h-8 text-sm"
+                  className="h-8 md:text-sm"
                 />
               </div>
 
@@ -642,13 +690,13 @@ export function ReminderSettings() {
                   value={whatsAppAccessToken}
                   onChange={(e) => setWhatsAppAccessToken(e.target.value)}
                   disabled={saving}
-                  className="h-8 text-sm"
+                  className="h-8 md:text-sm"
                 />
               </div>
             </div>
 
             {/* Programmation & message (partagé entre les canaux) */}
-            <div className="space-y-3 rounded-lg border border-gray-100 dark:border-slate-800 p-3">
+            <div className="space-y-3 rounded-lg border p-3">
               <div className="flex items-center gap-2 text-sm font-medium">
                 <Clock className="w-4 h-4 text-primary" />
                 Programmation &amp; message
@@ -664,7 +712,7 @@ export function ReminderSettings() {
                   value={leadTimeHours}
                   onChange={(e) => setLeadTimeHours(e.target.value)}
                   disabled={saving}
-                  className="h-8 text-sm"
+                  className="h-8 md:text-sm"
                 />
                 <p className="text-2xs text-muted-foreground">
                   Séparez les paliers (heures) par des virgules. Vide = valeurs par défaut de l&apos;installation.
@@ -682,10 +730,150 @@ export function ReminderSettings() {
                   onChange={(e) => setMessageTemplateBody(e.target.value)}
                   disabled={saving}
                   rows={3}
-                  className="text-sm"
+                  className="md:text-sm"
                 />
                 <p className="text-2xs text-muted-foreground">
                   Variables : {"{patient}"}, {"{date}"}, {"{clinic}"}. Vide = message par défaut.
+                </p>
+              </div>
+            </div>
+
+            {/*
+              Outbound email (SMTP) — the channel that delivers generated documents (ordonnances, lettres de
+              liaison, factures, devis, reçus). It lives in this card because it is the cabinet's third outbound
+              channel, configured the same way as the two above; there is deliberately no on/off toggle, because
+              a host and a from-address ARE the enable — a channel switched "on" with no server would be a
+              promise the dispatcher cannot keep.
+            */}
+            <div className="space-y-3 rounded-lg border p-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <Mail className="w-4 h-4 text-primary" />
+                  Email (envoi de documents)
+                </div>
+                {emailEffectiveStatus === "configured" ? (
+                  <Badge variant="secondary" className="text-2xs gap-1">
+                    <CheckCircle2 className="w-3 h-3 text-success" /> Prêt à envoyer
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="text-2xs gap-1 text-warning-ink border-warning/40">
+                    <AlertTriangle className="w-3 h-3" /> Configuration incomplète
+                  </Badge>
+                )}
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <Label htmlFor="smtp-host" className="text-xs font-medium">
+                    Serveur SMTP
+                  </Label>
+                  <Input
+                    id="smtp-host"
+                    placeholder="Ex. smtp.gmail.com"
+                    value={smtpHost}
+                    onChange={(e) => setSmtpHost(e.target.value)}
+                    disabled={saving}
+                    className="h-8 md:text-sm"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <Label htmlFor="smtp-port" className="text-xs font-medium">
+                    Port
+                  </Label>
+                  <Input
+                    id="smtp-port"
+                    type="number"
+                    inputMode="numeric"
+                    placeholder="587"
+                    value={smtpPort}
+                    onChange={(e) => setSmtpPort(e.target.value)}
+                    disabled={saving}
+                    className="h-8 md:text-sm"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs font-medium">Chiffrement TLS</Label>
+                <Select value={smtpUseTls} onValueChange={(v) => setSmtpUseTls(v as Toggle)} disabled={saving}>
+                  <SelectTrigger className="h-8 text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="inherit">Par défaut</SelectItem>
+                    <SelectItem value="on">Activé</SelectItem>
+                    <SelectItem value="off">Désactivé</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <Label htmlFor="smtp-from-address" className="text-xs font-medium">
+                    Adresse d&apos;expédition
+                  </Label>
+                  <Input
+                    id="smtp-from-address"
+                    type="email"
+                    placeholder="Ex. cabinet@maclinique.tn"
+                    value={smtpFromAddress}
+                    onChange={(e) => setSmtpFromAddress(e.target.value)}
+                    disabled={saving}
+                    className="h-8 md:text-sm"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <Label htmlFor="smtp-from-name" className="text-xs font-medium">
+                    Nom d&apos;expédition
+                  </Label>
+                  <Input
+                    id="smtp-from-name"
+                    placeholder="Ex. Cabinet Dr Ben Salah"
+                    value={smtpFromName}
+                    onChange={(e) => setSmtpFromName(e.target.value)}
+                    disabled={saving}
+                    className="h-8 md:text-sm"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <Label htmlFor="smtp-username" className="text-xs font-medium">
+                  Nom d&apos;utilisateur
+                </Label>
+                <Input
+                  id="smtp-username"
+                  placeholder="Souvent identique à l'adresse d'expédition"
+                  value={smtpUsername}
+                  onChange={(e) => setSmtpUsername(e.target.value)}
+                  disabled={saving}
+                  className="h-8 md:text-sm"
+                />
+                <p className="text-2xs text-muted-foreground">
+                  Laissez vide pour un relais SMTP local sans authentification.
+                </p>
+              </div>
+
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="smtp-password" className="text-xs font-medium">
+                    Mot de passe
+                  </Label>
+                  {secretBadge(smtpPasswordConfigured)}
+                </div>
+                <Input
+                  id="smtp-password"
+                  type="password"
+                  placeholder={smtpPasswordConfigured ? "•••••••• (inchangé)" : "Mot de passe SMTP"}
+                  value={smtpPassword}
+                  onChange={(e) => setSmtpPassword(e.target.value)}
+                  disabled={saving}
+                  className="h-8 md:text-sm"
+                />
+                <p className="text-2xs text-muted-foreground">
+                  Stocké chiffré. Laissez vide pour conserver le mot de passe déjà enregistré.
                 </p>
               </div>
             </div>

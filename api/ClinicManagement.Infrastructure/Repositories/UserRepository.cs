@@ -57,6 +57,19 @@ public class UserRepository : IUserRepository
             .ToPagedResultAsync(paging, cancellationToken);
     }
 
+    /// <summary>
+    /// The predicate mirrors <c>User.IsPendingActivation</c>. It is repeated here rather than reused because the
+    /// entity's version is a C# computed property EF cannot translate — so the two must be read as one rule:
+    /// changing what "pending" means changes both, and the badge on the row and the count above it would
+    /// otherwise disagree on the same screen.
+    /// </summary>
+    public async Task<int> CountPendingActivationAsync(Guid clinicId, CancellationToken cancellationToken = default)
+    {
+        return await _context.Users
+            .Where(u => u.ClinicId == clinicId && !u.IsActive && u.LastLoginAt == null)
+            .CountAsync(cancellationToken);
+    }
+
     public async Task<User?> GetByAuth0SubAsync(string auth0Sub, CancellationToken cancellationToken = default)
     {
         return await _context.Users

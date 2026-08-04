@@ -17,6 +17,24 @@ public class AIActionService : IAIActionService
     // French clinic locale for user-facing dates in AI action responses.
     private static readonly CultureInfo FrCulture = new("fr-FR");
 
+    /// <summary>
+    /// Every appointment moment this assistant states out loud, in the clinic's own zone and French order
+    /// (L3d).
+    ///
+    /// <para>The four sites this replaces printed <c>AppointmentDateTime.ToString("yyyy-MM-dd HH:mm")</c> — the
+    /// <b>raw UTC instant</b>, in ISO order — for <c>list_appointments</c>, the disambiguation list shown
+    /// <i>before a cancel</i>, the cancel confirmation and the create confirmation. Tunisia is UTC+1, so every
+    /// hour was wrong by one, and « Plusieurs rendez-vous trouvés » offered a choice between times that did not
+    /// match the agenda: the dentist could confirm cancelling the wrong slot. The reminder scheduler and the
+    /// notification generator already converted through <see cref="ClinicClock"/>; this is the same rule, in the
+    /// one place where the assistant speaks.</para>
+    /// </summary>
+    private static string FormatClinicMoment(DateTime utc) =>
+        ClinicClock.ToClinicLocal(utc).ToString("dd/MM/yyyy 'à' HH:mm", FrCulture);
+
+    /// <summary>A bare calendar day (a filter echo, a date of birth) — never an instant, so no conversion.</summary>
+    private static string FormatClinicDay(DateTime date) => date.ToString("dd/MM/yyyy", FrCulture);
+
     private readonly IHuggingFaceAIService _huggingFaceAIService;
     private readonly IMediator _mediator;
     private readonly IPatientRepository _patientRepository;
@@ -455,7 +473,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
 
             var appointment = result.Value!; // non-null: guarded by the IsFailure check above
             var appointmentPatientName = appointment.PatientName ?? "Inconnu";
-            var dateTime = appointment.AppointmentDateTime.ToString("dd MMMM yyyy 'à' HH:mm", FrCulture);
+            var dateTime = FormatClinicMoment(appointment.AppointmentDateTime);
             var procedureInfo = !string.IsNullOrEmpty(appointment.ProcedureTypeName)
                 ? $"\nActe : {appointment.ProcedureTypeName}"
                 : "";
@@ -848,7 +866,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
 
             if (appointmentList.Count == 0)
             {
-                var dateInfo = startDate.HasValue ? $" pour le {startDate.Value:yyyy-MM-dd}" : "";
+                var dateInfo = startDate.HasValue ? $" pour le {FormatClinicDay(startDate.Value)}" : "";
                 var patientInfo = patientId.HasValue ? " pour le patient indiqué" : "";
                 return new AIActionResult
                 {
@@ -862,7 +880,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
             foreach (var appointment in appointmentList)
             {
                 var patientName = appointment.Patient?.GetFullName() ?? "Occupé";
-                var dateTime = appointment.AppointmentDateTime.ToString("yyyy-MM-dd HH:mm");
+                var dateTime = FormatClinicMoment(appointment.AppointmentDateTime);
                 var procedure = !string.IsNullOrEmpty(appointment.ProcedureType?.Name) ? $" ({appointment.ProcedureType.Name})" : "";
                 response += $"• {patientName} - {dateTime}{procedure}\n";
             }
@@ -983,7 +1001,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
             if (matchingAppointments.Count > 1)
             {
                 var appointmentList = string.Join("\n", matchingAppointments.Select(a =>
-                    $"- {a.AppointmentDateTime:yyyy-MM-dd HH:mm}"));
+                    $"- {FormatClinicMoment(a.AppointmentDateTime)}"));
                 return new AIActionResult
                 {
                     ShouldExecuteAction = false,
@@ -1015,7 +1033,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
                 ActionType = "cancel_appointment",
                 ResponseMessage = $"✅ Rendez-vous annulé avec succès !\n\n" +
                                 $"Patient : {patientName}\n" +
-                                $"Date et heure : {appointment.AppointmentDateTime:yyyy-MM-dd HH:mm}"
+                                $"Date et heure : {FormatClinicMoment(appointment.AppointmentDateTime)}"
             };
         }
         catch (Exception ex)

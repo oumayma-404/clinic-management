@@ -157,6 +157,105 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.ToTable("AppointmentProcedures", (string)null);
                 });
 
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.AuditEntry", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Action")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ChangedFields")
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("ClinicId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("EntityId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("EntityType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime>("OccurredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UserEmail")
+                        .HasMaxLength(320)
+                        .HasColumnType("character varying(320)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ClinicId", "OccurredAt");
+
+                    b.HasIndex("EntityType", "EntityId");
+
+                    b.ToTable("AuditEntries", (string)null);
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.BackupRun", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ClinicId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DestinationPath")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("Error")
+                        .HasColumnType("text");
+
+                    b.Property<int>("Outcome")
+                        .HasColumnType("integer");
+
+                    b.Property<long?>("SizeBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Trigger")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<int?>("VerifiedObjectCount")
+                        .HasColumnType("integer");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ClinicId", "StartedAt");
+
+                    b.ToTable("BackupRuns", (string)null);
+                });
+
             modelBuilder.Entity("ClinicManagement.Domain.Entities.Clinic", b =>
                 {
                     b.Property<Guid>("Id")
@@ -165,6 +264,18 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<string>("Address")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
+
+                    b.Property<bool>("BackupEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("BackupHourLocal")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("BackupRetentionCount")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("BackupStaleAfterHours")
+                        .HasColumnType("integer");
 
                     b.Property<string>("City")
                         .HasMaxLength(100)
@@ -296,6 +407,31 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<string>("SmsSenderId")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
+
+                    b.Property<string>("SmtpFromAddress")
+                        .HasMaxLength(320)
+                        .HasColumnType("character varying(320)");
+
+                    b.Property<string>("SmtpFromName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("SmtpHost")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<string>("SmtpPasswordEncrypted")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("SmtpPort")
+                        .HasColumnType("integer");
+
+                    b.Property<bool?>("SmtpUseTls")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("SmtpUsername")
+                        .HasMaxLength(320)
+                        .HasColumnType("character varying(320)");
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -583,6 +719,9 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<Guid?>("DoctorId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("ImportantNotes")
                         .IsRequired()
                         .HasColumnType("text");
@@ -617,6 +756,8 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("AppointmentId");
+
+                    b.HasIndex("DoctorId");
 
                     b.HasIndex("PatientId");
 
@@ -786,6 +927,88 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.ToTable("Doctors", (string)null);
                 });
 
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.DocumentEmail", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AttachmentFileName")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("AttachmentStorageKey")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ClinicId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("DocumentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("DocumentKind")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("FailureReason")
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("InstallmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("PaymentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("QueuedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RecipientEmail")
+                        .IsRequired()
+                        .HasMaxLength(320)
+                        .HasColumnType("character varying(320)");
+
+                    b.Property<string>("RequestedByUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime?>("SentAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Status", "QueuedAt")
+                        .HasDatabaseName("IX_DocumentEmails_Status_QueuedAt");
+
+                    b.HasIndex("ClinicId", "DocumentKind", "DocumentId")
+                        .HasDatabaseName("IX_DocumentEmails_Clinic_Kind_Document");
+
+                    b.ToTable("DocumentEmails", (string)null);
+                });
+
             modelBuilder.Entity("ClinicManagement.Domain.Entities.Expense", b =>
                 {
                     b.Property<Guid>("Id")
@@ -881,6 +1104,17 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasPrecision(18, 3)
                         .HasColumnType("numeric(18,3)");
 
+                    b.Property<string>("ChequeBankName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime?>("ChequeDueDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ChequeNumber")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -921,6 +1155,9 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("ChequeDueDate")
+                        .HasFilter("\"ChequeDueDate\" IS NOT NULL AND NOT \"IsVoided\"");
+
                     b.HasIndex("InstallmentId");
 
                     b.HasIndex("PaidOn")
@@ -952,6 +1189,9 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<Guid?>("DentalRecordId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("DoctorId")
                         .HasColumnType("uuid");
 
                     b.Property<int>("EInvoiceAttemptCount")
@@ -1042,6 +1282,8 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasColumnName("xmin");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("DoctorId");
 
                     b.HasIndex("PatientId");
 
@@ -1740,6 +1982,17 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasPrecision(18, 3)
                         .HasColumnType("numeric(18,3)");
 
+                    b.Property<string>("ChequeBankName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime?>("ChequeDueDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ChequeNumber")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -1783,6 +2036,9 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("ChequeDueDate")
+                        .HasFilter("\"ChequeDueDate\" IS NOT NULL AND NOT \"IsVoided\"");
+
                     b.HasIndex("InvoiceId");
 
                     b.HasIndex("InvoiceId", "PaidOn")
@@ -1795,6 +2051,10 @@ namespace ClinicManagement.Infrastructure.Migrations
                 {
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("Category")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
 
                     b.Property<Guid>("ClinicId")
                         .HasColumnType("uuid");
@@ -1839,6 +2099,8 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                     b.HasIndex("ClinicId", "Name")
                         .IsUnique();
+
+                    b.HasIndex("ClinicId", "Category", "Name");
 
                     b.ToTable("ProcedureTypes", (string)null);
                 });
@@ -2214,6 +2476,9 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<Guid?>("DoctorId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("Notes")
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)");
@@ -2252,6 +2517,8 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasColumnName("xmin");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("DoctorId");
 
                     b.HasIndex("ClinicId", "Number")
                         .IsUnique()
@@ -2471,6 +2738,8 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                     b.HasIndex("PatientId");
 
+                    b.HasIndex("PreferredDoctorId");
+
                     b.HasIndex("ClinicId", "Status");
 
                     b.ToTable("WaitingListEntries", (string)null);
@@ -2524,6 +2793,15 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Navigation("ProcedureType");
                 });
 
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.BackupRun", b =>
+                {
+                    b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
+                        .WithMany()
+                        .HasForeignKey("ClinicId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("ClinicManagement.Domain.Entities.ClinicReminderSettings", b =>
                 {
                     b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
@@ -2562,11 +2840,18 @@ namespace ClinicManagement.Infrastructure.Migrations
 
             modelBuilder.Entity("ClinicManagement.Domain.Entities.DentalRecord", b =>
                 {
+                    b.HasOne("ClinicManagement.Domain.Entities.Doctor", "Doctor")
+                        .WithMany()
+                        .HasForeignKey("DoctorId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("ClinicManagement.Domain.Entities.Patient", "Patient")
                         .WithMany()
                         .HasForeignKey("PatientId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.Navigation("Doctor");
 
                     b.Navigation("Patient");
                 });
@@ -2602,6 +2887,15 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Navigation("Clinic");
                 });
 
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.DocumentEmail", b =>
+                {
+                    b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
+                        .WithMany()
+                        .HasForeignKey("ClinicId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("ClinicManagement.Domain.Entities.Expense", b =>
                 {
                     b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
@@ -2627,6 +2921,16 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasForeignKey("InstallmentId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.Invoice", b =>
+                {
+                    b.HasOne("ClinicManagement.Domain.Entities.Doctor", "Doctor")
+                        .WithMany()
+                        .HasForeignKey("DoctorId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Doctor");
                 });
 
             modelBuilder.Entity("ClinicManagement.Domain.Entities.InvoiceLine", b =>
@@ -2805,6 +3109,11 @@ namespace ClinicManagement.Infrastructure.Migrations
                             b1.Property<Guid>("PatientId")
                                 .HasColumnType("uuid");
 
+                            b1.Property<decimal?>("AnnualCeilingOverride")
+                                .HasPrecision(18, 3)
+                                .HasColumnType("numeric(18,3)")
+                                .HasColumnName("CnamAnnualCeilingOverride");
+
                             b1.Property<string>("AssureAddress")
                                 .HasMaxLength(300)
                                 .HasColumnType("character varying(300)")
@@ -2824,6 +3133,10 @@ namespace ClinicManagement.Infrastructure.Migrations
                                 .HasMaxLength(20)
                                 .HasColumnType("character varying(20)")
                                 .HasColumnName("CnamAssurePostalCode");
+
+                            b1.Property<int?>("DependantCount")
+                                .HasColumnType("integer")
+                                .HasColumnName("CnamDependantCount");
 
                             b1.Property<string>("IdentifiantUnique")
                                 .HasMaxLength(50)
@@ -3106,6 +3419,16 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.TreatmentPlan", b =>
+                {
+                    b.HasOne("ClinicManagement.Domain.Entities.Doctor", "Doctor")
+                        .WithMany()
+                        .HasForeignKey("DoctorId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Doctor");
+                });
+
             modelBuilder.Entity("ClinicManagement.Domain.Entities.TreatmentPlanItem", b =>
                 {
                     b.HasOne("ClinicManagement.Domain.Entities.TreatmentPlan", null)
@@ -3148,6 +3471,11 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasForeignKey("PatientId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.HasOne("ClinicManagement.Domain.Entities.Doctor", null)
+                        .WithMany()
+                        .HasForeignKey("PreferredDoctorId")
+                        .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("Patient");
                 });

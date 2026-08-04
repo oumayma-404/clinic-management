@@ -6,6 +6,14 @@ public static class ReminderDeliveryStatus
     public const string Sent = "sent";
     public const string Pending = "pending";
     public const string Failed = "failed";
+
+    /// <summary>
+    /// Queued but not sendable — the channel is off, unconfigured or unimplemented (L3a). Its own value rather
+    /// than a flavour of <c>pending</c> or <c>failed</c>: a blocked row is not waiting its turn (nothing will
+    /// change on its own) and it has not failed (nothing was attempted, and it will send once the channel works).
+    /// A silent queue was the whole defect, so the state has to be nameable on screen.
+    /// </summary>
+    public const string Blocked = "blocked";
 }
 
 /// <summary>
@@ -36,8 +44,12 @@ public sealed record ReminderStatusDto
     /// appointment, the same discriminator the outbox and the dispatcher use.
     /// </summary>
     public required bool IsRecall { get; init; }
-    /// <summary>One of <see cref="ReminderDeliveryStatus"/>: sent / pending / failed.</summary>
+    /// <summary>One of <see cref="ReminderDeliveryStatus"/>: sent / pending / failed / blocked.</summary>
     public required string Status { get; init; }
+    /// <summary>
+    /// Why it failed — or, for a <see cref="ReminderDeliveryStatus.Blocked"/> row, why it cannot be sent. Both
+    /// come off the row's one <c>ErrorMessage</c>, and both are the only thing that makes the row actionable.
+    /// </summary>
     public string? FailureReason { get; init; }
     public required DateTime ScheduledAt { get; init; }
     public DateTime? SentAt { get; init; }

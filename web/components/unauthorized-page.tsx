@@ -9,15 +9,21 @@ export default function UnauthorizedPage() {
   const router = useRouter()
 
   return (
-    <div className="min-h-dvh bg-gradient-to-br from-accent via-white to-slate-50 dark:from-slate-950 dark:to-slate-900 flex items-center justify-center p-6">
+    /*
+     * The page ground is `--background`, not a gradient. This is one of the three screens a new clinic sees
+     * before it has an account, and the gradient it carried (`via-white … dark:from-slate-950`) was the app's
+     * only surface maintaining its own light/dark pair by hand — so it neither matched the themed chrome
+     * behind it nor followed the user's theme correctly.
+     */
+    <div className="min-h-dvh bg-background flex items-center justify-center p-6">
       <div className="w-full max-w-md">
-        <Card className="border-red-100 dark:border-red-900/20 shadow-lg">
+        <Card className="border-destructive/25 shadow-lg">
           <CardHeader className="text-center space-y-4">
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-red-100 dark:bg-red-900/20 mx-auto">
-              <Lock className="w-8 h-8 text-red-600 dark:text-red-400" />
+            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-destructive-wash mx-auto">
+              <Lock className="w-8 h-8 text-destructive" />
             </div>
             <div>
-              <CardTitle className="text-2xl text-red-900 dark:text-red-100">Accès restreint</CardTitle>
+              <CardTitle className="text-2xl text-destructive">Accès restreint</CardTitle>
               <CardDescription className="mt-2">
                 Vous devez faire partie d'une clinique pour accéder à cette application.
               </CardDescription>

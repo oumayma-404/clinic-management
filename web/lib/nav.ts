@@ -12,6 +12,7 @@ import {
   Package,
   Pill,
   Receipt,
+  ReceiptText,
   ScrollText,
   Settings,
   Stethoscope,
@@ -52,7 +53,7 @@ export const baseSections: NavSection[] = [
     title: "Clinique",
     items: [
       { name: "Documents", href: "/documents", icon: FileCheck },
-      { name: "Plans / Devis", href: "/treatment-plans", icon: ClipboardCheck },
+      { name: "Plans de traitement", href: "/treatment-plans", icon: ClipboardCheck },
       { name: "Laboratoire", href: "/lab-orders", icon: FlaskConical },
     ],
   },
@@ -61,6 +62,7 @@ export const baseSections: NavSection[] = [
     items: [
       { name: "Factures", href: "/factures", icon: Receipt },
       { name: "Caisse", href: "/caisse", icon: Wallet },
+      { name: "Chèques", href: "/cheques", icon: ReceiptText },
       { name: "Créances", href: "/creances", icon: HandCoins },
     ],
   },
@@ -101,9 +103,71 @@ export function buildConfigItems(isAdmin: boolean): NavItem[] {
   ]
 }
 
-/** Every destination, grouped — 15 for a practitioner, 19 for an admin. */
-export function buildNavSections(isAdmin: boolean): NavSection[] {
-  return [...baseSections, { title: "Configuration", items: buildConfigItems(isAdmin) }]
+/**
+ * Destinations a **secretary** does not get, because the API refuses them (feature
+ * `adoption-qa-i-access-control-and-audit`, I1): « Tableau de bord » is gated `AdminOrDoctor` — its Argent
+ * section *is* the clinic's revenue — and so are all three « Finances » screens.
+ *
+ * <p><b>This is presentation, not security.</b> The server is authoritative: `GET /api/dashboard`,
+ * `GET /api/billing/caisse`, `/caisse/ledger`, `/billing/receivables` and `GET /api/invoices/revenue` all carry
+ * `AdminOrDoctor`, and a secretary who hand-types the URL gets a 403 whatever this list says. Hiding the rail
+ * entries exists so reception is not shown four doors that do not open — which was the state of the product
+ * before I1: the rail shipped « Tableau de bord » and the whole « Finances » group to every role, and the pages
+ * behind them contained no `role` reference at all.</p>
+ *
+ * <p>Matched on `href`, so a renamed *label* cannot silently un-gate a screen.</p>
+ */
+const SECRETARY_HIDDEN_HREFS: ReadonlySet<string> = new Set([
+  "/",
+  "/factures",
+  "/caisse",
+  // L8 slice B — the clinic's uncashed cheques are the same clinic-wide money read as la caisse's totals, and
+  // `GET /api/billing/cheques` is `AdminOrDoctor`. A secretary recording a cheque payment on a patient's invoice
+  // is unaffected: that endpoint stays deliberately open.
+  "/cheques",
+  "/creances",
+])
+
+/** True when this role must not see the clinic-wide money screens. The one place the comparison is written. */
+export function hidesClinicWideMoney(role: string | null | undefined): boolean {
+  return role === "secretary"
+}
+
+/**
+ * True when this role satisfies the server's `AdminOrDoctor` policy — the one place that comparison is written
+ * client-side, for the **actions** gated on it rather than the routes.
+ *
+ * <p>⚠️ A <b>positive</b> test, not `!hidesClinicWideMoney(role)`. The two are the same partition today, but they
+ * answer different questions and would diverge the moment a fourth role existed — and the safe direction differs
+ * too: an unknown or not-yet-loaded role must <i>hide</i> a bulk-write affordance (« Importer des patients » creates
+ * records that cannot be merged afterwards), where the money list's job is to hide four doors that do not open.</p>
+ *
+ * <p><b>Presentation, not security</b>, like everything in this file: `POST /api/patients/import` carries
+ * `AdminOrDoctor` and refuses a secretary whatever this returns.</p>
+ */
+export function isAdminOrDoctor(role: string | null | undefined): boolean {
+  return role === "admin" || role === "doctor"
+}
+
+/** Is this destination reachable by that role? Shared by the rail, the drawer and the phone's bottom bar. */
+export function isNavItemVisible(href: string, role: string | null | undefined): boolean {
+  return !hidesClinicWideMoney(role) || !SECRETARY_HIDDEN_HREFS.has(href)
+}
+
+/**
+ * Every destination this role can reach, grouped — 15 for a practitioner, 19 for an admin, 11 for a secretary.
+ *
+ * <p>Takes the **role**, not an `isAdmin` boolean: the admin/not-admin split alone cannot express « a secretary
+ * sees less than a doctor », which is the whole distinction I1 turns on. A section whose every item is hidden is
+ * dropped rather than rendered empty — « Finances » with no rows under it advertises exactly the capability the
+ * gate exists to withhold.</p>
+ */
+export function buildNavSections(role: string | null | undefined): NavSection[] {
+  const visible = baseSections
+    .map((section) => ({ ...section, items: section.items.filter((i) => isNavItemVisible(i.href, role)) }))
+    .filter((section) => section.items.length > 0)
+
+  return [...visible, { title: "Configuration", items: buildConfigItems(role === "admin") }]
 }
 
 /**

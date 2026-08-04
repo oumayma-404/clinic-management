@@ -12,7 +12,7 @@ namespace ClinicManagement.Application.Features.Users.Queries;
 /// Admin-only: lists the users of the caller's clinic with their account status
 /// (AC-5.1, AC-5.4).
 /// </summary>
-public class ListUsersQuery : IRequest<Result<PagedResult<ClinicUserDto>>>
+public class ListUsersQuery : IRequest<Result<ClinicUsersPageDto>>
 {
 
     /// <summary>1-based page and page size. Both null = every matching row.</summary>
@@ -23,7 +23,7 @@ public class ListUsersQuery : IRequest<Result<PagedResult<ClinicUserDto>>>
     public string? SearchTerm { get; set; }
 }
 
-public class ListUsersQueryHandler : IRequestHandler<ListUsersQuery, Result<PagedResult<ClinicUserDto>>>
+public class ListUsersQueryHandler : IRequestHandler<ListUsersQuery, Result<ClinicUsersPageDto>>
 {
     private readonly IUserRepository _userRepository;
     private readonly IClinicContext _clinicContext;
@@ -36,26 +36,26 @@ public class ListUsersQueryHandler : IRequestHandler<ListUsersQuery, Result<Page
         _clinicContext = clinicContext;
     }
 
-    public async Task<Result<PagedResult<ClinicUserDto>>> Handle(ListUsersQuery request, CancellationToken cancellationToken)
+    public async Task<Result<ClinicUsersPageDto>> Handle(ListUsersQuery request, CancellationToken cancellationToken)
     {
         try
         {
             var userId = _clinicContext.GetUserId();
             if (string.IsNullOrEmpty(userId))
             {
-                return Result<PagedResult<ClinicUserDto>>.Failure("Session invalide, veuillez vous reconnecter.");
+                return Result<ClinicUsersPageDto>.Failure("Session invalide, veuillez vous reconnecter.");
             }
 
             var currentUser = await _userRepository.GetByAuth0SubAsync(userId, cancellationToken);
             if (currentUser == null)
             {
-                return Result<PagedResult<ClinicUserDto>>.Failure("Utilisateur introuvable.");
+                return Result<ClinicUsersPageDto>.Failure("Utilisateur introuvable.");
             }
 
             // AC-5.4: only an admin can view the user list.
             if (!currentUser.IsAdmin())
             {
-                return Result<PagedResult<ClinicUserDto>>.Failure("Seuls les administrateurs peuvent consulter les utilisateurs.");
+                return Result<ClinicUsersPageDto>.Failure("Seuls les administrateurs peuvent consulter les utilisateurs.");
             }
 
             // Ordering moved into the repository: a paged read has to be ordered in SQL, and the OrderBy that
@@ -75,16 +75,34 @@ public class ListUsersQueryHandler : IRequestHandler<ListUsersQuery, Result<Page
                     Email = u.Email,
                     FullName = u.FullName,
                     IsActive = u.IsActive,
+                    IsPendingActivation = u.IsPendingActivation,
                     MustChangePassword = u.MustChangePassword,
                     LastLoginAt = u.LastLoginAt,
                     CreatedAt = u.CreatedAt
                 });
 
-            return Result<PagedResult<ClinicUserDto>>.Success(dtos);
+            // Counted over the whole clinic and outside the search term (I5). The figure exists to tell an admin
+            // that someone cannot get in yet, so scoping it to the rows they happen to be looking at would hide
+            // exactly the case it is for.
+            var pendingCount = await _userRepository.CountPendingActivationAsync(
+                currentUser.ClinicId,
+                cancellationToken);
+
+            return Result<ClinicUsersPageDto>.Success(new ClinicUsersPageDto
+            {
+                Items = dtos.Items.ToList(),
+                PendingActivationCount = pendingCount,
+                Page = dtos.Page,
+                PageSize = dtos.PageSize,
+                TotalCount = dtos.TotalCount,
+                TotalPages = dtos.TotalPages,
+                HasPreviousPage = dtos.HasPreviousPage,
+                HasNextPage = dtos.HasNextPage,
+            });
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<PagedResult<ClinicUserDto>>.Failure($"Error retrieving users: {ex.Message}");
+            return Result<ClinicUsersPageDto>.Failure($"Error retrieving users: {ex.Message}");
         }
     }
 }

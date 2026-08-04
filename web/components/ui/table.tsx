@@ -33,7 +33,23 @@ function Table({
   return (
     <div
       data-slot="table-container"
-      className={cn("relative w-full overflow-x-auto rounded-[inherit] bg-card", containerClassName)}
+      /*
+       * A right-edge fade, so a table that scrolls sideways SAYS it scrolls sideways.
+       *
+       * Every `TableHead`/`TableCell` in this file is `whitespace-nowrap`, so no cell ever compresses — and the
+       * widest surfaces (lab orders at 10 columns, invoices at 9) exceed an iPad portrait's content width once
+       * the 256 px rail is subtracted. The container has always had `overflow-x-auto`, but with no affordance
+       * whatsoever, so columns past the edge simply looked like they did not exist. A 24 px gradient in the
+       * card's own colour is the standard cue and costs no layout.
+       *
+       * `pointer-events-none` is load-bearing: the fade sits over the last column, and without it the overlay
+       * would swallow taps on that column's row actions.
+       */
+      className={cn(
+        "relative w-full overflow-x-auto rounded-[inherit] bg-card",
+        "after:pointer-events-none after:absolute after:inset-y-0 after:right-0 after:w-6 after:bg-gradient-to-l after:from-card after:to-transparent",
+        containerClassName,
+      )}
     >
       <table
         data-slot="table"

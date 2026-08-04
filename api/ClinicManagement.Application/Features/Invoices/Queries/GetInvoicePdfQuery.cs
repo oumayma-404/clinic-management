@@ -71,7 +71,7 @@ public class GetInvoicePdfQueryHandler : IRequestHandler<GetInvoicePdfQuery, Res
             var clinic = await _clinicRepository.GetByIdAsync(clinicId, cancellationToken);
             var patient = await _patientRepository.GetByIdAsync(invoice.PatientId, cancellationToken);
 
-            var data = BuildPdfData(invoice, clinic, patient?.GetFullName() ?? string.Empty);
+            var data = BuildPdfData(invoice, clinic, patient?.GetFullName() ?? string.Empty, FormatAddress(patient));
 
             // Indicative CNAM split over the coded lines (reimbursable + out-of-pocket == TTC).
             var careDate = invoice.IssueDate ?? invoice.CreatedAt;
@@ -114,13 +114,43 @@ public class GetInvoicePdfQueryHandler : IRequestHandler<GetInvoicePdfQuery, Res
         }
     }
 
-    private static InvoicePdfData BuildPdfData(Invoice invoice, Clinic? clinic, string patientName) => new()
+    /// <summary>
+    /// The patient's address as one line — « rue, code postal ville » — or null when they have none (J10).
+    /// <para>
+    /// Built from the parts that are actually written on a Tunisian envelope. <c>State</c> (the gouvernorat) is
+    /// left out because it duplicates the city on the address of almost every patient a cabinet sees, and
+    /// <c>Country</c> because a note issued in Tunisia to a Tunisian address does not name the country. Every
+    /// part is guarded even though the value object requires the first four: a patient may have **no** address
+    /// at all, and a document must render for them rather than throw (an empty result is the same as none).
+    /// </para>
+    /// </summary>
+    private static string? FormatAddress(Patient? patient)
+    {
+        var address = patient?.Address;
+        if (address == null)
+        {
+            return null;
+        }
+
+        var locality = string.Join(" ", new[] { address.ZipCode, address.City }
+            .Where(part => !string.IsNullOrWhiteSpace(part))
+            .Select(part => part!.Trim()));
+
+        var line = string.Join(", ", new[] { address.Street?.Trim(), locality }
+            .Where(part => !string.IsNullOrWhiteSpace(part)));
+
+        return string.IsNullOrWhiteSpace(line) ? null : line;
+    }
+
+    private static InvoicePdfData BuildPdfData(
+        Invoice invoice, Clinic? clinic, string patientName, string? patientAddress) => new()
     {
         ClinicName = clinic?.Name ?? string.Empty,
         ClinicAddress = clinic?.Address,
         ClinicPhone = clinic?.Phone,
         MatriculeFiscal = clinic?.MatriculeFiscal,
         PatientName = patientName,
+        PatientAddress = patientAddress,
         Number = invoice.Number ?? string.Empty,
         IssueDate = invoice.IssueDate ?? invoice.CreatedAt,
         VatApplicable = invoice.VatApplicable,

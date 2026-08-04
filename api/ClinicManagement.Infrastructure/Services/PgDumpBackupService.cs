@@ -63,14 +63,10 @@ public sealed class PgDumpBackupService : IBackupService
                 "L'outil pg_dump est introuvable. Vérifiez le paramètre 'Backup:PgDumpPath' (chemin vers pg_dump.exe fourni avec PostgreSQL).");
         }
 
-        var destinationRoot = string.IsNullOrWhiteSpace(destinationFolder)
-            ? _configuration["Backup:DefaultDestination"]
-            : destinationFolder;
-        if (string.IsNullOrWhiteSpace(destinationRoot))
-        {
-            throw new InvalidOperationException(
-                "Aucun dossier de destination pour la sauvegarde. Indiquez un dossier ou configurez 'Backup:DefaultDestination'.");
-        }
+        // L4b — resolved, never refused. This used to throw when both the argument and
+        // `Backup:DefaultDestination` were empty, and the installer writes that key as `""` — so the documented
+        // path ("leave the field blank to use the server's default folder") failed on every fresh install.
+        var destinationRoot = ResolveDestinationRoot(destinationFolder);
 
         var conn = new NpgsqlConnectionStringBuilder(connectionString);
         var filesPath = ResolveFileStorageBasePath();
@@ -87,7 +83,9 @@ public sealed class PgDumpBackupService : IBackupService
         // The name has whole-second granularity, so two backups in the same second would otherwise resolve
         // to the same folder and clobber each other (Finding 8). Disambiguate with a counter suffix.
         var timestamp = DateTime.UtcNow;
-        var baseFolder = Path.Combine(destinationRoot, $"clinic-backup-{timestamp:yyyyMMdd-HHmmss}");
+        // The prefix comes from the shared constant the pruner matches on: a literal here is how a renamed
+        // folder becomes invisible to retention and the destination grows for ever.
+        var baseFolder = Path.Combine(destinationRoot, $"{BackupFolderPrefix}{timestamp:yyyyMMdd-HHmmss}");
         var backupFolder = baseFolder;
         var attempt = 1;
         while (Directory.Exists(backupFolder))
@@ -111,19 +109,21 @@ public sealed class PgDumpBackupService : IBackupService
             // the backup proceeds and the admin is told plainly (AC-14.3). An ACL failure on a local fixed
             // disk, by contrast, throws — and the catch below deletes the partial folder (AC-14.4), so a
             // backup is never left both incomplete and unprotected.
-            string? warning = null;
+            // Two warnings can apply at once (an unprotectable destination that is also the live volume), so they
+            // accumulate rather than overwrite — a single `warning = ...` silently dropped whichever came first.
+            var warnings = new List<string>();
             var driveType = BackupProtectionPolicy.ResolveDriveType(backupFolder);
 
             if (BackupProtectionPolicy.CanProtect(driveType))
             {
                 if (_aclHardener.Harden(backupFolder) == AclHardeningOutcome.SkippedNotWindows)
                 {
-                    warning = BackupProtectionPolicy.UnprotectableDestinationWarning;
+                    warnings.Add(BackupProtectionPolicy.UnprotectableDestinationWarning);
                 }
             }
             else
             {
-                warning = BackupProtectionPolicy.UnprotectableDestinationWarning;
+                warnings.Add(BackupProtectionPolicy.UnprotectableDestinationWarning);
                 _logger.LogWarning(
                     "Backup destination {Folder} is on a {DriveType} drive — NTFS permissions cannot be " +
                     "relied on, so the backup is not access-restricted.",
@@ -131,9 +131,26 @@ public sealed class PgDumpBackupService : IBackupService
                     driveType);
             }
 
+            // L4b — the same-volume warning. A backup on the disk that dies with the database is not a backup,
+            // and the default destination is necessarily install-relative, so this is the *normal* case on a
+            // fresh install rather than an exotic misconfiguration. Said out loud, prominently, because it is the
+            // one thing about a backup an owner can act on in five minutes (plug in a USB disk).
+            if (IsOnTheSameVolumeAsTheLiveData(backupFolder, filesPath))
+            {
+                warnings.Add(SameVolumeWarning);
+                _logger.LogWarning(
+                    "Backup destination {Folder} is on the same volume as the live data — a single disk failure "
+                        + "would take both.", backupFolder);
+            }
+
             // --- (1) Database dump (R-3: DB first) ---
             var dumpFile = Path.Combine(backupFolder, "database.dump");
             await RunPgDumpAsync(pgDumpPath, conn, dumpFile, cancellationToken);
+
+            // --- (1b) L4c — VERIFY the dump is readable, before anything reports success ---
+            // A failed verification is a failed backup: the catch below deletes the partial folder, so an
+            // unreadable dump never sits in the destination looking like protection.
+            var verifiedObjectCount = await VerifyDumpAsync(pgDumpPath, dumpFile, cancellationToken);
 
             // --- (2) File-storage copy ---
             if (Directory.Exists(filesPath))
@@ -154,20 +171,254 @@ public sealed class PgDumpBackupService : IBackupService
             }
 
             var sizeBytes = DirectorySize(backupFolder);
-            _logger.LogInformation("Backup completed at {Folder} ({Size} bytes).", backupFolder, sizeBytes);
+            _logger.LogInformation(
+                "Backup completed at {Folder} ({Size} bytes, {Objects} objects verified).",
+                backupFolder, sizeBytes, verifiedObjectCount);
 
             return new BackupResultDto
             {
                 DestinationPath = backupFolder,
                 SizeBytes = sizeBytes,
                 TimestampUtc = timestamp,
-                Warning = warning
+                VerifiedObjectCount = verifiedObjectCount,
+                Warning = warnings.Count == 0 ? null : string.Join(" ", warnings)
             };
         }
         catch
         {
             TryDeleteDirectory(backupFolder);
             throw;
+        }
+    }
+
+    /// <summary>
+    /// The install-relative default destination (L4b). A sibling of <c>Files/</c> and <c>logs/</c>, resolved
+    /// through <see cref="LocalInstallPaths"/> because a Windows service's CWD is <c>System32</c> — a relative
+    /// "Backups" would otherwise write patient data into a system folder.
+    /// </summary>
+    private const string DefaultDestinationFolderName = "Backups";
+
+    /// <summary>The prefix the pruner matches on. Shared with the folder writer so the two cannot drift.</summary>
+    private const string BackupFolderPrefix = "clinic-backup-";
+
+    internal const string SameVolumeWarning =
+        "La sauvegarde est enregistrée sur le même disque que les données de la clinique : une panne de ce "
+        + "disque ferait perdre les deux. Choisissez un disque externe ou un dossier réseau.";
+
+    /// <inheritdoc />
+    public string ResolveDestinationRoot(string? destinationFolder)
+    {
+        if (!string.IsNullOrWhiteSpace(destinationFolder))
+        {
+            return destinationFolder.Trim();
+        }
+
+        var configured = _configuration["Backup:DefaultDestination"];
+        if (!string.IsNullOrWhiteSpace(configured))
+        {
+            return configured.Trim();
+        }
+
+        // Fall back rather than throw. The installer writes `Backup:DefaultDestination` as an empty string, so
+        // the *documented* default path failed on every fresh install with « Aucun dossier de destination » —
+        // a message about a setting the operator was told not to fill in.
+        return LocalInstallPaths.Resolve(DefaultDestinationFolderName);
+    }
+
+    /// <inheritdoc />
+    public Task<int> PruneOldBackupsAsync(
+        string? destinationFolder, int keepCount, CancellationToken cancellationToken = default)
+    {
+        var root = ResolveDestinationRoot(destinationFolder);
+        if (!Directory.Exists(root))
+        {
+            return Task.FromResult(0);
+        }
+
+        // Only OUR folders. An operator's own « Sauvegardes 2025 » sitting in the same destination is not the
+        // pruner's business, and a retention pass that deletes an unrecognised folder is unrecoverable.
+        var ours = Directory.EnumerateDirectories(root, $"{BackupFolderPrefix}*")
+            .Select(path => new DirectoryInfo(path))
+            // Oldest first, by NAME. The name embeds a UTC timestamp (`yyyyMMdd-HHmmss[-N]`), which sorts
+            // lexicographically in chronological order and — unlike CreationTimeUtc — survives being copied to
+            // another disk, which is precisely what an operator does with backups.
+            .OrderBy(d => d.Name, StringComparer.Ordinal)
+            .ToList();
+
+        var keep = Math.Max(1, keepCount);
+
+        // Never empty the folder. The floor is one surviving backup whatever the count says — an operator who
+        // types 0, or a corrupt setting, must not be able to leave the practice with nothing.
+        var deletable = Math.Min(Math.Max(0, ours.Count - keep), Math.Max(0, ours.Count - 1));
+
+        var deleted = 0;
+        for (var i = 0; i < deletable; i++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                ours[i].Delete(recursive: true);
+                deleted++;
+                _logger.LogInformation("Pruned old backup folder {Folder}.", ours[i].FullName);
+            }
+            catch (Exception ex)
+            {
+                // Skipped, not fatal: a locked folder must not fail the backup that just succeeded.
+                _logger.LogWarning(ex, "Could not prune the backup folder {Folder}.", ours[i].FullName);
+            }
+        }
+
+        return Task.FromResult(deleted);
+    }
+
+    /// <summary>
+    /// L4c — reads the dump's table of contents back with <c>pg_restore --list</c> and returns how many objects
+    /// it names. An empty TOC, an unreadable file or a non-zero exit is a <b>failed backup</b>.
+    ///
+    /// <para><c>pg_restore --list</c> and not a trial restore: it is fast, read-only and needs no target
+    /// database, so it can run on every backup — which is the only kind of verification that gets run.</para>
+    ///
+    /// <para><c>pg_restore.exe</c> is looked for beside <c>pg_dump.exe</c> (they ship together in
+    /// PostgreSQL's <c>bin/</c>) with an explicit <c>Backup:PgRestorePath</c> override. If it genuinely is not
+    /// there the backup <b>fails</b> rather than reporting an unverified success: a success that means less than
+    /// it says is what L4c exists to remove.</para>
+    /// </summary>
+    private async Task<int> VerifyDumpAsync(string pgDumpPath, string dumpFile, CancellationToken cancellationToken)
+    {
+        if (!File.Exists(dumpFile) || new FileInfo(dumpFile).Length == 0)
+        {
+            throw new InvalidOperationException(
+                "La sauvegarde de la base de données est vide — le fichier database.dump ne contient rien.");
+        }
+
+        var pgRestorePath = ResolvePgRestorePath(pgDumpPath);
+        if (pgRestorePath == null)
+        {
+            throw new InvalidOperationException(
+                "L'outil pg_restore est introuvable, la sauvegarde n'a donc pas pu être vérifiée. Vérifiez le "
+                + "paramètre 'Backup:PgRestorePath' (pg_restore.exe est fourni avec PostgreSQL, à côté de pg_dump.exe).");
+        }
+
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = pgRestorePath,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        startInfo.ArgumentList.Add("--list");
+        startInfo.ArgumentList.Add(dumpFile);
+
+        using var process = new Process { StartInfo = startInfo };
+        try
+        {
+            process.Start();
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException(
+                $"Impossible de vérifier la sauvegarde (pg_restore n'a pas pu être lancé) : {ex.Message}", ex);
+        }
+
+        var stdoutTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
+        var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
+
+        // The TOC read is orders of magnitude faster than the dump, so it gets its own short bound rather than
+        // the dump's 30 minutes: a pg_restore that hangs here has nothing left to be waiting for.
+        using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(VerifyTimeoutSeconds));
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+        try
+        {
+            await process.WaitForExitAsync(linked.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            TryKill(process);
+            if (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+            {
+                throw new InvalidOperationException(
+                    $"La vérification de la sauvegarde a dépassé le délai de {VerifyTimeoutSeconds}s.");
+            }
+            throw;
+        }
+
+        var stdout = await stdoutTask;
+        var stderr = (await stderrTask).Trim();
+
+        if (process.ExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                $"La sauvegarde créée est illisible (pg_restore code {process.ExitCode}). {stderr}".Trim());
+        }
+
+        var objectCount = CountTocEntries(stdout);
+        if (objectCount == 0)
+        {
+            throw new InvalidOperationException(
+                "La sauvegarde créée ne contient aucun objet — elle est inutilisable pour une restauration.");
+        }
+
+        return objectCount;
+    }
+
+    private const int VerifyTimeoutSeconds = 120;
+
+    /// <summary>
+    /// Counts the TOC entries in <c>pg_restore --list</c> output: every non-empty line that is not a
+    /// <c>;</c> comment. Deliberately a count of *lines* rather than a parse — the shape of a TOC line is
+    /// PostgreSQL's business and varies by version, while « is it empty and roughly how big is it » is all the
+    /// disaster-detection here needs.
+    /// </summary>
+    private static int CountTocEntries(string listOutput) =>
+        listOutput.Split('\n')
+            .Select(line => line.Trim())
+            .Count(line => line.Length > 0 && !line.StartsWith(';'));
+
+    /// <summary>
+    /// <c>pg_restore.exe</c>: the explicit override, else the sibling of <c>pg_dump.exe</c>. Null when neither
+    /// exists, which the caller turns into a failed backup.
+    /// </summary>
+    private string? ResolvePgRestorePath(string pgDumpPath)
+    {
+        var configured = _configuration["Backup:PgRestorePath"];
+        if (!string.IsNullOrWhiteSpace(configured) && File.Exists(configured))
+        {
+            return configured;
+        }
+
+        var directory = Path.GetDirectoryName(Path.GetFullPath(pgDumpPath));
+        if (string.IsNullOrEmpty(directory))
+        {
+            return null;
+        }
+
+        // The dump tool's own extension, so this works on Linux (no `.exe`) as well as on the Windows install
+        // the feature targets.
+        var extension = Path.GetExtension(pgDumpPath);
+        var candidate = Path.Combine(directory, $"pg_restore{extension}");
+        return File.Exists(candidate) ? candidate : null;
+    }
+
+    /// <summary>
+    /// Is the destination on the same volume as the live data? Compared on the path <b>root</b>, which is what a
+    /// disk failure takes. Unknown (a UNC share, an unusual path shape) reads as « not the same volume »: a
+    /// network destination is genuinely elsewhere, and warning about it would train the operator to ignore the
+    /// warning that matters.
+    /// </summary>
+    private static bool IsOnTheSameVolumeAsTheLiveData(string destination, string filesPath)
+    {
+        try
+        {
+            var destinationRoot = Path.GetPathRoot(Path.GetFullPath(destination));
+            var liveRoot = Path.GetPathRoot(Path.GetFullPath(filesPath));
+            return !string.IsNullOrEmpty(destinationRoot)
+                   && !string.IsNullOrEmpty(liveRoot)
+                   && string.Equals(destinationRoot, liveRoot, StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
         }
     }
 

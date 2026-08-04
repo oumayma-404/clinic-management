@@ -7,23 +7,30 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableHead, TableHeader, TableRow, TableCell } from "@/components/ui/table"
 import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
+import { LoadFailureNotice } from "@/components/ui/load-failure"
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Textarea } from "@/components/ui/textarea"
+import { Label } from "@/components/ui/label"
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Checkbox } from "@/components/ui/checkbox"
+import { EmptyState } from "@/components/ui/empty-state"
 import {
   ArrowLeft, Ban, CreditCard, FileDown, Loader2, ReceiptText, CheckCheck, ClipboardCheck, FilePen,
-  CalendarClock, CalendarPlus, Layers, MoreHorizontal, X,
+  CalendarClock, CalendarPlus, Layers, ListChecks, MoreHorizontal, X, Mail,
 } from "lucide-react"
 import { toast } from "sonner"
+import { showErrorToast } from "@/lib/errors"
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
 import { invoicesApi } from "@/lib/api/invoices"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
-import { ApiError } from "@/lib/api/client"
 import type { InstallmentDto, ProcedureTypeDto, TreatmentPlanDto, TreatmentPlanItemDto } from "@/lib/api/types"
 import { formatDT, formatDateFr, isBeforeToday } from "@/lib/format"
 import { downloadBlob } from "@/lib/download"
@@ -39,6 +46,39 @@ import { InstallmentPaymentModal } from "./installment-payment-modal"
 import { ReviseInstallmentsModal } from "./revise-installments-modal"
 import { TreatmentPlanFormModal } from "./treatment-plan-form-modal"
 import { CreateAppointmentDialog, type PresetPlanAct } from "@/components/create-appointment-dialog"
+import { SendDocumentEmailDialog } from "@/components/send-document-email-dialog"
+import { DOCUMENT_EMAIL_KINDS, type DocumentEmailKind } from "@/lib/api/document-emails"
+
+/** What « Envoyer par email » was clicked for — the devis itself, or one échéance's receipt. */
+interface PlanEmailTarget {
+  kind: DocumentEmailKind
+  documentId: string
+  installmentId?: string
+  paymentId?: string
+  label: string
+}
+
+/**
+ * A plan-level state change waiting for the user to say yes.
+ *
+ * <p><b>Why this exists.</b> « Accepter le devis », « Facturer le devis » and « Terminer » all fired on the
+ * first click, and all three are one-way. Accepting numbers a devis and ends free editing; facturer creates a
+ * note d'honoraires **and navigates away to /factures**, so a mis-click both writes a document and loses the
+ * page; terminer closes the plan. Worse, they sat in the same header row as « Devis PDF » and « Envoyer par
+ * email » — two harmless reads — and « Terminer » wore `variant="outline"` among the neutral buttons, so
+ * nothing about the control's appearance distinguished « print this » from « close this plan for good ».</p>
+ *
+ * <p>Modelled as one dialog driven by state rather than three dialogs, so every plan-level confirmation is
+ * guaranteed to carry the same shape: what will happen, to which numbered devis, and what will <i>not</i>
+ * happen. A per-action dialog is how one of them ends up without the consequence sentence.</p>
+ */
+interface PlanConfirm {
+  title: string
+  description: React.ReactNode
+  confirmLabel: string
+  /** Runs the mutation. Resolved before the dialog closes so the busy state covers the whole round trip. */
+  onConfirm: () => Promise<void>
+}
 import { planItemState } from "./plan-next-action"
 
 interface PlanWorkspaceProps {
@@ -55,6 +95,7 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
   const router = useRouter()
   const [busy, setBusy] = useState(false)
   const [paymentTarget, setPaymentTarget] = useState<InstallmentDto | null>(null)
+  const [emailTarget, setEmailTarget] = useState<PlanEmailTarget | null>(null)
   /**
    * Bookings still to make, each element being **one appointment**.
    *
@@ -69,20 +110,36 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
   const justAdvancedRef = useRef(false)
   const [cancelOpen, setCancelOpen] = useState(false)
   const [cancelReason, setCancelReason] = useState("")
+  /** The plan-level state change awaiting confirmation; null = no dialog. See {@link PlanConfirm}. */
+  const [confirmAction, setConfirmAction] = useState<PlanConfirm | null>(null)
   const [procedureTypes, setProcedureTypes] = useState<ProcedureTypeDto[]>([])
+  /** The act catalogue read failed — not the same as a devis whose acts are legitimately all free text. */
+  const [catalogFailed, setCatalogFailed] = useState(false)
   const [amendOpen, setAmendOpen] = useState(false)
   const [reviseOpen, setReviseOpen] = useState(false)
   /** The act whose « réalisé » state is being corrected (AC-P2.11); null = dialog closed. */
   const [undoTarget, setUndoTarget] = useState<TreatmentPlanItemDto | null>(null)
 
-  // Only needed to resolve an act's procedure when booking it (below). Failure is silent — it degrades to the
-  // previous free-text behaviour rather than blocking the workspace.
-  useEffect(() => {
-    procedureTypesApi
-      .list(false)
-      .then((data) => setProcedureTypes(data || []))
-      .catch(() => setProcedureTypes([]))
+  /*
+   * Only needed to resolve an act's procedure when booking it (below). A failure still degrades to the free-text
+   * behaviour rather than blocking the workspace — but it is **recorded** now instead of written back as `[]`.
+   *
+   * With no catalogue, `resolveProcedureTypeId` returns `undefined` for every act, so « Planifier » books a visit
+   * with no procédure: no colour on the agenda, no duration, and no act proposal in the fiche de soins. That is
+   * indistinguishable from a devis whose acts are all hand-typed, which is a legitimate state — hence the notice.
+   */
+  const loadCatalog = useCallback(async () => {
+    try {
+      setProcedureTypes((await procedureTypesApi.list(false)) || [])
+      setCatalogFailed(false)
+    } catch {
+      setCatalogFailed(true)
+    }
   }, [])
+
+  useEffect(() => {
+    void loadCatalog()
+  }, [loadCatalog])
 
   /**
    * The procedure an act stands for, so booking it produces a real `procedureTypeId` (colour, default
@@ -142,6 +199,21 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
    * `EnsureCorrectable` admits Accepted / InProgress / **Completed** — mirrored here.
    */
   const canCorrectActs = plan.status !== "Draft" && plan.status !== "Cancelled"
+  /**
+   * Whether an échéance of this plan can still take money (J1).
+   *
+   * <p>Payable on a `Completed` plan too — « Terminé » means every act was carried out, not that the patient has
+   * paid. Draft and Cancelled refuse. **And a billed plan refuses**: once a devis has been bridged to a note
+   * d'honoraires, that invoice represents it, its collected payments were carried across at issue, and both
+   * installment money reads exclude the plan from then on. So cash taken here after the bridge reduced the
+   * patient's balance and reached **no** money read — not la caisse, not the dashboard, not « Encaissé ». The
+   * server now refuses it outright; this is the same rule, so the button is not offered in the first place.</p>
+   *
+   * <p>⚠️ Derived **once** and read by both the card list and the table. The condition used to be written inline
+   * in each, which is exactly how a guard lands on one surface and not the other — and the phone is the surface
+   * that would have kept the button.</p>
+   */
+  const canCollectInstallments = !isDraft && plan.status !== "Cancelled" && !billed
 
   /**
    * The acts that can be booked right now. Same état the row's own « Planifier » keys off, so the tick boxes and
@@ -253,6 +325,14 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
     onChanged()
   }
 
+  /*
+   * ⚠️ `showErrorToast`, not a hand-rolled `toast.error(err instanceof ApiError ? … )`.
+   *
+   * The hand-rolled form (which is what all four of these used) inherits the *global* 4-second duration meant
+   * for success confirmations, never offers « Réessayer » on a transport failure, and silently drops the
+   * message of anything that is not an `ApiError` — a plain `Error` from `downloadBlob` fell through to the
+   * generic French sentence. `lib/errors.ts` is the single formatting point and supplies all three.
+   */
   const run = async (action: () => Promise<unknown>, success: string, failure: string) => {
     setBusy(true)
     try {
@@ -260,7 +340,7 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
       toast.success(success)
       onChanged()
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : failure)
+      showErrorToast(err, failure)
     } finally {
       setBusy(false)
     }
@@ -272,11 +352,88 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
       const blob = await treatmentPlansApi.downloadDevisPdf(plan.id)
       downloadBlob(blob, `devis-${plan.number ?? plan.id}.pdf`)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Échec du téléchargement du devis.")
+      showErrorToast(err, "Échec du téléchargement du devis.", handleDownloadDevis)
     } finally {
       setBusy(false)
     }
   }
+
+  /** How the devis is named in a confirmation sentence — the number when it has one, else « ce plan ». */
+  const planLabel = plan.number ? `Le devis ${plan.number}` : "Ce plan"
+  const actsRemaining = Math.max(plan.itemsTotal - plan.itemsDone, 0)
+
+  /**
+   * The three plan-level confirmations. Each names the numbered devis and states the consequence the button
+   * label cannot: acceptance ends free editing, facturation writes a document **and navigates away**, and
+   * « Terminer » leaves unfinished acts unfinished rather than completing them.
+   */
+  const confirmAccept = () =>
+    setConfirmAction({
+      title: "Accepter ce devis ?",
+      description: (
+        <>
+          {planLabel} passera à « Accepté » : ses actes pourront être planifiés et l&apos;échéancier devient
+          exigible. Il ne pourra plus être supprimé — une correction passera par « Modifier le devis », qui
+          incrémente le numéro de révision.
+        </>
+      ),
+      confirmLabel: "Accepter le devis",
+      onConfirm: () =>
+        run(() => treatmentPlansApi.accept(plan.id), "Devis accepté", "Échec de l'acceptation."),
+    })
+
+  const confirmBill = () =>
+    setConfirmAction({
+      title: "Facturer ce devis ?",
+      description: (
+        <>
+          Une note d&apos;honoraires en brouillon sera créée et vous serez redirigé vers Factures.
+          {plan.amountPaid > 0 && (
+            <>
+              {" "}
+              {/* The carry-over happens at ISSUE, not at draft creation — a draft invoice cannot hold payments.
+                  Said here as well as in the success toast: the toast arrives on the /factures page, after the
+                  navigation, which is too late to be a decision. */}
+              Les {formatDT(plan.amountPaid)} déjà encaissés sur ce devis seront reportés sur la facture à son
+              émission, pas sur le brouillon.
+            </>
+          )}
+        </>
+      ),
+      confirmLabel: "Créer la facture",
+      onConfirm: () =>
+        run(
+          async () => {
+            await invoicesApi.createFromPlan(plan.id)
+            router.push("/factures")
+          },
+          plan.amountPaid > 0
+            ? `Facture brouillon créée — ${formatDT(plan.amountPaid)} déjà encaissé sera reporté à l'émission`
+            : "Facture brouillon créée depuis le devis",
+          "Échec de la facturation du devis.",
+        ),
+    })
+
+  const confirmComplete = () =>
+    setConfirmAction({
+      title: "Terminer ce plan ?",
+      description: (
+        <>
+          {planLabel} passera à « Terminé ».{" "}
+          {/* The count, not the generic sentence: « 3 actes non réalisés resteront non réalisés » is the whole
+              reason to hesitate, and a plan whose acts are all done has nothing to warn about. Clôturer does
+              NOT mark them done, and it does not close the money either — both are stated because both are
+              what a user would otherwise assume « Terminé » means. */}
+          {actsRemaining > 0
+            ? `Les ${actsRemaining} acte${actsRemaining > 1 ? "s" : ""} non réalisé${actsRemaining > 1 ? "s" : ""} resteront non réalisé${actsRemaining > 1 ? "s" : ""} — la clôture ne les valide pas.`
+            : "Tous les actes sont réalisés."}{" "}
+          Les échéances restantes resteront encaissables.
+        </>
+      ),
+      confirmLabel: "Terminer le plan",
+      onConfirm: () =>
+        run(() => treatmentPlansApi.complete(plan.id), "Plan terminé", "Échec de la clôture du plan."),
+    })
 
   /**
    * Move an act one position up or down. The endpoint takes the **whole** order, not a delta — a partial
@@ -303,7 +460,9 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
       const blob = await treatmentPlansApi.downloadInstallmentReceipt(plan.id, installmentId, paymentId)
       downloadBlob(blob, `recu-echeance-${paymentId.slice(0, 8)}.pdf`)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Échec du téléchargement du reçu.")
+      showErrorToast(err, "Échec du téléchargement du reçu.", () =>
+        handleDownloadReceipt(installmentId, paymentId),
+      )
     } finally {
       setBusy(false)
     }
@@ -344,13 +503,10 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
             </CardTitle>
             <div className="flex flex-wrap items-center gap-2">
               {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+              {/* All three plan-level state changes go through a confirmation (see PlanConfirm). They used to
+                  fire on the first click, in a row that also holds « Devis PDF » and « Envoyer par email ». */}
               {isDraft && (
-                <Button
-                  size="sm"
-                  className="gap-2"
-                  disabled={busy}
-                  onClick={() => run(() => treatmentPlansApi.accept(plan.id), "Devis accepté", "Échec de l'acceptation.")}
-                >
+                <Button size="sm" className="gap-2" disabled={busy} onClick={confirmAccept}>
                   <ClipboardCheck className="h-4 w-4" />
                   Accepter le devis
                 </Button>
@@ -361,21 +517,7 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                   variant="outline"
                   className="gap-2"
                   disabled={busy}
-                  onClick={() =>
-                    run(
-                      async () => {
-                        await invoicesApi.createFromPlan(plan.id)
-                        router.push("/factures")
-                      },
-                      // The carry-over happens at ISSUE, not at draft creation (a draft invoice cannot hold
-                      // payments), so the draft will show the full amount owing. Say so, or the dentist sees a
-                      // full-price invoice for a patient who has already paid half and assumes it is wrong.
-                      plan.amountPaid > 0
-                        ? `Facture brouillon créée — ${formatDT(plan.amountPaid)} déjà encaissé sera reporté à l'émission`
-                        : "Facture brouillon créée depuis le devis",
-                      "Échec de la facturation du devis.",
-                    )
-                  }
+                  onClick={confirmBill}
                   title={
                     plan.amountPaid > 0
                       ? `${formatDT(plan.amountPaid)} déjà encaissé sur ce devis sera reporté sur la facture à son émission`
@@ -403,13 +545,7 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                 </Button>
               )}
               {isActive && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="gap-2"
-                  disabled={busy}
-                  onClick={() => run(() => treatmentPlansApi.complete(plan.id), "Plan terminé", "Échec de la clôture du plan.")}
-                >
+                <Button size="sm" variant="outline" className="gap-2" disabled={busy} onClick={confirmComplete}>
                   <CheckCheck className="h-4 w-4" />
                   Terminer
                 </Button>
@@ -417,6 +553,20 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
               <Button size="sm" variant="outline" className="gap-2" disabled={busy} onClick={handleDownloadDevis}>
                 <FileDown className="h-4 w-4" />
                 Devis PDF
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-2"
+                disabled={busy}
+                onClick={() => setEmailTarget({
+                  kind: DOCUMENT_EMAIL_KINDS.TreatmentPlan,
+                  documentId: plan.id,
+                  label: `Devis ${plan.number ?? ""}`.trim(),
+                })}
+              >
+                <Mail className="h-4 w-4" />
+                Envoyer par email
               </Button>
               {/* Cancelling a numbered devis lives here rather than in the list: it is the one destructive
                   action on the plan and needs the context of what is being voided. Server-side it is
@@ -477,7 +627,10 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
             </p>
           )}
           {plan.cancellationReason && (
-            <p className="rounded-md bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">
+            /* The theme's own destructive family, not `red-*` literals with a hand-maintained `dark:` twin —
+               `--destructive-wash` exists for exactly this pairing and flips with the palette on its own, so the
+               two dark: classes this carried are not just redundant, they were a second palette to keep in sync. */
+            <p className="rounded-md border border-destructive/25 bg-destructive-wash p-3 text-sm text-destructive">
               Motif d&apos;annulation : {plan.cancellationReason}
             </p>
           )}
@@ -497,6 +650,15 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
           </div>
         </CardHeader>
         <CardContent>
+          {catalogFailed && (
+            <LoadFailureNotice
+              variant="inline"
+              message="Le catalogue des actes n'a pas pu être chargé."
+              detail="Un rendez-vous planifié depuis ce devis partira sans procédure (ni couleur, ni durée)."
+              onRetry={() => void loadCatalog()}
+              className="mb-3"
+            />
+          )}
           {/*
             The grouping bar. It only exists while acts are ticked, and it offers **both** splits explicitly rather
             than guessing: « ensemble » is one appointment carrying every ticked act, « séparément » is one
@@ -552,7 +714,21 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
           )}
 
           {plan.items.length === 0 ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">Aucun acte planifié.</p>
+            /* « Aucun acte planifié. » on its own is a statement that the software is working correctly, which
+               is not what the reader was worried about. A devis with no acts is either a draft nobody finished
+               or an amendment that removed the last one, and both have exactly one next move — so name it. */
+            <EmptyState
+              icon={ListChecks}
+              size="compact"
+              title="Aucun acte planifié"
+              description={
+                canAmend
+                  ? "Ce devis ne contient encore aucun acte. Ajoutez-les avec « Modifier le devis »."
+                  : isDraft
+                    ? "Ce brouillon ne contient encore aucun acte. Modifiez-le pour en ajouter."
+                    : "Ce devis ne contient aucun acte."
+              }
+            />
           ) : (
             <>
               {/*
@@ -759,8 +935,33 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
           </div>
         </CardHeader>
         <CardContent>
+          {/*
+            The reason « Encaisser » is gone, as **visible text** and not a `title` (J1): a tooltip is unreachable
+            on a touch device, and this is the screen a dentist opens with the patient in front of them. Without
+            it the action simply vanishes from every row and the « Facturé » badge in the header is the only clue.
+          */}
+          {billed && plan.installments.length > 0 && (
+            <p role="note" className="mb-3 rounded-md bg-muted/40 p-3 text-xs text-muted-foreground">
+              Ce devis est facturé{plan.linkedInvoiceNumber ? ` (note n° ${plan.linkedInvoiceNumber})` : ""}.
+              Les paiements s&apos;enregistrent désormais sur la note d&apos;honoraires — un encaissement saisi ici
+              n&apos;apparaîtrait ni dans la caisse ni dans les recettes.
+            </p>
+          )}
           {plan.installments.length === 0 ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">Aucune échéance définie.</p>
+            /* An empty échéancier is a legitimate, common state — the patient pays in one go — so this says
+               that rather than implying something is missing. « Modifier l'échéancier » is only named when the
+               plan is actually in the amendable window, or the description would point at a button that is
+               not on screen. */
+            <EmptyState
+              icon={CalendarClock}
+              size="compact"
+              title="Aucune échéance définie"
+              description={
+                canAmend
+                  ? "Le règlement n'est pas échelonné. Utilisez « Modifier l'échéancier » pour en définir un."
+                  : "Le règlement de ce devis n'est pas échelonné."
+              }
+            />
           ) : (
             <>
               {/*
@@ -793,7 +994,7 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                   { label: "Reste", value: formatDT(inst.outstanding) },
                 ]}
                 actions={(inst) => {
-                  const canCollect = !inst.isPaid && !isDraft && plan.status !== "Cancelled"
+                  const canCollect = !inst.isPaid && canCollectInstallments
                   const receipts = inst.payments.filter((p) => !p.isVoided)
                   if (!canCollect && receipts.length === 0) return null
                   return (
@@ -818,6 +1019,20 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                             onSelect={() => handleDownloadReceipt(inst.id, payment.id)}
                           >
                             Reçu — {formatDT(payment.amount)} du {formatDateFr(payment.paidOn)}
+                          </DropdownMenuItem>
+                        ))}
+                        {receipts.map((payment) => (
+                          <DropdownMenuItem
+                            key={`email-${payment.id}`}
+                            onSelect={() => setEmailTarget({
+                              kind: DOCUMENT_EMAIL_KINDS.InstallmentPaymentReceipt,
+                              documentId: plan.id,
+                              installmentId: inst.id,
+                              paymentId: payment.id,
+                              label: `Reçu d'échéance ${formatDT(payment.amount)}`,
+                            })}
+                          >
+                            Envoyer par email — {formatDT(payment.amount)}
                           </DropdownMenuItem>
                         ))}
                       </DropdownMenuContent>
@@ -858,9 +1073,8 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-1">
-                            {/* Payable on a Completed plan too: « Terminé » means every act was carried out,
-                                not that the patient has paid. Only Draft/Cancelled refuse. */}
-                            {!inst.isPaid && !isDraft && plan.status !== "Cancelled" && (
+                            {/* See `canCollectInstallments` — one derived rule shared with the card list. */}
+                            {!inst.isPaid && canCollectInstallments && (
                               <Button
                                 variant="outline"
                                 size="sm"
@@ -890,6 +1104,28 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                                   Reçu
                                 </Button>
                               ))}
+                            {inst.payments
+                              .filter((p) => !p.isVoided)
+                              .map((payment) => (
+                                <Button
+                                  key={`email-${payment.id}`}
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8 gap-1"
+                                  disabled={busy}
+                                  title={`Envoyer par email le reçu du paiement de ${formatDT(payment.amount)}`}
+                                  onClick={() => setEmailTarget({
+                                    kind: DOCUMENT_EMAIL_KINDS.InstallmentPaymentReceipt,
+                                    documentId: plan.id,
+                                    installmentId: inst.id,
+                                    paymentId: payment.id,
+                                    label: `Reçu d'échéance ${formatDT(payment.amount)}`,
+                                  })}
+                                >
+                                  <Mail className="h-4 w-4" />
+                                  Email
+                                </Button>
+                              ))}
                           </div>
                         </TableCell>
                       </TableRow>
@@ -911,6 +1147,19 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
           <PlanTimeline plan={plan} />
         </CardContent>
       </Card>
+
+      {emailTarget && (
+        <SendDocumentEmailDialog
+          open={Boolean(emailTarget)}
+          onOpenChange={(next) => { if (!next) setEmailTarget(null) }}
+          documentKind={emailTarget.kind}
+          documentId={emailTarget.documentId}
+          installmentId={emailTarget.installmentId}
+          paymentId={emailTarget.paymentId}
+          documentLabel={emailTarget.label}
+          patientId={plan.patientId}
+        />
+      )}
 
       <InstallmentPaymentModal
         open={!!paymentTarget}
@@ -961,12 +1210,24 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
               est requis.
             </DialogDescription>
           </DialogHeader>
-          <Textarea
-            value={cancelReason}
-            onChange={(e) => setCancelReason(e.target.value)}
-            placeholder="Motif d'annulation"
-            rows={3}
-          />
+          {/*
+            A real `<Label htmlFor>`, not a placeholder standing in for one. A placeholder disappears on the
+            first keystroke, so the field the motif is being typed into becomes unlabelled at exactly the moment
+            it holds content — and it is never announced as a label by a screen reader at all. The motif is
+            printed on the cancelled devis and read by whoever picks the file up later, so this field is the
+            reason the cancellation is defensible; it deserves a name and a hint about what to write.
+          */}
+          <div className="space-y-1.5">
+            <Label htmlFor="plan-cancel-reason">Motif d&apos;annulation</Label>
+            <Textarea
+              id="plan-cancel-reason"
+              value={cancelReason}
+              onChange={(e) => setCancelReason(e.target.value)}
+              placeholder="Ex. : patient a renoncé au traitement"
+              rows={3}
+              disabled={busy}
+            />
+          </div>
           <DialogFooter className="gap-2">
             <Button
               variant="outline"
@@ -975,14 +1236,17 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
             >
               Retour
             </Button>
+            {/*
+              Gated by `disabled`, not by a toast after the click. The empty-motif check used to run *inside*
+              the handler and surface as a toast, so the requirement was invisible until the user had already
+              committed to cancelling a numbered devis — and the toast appears in a corner, away from the field
+              that needs filling. `payment-modal.tsx` disables its own confirm for the same reason: a rule the
+              form can enforce should never be discovered by breaking it.
+            */}
             <Button
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={busy}
+              disabled={busy || !cancelReason.trim()}
               onClick={async () => {
-                if (!cancelReason.trim()) {
-                  toast.error("Le motif d'annulation est requis.")
-                  return
-                }
                 await run(
                   () => treatmentPlansApi.cancel(plan.id, cancelReason.trim()),
                   "Plan annulé",
@@ -1043,7 +1307,15 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
             <Button variant="outline" disabled={busy} onClick={() => setUndoTarget(null)}>
               Retour
             </Button>
+            {/*
+              Destructive styling, matching every other confirm in this file. Without the class the default
+              `Button` variant renders the *primary* fill, so the footer read « Retour » (outline) beside a blue
+              « Détacher la fiche » — which is the visual grammar for "this is the recommended action". It is
+              not: it reopens a closed devis and undoes a réalisé act, and the outline/primary pairing was
+              actively steering the user toward it.
+            */}
             <Button
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               disabled={busy}
               onClick={async () => {
                 const target = undoTarget
@@ -1061,6 +1333,44 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/*
+        The one dialog behind « Accepter le devis » / « Facturer le devis » / « Terminer » — see PlanConfirm.
+
+        `AlertDialog` rather than the `Dialog` its two siblings above use, deliberately: those two carry input
+        (a motif) or a long explanation, while these three are a pure yes/no on a one-way change. AlertDialog is
+        the repo's convention for that — it is modal, it cannot be dismissed by clicking outside, and it puts
+        focus on the cancel, so the confirmation cannot be walked past by a stray keypress.
+      */}
+      <AlertDialog
+        open={confirmAction !== null}
+        onOpenChange={(open) => { if (!open && !busy) setConfirmAction(null) }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{confirmAction?.title}</AlertDialogTitle>
+            <AlertDialogDescription>{confirmAction?.description}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>Retour</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={busy}
+              onClick={async (event) => {
+                // Radix closes an AlertDialogAction on click. Prevented so the dialog stays put — and disabled
+                // — for the whole round trip, then closed here; otherwise « Facturer » would dismiss instantly
+                // and the user would be looking at the plan for a second before the redirect fires.
+                event.preventDefault()
+                const action = confirmAction
+                if (!action) return
+                await action.onConfirm()
+                setConfirmAction(null)
+              }}
+            >
+              {confirmAction?.confirmLabel}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

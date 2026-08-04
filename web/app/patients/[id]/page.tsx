@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useMemo, useRef } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { AppShell } from "@/components/app-shell"
 import { ClinicGuard } from "@/components/clinic-guard"
@@ -11,6 +11,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Separator } from "@/components/ui/separator"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
+import { DataTablePagination } from "@/components/ui/data-table-pagination"
+import type { PagedResponse } from "@/lib/api/paging"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -82,6 +84,10 @@ import { BillDentalRecordDialog } from "@/components/factures/bill-dental-record
 import { Odontogram } from "@/components/odontogram"
 import { PatientNotesStrip } from "@/components/patient/patient-notes-strip"
 import { PatientUndocumentedVisits } from "@/components/patient/patient-undocumented-visits"
+import { patientFlagLabel } from "@/components/patient/patient-flag-labels"
+import { EmptyState } from "@/components/ui/empty-state"
+import { LoadFailureNotice } from "@/components/ui/load-failure"
+import { ZONES, zoneChipClass } from "@/lib/zones"
 import { TreatmentPlansTable } from "@/components/treatment-plans/treatment-plans-table"
 import { PatientPlansStrip } from "@/components/treatment-plans/patient-plans-strip"
 import { TreatmentPlanFormModal, type TreatmentPlanSeedLine } from "@/components/treatment-plans/treatment-plan-form-modal"
@@ -136,25 +142,63 @@ const DOCUMENT_TYPE_LABELS: Record<string, string> = {
 const documentTypeLabel = (type: string) => DOCUMENT_TYPE_LABELS[type] ?? type
 
 /**
- * An empty section, or one that has not been asked for yet.
+ * The placeholder for a section whose request has not answered yet.
  *
  * Load-bearing since the page began painting its identity before its details: `[]` used to be reachable only
  * after every request had answered, so « Aucun dossier dentaire » was always true. It is now also the state
  * *before* the request answers — and a page that tells a dentist their patient has no records, no
  * appointments and no files, a beat before listing all three, is worse than one that took longer to appear.
- * Every empty state in the tabs goes through here so none of them can assert an absence we have not verified.
  */
-function EmptyOrLoading({ loading, children }: { loading: boolean; children: React.ReactNode }) {
-  if (loading) {
-    return (
-      <div className="space-y-2 py-6" role="status" aria-label="Chargement…">
-        {[0, 1, 2].map((i) => (
-          <div key={i} className="h-5 animate-pulse rounded bg-muted" />
-        ))}
-      </div>
-    )
-  }
-  return <p className="py-8 text-center text-muted-foreground">{children}</p>
+function SectionSkeleton() {
+  return (
+    <div className="space-y-2 py-6" role="status" aria-label="Chargement…">
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="h-5 animate-pulse rounded bg-muted" />
+      ))}
+    </div>
+  )
+}
+
+/**
+ * The nine phase-2 reads, named — so a tab can say which one of them failed.
+ *
+ * <p>Naming them is the whole fix. Every one of these calls carried `.catch(() => [])`, which is a perfectly
+ * reasonable way to keep one dead endpoint from taking down a patient's file — and a terrible way to *report*
+ * it, because `[]` is also what a genuinely empty section returns. A failed `dentalRecordsApi` rendered « Aucune
+ * fiche de soins » about a patient with forty; a failed `treatmentPlansApi` made `PatientPlansStrip` return
+ * `null`, silently asserting « never had a plan » about someone with three. The outer `catch` could never fire,
+ * so nothing anywhere on the page said a word.</p>
+ */
+type PatientSection =
+  | "appointments"
+  | "medicalHistory"
+  | "familyHistory"
+  | "dentalRecords"
+  | "files"
+  | "folders"
+  | "invoices"
+  | "plans"
+  | "documents"
+
+/**
+ * What a section shows when its read FAILED — deliberately not what it shows when it is empty.
+ *
+ * <p>The page already knows this rule: the identity loader states that « a transient failure on a background
+ * refresh must not turn a loaded patient into "Patient introuvable" ». This is the same reasoning one level
+ * down, per tab.</p>
+ *
+ * <p>The treatment itself now lives in `ui/load-failure.tsx` — it was written here and used only here, which is why
+ * six other surfaces reached for `.catch(() => setX([]))` instead and rendered their failures as « aucun ». This
+ * wrapper is kept because « cette section » is the page's own wording and nine call sites share it.</p>
+ */
+function SectionLoadFailure({ onRetry }: { onRetry: () => void }) {
+  return (
+    <LoadFailureNotice
+      message="Cette section n'a pas pu être chargée."
+      detail="Son contenu n'est pas forcément vide."
+      onRetry={onRetry}
+    />
+  )
 }
 
 /**
@@ -299,6 +343,15 @@ const PATIENT_TABS = [
   "treatment-plans",
 ]
 
+/**
+ * Rows per page in « Dossiers dentaires ».
+ *
+ * Five, not the app's `DEFAULT_PAGE_SIZE` of 25: this list sits inside a tab under the patient's identity, its
+ * rows are tall (teeth badges, expandable notes) and a fiche is *read* rather than scanned — a long-standing
+ * patient's forty séances pushed everything below them off the screen.
+ */
+const DENTAL_RECORDS_PAGE_SIZE = 5
+
 export default function PatientDetailsPage() {
   const params = useParams()
   const router = useRouter()
@@ -323,6 +376,13 @@ export default function PatientDetailsPage() {
    */
   const [loading, setLoading] = useState(true)
   const [detailsLoading, setDetailsLoading] = useState(true)
+  /**
+   * Which of the nine phase-2 reads failed on the last load. See {@link PatientSection}.
+   *
+   * <p>Replaced entirely on each load rather than merged, so a successful retry clears the band it raised —
+   * a section that stayed marked "failed" after it had loaded would be the same lie in the other direction.</p>
+   */
+  const [failedSections, setFailedSections] = useState<Set<PatientSection>>(new Set())
   /**
    * The patient whose data is currently on screen. A `refreshKey` bump (a save, or a peer's edit arriving over
    * realtime) must refetch *quietly*; only navigating to a different patient may blank the page. Without this
@@ -369,6 +429,38 @@ export default function PatientDetailsPage() {
       else next.delete(recordId)
       return next
     })
+  /**
+   * « Dossiers dentaires » pages **in the browser**, deliberately.
+   *
+   * `dentalRecordsApi.list` takes no paging parameters, and four other things on this page read the *whole*
+   * history anyway — the Notes tab, the odontogram band, the plan-act reconciliation and the delete
+   * confirmation — so asking the server for a slice would mean fetching the same list twice. This is the
+   * `PagedResult.FromSource` case (`web/lib/api/paging.ts`), not a client-side filter over a server page: the
+   * list here really is complete, so the page it cuts is the page the count describes.
+   */
+  const [recordsPageRequest, setRecordsPageRequest] = useState(1)
+  const recordsPage = useMemo<PagedResponse<DentalRecordDto>>(() => {
+    const totalCount = dentalRecords.length
+    const totalPages = Math.max(1, Math.ceil(totalCount / DENTAL_RECORDS_PAGE_SIZE))
+    // Clamped at render rather than corrected by an effect: deleting the last fiche of the last page must land
+    // on a page that exists, and an effect would first paint the empty one.
+    const page = Math.min(Math.max(1, recordsPageRequest), totalPages)
+    const start = (page - 1) * DENTAL_RECORDS_PAGE_SIZE
+    return {
+      items: dentalRecords.slice(start, start + DENTAL_RECORDS_PAGE_SIZE),
+      page,
+      pageSize: DENTAL_RECORDS_PAGE_SIZE,
+      totalCount,
+      totalPages,
+      hasPreviousPage: page > 1,
+      hasNextPage: page < totalPages,
+    }
+  }, [dentalRecords, recordsPageRequest])
+  // A different patient is a different history. Navigating between two patients does **not** remount this page
+  // (only `params.id` changes), so without this the header search would open the next file on page 3.
+  useEffect(() => {
+    setRecordsPageRequest(1)
+  }, [patientId])
   // Dental records already tied to a non-cancelled invoice (guards against double-invoicing).
   const [invoicedDentalRecordIds, setInvoicedDentalRecordIds] = useState<Set<string>>(new Set())
   // The note d'honoraires that bills each of those records, so the delete confirmation can NAME it
@@ -396,6 +488,27 @@ export default function PatientDetailsPage() {
     setActiveTab(tab)
     tabsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
   }
+  /**
+   * Keep the SELECTED tab inside the strip's visible window.
+   *
+   * <p>Below `sm:` the seven tabs are a horizontally scrolling row that always starts at « Dossiers médicaux ».
+   * A `?tab=documents` deep-link — which is how `plan-act-row` and the post-visit prompt route here — therefore
+   * landed on a panel whose tab was off the right edge, with nothing selected in view: the page looked like it
+   * had ignored the link.</p>
+   *
+   * <p>⚠️ `list.scrollTo`, deliberately NOT `activeTrigger.scrollIntoView`. `scrollIntoView` walks up every
+   * scrollable ancestor, and at `sm:` and up this strip does not scroll at all — so it would bubble to the
+   * document and drag the viewport down to the tabs (which sit below the odontogram) on every single open. The
+   * `scrollWidth <= clientWidth` guard says the same thing twice on purpose: no overflow, nothing to do.</p>
+   */
+  const tabsListRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const list = tabsListRef.current
+    if (!list || list.scrollWidth <= list.clientWidth) return
+    const active = list.querySelector<HTMLElement>('[data-state="active"]')
+    if (!active) return
+    list.scrollTo({ left: Math.max(0, active.offsetLeft - (list.clientWidth - active.offsetWidth) / 2) })
+  }, [activeTab])
   const [medicalDocuments, setMedicalDocuments] = useState<MedicalDocumentDto[]>([])
   const [planSeeds, setPlanSeeds] = useState<TreatmentPlanSeedLine[]>([])
   const [seededPlanOpen, setSeededPlanOpen] = useState(false)
@@ -470,6 +583,19 @@ export default function PatientDetailsPage() {
         // keyed on the same `[patientId, refreshKey]`. Folded in here so `detailsLoading` actually covers
         // everything it gates — a flag that is false while two of the tabs are still empty would put the
         // « Aucun document enregistré » it is meant to suppress right back on screen.
+        //
+        // ⚠️ Each read still degrades to `[]` — one dead endpoint must not take down the whole file — but it now
+        // RECORDS that it failed. `[]` alone was indistinguishable from a genuinely empty section, which is how
+        // a failed fetch came to render « Aucun rendez-vous » about a patient with a full history. See
+        // `PatientSection` / `SectionLoadFailure`.
+        //
+        const failed = new Set<PatientSection>()
+        const attempt = <T,>(section: PatientSection, request: Promise<T[]>): Promise<T[]> =>
+          request.catch(() => {
+            failed.add(section)
+            return [] as T[]
+          })
+
         const [
           appointmentsData,
           medicalHistory,
@@ -481,17 +607,18 @@ export default function PatientDetailsPage() {
           plansData,
           documentsData,
         ] = await Promise.all([
-          appointmentsApi.list({ patientId }).catch(() => []),
-          patientMedicalHistoryApi.list(patientId).catch(() => []),
-          patientFamilyHistoryApi.list(patientId).catch(() => []),
-          dentalRecordsApi.list(patientId).catch(() => []),
-          patientFilesApi.getFiles(patientId).catch(() => []),
-          patientFilesApi.getFolders(patientId).catch(() => []),
-          invoicesApi.list({ patientId }).catch(() => []),
-          treatmentPlansApi.list({ patientId }).catch(() => []),
-          medicalDocumentsApi.list(patientId).catch(() => []),
+          attempt("appointments", appointmentsApi.list({ patientId })),
+          attempt("medicalHistory", patientMedicalHistoryApi.list(patientId)),
+          attempt("familyHistory", patientFamilyHistoryApi.list(patientId)),
+          attempt("dentalRecords", dentalRecordsApi.list(patientId)),
+          attempt("files", patientFilesApi.getFiles(patientId)),
+          attempt("folders", patientFilesApi.getFolders(patientId)),
+          attempt("invoices", invoicesApi.list({ patientId })),
+          attempt("plans", treatmentPlansApi.list({ patientId })),
+          attempt("documents", medicalDocumentsApi.list(patientId)),
         ])
         if (cancelled) return
+        setFailedSections(failed)
         setTreatmentPlans(plansData)
         setMedicalDocuments(documentsData)
         setAppointments(appointmentsData)
@@ -566,16 +693,31 @@ export default function PatientDetailsPage() {
     if (tab && PATIENT_TABS.includes(tab)) setActiveTab(tab)
   }, [patientId])
 
-  // Reload files when folder changes
+  /*
+   * Reload files when the folder changes.
+   *
+   * ⚠️ The failure is recorded in `failedSections`, not absorbed into `[]`. This read used to carry
+   * `.catch(() => [])`, which made **an empty folder and an unreachable server the same screen** — on the tab whose
+   * folders hold radiographs, so « aucun fichier » about a patient's panoramics is exactly the wrong answer. The
+   * outer `catch` could then only fire on a render fault, which is why the toast never appeared.
+   *
+   * It reuses the `"files"` section rather than inventing a second flag: the same tab body renders both this read
+   * and the phase-2 one, so two flags would be two ways to say one thing and the tab would have to pick.
+   */
   useEffect(() => {
     const loadFilesForFolder = async () => {
       if (!patientId) return
       try {
-        const filesData = await patientFilesApi.getFiles(patientId, currentFolderId || undefined).catch(() => [])
+        const filesData = await patientFilesApi.getFiles(patientId, currentFolderId || undefined)
         setFiles(filesData)
+        setFailedSections((prev) => {
+          if (!prev.has("files")) return prev
+          const next = new Set(prev)
+          next.delete("files")
+          return next
+        })
       } catch (error) {
-        // The inner `.catch(() => [])` already absorbs the API failure, so this arm is only reachable on a
-        // genuine render/state fault. Surface it rather than swallow (AC-P3.33).
+        setFailedSections((prev) => (prev.has("files") ? prev : new Set(prev).add("files")))
         showErrorToast(error, "Les fichiers de ce dossier n'ont pas pu être chargés.")
       }
     }
@@ -797,8 +939,44 @@ export default function PatientDetailsPage() {
     }
   }
   
+  /** Did any of the named reads fail on the last load? */
+  const sectionFailed = (...sections: PatientSection[]) => sections.some((s) => failedSections.has(s))
+
+  /** Re-run the whole phase-2 batch. The reads are cheap and always fetched together, so a per-section retry
+   *  would be three code paths for one gesture. */
+  const retrySections = () => setRefreshKey((k) => k + 1)
+
+  /**
+   * What a tab body shows when it holds no rows — **three** states, never two.
+   *
+   * <p>Loading wins (the request has not answered, so nothing can be asserted); then failure (it answered
+   * badly, and « aucun » would be a claim we cannot make); only then the real empty state, which is the one
+   * case where being welcoming and specific is worth the space. Routing all four tabs through one helper is
+   * what stops the third of them from quietly regressing to a grey sentence.</p>
+   */
+  const renderSectionEmpty = (sections: PatientSection[], empty: React.ReactNode) => {
+    if (detailsLoading) return <SectionSkeleton />
+    if (sectionFailed(...sections)) return <SectionLoadFailure onRetry={retrySections} />
+    return empty
+  }
+
+  /**
+   * The Notes tab reaches "nothing to show" two different ways — no fiches at all, and fiches that carry no
+   * notes — and both are the same fact to the reader, so they share one element rather than two near-identical
+   * blocks that would drift.
+   */
+  const notesEmptyState = (
+    <EmptyState
+      icon={FileText}
+      size="compact"
+      chipClassName={zoneChipClass(ZONES.daily)}
+      title="Aucune note de séance"
+      description="Les notes saisies dans une fiche de soins apparaissent ici."
+    />
+  )
+
   // Parse allergies from string (comma-separated)
-  const allergiesList = patient.allergies 
+  const allergiesList = patient.allergies
     ? patient.allergies.split(',').map(a => a.trim()).filter(Boolean)
     : []
   
@@ -809,8 +987,19 @@ export default function PatientDetailsPage() {
   return (
     <ClinicGuard>
       <AppShell contentClassName="space-y-6">
-        {/* Back Button */}
-        <Button variant="ghost" onClick={() => router.push("/patients")} className="gap-2">
+        {/*
+          Back — desktop only.
+
+          Below `md:` this ghost button cost a full ~60px row directly above the patient's own name, on every
+          single open, to duplicate navigation the phone already has twice over: `bottom-nav.tsx` puts
+          « Patients » on the thumb at all times, and the browser's own back gesture is the habit users actually
+          use. That row plus the (now wrapping) name is what was pushing the allergies strip below the fold.
+        */}
+        <Button
+          variant="ghost"
+          onClick={() => router.push("/patients")}
+          className="hidden gap-2 md:inline-flex"
+        >
           <ArrowLeft className="h-4 w-4" />
           Retour aux patients
         </Button>
@@ -818,10 +1007,21 @@ export default function PatientDetailsPage() {
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0 space-y-2">
             <div className="flex min-w-0 flex-wrap items-center gap-3">
-              {/* `truncate` + `min-w-0` is what makes the `shrink-0` on the action row mean something: without
-                  it the name refuses to shrink below its text, so it keeps pushing until the group wraps
-                  anyway. A very long name ellipsizes and carries the full value in its `title`. */}
-              <h1 className="min-w-0 truncate text-3xl font-semibold text-foreground" title={patientName}>
+              {/*
+                ⚠️ The name WRAPS. It must never be `truncate`, and the `title` that used to carry the full
+                value is gone with it.
+
+                This is the page's strongest identity, and `ui/card-list.tsx` already states the rule for the
+                weaker version of the same thing: « the heading WRAPS; it must never be `truncate` …
+                "Mohamed Ali Ben Romdh…" is not a weaker label, it is a different person ». At 390px, 30px type
+                fits roughly 23 characters, so « Mohamed Amine Ben Abdallah » ellipsised — and `title=` is
+                unreachable on touch, which left the full name recoverable only by scrolling to
+                « Informations personnelles ».
+
+                `text-2xl` with `sm:text-title` rather than a flat `text-3xl`: a wrapping name needs to not
+                consume three lines of a phone before the clinical strip below it.
+              */}
+              <h1 className="min-w-0 text-2xl font-semibold leading-tight text-foreground [overflow-wrap:anywhere] sm:text-title">
                 {patientName}
               </h1>
               {hasFlags && (
@@ -829,7 +1029,9 @@ export default function PatientDetailsPage() {
                   {patient.flags?.filter(flag => flag.isActive).map((flag) => (
                     <Badge key={flag.id} variant="destructive" className="gap-1">
                       <Flag className="h-3 w-3" />
-                      {flag.flagType}
+                      {/* The raw enum name was printed here — « HighPriority » in a red badge beside the
+                          patient's name, at the top of an otherwise entirely French record. */}
+                      {patientFlagLabel(flag.flagType)}
                     </Badge>
                   ))}
                 </div>
@@ -973,6 +1175,9 @@ export default function PatientDetailsPage() {
         <PatientNotesStrip
           patient={patient}
           records={dentalRecords}
+          // A dead fiches read must not make the band say « Aucune alerte » — see the prop's own note.
+          recordsFailed={sectionFailed("dentalRecords")}
+          onRetryRecords={retrySections}
           onEdit={() => setEditDialogOpen(true)}
         />
 
@@ -1051,6 +1256,10 @@ export default function PatientDetailsPage() {
         {/* Treatment leads the patient page now. A devis buried in the 8th tab was the whole reason the plan
             felt disconnected from the patient it belongs to. A band rather than a card since the redesign —
             ~76 px instead of ~250 — and it renders only when the patient has no plans at all. */}
+        {/* ⚠️ The band renders NOTHING when `plans` is empty, so a failed `treatmentPlansApi` read is invisible
+            and silently asserts « never had a plan » about a patient with three. This is the one section whose
+            empty state is "no element at all", which is why the failure has to be reported beside it. */}
+        {sectionFailed("plans") && <SectionLoadFailure onRetry={retrySections} />}
         <PatientPlansStrip
           plans={treatmentPlans}
           onOpen={() => openTab("treatment-plans")}
@@ -1077,7 +1286,14 @@ export default function PatientDetailsPage() {
             visual noise for a control nobody drags on a phone. The active tab is styled, so the row never
             looks like it has no state.
           */}
-          <TabsList className="flex h-auto w-full items-stretch gap-1 overflow-x-auto p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:grid sm:grid-cols-4 sm:overflow-visible lg:grid-cols-7">
+          {/* The strip and its right-edge fade. The fade is `sm:hidden` because that is exactly where the row
+              stops scrolling and becomes a grid — a gradient over a grid would shade a tab for no reason. It is
+              `pointer-events-none`, so it never intercepts a tap on the tab underneath it. */}
+          <div className="relative">
+          <TabsList
+            ref={tabsListRef}
+            className="flex h-auto w-full items-stretch gap-1 overflow-x-auto p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:grid sm:grid-cols-4 sm:overflow-visible lg:grid-cols-7"
+          >
             <TabsTrigger value="medical-records" className="h-auto min-h-9 shrink-0 gap-2 whitespace-nowrap py-1.5 text-center leading-tight sm:shrink sm:whitespace-normal">
               <FileCheck className="h-4 w-4" />
               Dossiers médicaux
@@ -1107,50 +1323,80 @@ export default function PatientDetailsPage() {
               Plan de traitement
             </TabsTrigger>
           </TabsList>
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-y-0 right-0 w-6 rounded-r-lg bg-gradient-to-l from-muted to-transparent sm:hidden"
+          />
+          </div>
 
           {/* Medical Records Tab - Unified View */}
           <TabsContent value="medical-records" className="space-y-4">
             {/* Dental Records Section */}
             <Card>
+              {/*
+                ⚠️ `flex-wrap` + `min-w-0 flex-1` + a full-width action below `sm:`.
+
+                A Card's content box is ~310px on a 390px phone, and « Ajouter un dossier dentaire » at
+                `size="sm"` is ~218px of unwrappable French — so the un-wrapped row left the title block ~92px,
+                which wrapped « Dossiers dentaires » onto three lines and its description onto eight. All three
+                tab headers on this page carried the same construction.
+              */}
               <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
                     <CardTitle className="flex items-center gap-2">
                       <FileCheck className="h-5 w-5" />
                       Dossiers dentaires
                     </CardTitle>
                     <CardDescription>Historique complet des actes et interventions dentaires</CardDescription>
                   </div>
-                  <Button onClick={() => {
-                    setEditingRecord(null)
-                    setRecordModalOpen(true)
-                  }} size="sm">
+                  <Button
+                    onClick={() => {
+                      setEditingRecord(null)
+                      setRecordModalOpen(true)
+                    }}
+                    size="sm"
+                    className="w-full sm:w-auto"
+                  >
                     Ajouter un dossier dentaire
                   </Button>
                 </div>
               </CardHeader>
               <CardContent>
                 {dentalRecords.length === 0 ? (
-                  <EmptyOrLoading loading={detailsLoading}>Aucun dossier dentaire</EmptyOrLoading>
+                  renderSectionEmpty(
+                    ["dentalRecords"],
+                    <EmptyState
+                      icon={FileCheck}
+                      size="compact"
+                      chipClassName={zoneChipClass(ZONES.daily)}
+                      title="Aucune fiche de soins"
+                      description="Enregistrez la première séance de ce patient."
+                      action={
+                        <Button
+                          onClick={() => {
+                            setEditingRecord(null)
+                            setRecordModalOpen(true)
+                          }}
+                        >
+                          Ajouter un dossier dentaire
+                        </Button>
+                      }
+                    />,
+                  )
                 ) : (
                   <>
-                    {/* « Facturé » is the row's status, so it moves to the badge slot — and that is also what
-                        replaces the money cell's hover-only `title=`, which no touch device can reach. */}
+                    {/* No « Facturé » badge: the struck-through « Montant payé » is the one place this list says
+                        a fiche is billed. It used to be said three times on the same row — a status badge here,
+                        the word again in place of the Reste figure, and a third badge in the desktop table's
+                        Actions column — which is what pushed the figure staff actually read off the row. */}
                     <CardList
                       className={CARDS_ONLY}
                       ariaLabel="Dossiers dentaires"
-                      items={dentalRecords}
+                      items={recordsPage.items}
                       getKey={(record) => record.id}
                       title={(record) => record.procedureType}
                       subtitle={(record) => formatDate(record.interventionDate)}
-                      status={(record) =>
-                        invoicedDentalRecordIds.has(record.id) ? (
-                          <Badge variant="outline" className="gap-1 text-xs">
-                            <Receipt className="h-3 w-3" />
-                            Facturé
-                          </Badge>
-                        ) : null
-                      }
                       fields={(record) => {
                         const invoiced = invoicedDentalRecordIds.has(record.id)
                         const reste = Math.max(0, record.balance ?? record.cost - record.amountPaid)
@@ -1183,13 +1429,13 @@ export default function PatientDetailsPage() {
                               formatDT(record.amountPaid)
                             ),
                           },
-                          // An invoiced fiche has no « reste » of its own — the facture owns the money, which
-                          // the struck-through amount and the « Facturé » badge already say.
-                          !invoiced && {
+                          {
                             label: "Reste",
                             value:
                               reste > 0 ? (
-                                <span className="font-semibold text-amber-600">{formatDT(reste)}</span>
+                                // `--warning-ink`: `text-amber-600` had no `dark:` pair and measures ~3.2:1 on
+                                // the card — on the figure that says money is still owed.
+                                <span className="font-semibold text-warning-ink">{formatDT(reste)}</span>
                               ) : (
                                 <span className="text-muted-foreground">{formatDT(0)}</span>
                               ),
@@ -1254,7 +1500,7 @@ export default function PatientDetailsPage() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {dentalRecords.map((record) => (
+                        {recordsPage.items.map((record) => (
                           <TableRow key={record.id}>
                             <TableCell className="font-medium">
                               {formatDate(record.interventionDate)}
@@ -1282,13 +1528,15 @@ export default function PatientDetailsPage() {
                                 formatDT(record.amountPaid)
                               )}
                             </TableCell>
+                            {/* The figure, on every row. This cell used to print the word « Facturé » instead of
+                                a number for a billed fiche — a status in the money column, and the second of
+                                three places the same row said it. */}
                             <TableCell>
-                              {invoicedDentalRecordIds.has(record.id) ? (
-                                <span className="text-muted-foreground text-xs">Facturé</span>
-                              ) : (() => {
+                              {(() => {
                                 const reste = Math.max(0, record.balance ?? (record.cost - record.amountPaid))
                                 return reste > 0
-                                  ? <span className="font-semibold text-amber-600">{formatDT(reste)}</span>
+                                  // `--warning-ink` — same fix as the card list above.
+                                  ? <span className="font-semibold text-warning-ink">{formatDT(reste)}</span>
                                   : <span className="text-muted-foreground">{formatDT(0)}</span>
                               })()}
                             </TableCell>
@@ -1307,12 +1555,10 @@ export default function PatientDetailsPage() {
                             </TableCell>
                             <TableCell className="text-right">
                               <div className="flex items-center justify-end gap-1">
-                                {invoicedDentalRecordIds.has(record.id) ? (
-                                  <Badge variant="outline" className="text-xs gap-1">
-                                    <Receipt className="h-3 w-3" />
-                                    Facturé
-                                  </Badge>
-                                ) : (
+                                {/* Billed → the action is simply absent, not replaced by a « Facturé » badge in
+                                    the Actions column. A status has no business there, and the struck-through
+                                    « Montant payé » on the same row already carries it. */}
+                                {!invoicedDentalRecordIds.has(record.id) && (
                                   <Button
                                     variant="ghost"
                                     size="sm"
@@ -1352,6 +1598,21 @@ export default function PatientDetailsPage() {
                         ))}
                       </TableBody>
                     </Table>
+                    {/*
+                      One pager for both renderings — only one of them is ever visible (`CARDS_ONLY` is
+                      `md:hidden`, `TABLE_ONLY` is `hidden md:block`), which is the shape `stock-table.tsx`
+                      already uses.
+
+                      No `onPageSizeChange` on purpose: `PAGE_SIZE_OPTIONS` starts at 10, so offering the
+                      selector here would render a `<Select>` whose value (5) matches none of its items — and a
+                      patient's fiches are not a list anybody wants 100 of at once. With the selector absent the
+                      pager hides itself entirely below six fiches, which is most patients.
+                    */}
+                    <DataTablePagination
+                      page={recordsPage}
+                      onPageChange={setRecordsPageRequest}
+                      label={["fiche de soins", "fiches de soins"]}
+                    />
                   </>
                 )}
               </CardContent>
@@ -1367,7 +1628,9 @@ export default function PatientDetailsPage() {
               </CardHeader>
               <CardContent>
                 {dentalRecords.length === 0 ? (
-                  <EmptyOrLoading loading={detailsLoading}>Aucun dossier médical</EmptyOrLoading>
+                  // Same read as « Dossiers dentaires », so the same failure band — but the copy describes what
+                  // THIS tab shows. « Aucun dossier médical » answered a question the tab does not ask.
+                  renderSectionEmpty(["dentalRecords"], notesEmptyState)
                 ) : (
                   <div className="space-y-4">
                     {dentalRecords
@@ -1432,9 +1695,7 @@ export default function PatientDetailsPage() {
                     {dentalRecords.filter(record => 
                       (record.notes && record.notes.length > 0) || 
                       (record.importantNotes && record.importantNotes.length > 0)
-                    ).length === 0 && (
-                      <p className="text-center text-muted-foreground py-8">Aucune note dans les dossiers médicaux</p>
-                    )}
+                    ).length === 0 && notesEmptyState}
                   </div>
                 )}
               </CardContent>
@@ -1445,8 +1706,9 @@ export default function PatientDetailsPage() {
           <TabsContent value="documents">
             <Card>
               <CardHeader>
-                <div className="flex items-start justify-between gap-4">
-                  <div className="space-y-1.5">
+                {/* Same wrap/flex-1/full-width-action fix as « Dossiers dentaires » above. */}
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1 space-y-1.5">
                     <CardTitle className="flex items-center gap-2">
                       <FileText className="h-5 w-5" />
                       Documents médicaux
@@ -1458,7 +1720,7 @@ export default function PatientDetailsPage() {
                   {/* P2-A: prescribe for the open patient without leaving the page / re-searching them. */}
                   <Button
                     size="sm"
-                    className="shrink-0 gap-1"
+                    className="w-full gap-1 sm:w-auto"
                     onClick={() => router.push(`/documents/prescription?patientId=${patientId}`)}
                   >
                     <FileText className="h-4 w-4" />
@@ -1468,7 +1730,21 @@ export default function PatientDetailsPage() {
               </CardHeader>
               <CardContent>
                 {medicalDocuments.length === 0 ? (
-                  <EmptyOrLoading loading={detailsLoading}>Aucun document enregistré</EmptyOrLoading>
+                  renderSectionEmpty(
+                    ["documents"],
+                    <EmptyState
+                      icon={FileText}
+                      size="compact"
+                      chipClassName={zoneChipClass(ZONES.daily)}
+                      title="Aucun document enregistré"
+                      description="Ordonnances, certificats et bulletins CNAM apparaîtront ici."
+                      action={
+                        <Button onClick={() => router.push(`/documents/prescription?patientId=${patientId}`)}>
+                          Nouvelle ordonnance
+                        </Button>
+                      }
+                    />,
+                  )
                 ) : (
                   <>
                     {/* Tapping the card opens the document — « Ouvrir » is what the row already did, so the menu
@@ -1560,7 +1836,21 @@ export default function PatientDetailsPage() {
               </CardHeader>
               <CardContent>
                 {appointments.length === 0 ? (
-                  <EmptyOrLoading loading={detailsLoading}>Aucun rendez-vous</EmptyOrLoading>
+                  renderSectionEmpty(
+                    ["appointments"],
+                    <EmptyState
+                      icon={Calendar}
+                      size="compact"
+                      chipClassName={zoneChipClass(ZONES.daily)}
+                      title="Aucun rendez-vous"
+                      description="Planifiez la première visite de ce patient."
+                      action={
+                        <Button onClick={() => router.push(`/appointments?patientId=${patientId}`)}>
+                          Planifier un rendez-vous
+                        </Button>
+                      }
+                    />,
+                  )
                 ) : (
                   <>
                     {/* The row's per-procedure left border becomes the card's accent — it is the same 4 px stripe
@@ -1598,15 +1888,22 @@ export default function PatientDetailsPage() {
                           { label: "Notes", value: appointment.notes },
                         ]
                       }}
-                      actions={(appointment) =>
+                      /*
+                        ⚠️ `primaryAction`, not `actions`. « Enregistrer la fiche » is ~175px of `whitespace-nowrap`
+                        French, and `actions` renders into a `shrink-0` div sharing the card's header row with the
+                        wrapping title — so at 320–390px the date was crushed to a few characters per line by a
+                        button that refused to give any width back. `primaryAction` is the slot `ui/card-list.tsx`
+                        documents for exactly this: the verb gets its own full-width row and a real 44px target,
+                        and the identity gets the header back. (`app/waiting-list/page.tsx` is the template.)
+                      */
+                      primaryAction={(appointment) =>
                         appointmentVisitState(appointment).canRecordVisit ? (
                           <Button
                             variant="outline"
-                            size="sm"
-                            className="gap-1.5 whitespace-nowrap"
+                            className="w-full gap-1.5"
                             onClick={() => openVisitRecord(appointment.id)}
                           >
-                            <FileText className="h-3.5 w-3.5" />
+                            <FileText className="h-4 w-4" />
                             Enregistrer la fiche
                           </Button>
                         ) : null
@@ -1735,46 +2032,56 @@ export default function PatientDetailsPage() {
           <TabsContent value="files">
             <Card>
               <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
+                {/* The third header carrying the same construction — and the only one with TWO actions, so the
+                    wrapper takes the full width below `sm:` and its buttons share it. */}
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
                     <CardTitle>Fichiers du patient</CardTitle>
                     <CardDescription>
-                      {currentFolderId 
+                      {currentFolderId
                         ? `Fichiers du dossier`
                         : `Tous les fichiers et documents téléversés (${files.length} fichier${files.length !== 1 ? 's' : ''})`}
                     </CardDescription>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex w-full items-center gap-2 sm:w-auto">
                     {currentFolderId && (
-                      <Button 
-                        variant="outline" 
+                      <Button
+                        variant="outline"
                         size="sm"
                         onClick={() => setCurrentFolderId(null)}
-                        className="gap-2"
+                        className="flex-1 gap-2 sm:flex-none"
                       >
                         <ArrowLeft className="h-4 w-4" />
                         Retour
                       </Button>
                     )}
-                    <Button onClick={() => router.push(`/patients/${patientId}/files`)} variant="default">
+                    <Button
+                      onClick={() => router.push(`/patients/${patientId}/files`)}
+                      variant="default"
+                      className="flex-1 sm:flex-none"
+                    >
                       Gérer les fichiers
                     </Button>
                   </div>
                 </div>
               </CardHeader>
               <CardContent>
-                {detailsLoading ? (
-                  <EmptyOrLoading loading>Aucun fichier téléversé</EmptyOrLoading>
-                ) : files.length === 0 && folders.length === 0 ? (
-                  <div className="text-center py-8">
-                    <FileText className="h-12 w-12 mx-auto mb-3 opacity-50 text-muted-foreground" />
-                    <p className="text-sm text-muted-foreground mb-4">
-                      Aucun fichier téléversé
-                    </p>
-                    <Button onClick={() => router.push(`/patients/${patientId}/files`)}>
-                      Téléverser des fichiers
-                    </Button>
-                  </div>
+                {files.length === 0 && folders.length === 0 ? (
+                  renderSectionEmpty(
+                    ["files", "folders"],
+                    <EmptyState
+                      icon={FolderOpen}
+                      size="compact"
+                      chipClassName={zoneChipClass(ZONES.daily)}
+                      title="Aucun fichier téléversé"
+                      description="Radiographies, photos et documents scannés se rangent ici."
+                      action={
+                        <Button onClick={() => router.push(`/patients/${patientId}/files`)}>
+                          Téléverser des fichiers
+                        </Button>
+                      }
+                    />,
+                  )
                 ) : (
                   <div className="space-y-4">
                     {/* Folders List (only show at root level) */}
@@ -2105,7 +2412,16 @@ export default function PatientDetailsPage() {
                     ))}
                   </div>
                 ) : (
-                  <p className="text-sm text-muted-foreground">Aucun antécédent médical</p>
+                  /*
+                   * ⚠️ Through `renderSectionEmpty`, not a bare sentence — this is the card a dentist checks before
+                   * extracting a tooth from someone on Sintrom, and « Aucun antécédent médical » about a failed read
+                   * is a confidently wrong clinical answer rather than a missing one. It also fixes the third state
+                   * the sentence swallowed: it used to assert « aucun » while the read was still in flight.
+                   */
+                  renderSectionEmpty(
+                    ["medicalHistory"],
+                    <p className="text-sm text-muted-foreground">Aucun antécédent médical</p>,
+                  )
                 )}
               </div>
               <Separator />
@@ -2125,7 +2441,11 @@ export default function PatientDetailsPage() {
                     ))}
                   </div>
                 ) : (
-                  <p className="text-sm text-muted-foreground">Aucun antécédent familial</p>
+                  // Same rule as the médicaux above — a family history of endocarditis is not « aucun ».
+                  renderSectionEmpty(
+                    ["familyHistory"],
+                    <p className="text-sm text-muted-foreground">Aucun antécédent familial</p>,
+                  )
                 )}
               </div>
               <Separator />
@@ -2374,11 +2694,14 @@ export default function PatientDetailsPage() {
                       </div>
                     ) : isPdfFile(previewFile) ? (
                       <div className="w-full flex items-start justify-center min-h-full">
-                        <div className="bg-white dark:bg-slate-800 shadow-2xl rounded-lg overflow-hidden" style={{ 
-                          width: '100%', 
-                          maxWidth: 'calc(100vw - 8rem)',
-                          aspectRatio: '210 / 297'
-                        }}>
+                        {/* ⚠️ The `calc(100vw - 8rem)` gutter is `md:`-only. It is a DESKTOP allowance, and
+                            applying it unconditionally clamped a 342px phone viewport to 262px — 23% of the
+                            screen discarded on the one surface (a panoramique, a bilan long cône) that wants
+                            every pixel. Kept in sync with the same dialog in `patient-files-manager.tsx`. */}
+                        <div
+                          className="w-full overflow-hidden rounded-lg bg-white shadow-2xl md:max-w-[calc(100vw-8rem)] dark:bg-slate-800"
+                          style={{ aspectRatio: '210 / 297' }}
+                        >
                           <iframe
                             src={`${previewUrl}#toolbar=0&navpanes=0&scrollbar=1`}
                             className="w-full h-full"

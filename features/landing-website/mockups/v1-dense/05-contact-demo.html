@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="fr" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gestion Clinique — Demander une démo | Maquette</title>
+<link rel="stylesheet" href="shared-styles.css">
+<style>
+  /* Formulaire : reprend ui/input.tsx / ui/label.tsx du produit. */
+  .field { display: grid; gap: 6px; }
+  .field label { font-size: 13.5px; font-weight: 550; }
+  .field .hint { font-size: 12.5px; color: var(--muted-foreground); }
+  .field input, .field select, .field textarea {
+    width: 100%; font-family: inherit; font-size: 14.5px;
+    height: 40px; padding: 0 12px;
+    color: var(--foreground); background: var(--card);
+    border: 1px solid var(--border); border-radius: var(--radius-md);
+    transition: border-color 160ms var(--ease-snap), box-shadow 160ms var(--ease-snap);
+  }
+  .field textarea { height: auto; min-height: 96px; padding: 10px 12px; line-height: 1.55; resize: vertical; }
+  .field input:focus, .field select:focus, .field textarea:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--primary) 22%, transparent);
+  }
+  .field input::placeholder, .field textarea::placeholder { color: color-mix(in oklab, var(--muted-foreground) 75%, transparent); }
+  .field.error input { border-color: var(--destructive); }
+  .field .err { font-size: 12.5px; color: var(--destructive); }
+
+  /* Choix du mode de déploiement : radio-cartes, car le choix Cloud/Local
+     détermine la suite de la conversation commerciale. */
+  .radio-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .radio-card {
+    display: block; cursor: pointer; padding: 14px;
+    border: 1px solid var(--border); border-radius: var(--radius-md);
+    background: var(--card);
+    transition: border-color 160ms var(--ease-snap), background-color 160ms var(--ease-snap), box-shadow 160ms var(--ease-snap);
+  }
+  .radio-card:hover { border-color: color-mix(in oklab, var(--primary) 40%, var(--border)); }
+  .radio-card input { position: absolute; opacity: 0; pointer-events: none; }
+  .radio-card .rc-top { display: flex; align-items: center; gap: 9px; font-weight: 600; font-size: 14.5px; }
+  .radio-card .rc-body { font-size: 13px; color: var(--muted-foreground); margin-top: 6px; }
+  .radio-card .rc-mark {
+    width: 16px; height: 16px; border-radius: 999px; flex: none;
+    border: 1.5px solid var(--border); position: relative;
+  }
+  .radio-card:has(input:checked) {
+    border-color: var(--primary);
+    background: var(--accent);
+    box-shadow: 0 0 0 1px var(--primary) inset;
+  }
+  .radio-card:has(input:checked) .rc-body { color: var(--accent-foreground); }
+  .radio-card:has(input:checked) .rc-mark { border-color: var(--primary); border-width: 5px; }
+  .radio-card:has(input:focus-visible) { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+  .checkline { display: flex; gap: 10px; align-items: flex-start; font-size: 13.5px; }
+  .checkline input { margin-top: 3px; accent-color: var(--primary); width: 15px; height: 15px; }
+
+  .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+  .form-grid .span2 { grid-column: 1 / -1; }
+
+  .aside-card { position: sticky; top: 88px; }
+  .step { display: flex; gap: 13px; align-items: flex-start; }
+  .step-n {
+    width: 24px; height: 24px; border-radius: 999px; flex: none;
+    background: var(--accent); color: var(--accent-foreground);
+    display: inline-flex; align-items: center; justify-content: center;
+    font-family: var(--font-mono); font-size: 11.5px; font-weight: 600;
+  }
+  .contact-row { display: flex; gap: 11px; align-items: center; font-size: 14px; }
+  .contact-row .ico { color: var(--primary); }
+
+  /* Panneau de confirmation — l'état « envoyé ». */
+  .state-label {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-family: var(--font-mono); font-size: 11px; font-weight: 500;
+    text-transform: uppercase; letter-spacing: 0.11em;
+    color: var(--accent-foreground); background: var(--accent);
+    border: 1px solid color-mix(in oklab, var(--primary) 25%, transparent);
+    padding: 5px 11px; border-radius: 999px; margin-bottom: 18px;
+  }
+  @media (max-width: 700px) {
+    .form-grid, .radio-cards { grid-template-columns: minmax(0, 1fr); }
+    .aside-card { position: static; }
+  }
+</style>
+</head>
+<body>
+
+<div class="mockup-bar">
+  <span><b>MAQUETTE :</b> Contact / Demander une démo — formulaire de demande, qualification Cloud ou Local, état de confirmation</span>
+  <span class="ref">landing-website · 05/05</span>
+</div>
+
+<!-- ======================= EN-TÊTE ======================= -->
+<header class="site-header">
+  <div class="wrap row">
+    <a class="logo" href="01-accueil.html">
+      <span class="logo-mark">
+        <!-- lucide: stethoscope — le logo réel du produit (dashboard-sidebar.tsx:142) -->
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.8 2.3A.3.3 0 1 0 5 2H4a2 2 0 0 0-2 2v5a6 6 0 0 0 6 6v0a6 6 0 0 0 6-6V4a2 2 0 0 0-2-2h-1a.2.2 0 1 0 .3.3"/><path d="M8 15v1a6 6 0 0 0 6 6v0a6 6 0 0 0 6-6v-4"/><circle cx="20" cy="10" r="2"/></svg>
+      </span>
+      Gestion Clinique
+    </a>
+    <nav class="nav" aria-label="Navigation principale">
+      <a href="02-fonctionnalites.html">Fonctionnalités</a>
+      <a href="04-cloud-vs-local.html">Cloud ou Local</a>
+      <a href="03-tarifs.html">Tarifs</a>
+      <a href="05-contact-demo.html" aria-current="page">Contact</a>
+    </nav>
+    <div class="header-cta">
+      <button class="theme-toggle" id="themeToggle" aria-label="Basculer le thème sombre">
+        <svg class="ico ico-sm" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+      </button>
+      <a class="btn btn-primary btn-sm" href="#formulaire">Demander une démo</a>
+    </div>
+    <button class="burger" aria-label="Ouvrir le menu">
+      <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+    </button>
+  </div>
+</header>
+
+<!-- ======================= INTRO ======================= -->
+<section class="tight">
+  <div class="wrap">
+    <p class="eyebrow">Contact</p>
+    <h1 class="display" style="max-width: 20ch;">Voyons le logiciel sur votre cabinet</h1>
+    <p class="lede">
+      Une démonstration dure 30 minutes, en visioconférence ou sur place à Tunis, Sfax et Sousse.
+      Nous partons de votre façon de travailler — vos actes, vos tarifs, votre échéancier type —
+      et non d'un jeu de données de démonstration.
+    </p>
+  </div>
+</section>
+
+<!-- ======================= FORMULAIRE + ASIDE ======================= -->
+<section class="band" style="padding-top: 56px;" id="formulaire">
+  <div class="wrap">
+    <div class="grid g-aside">
+
+      <!-- ---------- Colonne formulaire ---------- -->
+      <div>
+        <div class="card card-pad-lg" id="formPanel">
+          <h2 class="sub" style="font-size: 20px;">Demande de démonstration</h2>
+          <p class="small muted" style="margin: 6px 0 26px;">
+            Les champs marqués d'un astérisque sont obligatoires. Nous répondons sous un jour ouvré.
+          </p>
+
+          <form class="form-grid" id="demoForm" novalidate>
+            <div class="field">
+              <label for="nom">Nom et prénom *</label>
+              <input id="nom" type="text" placeholder="Dr Amel Ben Salah" required>
+            </div>
+
+            <div class="field">
+              <label for="cabinet">Nom du cabinet ou de la clinique *</label>
+              <input id="cabinet" type="text" placeholder="Cabinet dentaire Ben Salah" required>
+            </div>
+
+            <div class="field">
+              <label for="email">Adresse e-mail *</label>
+              <input id="email" type="email" placeholder="a.bensalah@exemple.tn" required>
+            </div>
+
+            <div class="field">
+              <label for="tel">Téléphone *</label>
+              <input id="tel" type="tel" placeholder="+216 71 000 000" required>
+              <span class="hint">Nous appelons pour convenir du créneau.</span>
+            </div>
+
+            <div class="field">
+              <label for="gouvernorat">Gouvernorat *</label>
+              <!-- Les gouvernorats sont la géographie que le produit connaît déjà
+                   (le formulaire patient les utilise) : le site reste cohérent. -->
+              <select id="gouvernorat" required>
+                <option value="">Choisir…</option>
+                <option>Ariana</option><option>Béja</option><option>Ben Arous</option>
+                <option>Bizerte</option><option>Gabès</option><option>Gafsa</option>
+                <option>Jendouba</option><option>Kairouan</option><option>Kasserine</option>
+                <option>Kébili</option><option>Le Kef</option><option>Mahdia</option>
+                <option>La Manouba</option><option>Médenine</option><option>Monastir</option>
+                <option>Nabeul</option><option>Sfax</option><option>Sidi Bouzid</option>
+                <option>Siliana</option><option>Sousse</option><option>Tataouine</option>
+                <option>Tozeur</option><option selected>Tunis</option><option>Zaghouan</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="postes">Nombre de praticiens</label>
+              <select id="postes">
+                <option>1 praticien</option>
+                <option selected>2 à 3 praticiens</option>
+                <option>4 à 8 praticiens</option>
+                <option>Plus de 8 praticiens</option>
+              </select>
+            </div>
+
+            <!-- DÉCISION : le choix du mode est un champ de qualification, pas une
+                 case à cocher enfouie. Il change le prix, l'installation et la
+                 démonstration elle-même — c'est la première question d'un
+                 commercial, donc elle est posée ici. -->
+            <div class="field span2" style="margin-top: 4px;">
+              <label id="modeLabel">Mode de déploiement souhaité *</label>
+              <span class="hint" style="margin-bottom: 4px;">Si vous hésitez, choisissez « Je ne sais pas encore » — nous en parlons pendant la démo.</span>
+              <div class="radio-cards" role="radiogroup" aria-labelledby="modeLabel">
+                <label class="radio-card">
+                  <input type="radio" name="mode" value="cloud" checked>
+                  <span class="rc-top"><span class="rc-mark"></span>
+                    <svg class="ico ico-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M17.5 19a4.5 4.5 0 1 0-1.1-8.9A6 6 0 0 0 5 12.5"/><path d="M6 19h11.5"/><circle cx="6" cy="19" r="2.5"/></svg>
+                    Cloud
+                  </span>
+                  <span class="rc-body">Hébergé, accessible de partout, mises à jour automatiques.</span>
+                </label>
+                <label class="radio-card">
+                  <input type="radio" name="mode" value="local">
+                  <span class="rc-top"><span class="rc-mark"></span>
+                    <svg class="ico ico-sm" viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+                    Local / réseau du cabinet
+                  </span>
+                  <span class="rc-body">Installé sur un poste du cabinet, fonctionne sans internet.</span>
+                </label>
+                <label class="radio-card span2" style="grid-column: 1 / -1;">
+                  <input type="radio" name="mode" value="indecis">
+                  <span class="rc-top"><span class="rc-mark"></span>
+                    <svg class="ico ico-sm" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 1 1 4.4 3.2c-.8.5-1.5 1-1.5 2"/><path d="M12 17h.01"/></svg>
+                    Je ne sais pas encore
+                  </span>
+                  <span class="rc-body">Nous comparons les deux selon votre connexion et votre organisation.</span>
+                </label>
+              </div>
+            </div>
+
+            <div class="field span2">
+              <label for="besoins">Ce que vous cherchez à régler</label>
+              <textarea id="besoins" placeholder="Ex. : je perds du temps sur les devis et je n'ai aucune visibilité sur ce qui reste dû par patient. J'aimerais aussi arrêter les rappels de rendez-vous par téléphone."></textarea>
+            </div>
+
+            <div class="field span2">
+              <label id="interetsLabel" style="margin-bottom: 2px;">Sujets à couvrir en priorité</label>
+              <div style="display: grid; gap: 9px; margin-top: 4px;" role="group" aria-labelledby="interetsLabel">
+                <label class="checkline"><input type="checkbox" checked> Facturation, caisse et créances</label>
+                <label class="checkline"><input type="checkbox" checked> Devis, plans de traitement et échéanciers</label>
+                <label class="checkline"><input type="checkbox"> Schéma dentaire et dossier clinique</label>
+                <label class="checkline"><input type="checkbox"> Rappels SMS / WhatsApp</label>
+                <label class="checkline"><input type="checkbox"> Bulletin de soins CNAM</label>
+                <label class="checkline"><input type="checkbox"> Facturation électronique El Fatoora (TTN)</label>
+                <label class="checkline"><input type="checkbox"> Reprise de mes données existantes</label>
+              </div>
+            </div>
+
+            <div class="field span2">
+              <label class="checkline" style="font-size: 13px;">
+                <input type="checkbox" required>
+                <span>J'accepte d'être contacté au sujet de cette demande. Aucune donnée de patient n'est
+                  demandée dans ce formulaire et rien n'est transmis à un tiers.</span>
+              </label>
+            </div>
+
+            <div class="span2" style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 6px;">
+              <button type="submit" class="btn btn-primary btn-lg" id="submitBtn">
+                Envoyer la demande
+                <svg class="ico ico-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+              </button>
+              <span class="small muted">Réponse sous un jour ouvré · sans engagement</span>
+            </div>
+          </form>
+        </div>
+
+        <!-- ÉTAT : confirmation (masqué ; l'envoi du formulaire l'affiche) -->
+        <div class="card card-pad-lg" id="donePanel" hidden>
+          <span class="state-label">
+            <svg class="ico ico-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+            Demande envoyée
+          </span>
+          <h2 class="title" style="font-size: 26px;">Merci, votre demande est enregistrée</h2>
+          <p class="lede" style="font-size: 16.5px;">
+            Nous vous rappelons au <strong class="nums">+216 71 000 000</strong> sous un jour ouvré pour fixer le créneau.
+            Une copie du récapitulatif part sur votre adresse e-mail.
+          </p>
+          <hr class="rule" style="margin: 26px 0;">
+          <p class="eyebrow" style="margin-bottom: 16px;">Ce qui vous attend</p>
+          <div style="display: grid; gap: 18px;">
+            <div class="step"><span class="step-n">1</span><div>
+              <div style="font-weight: 600; font-size: 14.5px;">Appel de cadrage — 10 min</div>
+              <div class="small muted">Vos actes, vos tarifs, le nombre de praticiens, votre connexion internet.</div>
+            </div></div>
+            <div class="step"><span class="step-n">2</span><div>
+              <div style="font-weight: 600; font-size: 14.5px;">Démonstration — 30 min</div>
+              <div class="small muted">Sur un jeu de données préparé à partir de votre cabinet, pas une démo générique.</div>
+            </div></div>
+            <div class="step"><span class="step-n">3</span><div>
+              <div style="font-weight: 600; font-size: 14.5px;">Essai accompagné — 2 semaines</div>
+              <div class="small muted">Installation, reprise de vos patients existants, formation de l'équipe.</div>
+            </div></div>
+          </div>
+          <button class="btn btn-outline" style="margin-top: 28px;" id="backBtn">Revenir au formulaire</button>
+        </div>
+      </div>
+
+      <!-- ---------- Colonne latérale ---------- -->
+      <aside>
+        <div class="aside-card" style="display: grid; gap: 20px;">
+          <div class="card">
+            <p class="eyebrow" style="margin-bottom: 14px;">Nous joindre directement</p>
+            <div style="display: grid; gap: 14px;">
+              <div class="contact-row">
+                <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.6a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.5-1.2a2 2 0 0 1 2.1-.5c.8.3 1.7.6 2.6.7a2 2 0 0 1 1.7 2Z"/></svg>
+                <span class="nums">+216 71 000 000</span>
+              </div>
+              <div class="contact-row">
+                <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg>
+                <span>contact@gestion-clinique.tn</span>
+              </div>
+              <div class="contact-row">
+                <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8v.5Z"/></svg>
+                <span>WhatsApp — même numéro</span>
+              </div>
+              <div class="contact-row">
+                <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+                <span>Lundi – vendredi, 8 h – 18 h</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <p class="eyebrow" style="margin-bottom: 12px;">Déjà décidé ?</p>
+            <h3 class="sub" style="font-size: 17px;">Passez directement à l'installation</h3>
+            <p class="small muted" style="margin: 8px 0 16px;">
+              Si vous savez déjà ce que vous voulez, nous pouvons planifier l'installation
+              et la reprise de vos données sans passer par la démonstration.
+            </p>
+            <a class="btn btn-outline btn-sm" href="03-tarifs.html">Voir les tarifs</a>
+          </div>
+
+          <!-- Une objection commerciale réelle, traitée là où elle se pose. -->
+          <div class="card" style="background: var(--accent); border-color: color-mix(in oklab, var(--primary) 22%, transparent);">
+            <div style="display: flex; gap: 11px;">
+              <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--accent-foreground); margin-top: 2px;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/></svg>
+              <div>
+                <div style="font-weight: 620; font-size: 14.5px; color: var(--accent-foreground);">Vos dossiers restent les vôtres</div>
+                <p class="small" style="margin: 6px 0 0; color: var(--accent-foreground);">
+                  En mode Local, les données ne quittent pas le cabinet. Dans les deux modes,
+                  la sauvegarde produit un fichier que vous gardez, et l'export reste possible
+                  si vous partez.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+    </div>
+  </div>
+</section>
+
+<!-- ======================= FAQ COURTE ======================= -->
+<section>
+  <div class="wrap-narrow" style="padding: 0;">
+    <div class="section-head">
+      <p class="eyebrow">Avant d'écrire</p>
+      <h2 class="title">Les questions qu'on nous pose d'abord</h2>
+    </div>
+    <div style="display: grid; gap: 0; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--card); overflow: hidden;">
+      <details style="padding: 18px 22px; border-bottom: 1px solid var(--line-soft);">
+        <summary style="cursor: pointer; font-weight: 600; font-size: 15px;">Faut-il une connexion internet ?</summary>
+        <p class="small muted" style="margin: 10px 0 0;">
+          Non, en mode Local. Le logiciel s'installe sur un poste du cabinet et les autres postes s'y
+          connectent par le réseau. Seules deux fonctions ont besoin d'internet — la synchronisation
+          Google Agenda et l'assistant IA — et elles se désactivent visiblement quand la connexion tombe,
+          puis se réactivent seules.
+        </p>
+      </details>
+      <details style="padding: 18px 22px; border-bottom: 1px solid var(--line-soft);">
+        <summary style="cursor: pointer; font-weight: 600; font-size: 15px;">Puis-je reprendre mes patients déjà saisis ailleurs ?</summary>
+        <p class="small muted" style="margin: 10px 0 0;">
+          Oui. La reprise est faite pendant l'installation, à partir d'un export de votre outil actuel
+          ou d'un fichier Excel. C'est un travail d'accompagnement, pas un bouton : nous vérifions
+          les doublons et les dossiers incomplets avec vous.
+        </p>
+      </details>
+      <details style="padding: 18px 22px; border-bottom: 1px solid var(--line-soft);">
+        <summary style="cursor: pointer; font-weight: 600; font-size: 15px;">Combien de temps pour être opérationnel ?</summary>
+        <p class="small muted" style="margin: 10px 0 0;">
+          Une demi-journée d'installation et de formation suffit pour l'agenda, les dossiers patients
+          et la facturation. Le catalogue d'actes, les tarifs et l'échéancier type sont préparés
+          en amont à partir de vos documents.
+        </p>
+      </details>
+      <details style="padding: 18px 22px;">
+        <summary style="cursor: pointer; font-weight: 600; font-size: 15px;">Et si je veux arrêter ?</summary>
+        <p class="small muted" style="margin: 10px 0 0;">
+          La sauvegarde vous rend un fichier de base de données complet et une copie de tous vos
+          documents. Vous partez avec vos données, sans démarche à faire.
+        </p>
+      </details>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= PIED DE PAGE ======================= -->
+<footer class="site-footer">
+  <div class="wrap">
+    <div class="footer-grid">
+      <div>
+        <a class="logo" href="01-accueil.html" style="margin-bottom: 12px;">
+          <span class="logo-mark">
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.8 2.3A.3.3 0 1 0 5 2H4a2 2 0 0 0-2 2v5a6 6 0 0 0 6 6v0a6 6 0 0 0 6-6V4a2 2 0 0 0-2-2h-1a.2.2 0 1 0 .3.3"/><path d="M8 15v1a6 6 0 0 0 6 6v0a6 6 0 0 0 6-6v-4"/><circle cx="20" cy="10" r="2"/></svg>
+          </span>
+          Gestion Clinique
+        </a>
+        <p class="small muted" style="max-width: 34ch;">
+          Le logiciel de gestion des cabinets et cliniques dentaires en Tunisie.
+          Dossiers, agenda, facturation et CNAM au même endroit.
+        </p>
+      </div>
+      <div class="footer-col">
+        <h4>Produit</h4>
+        <ul>
+          <li><a href="02-fonctionnalites.html">Fonctionnalités</a></li>
+          <li><a href="04-cloud-vs-local.html">Cloud ou Local</a></li>
+          <li><a href="03-tarifs.html">Tarifs</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4>Cabinet dentaire</h4>
+        <ul>
+          <li><a href="02-fonctionnalites.html#dossier">Schéma dentaire</a></li>
+          <li><a href="02-fonctionnalites.html#argent">Devis et échéanciers</a></li>
+          <li><a href="02-fonctionnalites.html#cnam">Bulletin CNAM</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4>Contact</h4>
+        <ul>
+          <li><a href="05-contact-demo.html">Demander une démo</a></li>
+          <li><a href="#">contact@gestion-clinique.tn</a></li>
+          <li><a href="#" class="nums">+216 71 000 000</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2026 Gestion Clinique — Tunis, Tunisie</span>
+      <span>Conditions · Confidentialité</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+  // Bascule de thème — l'attribut data-theme gagne sur la préférence système.
+  const root = document.documentElement;
+  document.getElementById('themeToggle').addEventListener('click', () => {
+    root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
+  });
+
+  // Envoi du formulaire → état de confirmation (démonstration de l'état, pas un vrai envoi).
+  const form = document.getElementById('demoForm');
+  const formPanel = document.getElementById('formPanel');
+  const donePanel = document.getElementById('donePanel');
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    formPanel.hidden = true;
+    donePanel.hidden = false;
+    donePanel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  });
+  document.getElementById('backBtn').addEventListener('click', () => {
+    donePanel.hidden = true;
+    formPanel.hidden = false;
+    formPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+</script>
+</body>
+</html>

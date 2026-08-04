@@ -1,5 +1,6 @@
-using ClinicManagement.Infrastructure.Auth;
+﻿using ClinicManagement.Infrastructure.Auth;
 using ClinicManagement.Infrastructure.Security;
+using ClinicManagement.API.Startup;
 
 namespace ClinicManagement.API.Maintenance;
 
@@ -32,14 +33,7 @@ public static class HardenPermissionsCommand
         {
             // Resolve appsettings from the install directory (R-6), not the CWD, so the packaged
             // `ClinicManagement.API.exe harden-permissions` works from any working directory.
-            var configuration = new ConfigurationBuilder()
-                .SetBasePath(AppContext.BaseDirectory)
-                .AddJsonFile("appsettings.json", optional: false)
-                .AddJsonFile(
-                    $"appsettings.{Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Production"}.json",
-                    optional: true)
-                .AddEnvironmentVariables()
-                .Build();
+            var configuration = InstallConfiguration.BuildForConsoleVerb();
 
             if (!LocalAuthConfig.IsLocalMode(configuration))
             {

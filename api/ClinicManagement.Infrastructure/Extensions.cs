@@ -1,8 +1,10 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.Common.Services;
 using ClinicManagement.Infrastructure.Auth;
 using ClinicManagement.Infrastructure.Persistence;
 using ClinicManagement.Infrastructure.Repositories;
@@ -20,8 +22,33 @@ public static class Extensions
     {
         // Database
         var connectionString = configuration.GetConnectionString("DefaultConnection");
-        services.AddDbContext<ApplicationDbContext>(options =>
-            options.UseNpgsql(connectionString));
+
+        // The audit ledger's writer (I6). Scoped, because its actor and its collected rows belong to one request.
+        //
+        // ⚠️ It is resolved from the provider inside `AddDbContext` rather than registered with
+        // `AddInterceptors(...)` at configuration time: the overload that takes instances would need a singleton,
+        // and this interceptor holds per-request state (the actor, and the rows collected between the two save
+        // phases). The `IServiceProvider` overload of `AddDbContext` gives it the *scope's* provider, so each
+        // request's context observes that request's interceptor.
+        //
+        // The actor seam gets a **floor** here, not a registration: `AddApplication` runs first in `Program.cs` and
+        // registers the real claims-reading `AuditActorProvider`, so `TryAdd` is a no-op in the API. It matters for
+        // the console verbs, which build their container from this method alone — see `ProcessAuditActorProvider`.
+        services.TryAddScoped<IAuditActorProvider, ProcessAuditActorProvider>();
+
+        // Built through an explicit factory rather than `AddScoped<T>()` so the *optional* clinic provider is
+        // resolved with `GetService` and not `GetRequiredService`: a console verb has none by design, and relying on
+        // the container's handling of a defaulted constructor parameter would make that work by accident.
+        services.AddScoped(provider => new AuditSaveChangesInterceptor(
+            provider.GetRequiredService<IAuditActorProvider>(),
+            provider.GetService<ICurrentClinicProvider>(),
+            provider.GetRequiredService<IServiceScopeFactory>(),
+            provider.GetRequiredService<ILogger<AuditSaveChangesInterceptor>>()));
+
+        services.AddDbContext<ApplicationDbContext>((provider, options) =>
+            options
+                .UseNpgsql(connectionString)
+                .AddInterceptors(provider.GetRequiredService<AuditSaveChangesInterceptor>()));
 
         // Unit of Work
         services.AddScoped<IUnitOfWork, UnitOfWork>();
@@ -44,6 +71,7 @@ public static class Extensions
         services.AddScoped<IInvoiceRepository, InvoiceRepository>();
         services.AddScoped<ICreditNoteRepository, CreditNoteRepository>();
         services.AddScoped<IClinicReminderSettingsRepository, ClinicReminderSettingsRepository>();
+        services.AddScoped<IDocumentEmailRepository, DocumentEmailRepository>();
         services.AddScoped<IUserDashboardPreferenceRepository, UserDashboardPreferenceRepository>();
         services.AddScoped<ICnamCatalogRepository, CnamCatalogRepository>();
         services.AddScoped<IMedicationCatalogRepository, MedicationCatalogRepository>();
@@ -52,6 +80,10 @@ public static class Extensions
         services.AddScoped<ITreatmentPlanRepository, TreatmentPlanRepository>();
         // Clinical-workflow-depth repositories (caisse expenses, waiting list, dental-lab work orders).
         services.AddScoped<IExpenseRepository, ExpenseRepository>();
+        services.AddScoped<IAuditEntryRepository, AuditEntryRepository>();
+        // L4d — the backup ledger. Registered beside the other repositories rather than only for the job,
+        // because « Paramètres » reads it too (« Dernière sauvegarde réussie ») and so does the history endpoint.
+        services.AddScoped<IBackupRunRepository, BackupRunRepository>();
         services.AddScoped<IWaitingListRepository, WaitingListRepository>();
         services.AddScoped<ILabWorkOrderRepository, LabWorkOrderRepository>();
         services.AddScoped<IRecurringAppointmentRepository, RecurringAppointmentRepository>();
@@ -182,6 +214,11 @@ public static class Extensions
         services.AddScoped<IReminderScheduler, ReminderScheduler>();
         services.AddScoped<IReminderChannelSender, HttpSmsSender>();
         services.AddScoped<IReminderChannelSender, WhatsAppSender>();
+
+        // Outbound document emails — the SMTP sender for the document-email outbox (DocumentEmailJob). It reads
+        // its host/credentials/from-identity from the same IReminderSettingsProvider the two message channels
+        // use, so a clinic configures every outbound channel in one place.
+        services.AddScoped<IDocumentEmailSender, SmtpDocumentEmailSender>();
 
         // WhatsApp Embedded-Signup onboarding (Cloud) — provisions a clinic's own WABA/phone via the Graph API.
         services.AddScoped<IWhatsAppOnboardingService, WhatsAppOnboardingService>();

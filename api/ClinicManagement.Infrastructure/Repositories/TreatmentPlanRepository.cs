@@ -272,14 +272,95 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
                         pay.PaidOn,
                         pay.IsVoided,
                         pay.VoidReason,
-                        pay.VoidedByName
+                        pay.VoidedByName,
+                        pay.ChequeNumber,
+                        pay.ChequeBankName,
+                        pay.ChequeDueDate
                     })))
             .ToListAsync(cancellationToken);
 
         return rows
             .Select(r => new CaisseInstallmentPaymentRow(
                 r.PaymentId, r.TreatmentPlanId, r.PlanNumber, r.PatientId,
-                r.Amount, r.Method, r.PaidOn, r.IsVoided, r.VoidReason, r.VoidedByName))
+                r.Amount, r.Method, r.PaidOn, r.IsVoided, r.VoidReason, r.VoidedByName,
+                r.ChequeNumber, r.ChequeBankName, r.ChequeDueDate))
+            .ToList();
+    }
+
+    public async Task<IReadOnlyList<PaymentMethodTotal>> GetInstallmentCollectedByMethodBetweenAsync(
+        Guid clinicId,
+        DateTime from,
+        DateTime toInclusive,
+        IReadOnlyCollection<Guid> excludedPlanIds,
+        CancellationToken cancellationToken = default)
+    {
+        // GetInstallmentCollectedBetweenAsync with a GROUP BY — identical committed-plan filter, identical
+        // bridged-plan exclusion, identical `!IsVoided` and bounds. The breakdown is shown under the total, so
+        // the two must be the same question asked at two granularities and not two questions that happen to agree.
+        var debtStatuses = PlanBillingRules.DebtBearingPlanStatuses;
+        var excluded = excludedPlanIds as ICollection<Guid> ?? excludedPlanIds.ToList();
+
+        var totals = await _context.TreatmentPlans
+            .Where(p => p.ClinicId == clinicId
+                        && debtStatuses.Contains(p.Status)
+                        && !excluded.Contains(p.Id))
+            .SelectMany(p => p.Installments)
+            .SelectMany(i => i.Payments)
+            .Where(pay => !pay.IsVoided && pay.PaidOn >= from && pay.PaidOn <= toInclusive)
+            .GroupBy(pay => pay.Method)
+            .Select(g => new { Method = g.Key, Amount = g.Sum(pay => pay.Amount) })
+            .ToListAsync(cancellationToken);
+
+        return totals.Select(t => new PaymentMethodTotal(t.Method, t.Amount)).ToList();
+    }
+
+    public async Task<IReadOnlyList<CaisseInstallmentPaymentRow>> GetInstallmentChequePaymentsAsync(
+        Guid clinicId,
+        IReadOnlyCollection<Guid> excludedPlanIds,
+        DateTime? dueFrom = null,
+        DateTime? dueTo = null,
+        CancellationToken cancellationToken = default)
+    {
+        // The devis half of « chèques à encaisser ». Same projection as the statement's rows, different question:
+        // which cheques still have to be presented, whenever they were taken.
+        //
+        // The bridged-plan exclusion is not cosmetic here. IssueInvoiceCommand carries a bridged plan's cheque
+        // across onto the invoice payment, so without it one physical cheque would be listed twice — and the two
+        // rows would look exactly like two genuine cheques of the same amount from the same bank.
+        var debtStatuses = PlanBillingRules.DebtBearingPlanStatuses;
+        var excluded = excludedPlanIds as ICollection<Guid> ?? excludedPlanIds.ToList();
+
+        var rows = await _context.TreatmentPlans
+            .Where(p => p.ClinicId == clinicId
+                        && debtStatuses.Contains(p.Status)
+                        && !excluded.Contains(p.Id))
+            .SelectMany(plan => plan.Installments
+                .SelectMany(i => i.Payments
+                    .Where(pay => !pay.IsVoided
+                                  && pay.Method == PaymentMethod.Cheque
+                                  && (pay.ChequeDueDate == null
+                                      || ((dueFrom == null || pay.ChequeDueDate >= dueFrom)
+                                          && (dueTo == null || pay.ChequeDueDate <= dueTo))))
+                    .Select(pay => new
+                    {
+                        PaymentId = pay.Id,
+                        TreatmentPlanId = plan.Id,
+                        PlanNumber = plan.Number,
+                        plan.PatientId,
+                        pay.Amount,
+                        pay.Method,
+                        pay.PaidOn,
+                        pay.ChequeNumber,
+                        pay.ChequeBankName,
+                        pay.ChequeDueDate
+                    })))
+            .ToListAsync(cancellationToken);
+
+        return rows
+            .Select(r => new CaisseInstallmentPaymentRow(
+                r.PaymentId, r.TreatmentPlanId, r.PlanNumber, r.PatientId,
+                r.Amount, r.Method, r.PaidOn, IsVoided: false, VoidReason: null, VoidedByName: null,
+                r.ChequeNumber, r.ChequeBankName, r.ChequeDueDate))
             .ToList();
     }
 

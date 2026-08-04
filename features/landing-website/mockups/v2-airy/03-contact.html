@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="fr" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gestion Clinique — Contact | Maquette v2</title>
+<link rel="stylesheet" href="shared-styles.css">
+<style>
+  /* Champs soulignés plutôt qu'encadrés : six rectangles empilés font une
+     administration, six lignes font un formulaire. */
+  .f { display: grid; gap: 7px; }
+  .f label { font-size: 13.5px; color: var(--ink-2); }
+  .f input, .f textarea, .f select {
+    font-family: inherit; font-size: 16.5px; color: var(--ink);
+    background: transparent; border: 0; border-bottom: 1px solid var(--hair);
+    padding: 8px 0; width: 100%; border-radius: 0;
+    transition: border-color 200ms var(--ease);
+  }
+  .f textarea { resize: vertical; min-height: 84px; line-height: 1.6; }
+  .f input:focus, .f textarea:focus, .f select:focus {
+    outline: none; border-bottom-color: var(--teal);
+  }
+  .f input::placeholder, .f textarea::placeholder { color: var(--ink-2); opacity: 0.55; }
+  /* Le focus visible passe par la bordure : on retire le contour global, qui
+     dessinerait un rectangle autour d'un champ sans rectangle. */
+  .f input:focus-visible, .f textarea:focus-visible, .f select:focus-visible { outline: none; }
+
+  .pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 32px; }
+
+  /* Mode de déploiement : trois pastilles, pas trois cartes. */
+  .modes { display: flex; gap: 9px; flex-wrap: wrap; }
+  .modes label {
+    padding: 9px 17px; border-radius: 999px; border: 1px solid var(--hair);
+    font-size: 14.5px; cursor: pointer; color: var(--ink-2);
+    transition: border-color 200ms var(--ease), color 200ms var(--ease);
+  }
+  .modes label:hover { border-color: var(--ink-2); }
+  .modes input { position: absolute; opacity: 0; pointer-events: none; }
+  .modes label:has(input:checked) { border-color: var(--teal); color: var(--teal); }
+  .modes label:has(input:focus-visible) { outline: 2px solid var(--teal); outline-offset: 2px; }
+
+  .consent { display: flex; gap: 11px; align-items: flex-start; font-size: 13.5px; color: var(--ink-2); }
+  .consent input { margin-top: 3px; width: 15px; height: 15px; accent-color: var(--teal); flex: none; }
+
+  .side { display: grid; gap: 14px; align-content: start; }
+  .side a { color: var(--ink); }
+  .side a:hover { color: var(--teal); }
+
+  @media (max-width: 640px) { .pair { grid-template-columns: minmax(0, 1fr); gap: 26px; } }
+</style>
+</head>
+<body>
+
+<div class="flag">
+  <span>MAQUETTE v2 — Contact</span>
+  <span>aéré &amp; calme · 3/3</span>
+</div>
+
+<!-- ============================ EN-TÊTE ============================ -->
+<header class="top">
+  <div class="wrap row">
+    <a class="brand" href="01-accueil.html">
+      <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.8 2.3A.3.3 0 1 0 5 2H4a2 2 0 0 0-2 2v5a6 6 0 0 0 6 6a6 6 0 0 0 6-6V4a2 2 0 0 0-2-2h-1a.2.2 0 1 0 .3.3"/><path d="M8 15v1a6 6 0 0 0 6 6a6 6 0 0 0 6-6v-4"/><circle cx="20" cy="10" r="2"/></svg>
+      Gestion Clinique
+    </a>
+    <nav class="nav" aria-label="Navigation principale">
+      <a href="02-fonctionnalites.html">Fonctionnalités</a>
+      <a href="03-contact.html" aria-current="page">Contact</a>
+    </nav>
+    <div class="act">
+      <button class="tog" data-theme-toggle aria-label="Basculer le thème sombre">
+        <svg class="ico ico-s" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4"/></svg>
+      </button>
+    </div>
+    <button class="burger" aria-label="Ouvrir le menu">
+      <svg class="ico ico-s" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+    </button>
+  </div>
+</header>
+
+<!-- ============================ FORMULAIRE ============================ -->
+<section class="first last">
+  <div class="wrap">
+    <div class="split" style="align-items: start;">
+
+      <!-- Colonne gauche : l'intention -->
+      <div class="stack" style="position: sticky; top: 130px;">
+        <p class="label">Contact</p>
+        <h1 class="h1" style="font-size: clamp(34px, 4.6vw, 54px);">Voyons-le sur<br>votre cabinet.</h1>
+        <p class="lede">
+          Trente minutes, en visioconférence ou sur place. On prépare la démonstration
+          avec vos actes et vos tarifs.
+        </p>
+        <hr class="hair" style="margin: 12px 0;">
+        <div class="side">
+          <a href="#" class="nums">+216 71 000 000</a>
+          <a href="#">contact@gestion-clinique.tn</a>
+          <span class="small">Lundi – vendredi, 8 h – 18 h</span>
+        </div>
+      </div>
+
+      <!-- Colonne droite : le formulaire -->
+      <div>
+        <form id="form" class="stack-l" novalidate>
+          <div class="pair">
+            <div class="f">
+              <label for="nom">Nom</label>
+              <input id="nom" type="text" placeholder="Dr Amel Ben Salah" required>
+            </div>
+            <div class="f">
+              <label for="cab">Cabinet</label>
+              <input id="cab" type="text" placeholder="Cabinet Ben Salah" required>
+            </div>
+          </div>
+
+          <div class="pair">
+            <div class="f">
+              <label for="tel">Téléphone</label>
+              <input id="tel" type="tel" placeholder="+216 98 000 000" required>
+            </div>
+            <div class="f">
+              <label for="mail">E-mail</label>
+              <input id="mail" type="email" placeholder="a.bensalah@exemple.tn" required>
+            </div>
+          </div>
+
+          <div class="pair">
+            <div class="f">
+              <label for="gouv">Gouvernorat</label>
+              <select id="gouv">
+                <option selected>Tunis</option><option>Ariana</option><option>Ben Arous</option>
+                <option>Bizerte</option><option>Nabeul</option><option>Sousse</option>
+                <option>Monastir</option><option>Sfax</option><option>Gabès</option>
+                <option>Autre gouvernorat</option>
+              </select>
+            </div>
+            <div class="f">
+              <label for="prat">Praticiens</label>
+              <select id="prat">
+                <option>1 praticien</option><option selected>2 à 3</option>
+                <option>4 à 8</option><option>Plus de 8</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Le mode de déploiement décide du prix et de l'installation : c'est
+               la première question d'un commercial, donc elle est posée ici. -->
+          <div class="f">
+            <label id="mlab" style="margin-bottom: 3px;">Cloud ou installé au cabinet ?</label>
+            <div class="modes" role="radiogroup" aria-labelledby="mlab">
+              <label><input type="radio" name="mode" checked> Cloud</label>
+              <label><input type="radio" name="mode"> Au cabinet</label>
+              <label><input type="radio" name="mode"> Je ne sais pas encore</label>
+            </div>
+          </div>
+
+          <div class="f">
+            <label for="msg">Ce que vous cherchez à régler <span style="opacity: 0.7;">— facultatif</span></label>
+            <textarea id="msg" placeholder="Je perds du temps sur les devis et je n'ai aucune visibilité sur ce qui reste dû."></textarea>
+          </div>
+
+          <label class="consent">
+            <input type="checkbox" required>
+            <span>J'accepte d'être contacté à ce sujet. Aucune donnée de patient n'est demandée ici.</span>
+          </label>
+
+          <div class="row-c">
+            <button type="submit" class="btn solid">Envoyer</button>
+            <span class="small">Réponse sous un jour ouvré · sans engagement</span>
+          </div>
+        </form>
+
+        <!-- État envoyé -->
+        <div id="done" class="stack-l" hidden>
+          <div class="stack">
+            <span class="label accent">Demande envoyée</span>
+            <h2 class="h2">Merci — on vous rappelle.</h2>
+            <p class="lede">
+              Sous un jour ouvré, au numéro que vous avez laissé, pour fixer le créneau.
+            </p>
+          </div>
+          <hr class="hair">
+          <div class="stack">
+            <p class="small">Ensuite : un appel de cadrage de dix minutes, la démonstration
+              de trente minutes sur vos données, puis deux semaines d'essai accompagné.</p>
+          </div>
+          <div><button class="btn ghost" id="back">Revenir au formulaire</button></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ============================ PIED DE PAGE ============================ -->
+<footer class="foot">
+  <div class="wrap">
+    <div class="foot-row">
+      <a class="brand" href="01-accueil.html">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.8 2.3A.3.3 0 1 0 5 2H4a2 2 0 0 0-2 2v5a6 6 0 0 0 6 6a6 6 0 0 0 6-6V4a2 2 0 0 0-2-2h-1a.2.2 0 1 0 .3.3"/><path d="M8 15v1a6 6 0 0 0 6 6a6 6 0 0 0 6-6v-4"/><circle cx="20" cy="10" r="2"/></svg>
+        Gestion Clinique
+      </a>
+      <nav class="nav" aria-label="Pied de page">
+        <a href="01-accueil.html">Accueil</a>
+        <a href="02-fonctionnalites.html">Fonctionnalités</a>
+      </nav>
+    </div>
+    <p class="foot-end">© 2026 Gestion Clinique — Tunis</p>
+  </div>
+</footer>
+
+<script>
+  document.querySelectorAll('[data-theme-toggle]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var r = document.documentElement;
+      r.dataset.theme = r.dataset.theme === 'dark' ? 'light' : 'dark';
+    });
+  });
+
+  var form = document.getElementById('form');
+  var done = document.getElementById('done');
+  var back = document.getElementById('back');
+  if (form && done) {
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      form.hidden = true; done.hidden = false;
+    });
+    back.addEventListener('click', function () {
+      done.hidden = true; form.hidden = false;
+    });
+  }
+</script>
+</body>
+</html>

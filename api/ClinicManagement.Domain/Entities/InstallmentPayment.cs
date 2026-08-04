@@ -1,5 +1,6 @@
 using ClinicManagement.Domain.Common;
 using ClinicManagement.Domain.Enums;
+using ClinicManagement.Domain.ValueObjects;
 
 namespace ClinicManagement.Domain.Entities;
 
@@ -39,9 +40,28 @@ public class InstallmentPayment : Entity<Guid>
     public string? VoidedByUserId { get; private set; }
     public string? VoidedByName { get; private set; }
 
+    /// <summary>
+    /// The cheque's number, when <see cref="Method"/> is <see cref="PaymentMethod.Cheque"/> (L8). Mirrors
+    /// <see cref="Payment"/>'s three columns — an échéance is as often settled by post-dated cheque as an invoice
+    /// is, and a view of cheques to bank that saw only one of the two ledgers would be worse than none.
+    /// </summary>
+    public string? ChequeNumber { get; private set; }
+
+    /// <inheritdoc cref="ChequeDetails.BankName"/>
+    public string? ChequeBankName { get; private set; }
+
+    /// <inheritdoc cref="ChequeDetails.DueDate"/>
+    public DateTime? ChequeDueDate { get; private set; }
+
     private InstallmentPayment() { } // For EF Core
 
-    public InstallmentPayment(Guid id, Guid installmentId, decimal amount, PaymentMethod method, DateTime paidOn)
+    public InstallmentPayment(
+        Guid id,
+        Guid installmentId,
+        decimal amount,
+        PaymentMethod method,
+        DateTime paidOn,
+        ChequeDetails? cheque = null)
     {
         if (amount <= 0)
             throw new ArgumentException("Le montant du paiement doit être supérieur à 0.", nameof(amount));
@@ -51,8 +71,24 @@ public class InstallmentPayment : Entity<Guid>
         Amount = amount;
         Method = method;
         PaidOn = paidOn;
+        ChequeNumber = cheque?.Number;
+        ChequeBankName = cheque?.BankName;
+        ChequeDueDate = cheque?.DueDate;
         CreatedAt = DateTime.UtcNow;
     }
+
+    /// <summary>
+    /// The details as a value object again — for the devis→facture bridge, which must carry this cheque onto the
+    /// invoice's own payment row.
+    ///
+    /// <para>⚠️ Without it a bridged cheque loses its number, its bank and its due date, and therefore disappears
+    /// from any « chèques à encaisser » view: the plan side stops being counted the moment the bridge invoice is
+    /// issued, and the invoice side would hold a cheque nobody can identify. Rebuilt through
+    /// <see cref="ChequeDetails.For"/> rather than copied field-by-field, so the method/details invariant is
+    /// re-checked on the way across instead of being trusted.</para>
+    /// </summary>
+    public ChequeDetails? ToChequeDetails() =>
+        ChequeDetails.For(Method, ChequeNumber, ChequeBankName, ChequeDueDate);
 
     /// <summary>Mark this payment as never received. The caller refuses a second void, so it cannot be rewritten.</summary>
     internal void Void(string reason, string? actorUserId, string? actorName)

@@ -72,6 +72,21 @@ public class DashboardMoneyDto
     /// <summary>Issued (numbered, non-cancelled) invoice totals TTC.</summary>
     public PeriodComparison Invoiced { get; set; } = PeriodComparison.Of(0m, 0m);
 
+    /// <summary>
+    /// L9 — true when a practitioner filter is active, in which case <b>Dépenses, Net and Créances remain
+    /// clinic-wide</b>. An expense has no practitioner (rent and salaries belong to the practice), so a narrowed
+    /// « Net » would be one dentist's income minus everybody's costs. The client must label the two money-out lines
+    /// rather than presenting them as that practitioner's.
+    /// </summary>
+    public bool ClinicWideOutgoings { get; set; }
+
+    /// <summary>
+    /// L9 — true when <see cref="Collected"/> counts <b>invoice payments only</b>, because a practitioner filter is
+    /// active and échéance collections are not attributable in this slice. Stated rather than silently mixed: see
+    /// <c>DashboardMoneyReader.CollectedAsync</c>.
+    /// </summary>
+    public bool CollectedInvoicesOnly { get; set; }
+
     /// <summary>Avoirs refunded to patients in the window — money out, kept distinct from expenses.</summary>
     public PeriodComparison Refunds { get; set; } = PeriodComparison.Of(0m, 0m);
 

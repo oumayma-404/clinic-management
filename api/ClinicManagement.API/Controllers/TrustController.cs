@@ -5,6 +5,7 @@ using ClinicManagement.Infrastructure;
 using ClinicManagement.Infrastructure.Auth;
 using ClinicManagement.Infrastructure.Security;
 using Microsoft.AspNetCore.Authorization;
+using ClinicManagement.Application.Common.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace ClinicManagement.API.Controllers;
@@ -39,6 +40,10 @@ namespace ClinicManagement.API.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/trust")]
+// All four actions are [AllowAnonymous] by necessity — a device cannot obtain a token until it trusts this
+// server's certificate, and it cannot trust the certificate until it has fetched these. The class policy is
+// the backstop for a future action that is *not* part of that bootstrap.
+[Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
 public class TrustController : ApiControllerBase
 {
     private const string CaCertFileName = "ca.crt";

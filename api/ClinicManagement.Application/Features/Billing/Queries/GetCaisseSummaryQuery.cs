@@ -5,6 +5,7 @@ using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Domain.Services;
 
@@ -85,7 +86,7 @@ public class GetCaisseSummaryQueryHandler : IRequestHandler<GetCaisseSummaryQuer
             var billedPlanIds = PlanBillingRules.BilledPlanIds(
                 await _invoiceRepository.GetTreatmentPlanLinksAsync(clinicId, cancellationToken));
 
-            var invoiceCollected = await _invoiceRepository.GetCollectedBetweenAsync(clinicId, from, to, cancellationToken);
+            var invoiceCollected = await _invoiceRepository.GetCollectedBetweenAsync(clinicId, from, to, cancellationToken: cancellationToken);
             var installmentCollected = await _planRepository.GetInstallmentCollectedBetweenAsync(
                 clinicId, from, to, billedPlanIds, cancellationToken);
             // Avoirs (credit notes) refunded in the period are money OUT and are reported on their own line.
@@ -96,6 +97,15 @@ public class GetCaisseSummaryQueryHandler : IRequestHandler<GetCaisseSummaryQuer
             var cashIn = invoiceCollected + installmentCollected;
             var cashOut = await _expenseRepository.GetTotalBetweenAsync(clinicId, from, to, cancellationToken);
 
+            // The « dont espèces » split (L8 slice B). Two GROUP BY reads, one per ledger, each
+            // predicate-for-predicate identical to the SUM above it — which is what makes Σ breakdown == CashIn a
+            // property rather than a coincidence. Summing the « extrait »'s movement rows instead would have been
+            // one read fewer and wrong: those carry voided payments, which the totals drop.
+            var byMethod = MergeMethodTotals(
+                await _invoiceRepository.GetCollectedByMethodBetweenAsync(clinicId, from, to, cancellationToken),
+                await _planRepository.GetInstallmentCollectedByMethodBetweenAsync(
+                    clinicId, from, to, billedPlanIds, cancellationToken));
+
             var dto = new CaisseSummaryDto
             {
                 FromDate = from,
@@ -103,7 +113,8 @@ public class GetCaisseSummaryQueryHandler : IRequestHandler<GetCaisseSummaryQuer
                 CashIn = InvoiceCalculator.RoundMoney(cashIn),
                 Refunds = InvoiceCalculator.RoundMoney(refunds),
                 CashOut = InvoiceCalculator.RoundMoney(cashOut),
-                Net = InvoiceCalculator.RoundMoney(cashIn - refunds - cashOut)
+                Net = InvoiceCalculator.RoundMoney(cashIn - refunds - cashOut),
+                CashInByMethod = byMethod
             };
 
             return Result<CaisseSummaryDto>.Success(dto);
@@ -113,5 +124,35 @@ public class GetCaisseSummaryQueryHandler : IRequestHandler<GetCaisseSummaryQuer
             _logger.LogError(ex, "Error building the caisse summary");
             return Result<CaisseSummaryDto>.Failure("Erreur lors du calcul de la caisse.");
         }
+    }
+
+    /// <summary>
+    /// Merges the two ledgers' per-method totals into one line per method, over <b>every</b> declared
+    /// <c>PaymentMethod</c> in enum order.
+    /// <para>
+    /// Enumerating the enum rather than the returned rows is the deliberate part: a repository returns only the
+    /// methods present in the window, so a day of cheques alone would drop « Espèces » from the screen — the one
+    /// figure the person closing the till is looking for. A method with no receipts reads « 0,000 », which is a
+    /// true statement about the drawer; an absent row is not a statement at all.
+    /// </para>
+    /// <para>
+    /// It also means a method added to the enum appears here with no edit, and cannot be silently omitted from a
+    /// breakdown the total is supposed to equal.
+    /// </para>
+    /// </summary>
+    private static List<CaisseMethodTotalDto> MergeMethodTotals(
+        IReadOnlyList<PaymentMethodTotal> invoiceTotals,
+        IReadOnlyList<PaymentMethodTotal> installmentTotals)
+    {
+        return Enum.GetValues<PaymentMethod>()
+            .Select(method => new CaisseMethodTotalDto
+            {
+                Method = method.ToString(),
+                Label = PaymentMethodLabels.ToFrench(method),
+                Amount = InvoiceCalculator.RoundMoney(
+                    invoiceTotals.Where(t => t.Method == method).Sum(t => t.Amount)
+                    + installmentTotals.Where(t => t.Method == method).Sum(t => t.Amount))
+            })
+            .ToList();
     }
 }

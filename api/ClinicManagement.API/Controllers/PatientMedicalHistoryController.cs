@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
+using ClinicManagement.Application.Common.Authorization;
 using MediatR;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Patients.Commands;
@@ -9,7 +10,7 @@ namespace ClinicManagement.API.Controllers;
 
 [ApiController]
 [Route("api/patients/{patientId}/medical-history")]
-[Authorize]
+[Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
 public class PatientMedicalHistoryController : ApiControllerBase
 {
     private readonly IMediator _mediator;

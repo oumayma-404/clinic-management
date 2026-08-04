@@ -18,6 +18,13 @@ namespace ClinicManagement.Application.Features.Dashboard.Queries;
 /// </summary>
 public class GetDashboardQuery : IRequest<Result<DashboardDto>>
 {
+    /// <summary>
+    /// L9 — narrow the <b>Argent</b> section to one practitioner. Only that section: Activité, À-traiter and the
+    /// Tendance sparkline stay clinic-wide, because « RDV honorés » and « Prothèses en retard » are the practice's
+    /// operational state and a filter there would answer a question nobody asked.
+    /// </summary>
+    public Guid? DoctorId { get; set; }
+
     /// <summary>Which window to read. Defaults to the month — the only period long enough for the money figures to say much.</summary>
     public DashboardPeriodKey Period { get; set; } = DashboardPeriodKey.Month;
 }
@@ -73,7 +80,8 @@ public class GetDashboardQueryHandler : IRequestHandler<GetDashboardQuery, Resul
             var period = DashboardPeriod.Resolve(request.Period, nowUtc);
 
             var activity = await _activityReader.ReadAsync(clinicId, period, cancellationToken);
-            var (money, receivables) = await _moneyReader.ReadAsync(clinicId, period, nowUtc, cancellationToken);
+            var (money, receivables) = await _moneyReader.ReadAsync(
+                clinicId, period, nowUtc, request.DoctorId, cancellationToken);
             var alerts = await _alertsReader.ReadAsync(clinicId, nowUtc, cancellationToken);
             var trend = await _trendReader.ReadAsync(clinicId, period, nowUtc, cancellationToken);
 

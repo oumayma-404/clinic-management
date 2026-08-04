@@ -4,6 +4,7 @@ import type { ReactNode } from "react"
 import { AlertTriangle, StickyNote, Pencil } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { cn } from "@/lib/utils"
 import { formatDate } from "@/lib/format"
 import type { PatientDto, DentalRecordDto } from "@/lib/api/types"
@@ -12,6 +13,17 @@ interface PatientNotesStripProps {
   patient: PatientDto
   /** Already loaded by the page; only fiches carrying notes are listed. */
   records: DentalRecordDto[]
+  /**
+   * True when the page's fiches read **failed** — as opposed to the patient genuinely having none.
+   *
+   * ⚠️ Without this the strip cannot tell the two apart, and it gets the dangerous one wrong: `records` arrives as
+   * `[]` either way, so a dead `dentalRecordsApi` produced « Aucune alerte pour ce patient » on the band directly
+   * under the patient's name — dropping every séance-recorded alert while stating there are none. An alert you are
+   * told does not exist is worse than one you have to go looking for.
+   */
+  recordsFailed?: boolean
+  /** Re-run the page's reads. Required for the failure notice to be actionable rather than merely honest. */
+  onRetryRecords?: () => void
   onEdit: () => void
 }
 
@@ -84,6 +96,7 @@ function NotesPanel({
   action,
   tone,
   emptyLabel,
+  notice,
   children,
 }: {
   icon: ReactNode
@@ -92,6 +105,8 @@ function NotesPanel({
   action?: ReactNode
   tone: "alert" | "plain"
   emptyLabel: string
+  /** A failed-read line, shown **above** whatever did load and in place of `emptyLabel` when nothing did. */
+  notice?: ReactNode
   children: ReactNode
 }) {
   const isAlert = tone === "alert"
@@ -148,9 +163,13 @@ function NotesPanel({
         className="min-h-0 flex-1 overflow-y-auto px-3 pb-2.5 pt-1.5"
         style={{ maxHeight: PANEL_BODY_MAX_PX }}
       >
+        {/* The notice comes first and never replaces content: what DID load stays readable beside the warning that
+            something did not. `emptyLabel` is only reachable when nothing failed — asserting « aucune » is a claim,
+            and a failed read is not entitled to make it. */}
+        {notice}
         {count > 0 ? (
           children
-        ) : (
+        ) : notice ? null : (
           <p className={cn("text-xs", isAlert ? "text-amber-800/80 dark:text-amber-300/80" : "text-muted-foreground")}>
             {emptyLabel}
           </p>
@@ -181,7 +200,13 @@ function NotesPanel({
  * width there is room to just show the content, and a fixed ceiling bounds the row without needing to measure what
  * it cut. Files used to occupy this right half — they are a button in the action row now, which is what freed it.
  */
-export function PatientNotesStrip({ patient, records, onEdit }: PatientNotesStripProps) {
+export function PatientNotesStrip({
+  patient,
+  records,
+  recordsFailed,
+  onRetryRecords,
+  onEdit,
+}: PatientNotesStripProps) {
   const importantNotes = patient.importantNotes?.trim() || ""
   const notes = patient.notes?.trim() || ""
   const warningChips = splitPatientWarnings(importantNotes)
@@ -255,6 +280,24 @@ export function PatientNotesStrip({ patient, records, onEdit }: PatientNotesStri
     </Button>
   )
 
+  /**
+   * The failed-fiches line, per half — `role="alert"` because the reader is otherwise about to take an absence as a
+   * clinical fact. Rendered in each half separately rather than once above the row: both halves draw on `records`,
+   * and a single banner over a two-column grid would either steal a row of height or attach itself to one side.
+   */
+  const recordsNotice = (tone: "alert" | "plain") =>
+    recordsFailed ? (
+      <LoadFailureNotice
+        variant="inline"
+        message="Les notes de séance n'ont pas pu être chargées."
+        detail="Cette liste est peut-être incomplète."
+        onRetry={onRetryRecords}
+        // The destructive red the primitive uses would be a third colour on the amber panel; the amber ink already
+        // reads as a warning there, which is the panel's whole job.
+        className={cn("mb-1.5", tone === "alert" && "text-amber-900 dark:text-amber-200")}
+      />
+    ) : null
+
   return (
     <div className="grid gap-3 md:grid-cols-2">
       <NotesPanel
@@ -263,6 +306,7 @@ export function PatientNotesStrip({ patient, records, onEdit }: PatientNotesStri
         count={alertCount}
         tone="alert"
         emptyLabel="Aucune alerte pour ce patient."
+        notice={recordsNotice("alert")}
         action={editAction("alert")}
       >
         <div className="flex flex-col gap-1">
@@ -294,6 +338,7 @@ export function PatientNotesStrip({ patient, records, onEdit }: PatientNotesStri
         count={noteCount}
         tone="plain"
         emptyLabel="Aucune note pour ce patient."
+        notice={recordsNotice("plain")}
         action={editAction("plain")}
       >
         <div className="flex flex-col gap-1">

@@ -47,6 +47,17 @@ public class ProcedureTypeConfiguration : IEntityTypeConfiguration<ProcedureType
         builder.Property(pt => pt.Description)
             .HasMaxLength(1000);
 
+        // Shorter than Description on purpose: a category is a label to group and filter on, not prose. 100 is
+        // ~3× the longest canonical discipline, leaving a clinic room for one of its own.
+        builder.Property(pt => pt.Category)
+            .HasMaxLength(100);
+
+        // The catalogue list orders by category then name and filters by category, always inside one clinic — so
+        // the index carries all three, and the leading ClinicId is what lets the same index serve the unfiltered
+        // list. Declared here rather than hand-written in the migration so `verify-schema` picks it up from the
+        // model for free (it matches indexes on table + ordered columns, never on name).
+        builder.HasIndex(pt => new { pt.ClinicId, pt.Category, pt.Name });
+
         builder.Property(pt => pt.ResultingCondition)
             .HasConversion<int?>();
 

@@ -26,6 +26,18 @@ export interface RecordPaymentRequest {
   /** Cash | Cheque | Card | Transfer */
   method: string;
   paidOn: string;
+  /**
+   * Cheque identity (L8) — only for `method: "Cheque"`; the server **refuses** them on any other method.
+   * Build them with `chequePaymentFields()` rather than by hand, which is what guarantees that.
+   */
+  chequeNumber?: string;
+  /** @see chequeNumber */
+  chequeBankName?: string;
+  /**
+   * A bare `YYYY-MM-DD` calendar day, **not** an ISO instant: the day a cheque may be banked is a fact about a
+   * paper document, and `toISOString()` would shift it a day for the Tunisian offset.
+   */
+  chequeDueDate?: string;
 }
 
 /** Authenticated GET returning a Blob — the PDF/artifact routes can't go through `client.ts`. */
@@ -62,7 +74,19 @@ export const invoicesApi = {
    * are resolved after the page is cut and so cannot be filtered here.
    */
   listPaged: async (
-    params: PageParams & { from?: string; to?: string; patientId?: string; status?: string },
+    params: PageParams & {
+      from?: string
+      to?: string
+      patientId?: string
+      status?: string
+      /**
+       * L9 — only the notes attributed to this practitioner. Applied server-side; ⚠️ an **unattributed** note is
+       * excluded when it is supplied, which is what keeps two practitioners' filtered lists from overlapping the
+       * clinic's total. Historical rows are unattributed, so a practice that has just upgraded will see fewer rows
+       * under a filter than it expects — that is the truth, not a bug.
+       */
+      doctorId?: string
+    },
   ): Promise<PagedResponse<InvoiceDto>> => apiGet<PagedResponse<InvoiceDto>>('/invoices', params),
 
   get: async (id: string): Promise<InvoiceDto> => apiGet<InvoiceDto>(`/invoices/${id}`),

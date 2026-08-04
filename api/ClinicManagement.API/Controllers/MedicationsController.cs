@@ -14,7 +14,7 @@ namespace ClinicManagement.API.Controllers;
 
 [ApiController]
 [Route("api/medications")]
-[Authorize]
+[Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
 public class MedicationsController : ApiControllerBase
 {
     private readonly IMediator _mediator;

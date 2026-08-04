@@ -25,7 +25,11 @@ export function KpiGrid({ columns = 4, className, children }: KpiGridProps) {
   return (
     <div
       className={cn(
-        "grid gap-px overflow-hidden rounded-xl border bg-border",
+        // `shadow-sm` un-inverts the elevation ladder. Without it the three biggest surfaces on the dashboard —
+        // Argent, Activité, À-traiter — sat flat on the ground while the two *smaller* cards below them (the
+        // trend chart and the appointment list, both plain `Card`s) floated above it. The page read as three
+        // holes with two objects over them, which is the opposite of the importance order.
+        "grid gap-px overflow-hidden rounded-xl border bg-border shadow-sm",
         // TWO columns on a phone, not one. One figure per row turned the eight-figure dashboard into eight
         // screens of scrolling, and « comment va le cabinet ? » is a question you answer by comparing figures
         // — which you cannot do when only one is ever in view. Two fits at 320 px because `KpiCard` steps its

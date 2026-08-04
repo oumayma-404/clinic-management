@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from "react"
 import { RecordToothChart, type ToothPaint } from "./record-tooth-chart"
 import { isAdultTooth } from "@/components/tooth-multiselect"
+import { PatientAlertPanel } from "@/components/patient/patient-alert-panel"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 // The dental-records table is gone entirely (Exception 3) — this modal renders a card list at every width.
@@ -106,6 +107,18 @@ export function PatientSummaryModal({ open, onOpenChange, patient, dentalRecords
         </DialogHeader>
 
         <DialogBody className="p-6 space-y-6 overflow-x-hidden">
+          {/*
+            ALERTS FIRST — above the identity, not below the insurance.
+
+            ⚠️ This modal showed **no** allergies, no flags and no antécédents at all; grepping it for `allerg`
+            returned nothing. It is the one-click quick look from the patients table and from the phone's ⋯ menu,
+            i.e. the fastest way to see a patient without opening their file — and it was the only clinical surface
+            in the app that could not answer « est-il allergique ? », while the full page and the fiche modal both
+            could. Placed before the identity card because the ordering is the point: an alert below the fold is a
+            note, not an alert.
+          */}
+          <PatientAlertPanel patient={patient} />
+
           {/* Patient Basic Info */}
           <Card>
             <CardHeader>
@@ -237,10 +250,15 @@ export function PatientSummaryModal({ open, onOpenChange, patient, dentalRecords
                           controls that ARE, and a row of 24px pills reads as "broken buttons" rather than as
                           data. `tabular-nums` keeps the two-digit numbers on one optical grid.
                         */}
-                        <span
-                          className="flex size-11 flex-col items-center justify-center rounded-lg border-2 text-sm font-semibold tabular-nums"
-                          style={{ borderColor: WORKED_TOOTH_COLOR, color: WORKED_TOOTH_COLOR }}
-                        >
+                        {/*
+                          ⚠️ Token ink, not `WORKED_TOOTH_COLOR`. The hex stays where it belongs — as the SVG
+                          FILL on the schema below, where it is a large coloured area — but it was also being
+                          used as this chip's `color`, and the chip's entire content is the tooth number. A
+                          `#60a5fa` numeral on a white card measures ~2.5:1, i.e. the datum was the least legible
+                          thing in the modal. `text-foreground` inside a `border-primary/60` box keeps the chip
+                          reading as "charted" without spending contrast on the number itself.
+                        */}
+                        <span className="flex size-11 flex-col items-center justify-center rounded-lg border-2 border-primary/60 text-sm font-semibold tabular-nums text-foreground">
                           {tooth}
                           {count > 1 && (
                             <span className="text-2xs font-normal leading-none opacity-80">×{count}</span>
@@ -276,13 +294,13 @@ export function PatientSummaryModal({ open, onOpenChange, patient, dentalRecords
                       {adultToothPaint.size > 0 && (
                         <div>
                           <h3 className="mb-3 text-sm font-medium">Dents définitives</h3>
-                          <RecordToothChart isAdult paint={adultToothPaint} onToggleTooth={() => {}} disabled />
+                          <RecordToothChart view="adult" paint={adultToothPaint} onToggleTooth={() => {}} disabled />
                         </div>
                       )}
                       {childToothPaint.size > 0 && (
                         <div>
                           <h3 className="mb-3 text-sm font-medium">Dents de lait</h3>
-                          <RecordToothChart isAdult={false} paint={childToothPaint} onToggleTooth={() => {}} disabled />
+                          <RecordToothChart view="child" paint={childToothPaint} onToggleTooth={() => {}} disabled />
                         </div>
                       )}
                     </div>
@@ -344,7 +362,9 @@ export function PatientSummaryModal({ open, onOpenChange, patient, dentalRecords
                           label: "Reste",
                           value:
                             reste > 0 ? (
-                              <span className="font-semibold text-amber-600">{formatDT(reste)}</span>
+                              // `--warning-ink`: `text-amber-600` carried no `dark:` pair and measured ~3.2:1 on
+                              // the card, on the figure that says money is still owed.
+                              <span className="font-semibold text-warning-ink">{formatDT(reste)}</span>
                             ) : (
                               <span className="text-muted-foreground">{formatDT(0)}</span>
                             ),

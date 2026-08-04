@@ -23,6 +23,8 @@ import {
 import { Button } from "@/components/ui/button"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { Input } from "@/components/ui/input"
+import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
+import { DiscardChangesDialog } from "@/components/ui/discard-changes-dialog"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Calendar } from "@/components/ui/calendar"
@@ -74,6 +76,15 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
   const [selectedDoctorId, setSelectedDoctorId] = useState<string>("")
   // `appointmentType` removed with the `Type: ` prefix (AC-P1.51) — the act is `procedureTypeId` alone.
   const [status, setStatus] = useState<string>("scheduled")
+  /**
+   * The statut this form was hydrated with — the baseline the save compares against.
+   *
+   * ⚠️ Not cosmetic. `status` is a controlled Select seeded from the appointment, so a user who only moves the date
+   * still leaves it holding « Absent » — and the payload used to re-post that verbatim, which made the server
+   * re-mark a rescheduled no-show absent (and, worse, skip the double-booking guard, so the freed slot could be
+   * given away twice). The statut is now sent **only when it actually changed**.
+   */
+  const [hydratedStatus, setHydratedStatus] = useState<string>("scheduled")
   
   // Load doctors list
   const { doctors, currentUserDoctor, isLoading: loadingDoctors } = useDoctors()
@@ -216,6 +227,9 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
     if (appointment && open) {
       setPatientName(appointment.patientName)
       setStatus(appointment.status.toLowerCase())
+      // Remembered so the save can tell « the user changed the statut » from « the form is echoing what it was
+      // hydrated with ». See the `status` key in `performUpdate`.
+      setHydratedStatus(appointment.status.toLowerCase())
       // Try to find doctor by ID first, then by name as fallback
       if ((appointment as any).doctorId) {
         setSelectedDoctorId((appointment as any).doctorId)
@@ -362,7 +376,17 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
         durationMinutes: calculatedDuration,
         doctorId: selectedDoctorId || null,
         notes: appointmentNotes || null,
-        status: status,
+        /*
+         * ⚠️ Sent **only when the user changed it** — omitted otherwise, which the server reads as "leave the
+         * statut alone".
+         *
+         * This is the root cause of L2a, and fixing it here fixes the class rather than the instance. Every other
+         * field on this payload is already deliberate about the difference between "clear this" and "leave this
+         * alone"; the statut was the one that always re-asserted whatever the form happened to be holding. So
+         * moving a « Absent » appointment to next Tuesday posted `status: "noshow"` alongside the new date, and the
+         * server dutifully re-marked the patient absent for a visit nobody had missed yet.
+         */
+        status: status !== hydratedStatus ? status : undefined,
         // Replaces the whole list. `[]` is a real instruction here (« ce rendez-vous n'a plus d'acte ») and the
         // server distinguishes it from an omitted key, which is why this dialog always sends it and the cancel
         // path — which posts { status } alone — never does.
@@ -456,9 +480,19 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
   // AC-P1.41/1.44: was a string-mangler whose ([A-Z]) branch was dead (the value is lower-cased at
   // hydration), so « Inprogress » and « Noshow » reached the screen. One shared map now.
 
+
+  /*
+   * A typed booking is not discarded by a stray tap (J9). Below `md:` this is a full-screen sheet, so the strip
+   * above it is a live dismiss target over a form that can hold a patient, several acts, a doctor and a time.
+   *
+   * Only the ROOT and « Annuler » route through the guard; every save path calls the raw prop, and so do the
+   * AlertDialog escalations below — a confirmation the user just accepted must not then ask whether to discard.
+   */
+  const guard = useDirtyGuard(open, onOpenChange)
+
   return (
     <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
+      <Dialog open={open} onOpenChange={guard.onOpenChange}>
         {/* Scrolling body, pinned header and footer — see the create dialog for why. This one matters even
             more: its footer holds three actions, one of them « Annuler le rendez-vous », and a destructive
             action that has to be hunted for by scrolling is a destructive action someone will mis-click. */}
@@ -599,7 +633,10 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                     />
                   </div>
                 ) : (
-                  <div className="flex gap-2">
+                  /* Two rows of three below `sm:` — see the note on the same control in
+                     `create-appointment-dialog.tsx`. `flex-1` loses to `buttonVariants`' `shrink-0`, so these
+                     six presets could neither shrink nor wrap and clipped « 2h » off a 390px phone. */
+                  <div className="grid grid-cols-3 gap-2 sm:flex">
                     {[15, 30, 45, 60, 90, 120].map((mins) => (
                       <Button
                         key={mins}
@@ -607,7 +644,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                         variant={duration === String(mins) ? "default" : "outline"}
                         size="sm"
                         onClick={() => setDuration(String(mins))}
-                        className="flex-1"
+                        className="sm:flex-1"
                         disabled={loading}
                       >
                         {mins < 60 ? `${mins}m` : `${mins / 60}h`}
@@ -785,7 +822,18 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
 
             </div>
 
-            <DialogFooter className="flex-shrink-0 flex-col gap-2 border-t bg-background px-6 py-4 sm:flex-row">
+            {/*
+              ⚠️ `flex-col` is REMOVED, and that is the fix.
+
+              `DialogFooter`'s base is `flex-col-reverse`, and `flex-col` belongs to the same tailwind-merge
+              group — so passing it here silently cancelled the reverse and the three actions stacked in DOM
+              order on every phone: « Annuler le rendez-vous » (destructive) first, « Fermer », then
+              « Enregistrer les modifications » last. That put the irreversible action closest to the thumb and
+              the primary one furthest from it, and it is the only footer in the app ordered that way — the
+              create dialog next door keeps the reverse and puts the submit on top. Two dialogs a clinic uses
+              all day, ordering their actions oppositely.
+            */}
+            <DialogFooter className="flex-shrink-0 gap-2 border-t bg-background px-6 py-4">
               <Button
                 type="button"
                 variant="destructive"
@@ -796,7 +844,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                 <X className="h-4 w-4 mr-2" />
                 Annuler le rendez-vous
               </Button>
-              <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
+              <Button type="button" variant="outline" onClick={() => guard.onOpenChange(false)} disabled={loading}>
                 Fermer
               </Button>
               {/* No longer disabled on an overlap: the collision is advisory and the server offers the override.
@@ -947,6 +995,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <DiscardChangesDialog guard={guard} />
     </>
   )
 }

@@ -8,28 +8,45 @@ import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
 import { DiscardChangesDialog } from "@/components/ui/discard-changes-dialog"
 import { Button } from "@/components/ui/button"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
+import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
-import { Trash2, Plus, Search, X } from "lucide-react"
+import { Check, ChevronsUpDown, Trash2, Plus, Search, X } from "lucide-react"
 import { toast } from "sonner"
 import { invoicesApi, type InvoiceLineInput, type CreateInvoiceRequest } from "@/lib/api/invoices"
 import { patientsApi } from "@/lib/api/patients"
-import { dentalActsApi } from "@/lib/api/dental-acts"
+import { procedureTypesApi } from "@/lib/api/procedure-types"
 import { ApiError } from "@/lib/api/client"
-import type { InvoiceDto, PatientDto, DentalActDto } from "@/lib/api/types"
-import { formatDT } from "@/lib/format"
+import type { InvoiceDto, PatientDto, ProcedureTypeDto } from "@/lib/api/types"
+import { formatAmount, formatDT, parseAmountInput } from "@/lib/format"
+import { cn } from "@/lib/utils"
 
 interface LineRow {
   designation: string
   quantity: string
   unitPriceHt: string
-  /** Catalog CNAM/DCH act attached to the line (drives the reimbursable split); null for free text. */
+  /**
+   * Catalog CNAM/DCH act attached to the line (drives the reimbursable split); null for free text.
+   *
+   * ⚠️ Round-tripped, no longer *chosen* here: the per-line picker searches the clinic's own procedure types
+   * (`/procedure-types`) rather than the CNAM nomenclature. A line loaded from a saved note keeps whatever code
+   * it carries — and can still be detached — but nothing in this form attaches a new one, so a note created
+   * here has no reimbursable split unless the code came with the line.
+   */
   dentalActCodeId: string | null
   codeActe: string | null
+  /**
+   * The price currently shown came from a catalogue act rather than from the user's keyboard.
+   *
+   * Picking an act twice on the same line has to replace the first act's price — otherwise the line reads as
+   * act B at act A's tarif — while a price the user typed must survive the same gesture. Those two are
+   * indistinguishable from the value alone, so the provenance is recorded. Cleared by the price input's own
+   * onChange: the moment it is edited, it is theirs.
+   */
+  pricedFromCatalog: boolean
 }
 
 interface InvoiceFormModalProps {
@@ -53,7 +70,14 @@ interface InvoiceFormModalProps {
   onSuccess?: () => void
 }
 
-const emptyLine = (): LineRow => ({ designation: "", quantity: "1", unitPriceHt: "", dentalActCodeId: null, codeActe: null })
+const emptyLine = (): LineRow => ({
+  designation: "",
+  quantity: "1",
+  unitPriceHt: "",
+  dentalActCodeId: null,
+  codeActe: null,
+  pricedFromCatalog: false,
+})
 
 /**
  * Upgrade the message when the same edit conflicts twice running. The first 409 means "someone saved before
@@ -85,8 +109,20 @@ export function InvoiceFormModal({
   onSuccess,
 }: InvoiceFormModalProps) {
   const [patients, setPatients] = useState<PatientDto[]>([])
-  const [acts, setActs] = useState<DentalActDto[]>([])
+  const [procedures, setProcedures] = useState<ProcedureTypeDto[]>([])
+  /*
+   * A failed catalogue read must say so rather than render as an empty picker (the repo's standing rule, and
+   * `document-editor-content`'s `CatalogLoadFailed`). It matters more here than it did when this picker offered
+   * the CNAM nomenclature: the clinic's own acts are now the ONLY source, so « aucun acte trouvé » on a network
+   * blip reads as « ce cabinet n'a aucun tarif », and the answer to that is to retype a price from memory.
+   */
+  const [proceduresFailed, setProceduresFailed] = useState(false)
+  const [proceduresReload, setProceduresReload] = useState(0)
+  /** Same rule for the patient list — « aucun patient » must never be how a network blip renders. */
+  const [patientsFailed, setPatientsFailed] = useState(false)
+  const [patientsReload, setPatientsReload] = useState(0)
   const [patientId, setPatientId] = useState("")
+  const [patientPickerOpen, setPatientPickerOpen] = useState(false)
   const [lines, setLines] = useState<LineRow[]>([emptyLine()])
   const [pickerOpenIndex, setPickerOpenIndex] = useState<number | null>(null)
   const [loading, setLoading] = useState(false)
@@ -95,23 +131,74 @@ export function InvoiceFormModal({
   const conflictStreak = useRef(0)
 
   const isEditing = !!editingInvoice
+  const selectedPatient = patients.find((p) => p.id === patientId)
+  /*
+   * Falls back to the invoice's own `patientName` when the id is not in the loaded page — the list is capped at
+   * 500, so a large clinic editing an older draft would otherwise see « Sélectionner un patient » over a draft
+   * that already has one, and reassign it by accident.
+   */
+  const selectedPatientName = selectedPatient
+    ? `${selectedPatient.firstName} ${selectedPatient.lastName}`
+    : patientId && editingInvoice?.patientId === patientId
+      ? editingInvoice.patientName ?? ""
+      : ""
+
+  /*
+   * The clinic's own act catalogue, feeding the per-line picker. Its own effect, NOT the seeding one below:
+   * the retry bumps `proceduresReload`, and re-running the seed would discard every line the user has typed
+   * to reload a list.
+   */
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    procedureTypesApi
+      .list()
+      .then((list) => {
+        if (cancelled) return
+        setProcedures(list)
+        setProceduresFailed(false)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setProcedures([])
+        setProceduresFailed(true)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [open, proceduresReload])
+
+  /*
+   * The patient list, in an effect **of its own** so « Réessayer » can re-run it.
+   *
+   * ⚠️ The failure is recorded, exactly like `proceduresFailed` above: `.catch(() => setPatients([]))` printed
+   * « Aucun patient trouvé » on the trigger *and* inside the picker — in a clinic with three hundred files, on the
+   * form that has to name one before a note d'honoraires can exist.
+   *
+   * Split out rather than given a reload token in place, for the reason the procedures effect already documents:
+   * this used to sit inside the prefill effect, and adding a token to *that* one's deps would re-seed the lines and
+   * discard everything the user has typed.
+   */
+  useEffect(() => {
+    if (!open || presetPatientId) return
+    let cancelled = false
+    patientsApi
+      .list({ limit: 500 })
+      .then((data) => {
+        if (cancelled) return
+        setPatients(data)
+        setPatientsFailed(false)
+      })
+      .catch(() => {
+        if (!cancelled) setPatientsFailed(true)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [open, presetPatientId, patientsReload])
 
   useEffect(() => {
     if (!open) return
-
-    // Load the active CNAM dental act catalog for the per-line act picker (drives the reimbursable split).
-    dentalActsApi
-      .list()
-      .then(setActs)
-      .catch(() => setActs([]))
-
-    // Only load a patient list when the caller doesn't preset one.
-    if (!presetPatientId) {
-      patientsApi
-        .list({ limit: 500 })
-        .then(setPatients)
-        .catch(() => setPatients([]))
-    }
 
     if (editingInvoice) {
       setPatientId(editingInvoice.patientId)
@@ -120,9 +207,11 @@ export function InvoiceFormModal({
           ? editingInvoice.lines.map((l) => ({
               designation: l.designation,
               quantity: String(l.quantity),
-              unitPriceHt: String(l.unitPriceHt),
+              unitPriceHt: formatAmount(l.unitPriceHt),
               dentalActCodeId: l.dentalActCodeId ?? null,
               codeActe: l.codeActe ?? null,
+              // A saved price is a decision already taken — picking an act must not overwrite it.
+              pricedFromCatalog: false,
             }))
           : [emptyLine()],
       )
@@ -133,9 +222,11 @@ export function InvoiceFormModal({
           ? presetLines.map((l) => ({
               designation: l.designation,
               quantity: String(l.quantity),
-              unitPriceHt: String(l.unitPriceHt),
+              unitPriceHt: formatAmount(l.unitPriceHt),
               dentalActCodeId: l.dentalActCodeId ?? null,
               codeActe: l.codeActe ?? null,
+              // A séance's own fee, likewise: it is what was recorded on the fiche, not a catalogue default.
+              pricedFromCatalog: false,
             }))
           : [emptyLine()],
       )
@@ -152,20 +243,28 @@ export function InvoiceFormModal({
   const removeLine = (index: number) =>
     setLines((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== index) : prev))
 
-  const selectAct = (index: number, act: DentalActDto) => {
+  /**
+   * Put one of the clinic's own acts on a line: its name becomes the désignation, its tarif the price.
+   *
+   * <p>The désignation is **replaced**, not filled-when-empty: choosing an act is an explicit statement about
+   * what this line bills, and keeping the previous text would leave the line naming one act at another's tarif.
+   * The price is replaced only when the field is empty or still holds a catalogue tarif — a figure the user
+   * typed is theirs and survives (see `LineRow.pricedFromCatalog`). It stays editable either way: the tarif is
+   * a default, and a fee agreed with this patient overrides it.</p>
+   */
+  const selectProcedure = (index: number, procedure: ProcedureTypeDto) => {
     setLines((prev) =>
-      prev.map((l, i) =>
-        i === index
-          ? {
-              ...l,
-              dentalActCodeId: act.id,
-              codeActe: act.codeActe,
-              // Fill the designation from the act, and the price from its default fee, only when empty.
-              designation: l.designation.trim() === "" ? act.designationFr : l.designation,
-              unitPriceHt: l.unitPriceHt.trim() === "" && act.defaultFee != null ? String(act.defaultFee) : l.unitPriceHt,
-            }
-          : l,
-      ),
+      prev.map((l, i) => {
+        if (i !== index) return l
+        const tarif = procedure.defaultCost
+        const takeTarif = tarif != null && (l.unitPriceHt.trim() === "" || l.pricedFromCatalog)
+        return {
+          ...l,
+          designation: procedure.name,
+          unitPriceHt: takeTarif ? formatAmount(tarif) : l.unitPriceHt,
+          pricedFromCatalog: takeTarif,
+        }
+      }),
     )
     setPickerOpenIndex(null)
   }
@@ -174,7 +273,7 @@ export function InvoiceFormModal({
 
   const totalHt = lines.reduce((sum, l) => {
     const qty = Number(l.quantity)
-    const price = Number(l.unitPriceHt)
+    const price = parseAmountInput(l.unitPriceHt)
     if (!Number.isFinite(qty) || !Number.isFinite(price)) return sum
     return sum + qty * price
   }, 0)
@@ -192,7 +291,7 @@ export function InvoiceFormModal({
       .map((l) => ({
         designation: l.designation.trim(),
         quantity: Number(l.quantity),
-        unitPriceHt: Number(l.unitPriceHt),
+        unitPriceHt: parseAmountInput(l.unitPriceHt),
         dentalActCodeId: l.dentalActCodeId,
         codeActe: l.codeActe,
       }))
@@ -264,18 +363,84 @@ export function InvoiceFormModal({
             {presetPatientId ? (
               <Input id="patient" value={presetPatientName ?? "Patient"} disabled />
             ) : (
-              <Select value={patientId} onValueChange={setPatientId} disabled={loading}>
-                <SelectTrigger id="patient">
-                  <SelectValue placeholder="Sélectionner un patient" />
-                </SelectTrigger>
-                <SelectContent>
-                  {patients.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {p.firstName} {p.lastName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              /*
+               * A searchable Popover + `Command`, not a `<Select>`.
+               *
+               * The fetch above asks for up to **500 patients**, and a plain Select is an unfiltered scroll
+               * through all of them — on the one form where picking the wrong name issues a fiscal document
+               * against the wrong person. The act picker fifty lines below already uses this exact pattern for
+               * a far shorter list, so the file contained both the problem and its answer.
+               *
+               * `modal` is load-bearing: the parent Dialog disables pointer events outside its content, and a
+               * non-modal Popover portalled to <body> inherits that — the list would be keyboard-only.
+               */
+              <Popover open={patientPickerOpen} onOpenChange={setPatientPickerOpen} modal>
+                <PopoverTrigger asChild>
+                  <Button
+                    id="patient"
+                    type="button"
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={patientPickerOpen}
+                    disabled={loading}
+                    className="h-9 w-full justify-between font-normal"
+                  >
+                    <span className={cn("truncate", !patientId && "text-muted-foreground")}>
+                      {selectedPatientName ||
+                        (patientsFailed
+                          ? "Liste indisponible"
+                          : patients.length === 0
+                            ? "Aucun patient trouvé"
+                            : "Sélectionner un patient")}
+                    </span>
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent
+                  className="p-0"
+                  align="start"
+                  style={{ width: "var(--radix-popover-trigger-width)" }}
+                >
+                  <Command>
+                    <CommandInput placeholder="Rechercher un patient…" />
+                    <CommandList>
+                      {patientsFailed ? (
+                        <LoadFailureNotice
+                          message="La liste des patients n'a pas pu être chargée."
+                          detail="Ce n'est pas un cabinet sans patients — la lecture a échoué."
+                          onRetry={() => setPatientsReload((n) => n + 1)}
+                          className="m-2"
+                        />
+                      ) : (
+                        <CommandEmpty>Aucun patient trouvé.</CommandEmpty>
+                      )}
+                      <CommandGroup>
+                        {patients.map((p) => {
+                          const fullName = `${p.firstName} ${p.lastName}`
+                          return (
+                            <CommandItem
+                              key={p.id}
+                              value={fullName}
+                              onSelect={() => {
+                                setPatientId(p.id)
+                                setPatientPickerOpen(false)
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  patientId === p.id ? "opacity-100" : "opacity-0",
+                                )}
+                              />
+                              {fullName}
+                            </CommandItem>
+                          )
+                        })}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
             )}
           </div>
 
@@ -284,7 +449,7 @@ export function InvoiceFormModal({
             <div className="space-y-3">
               {lines.map((line, index) => {
                 const qty = Number(line.quantity)
-                const price = Number(line.unitPriceHt)
+                const price = parseAmountInput(line.unitPriceHt)
                 const lineTotal = Number.isFinite(qty) && Number.isFinite(price) ? qty * price : 0
                 return (
                   <div key={index} className="rounded-lg border p-3 space-y-2">
@@ -294,7 +459,7 @@ export function InvoiceFormModal({
                           <Input
                             value={line.designation}
                             onChange={(e) => updateLine(index, { designation: e.target.value })}
-                            placeholder="Ex. Détartrage (ou choisir un acte CNAM)"
+                            placeholder="Ex. Détartrage (ou choisir un de vos actes)"
                             disabled={loading}
                           />
                           <Popover
@@ -309,34 +474,57 @@ export function InvoiceFormModal({
                                 size="sm"
                                 className="h-9 px-3 shrink-0"
                                 disabled={loading}
-                                title="Rattacher un acte CNAM (pour le calcul du remboursement)"
+                                title="Choisir un de vos actes (le tarif reste modifiable)"
                               >
                                 <Search className="h-4 w-4" />
-                                <span className="sr-only">Rattacher un acte CNAM</span>
+                                <span className="sr-only">Choisir un de vos actes</span>
                               </Button>
                             </PopoverTrigger>
                             <PopoverContent className="p-0 w-80" align="end">
                               <Command>
                                 <CommandInput placeholder="Rechercher un acte…" />
                                 <CommandList>
-                                  <CommandEmpty>Aucun acte trouvé.</CommandEmpty>
-                                  <CommandGroup heading="Nomenclature CNAM">
-                                    {acts.map((act) => (
-                                      <CommandItem
-                                        key={act.id}
-                                        value={`${act.codeActe} ${act.designationFr} ${act.lettreCle}`}
-                                        onSelect={() => selectAct(index, act)}
+                                  {proceduresFailed ? (
+                                    <div className="space-y-2 p-4 text-center">
+                                      <p className="text-sm font-medium text-foreground">
+                                        Vos actes n&apos;ont pas pu être chargés.
+                                      </p>
+                                      <p className="text-xs text-muted-foreground">
+                                        Ce n&apos;est pas un catalogue vide — la lecture a échoué. Réessayez
+                                        avant de saisir un tarif de mémoire.
+                                      </p>
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => setProceduresReload((n) => n + 1)}
                                       >
-                                        <div className="flex flex-col">
-                                          <span className="text-sm font-medium">{act.designationFr}</span>
-                                          <span className="text-xs text-muted-foreground">
-                                            {act.codeActe} · {act.category}
-                                            {act.defaultFee != null ? ` · ${formatDT(act.defaultFee)}` : ""}
-                                          </span>
-                                        </div>
-                                      </CommandItem>
-                                    ))}
-                                  </CommandGroup>
+                                        Réessayer
+                                      </Button>
+                                    </div>
+                                  ) : (
+                                    <>
+                                      <CommandEmpty>Aucun acte trouvé.</CommandEmpty>
+                                      <CommandGroup heading="Vos actes">
+                                        {procedures.map((procedure) => (
+                                          <CommandItem
+                                            key={procedure.id}
+                                            value={`${procedure.name} ${procedure.description ?? ""}`}
+                                            onSelect={() => selectProcedure(index, procedure)}
+                                          >
+                                            <div className="flex min-w-0 flex-col">
+                                              <span className="truncate text-sm font-medium">{procedure.name}</span>
+                                              <span className="text-xs text-muted-foreground">
+                                                {procedure.defaultCost != null
+                                                  ? formatDT(procedure.defaultCost)
+                                                  : "Pas de tarif par défaut"}
+                                              </span>
+                                            </div>
+                                          </CommandItem>
+                                        ))}
+                                      </CommandGroup>
+                                    </>
+                                  )}
                                 </CommandList>
                               </Command>
                             </PopoverContent>
@@ -382,12 +570,18 @@ export function InvoiceFormModal({
                       </div>
                       <div className="flex items-center gap-1.5">
                         <span className="text-xs text-muted-foreground">P.U. HT (DT)</span>
+                        {/* `text` + `inputMode="decimal"`, never `type="number"` (J8): a number input refuses
+                            the comma this product prints with, and a rejected keystroke returns an EMPTY value —
+                            so a line looked priced and billed 0. « Qté » beside it stays a real number input:
+                            it is an integer count, not money. */}
                         <Input
-                          type="number"
-                          min="0"
-                          step="0.001"
+                          type="text"
+                          inputMode="decimal"
                           value={line.unitPriceHt}
-                          onChange={(e) => updateLine(index, { unitPriceHt: e.target.value })}
+                          // Editing the price makes it the user's, so a later act pick no longer overwrites it.
+                          onChange={(e) =>
+                            updateLine(index, { unitPriceHt: e.target.value, pricedFromCatalog: false })
+                          }
                           className="w-32"
                           disabled={loading}
                         />

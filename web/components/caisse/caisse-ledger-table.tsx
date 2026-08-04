@@ -2,10 +2,13 @@
 
 import Link from "next/link"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
-import { ArrowDownLeft, ArrowUpRight, Ban, Receipt, CalendarClock, Undo2, Wallet } from "lucide-react"
+import { EmptyState } from "@/components/ui/empty-state"
+import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Ban, Receipt, CalendarClock, SearchX, Undo2, Wallet } from "lucide-react"
 import { formatDT, formatDate } from "@/lib/format"
+import { ZONES, zoneChipClass } from "@/lib/zones"
 import type { CaisseMovementDto, CaisseMovementKind } from "@/lib/api/types"
 import { paymentMethodLabel } from "@/components/factures/invoice-labels"
 
@@ -33,6 +36,27 @@ const KIND_LABELS: Record<CaisseMovementKind, string> = {
 }
 
 /**
+ * A cheque in one line — « n° 4512873 · BIAT · encaissable le 15/09/2026 » (L8).
+ *
+ * <p>Returns `null` when the movement is not a cheque or carries none of the three fields (a cheque recorded before
+ * they existed), so both trees can test it and omit the row entirely rather than printing an empty « Chèque : — ».</p>
+ *
+ * <p>⚠️ **One formatter for both trees.** This table renders twice — a card list below `md:` and a real `<table>`
+ * above it — and a cheque described one way in one and another way in the other is the drift `ConventionPrompt`
+ * documents for the same reason. « encaissable le » rather than « échéance » on purpose: the due date is when the
+ * cheque may be *banked*, and « échéance » already means an instalment of a devis on this very screen.</p>
+ */
+function chequeSummary(movement: CaisseMovementDto): string | null {
+  const parts = [
+    movement.chequeNumber ? `n° ${movement.chequeNumber}` : null,
+    movement.chequeBankName,
+    movement.chequeDueDate ? `encaissable le ${formatDate(movement.chequeDueDate)}` : null,
+  ].filter((part): part is string => Boolean(part))
+
+  return parts.length > 0 ? parts.join(" · ") : null
+}
+
+/**
  * Where a row leads. Kept beside the labels rather than server-side for the same reason `dashboard-links.ts`
  * owns its routes: the destination is a frontend concern, and an exhaustive `Record` makes a new kind without a
  * destination a `tsc` error rather than a row that goes nowhere.
@@ -51,12 +75,23 @@ const kindHref = (movement: CaisseMovementDto): string | null => {
   }
 }
 
+/** La caisse is the « Finances » zone, so its empty state wears the same hue the rail and the eyebrow do. */
+const MONEY_CHIP = zoneChipClass(ZONES.money)
+
 interface CaisseLedgerTableProps {
   movements: CaisseMovementDto[]
   loading?: boolean
+  /** True when a search term is narrowing the statement — the empty state then has a different way out. */
+  isFiltered?: boolean
+  onClearSearch?: () => void
 }
 
-export function CaisseLedgerTable({ movements, loading = false }: CaisseLedgerTableProps) {
+export function CaisseLedgerTable({
+  movements,
+  loading = false,
+  isFiltered = false,
+  onClearSearch,
+}: CaisseLedgerTableProps) {
   if (loading) {
     return (
       <div className="space-y-2" role="status" aria-label="Chargement de l'extrait">
@@ -68,10 +103,35 @@ export function CaisseLedgerTable({ movements, loading = false }: CaisseLedgerTa
   }
 
   if (movements.length === 0) {
-    return (
-      <p className="py-8 text-center text-sm text-muted-foreground">
-        Aucun mouvement sur cette période.
-      </p>
+    /*
+     * Two emptinesses, and only one of them is news. « Rien ne correspond à cette recherche » is recoverable and
+     * says so; « aucun mouvement sur cette période » is a fact about a quiet day and gets NO create action —
+     * a statement is a read of the four ledgers that already exist, so the only honest next step is to widen the
+     * period, which is done with the date inputs above rather than from inside the table.
+     */
+    return isFiltered ? (
+      <EmptyState
+        size="compact"
+        icon={SearchX}
+        chipClassName={MONEY_CHIP}
+        title="Aucun mouvement ne correspond"
+        description="Aucun paiement, avoir ni dépense de la période ne correspond à cette recherche."
+        secondaryAction={
+          onClearSearch && (
+            <Button size="sm" variant="outline" onClick={onClearSearch}>
+              Effacer les filtres
+            </Button>
+          )
+        }
+      />
+    ) : (
+      <EmptyState
+        size="compact"
+        icon={ArrowLeftRight}
+        chipClassName={MONEY_CHIP}
+        title="Aucun mouvement sur cette période"
+        description="Les paiements de factures, les échéances de devis, les avoirs remboursés et les dépenses de la période s'afficheront ici."
+      />
     )
   }
 
@@ -118,13 +178,16 @@ export function CaisseLedgerTable({ movements, loading = false }: CaisseLedgerTa
           {
             label: m.direction === "In" ? "Entrée" : "Sortie",
             value: (
+              // `text-success` / `text-destructive`, never `emerald-*` / `rose-*`: the four figures directly
+              // above this statement are drawn on those tokens, and a card whose « Entrée » is a different
+              // green from the « Encaissements » total it belongs to is two palettes in one viewport.
               <span
                 className={
                   m.isVoided
                     ? "line-through"
                     : m.direction === "In"
-                      ? "font-medium text-emerald-600 dark:text-emerald-500"
-                      : "font-medium text-rose-600 dark:text-rose-500"
+                      ? "font-medium text-success"
+                      : "font-medium text-destructive"
                 }
               >
                 {formatDT(m.amount)}
@@ -134,6 +197,9 @@ export function CaisseLedgerTable({ movements, loading = false }: CaisseLedgerTa
           { label: "Date", value: formatDate(m.occurredOn) },
           { label: "Patient", value: m.patientName },
           { label: "Mode", value: m.method ? paymentMethodLabel(m.method) : null },
+          // L8 — omitted entirely when there is nothing to say, per the card rule (« a field with no value is
+          // omitted, not rendered as « — » »).
+          { label: "Chèque", value: chequeSummary(m) },
         ]}
       />
       {movements.length > 0 && (
@@ -196,8 +262,13 @@ export function CaisseLedgerTable({ movements, loading = false }: CaisseLedgerTa
                 <TableCell className="text-muted-foreground">{movement.patientName ?? "—"}</TableCell>
                 <TableCell className="text-muted-foreground">
                   {movement.method ? paymentMethodLabel(movement.method) : "—"}
+                  {/* L8 — the same string the card list shows, from the one formatter, so the two trees cannot
+                      drift about what a cheque row says. */}
+                  {chequeSummary(movement) && (
+                    <span className="mt-0.5 block text-xs">{chequeSummary(movement)}</span>
+                  )}
                 </TableCell>
-                <TableCell className="text-right font-medium text-emerald-600 dark:text-emerald-500">
+                <TableCell className="text-right font-medium text-success">
                   {isIn && !movement.isVoided ? (
                     <span className="inline-flex items-center gap-1">
                       <ArrowDownLeft className="h-3 w-3" aria-hidden="true" />
@@ -209,7 +280,7 @@ export function CaisseLedgerTable({ movements, loading = false }: CaisseLedgerTa
                     "—"
                   )}
                 </TableCell>
-                <TableCell className="text-right font-medium text-rose-600 dark:text-rose-500">
+                <TableCell className="text-right font-medium text-destructive">
                   {!isIn && !movement.isVoided ? (
                     <span className="inline-flex items-center gap-1">
                       <ArrowUpRight className="h-3 w-3" aria-hidden="true" />

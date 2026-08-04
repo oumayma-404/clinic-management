@@ -153,10 +153,23 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
     } catch (error) {
       console.error("Failed to upload files:", error)
       const fileCount = filesToUpload.length
+      /*
+       * The server's OWN reason, not a guess at one.
+       *
+       * This used to discard the response entirely and always say « vérifiez votre connexion » — so a file the
+       * server refused on its allow-list (`FileContentValidation`: PDF, PNG, JPEG only) was reported as a network
+       * failure. The user then retried the same DICOM or TIFF from the imaging centre, repeatedly, with the one
+       * fact that would have explained it — « ce type de fichier n'est pas accepté » — sitting unread in the
+       * response body. `getErrorMessage` reads the canonical `{ error }` and falls back to the connection wording
+       * only when there genuinely is no message (an `ApiError(0)`).
+       */
       toast.error(
         fileCount === 1 ? "Échec du téléchargement du fichier" : "Échec du téléchargement des fichiers",
         {
-          description: "Une erreur s'est produite. Veuillez vérifier votre connexion et réessayer.",
+          description: getErrorMessage(
+            error,
+            "Une erreur s'est produite. Veuillez vérifier votre connexion et réessayer.",
+          ),
           duration: 5000,
         }
       )
@@ -422,8 +435,15 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
       <Card
         className={cn(
           "border-2 border-dashed p-6 transition-all duration-200",
-          isDragging 
-            ? "border-primary bg-accent/50/20 shadow-lg" 
+          /*
+             ⚠️ `bg-accent/20`, not `bg-accent/50/20`. Tailwind does not parse a DOUBLE opacity modifier, so it
+             emitted no background rule at all — the drop zone's active state has never had the fill this line
+             was written to give it, and "you may drop here" was carried by the border alone. A class that
+             produces nothing looks exactly like a class that produces something subtle, which is why the typo
+             survived; the same slip appears once more in this file (the folder card's gradient below).
+          */
+          isDragging
+            ? "border-primary bg-accent/20 shadow-lg"
             : "border-primary/25 hover:border-primary/40 bg-gradient-to-br from-accent/30 to-transparent/10"
         )}
         onDrop={handleDrop}
@@ -498,7 +518,10 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
                     // Movement hover gated behind `hover-hover:` (AC-11); the shadow and border tints stay
                     // ungated, per the policy — a lingering tint reads as "selected", a stuck transform reads
                     // as broken.
-                    "p-4 cursor-pointer hover:shadow-md transition-all duration-200 hover-hover:hover:scale-105 border-border hover:border-primary/40 bg-gradient-to-br from-card to-accent/30/10 relative group",
+                    // `to-accent/10` — the second of the two double-modifier typos (`to-accent/30/10` emitted no
+                    // gradient stop, so these cards were a flat `from-card` with a `bg-gradient-to-br` that had
+                    // nothing to travel to).
+                    "p-4 cursor-pointer hover:shadow-md transition-all duration-200 hover-hover:hover:scale-105 border-border hover:border-primary/40 bg-gradient-to-br from-card to-accent/10 relative group",
                     CARD_FOCUS_CLASSES
                   )}
                   onClick={() => setCurrentFolderId(folder.id)}
@@ -707,11 +730,14 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
                       </div>
                     ) : isPdfFile(previewFile) ? (
                       <div className="w-full flex items-start justify-center min-h-full">
-                        <div className="bg-white dark:bg-slate-800 shadow-2xl rounded-lg overflow-hidden" style={{ 
-                          width: '100%', 
-                          maxWidth: 'calc(100vw - 8rem)',
-                          aspectRatio: '210 / 297'
-                        }}>
+                        {/* ⚠️ The `calc(100vw - 8rem)` gutter is now `md:`-only. It is a DESKTOP allowance, and
+                            applying it unconditionally clamped a 342px phone viewport to 262px — 23% of the
+                            screen discarded on the one surface (a panoramique, a bilan) that wants every pixel.
+                            Below `md:` the dialog is already a full-screen sheet with its own padding. */}
+                        <div
+                          className="w-full overflow-hidden rounded-lg bg-white shadow-2xl md:max-w-[calc(100vw-8rem)] dark:bg-slate-800"
+                          style={{ aspectRatio: '210 / 297' }}
+                        >
                           <iframe
                             src={`${previewUrl}#toolbar=0&navpanes=0&scrollbar=1`}
                             className="w-full h-full"
@@ -747,11 +773,16 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
                 )}
               </div>
               <DialogFooter className="px-6 py-4 flex-shrink-0 border-t bg-gradient-to-r from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
-                <div className="flex items-center gap-3 w-full justify-between">
+                {/* `flex-wrap` — « Fermer » (min 100px) + « Télécharger » + « Supprimer » is ~364px of French
+                    inside a 342px phone sheet, and `buttonVariants` is `whitespace-nowrap`, so nothing could
+                    give: the destructive button was pushed past the right edge and simply could not be reached.
+                    Wrapping is the fix rather than shrinking, since none of the three labels can be shortened
+                    without losing what it does. */}
+                <div className="flex w-full flex-wrap items-center justify-between gap-3">
                   <Button variant="outline" onClick={handleClosePreview} className="min-w-[100px]">
                     Fermer
                   </Button>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <Button variant="outline" onClick={() => handleDownloadFile(previewFile!)} className="gap-2">
                       <Download className="h-4 w-4" />
                       Télécharger

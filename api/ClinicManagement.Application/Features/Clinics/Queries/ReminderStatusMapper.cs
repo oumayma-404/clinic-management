@@ -27,6 +27,7 @@ public static class ReminderStatusMapper
         {
             NotificationStatus.Sent => ReminderDeliveryStatus.Sent,
             NotificationStatus.Failed => ReminderDeliveryStatus.Failed,
+            NotificationStatus.Blocked => ReminderDeliveryStatus.Blocked,
             _ => ReminderDeliveryStatus.Pending,
         },
         FailureReason = string.IsNullOrWhiteSpace(n.ErrorMessage) ? null : n.ErrorMessage,

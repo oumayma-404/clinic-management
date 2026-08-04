@@ -21,6 +21,8 @@ import {
 } from "@/components/ui/alert-dialog"
 import { ClipboardList, Pencil, Trash2, Plus, AlertTriangle, CheckCircle2, MoreHorizontal } from "lucide-react"
 import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
+import { EmptyState } from "@/components/ui/empty-state"
+import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -97,6 +99,35 @@ export function CnamNomenclatureTable({ onEdit, onAdd, onChanged, reloadToken }:
 
   const hasProvisional = entries.some((e) => e.isProvisional)
 
+  /**
+   * The two empty facts kept apart (finding #4). This table carries a live search box and had a single
+   * « Aucun acte dans la nomenclature » — so one mistyped code told the admin their entire CNAM catalogue was
+   * gone. The filtered branch offers a way back and deliberately no « Ajouter un acte »: the act almost
+   * certainly exists, and a create button there produces a duplicate `codeActe`.
+   */
+  const renderEmpty = (size: "default" | "compact") =>
+    isSearching ? (
+      <div className="flex flex-col items-center gap-2 py-2">
+        <p className="text-sm text-muted-foreground">Aucun acte ne correspond à votre recherche</p>
+        <Button variant="outline" size="sm" onClick={() => setSearch("")}>
+          Effacer la recherche
+        </Button>
+      </div>
+    ) : (
+      <EmptyState
+        icon={ClipboardList}
+        size={size}
+        title="Aucun acte dans la nomenclature"
+        description="La nomenclature CNAM associe un code d'acte à sa lettre clé et à son coefficient : c'est ce qui permet d'estimer le remboursement sur un bulletin BS1."
+        action={
+          <Button onClick={onAdd} className="gap-2">
+            <Plus className="h-4 w-4" />
+            Ajouter un acte
+          </Button>
+        }
+      />
+    )
+
   if (loading) {
     return (
       <Card>
@@ -110,7 +141,9 @@ export function CnamNomenclatureTable({ onEdit, onAdd, onChanged, reloadToken }:
   return (
     <>
       {hasProvisional && (
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+        /* On the theme's warning family (`--warning-wash` / `--warning-ink`), not `amber-*` literals with a
+           hand-maintained `dark:` twin. */
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-warning/40 bg-warning-wash p-3 text-sm text-warning-ink">
           <div className="flex items-center gap-2">
             <AlertTriangle className="h-4 w-4 shrink-0" />
             <span>
@@ -144,11 +177,14 @@ export function CnamNomenclatureTable({ onEdit, onAdd, onChanged, reloadToken }:
           </div>
         </CardHeader>
         <CardContent>
-          {error && (
-            <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
-              {error}
-            </div>
-          )}
+          {/* The shared primitive on the theme's own destructive family, plus a retry: this file carried a
+              hand-written `border-red-200 bg-red-50 … dark:` copy, so it maintained dark mode itself and the
+              only escape from a failed read was a browser reload. */}
+          <FormErrorBanner
+            className="mb-4"
+            message={error}
+            action={{ label: "Réessayer", onClick: onChanged }}
+          />
           <div className="mb-4">
             <Label htmlFor="cnam-search" className="sr-only">
               Rechercher un acte (code, désignation, lettre clé)…
@@ -160,7 +196,9 @@ export function CnamNomenclatureTable({ onEdit, onAdd, onChanged, reloadToken }:
               placeholder="Rechercher un acte (code, désignation, lettre clé)…"
             />
           </div>
-          <div className={`overflow-x-auto${refreshing ? " opacity-60 transition-opacity" : ""}`}>
+          {/* No `overflow-x-auto` here: `ui/table.tsx` already wraps its own table in one, so this was a second
+              horizontal scroller nested around the first — the wrapper now carries only the refetch dimming. */}
+          <div className={refreshing ? "opacity-60 transition-opacity" : undefined}>
             {/* Title is the désignation, not the code: `codeActe` is the key you look an act UP by, but the
                 name is how you recognise it in a list. The code rides as a mono eyebrow. */}
             <CardList
@@ -175,7 +213,7 @@ export function CnamNomenclatureTable({ onEdit, onAdd, onChanged, reloadToken }:
                 <>
                   {!e.isActive && <Badge variant="secondary">Inactif</Badge>}
                   {e.isProvisional && (
-                    <Badge variant="outline" className="border-amber-400 text-amber-700 dark:text-amber-300">
+                    <Badge variant="outline" className="border-warning/50 text-warning-ink">
                       À vérifier
                     </Badge>
                   )}
@@ -206,7 +244,7 @@ export function CnamNomenclatureTable({ onEdit, onAdd, onChanged, reloadToken }:
                   </DropdownMenuContent>
                 </DropdownMenu>
               )}
-              empty="Aucun acte dans la nomenclature"
+              empty={renderEmpty("compact")}
             />
             <Table containerClassName={TABLE_ONLY}>
               <TableHeader>
@@ -223,9 +261,7 @@ export function CnamNomenclatureTable({ onEdit, onAdd, onChanged, reloadToken }:
               <TableBody>
                 {entries.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="h-24 text-center">
-                      <p className="text-muted-foreground">Aucun acte dans la nomenclature</p>
-                    </TableCell>
+                    <TableCell colSpan={7}>{renderEmpty("default")}</TableCell>
                   </TableRow>
                 ) : (
                   entries.map((entry) => (
@@ -241,7 +277,7 @@ export function CnamNomenclatureTable({ onEdit, onAdd, onChanged, reloadToken }:
                         <div className="flex flex-wrap gap-1">
                           {!entry.isActive && <Badge variant="secondary">Inactif</Badge>}
                           {entry.isProvisional && (
-                            <Badge variant="outline" className="border-amber-400 text-amber-700 dark:text-amber-300">
+                            <Badge variant="outline" className="border-warning/50 text-warning-ink">
                               À vérifier
                             </Badge>
                           )}

@@ -83,6 +83,15 @@ export interface RecordInstallmentPaymentRequest {
   /** Cash | Cheque | Card | Transfer */
   method: string;
   paidOn: string;
+  /**
+   * Cheque identity (L8) — only for `method: "Cheque"`. Same contract as the invoice side's
+   * `RecordPaymentRequest`; build with `chequePaymentFields()`.
+   */
+  chequeNumber?: string;
+  /** @see chequeNumber */
+  chequeBankName?: string;
+  /** A bare `YYYY-MM-DD` calendar day — see the invoice-side note on why not an ISO instant. */
+  chequeDueDate?: string;
 }
 
 export const treatmentPlansApi = {

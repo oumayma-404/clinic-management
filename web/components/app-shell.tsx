@@ -88,9 +88,41 @@ export function AppShell({
 
       <div className="flex flex-1 flex-col overflow-hidden">
         <DashboardHeader />
+        {/*
+          `animate-page-in` — one short fade per navigation.
+
+          The shell remounts on every route change, so this runs once per navigation and makes the page
+          visibly *arrive* rather than being swapped. It is 200 ms and opacity-only, and both of those are
+          constraints rather than preferences:
+
+            • **200 ms**, because a navigation happens dozens of times a day. At that frequency an animation
+              has to be nearly subliminal or absent — a longer, showier entrance would be felt as latency by
+              the third time a dentist opened the agenda.
+
+            • ⚠️ **Opacity only, never a transform.** A `transform` on an ancestor makes it the containing
+              block for every `position: fixed` descendant, and `<main>` has several — the agenda's « Nouveau
+              rendez-vous » action bar and the AI launcher among them. A 4 px rise here would drag those
+              fixed elements along for the duration and settle them with a visible jump. `opacity` creates a
+              stacking context but *not* a containing block, so it is the one property that is safe here.
+
+          `prefers-reduced-motion` collapses this through the base layer, so it needs no guard.
+        */}
         <main
           id="contenu-principal"
-          className={cn("flex-1", mainClassName ?? "overflow-y-auto", gutter && "p-4 md:p-6")}
+          className={cn(
+            "animate-page-in flex-1",
+            mainClassName ?? "overflow-y-auto",
+            /*
+             * `pb-20` is scroll runway for the AI assistant's launcher, not spacing taste.
+             *
+             * The FAB is `fixed … right-4` at 56 px square, so it permanently occupies the bottom-right corner
+             * of the viewport — i.e. the last ~72 px of `<main>`'s content once the page is scrolled to the
+             * end. With only `p-4` there, the final table row's actions and the pager sat underneath it and
+             * could not be tapped. `/appointments` had already had to move its own FAB for exactly this
+             * collision; every other page still had content under it.
+             */
+            gutter && "p-4 pb-20 md:p-6 md:pb-20",
+          )}
         >
           {widthClass || contentClassName ? (
             <div className={cn("mx-auto", widthClass, contentClassName)}>{children}</div>

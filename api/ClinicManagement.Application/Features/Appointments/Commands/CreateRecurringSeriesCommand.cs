@@ -21,6 +21,22 @@ public class CreateRecurringSeriesCommand : IRequest<Result<RecurringSeriesResul
     /// <summary>Confirmed override so out-of-hours occurrences are created instead of skipped (AC-P1.31).</summary>
     public bool AllowOutsideWorkingHours { get; set; }
 
+    /// <summary>
+    /// Confirmed override so a colliding occurrence is created instead of skipped — the same shape as
+    /// <see cref="AllowOutsideWorkingHours"/>, and for the same reason: a double-booking is advisory (a second
+    /// chair, an assistant preparing one patient while the dentist starts another), not a prohibition.
+    ///
+    /// <para>
+    /// ⚠️ **Wired by L2b; the client had been sending it into a void.** `CreateRecurringSeriesPayload.allowOverlap`
+    /// has existed on the frontend with no counterpart here, so the flag was silently dropped. That went unnoticed
+    /// because the collision check it overrides was itself dead code (see the `existing` load below) — a flag with
+    /// no effect over a check that never fired. The spec's instruction was "either wire it or delete it"; wiring is
+    /// the right half, because a series is now the writer whose occurrences collide *most* often and the recurring
+    /// path would otherwise be the only one of the three with no override at all.
+    /// </para>
+    /// </summary>
+    public bool AllowOverlap { get; set; }
+
     public Guid PatientId { get; set; }
     public DateTime StartDateTime { get; set; }
     public int DurationMinutes { get; set; }
@@ -178,13 +194,28 @@ public class CreateRecurringSeriesCommandHandler : IRequestHandler<CreateRecurri
                 };
             }
 
-            // Load existing appointments for the practitioner in the window for conflict detection (AC-2.3).
+            /*
+             * Load the existing appointments this series could clash with (AC-2.3).
+             *
+             * ⚠️ **No longer gated on `request.DoctorId.HasValue`, and no longer filtered by it (L2b, blocker).**
+             * The create form has no practitioner field, so `DoctorId` was *always* null — which meant this list
+             * was never loaded, both collision branches below were dead, and the outcome panel's « conflits »
+             * section was unreachable code. A twelve-week series booked straight over twelve existing patients and
+             * reported a clean run. The database could not catch it either: the exclusion constraint is predicated
+             * on `DoctorId IS NOT NULL`.
+             *
+             * Fetched clinic-wide because `AppointmentScheduling.CompetesFor` — the one authority on what competes
+             * with what — must also see the clinic's *unassigned* rows (a « créneau occupé » block) even when a
+             * practitioner is named. It is bounded by the series' own window, so this is one query over the weeks
+             * the series actually occupies.
+             */
             List<Appointment> existing = new();
-            if (request.DoctorId.HasValue && occurrences.Count > 0)
+            if (occurrences.Count > 0)
             {
+                var windowStart = occurrences[0] - AppointmentScheduling.MaxCredibleAppointmentLength;
                 var windowEnd = occurrences[^1] + duration;
                 existing = (await _appointmentRepository.GetByClinicIdAsync(
-                    clinicId, occurrences[0], windowEnd, request.DoctorId, cancellationToken)).ToList();
+                    clinicId, windowStart, windowEnd, doctorId: null, cancellationToken)).ToList();
             }
 
             var now = DateTime.UtcNow;
@@ -203,17 +234,24 @@ public class CreateRecurringSeriesCommandHandler : IRequestHandler<CreateRecurri
 
                 // AC-P1.38/1.39: one shared predicate. This copy excluded only `Cancelled`, so a series
                 // refused to book over a NoShow slot the single-appointment path considered free.
-                var collides = request.DoctorId.HasValue && existing.Any(e =>
+                // ⚠️ The `request.DoctorId.HasValue &&` that used to open this expression is gone (L2b): it was
+                // always false, so the whole clause was dead. `CompetesFor` is what decides now — see its remarks
+                // for why an unassigned row competes with everything.
+                var collides = existing.Any(e =>
                     AppointmentScheduling.OccupiesSlot(e.Status) &&
+                    AppointmentScheduling.CompetesFor(request.DoctorId, e.DoctorId) &&
                     AppointmentScheduling.Overlaps(e.AppointmentDateTime, e.Duration, occ, duration));
 
                 // ...and against the occurrences THIS call has already accepted. `existing` is loaded once
                 // before the loop, so a series whose interval is shorter than its own duration used to
                 // cheerfully double-book itself — and now that the database enforces the constraint
                 // (AC-P1.19), that would abort the whole series instead of skipping one occurrence.
-                if (!collides && request.DoctorId.HasValue)
+                // Every row here carries this series' own `DoctorId`, so it competes with the candidate by
+                // definition; `CompetesFor` is still asked rather than assumed, so the two branches cannot drift.
+                if (!collides)
                 {
                     collides = createdAppointments.Any(a =>
+                        AppointmentScheduling.CompetesFor(request.DoctorId, a.DoctorId) &&
                         AppointmentScheduling.Overlaps(a.AppointmentDateTime, a.Duration, occ, duration));
                 }
 
@@ -231,10 +269,17 @@ public class CreateRecurringSeriesCommandHandler : IRequestHandler<CreateRecurri
                     }
                 }
 
+                // A collision skips the occurrence and is reported — unless the caller has confirmed the override,
+                // in which case it is created *and* the exemption is recorded on the row (below), exactly as the
+                // single-appointment path does. Still reported either way: the outcome panel must be able to say
+                // « 3 créneaux étaient déjà pris » about a series the user chose to create anyway.
                 if (collides)
                 {
                     conflicts.Add(occ);
-                    continue;
+                    if (!request.AllowOverlap)
+                    {
+                        continue;
+                    }
                 }
 
                 var appointment = new Appointment(
@@ -247,6 +292,10 @@ public class CreateRecurringSeriesCommandHandler : IRequestHandler<CreateRecurri
                 if (request.AllowOutsideWorkingHours)
                 {
                     appointment.MarkBookedOutsideWorkingHours();
+                }
+                if (collides)
+                {
+                    appointment.MarkBookedWithOverlap();
                 }
 
                 await _appointmentRepository.AddAsync(appointment, cancellationToken);

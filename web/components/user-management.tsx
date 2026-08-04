@@ -8,8 +8,10 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Input } from "@/components/ui/input"
+import { FormErrorBanner } from "@/components/ui/form-error-banner"
+import { statusToneClass } from "@/components/ui/status-tone"
 import { DataTablePagination } from "@/components/ui/data-table-pagination"
-import { DEFAULT_PAGE_SIZE, emptyPage, type PagedResponse } from "@/lib/api/paging"
+import { DEFAULT_PAGE_SIZE, emptyPage } from "@/lib/api/paging"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -30,6 +32,7 @@ import {
 } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Users, KeyRound, UserX, UserCheck, RefreshCw, Copy, Check, MoreHorizontal } from "lucide-react"
+import { ZONES, zoneChipClass } from "@/lib/zones"
 import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
 import {
   DropdownMenu,
@@ -42,6 +45,7 @@ import {
   USER_ROLES,
   USER_ROLE_LABELS_FR,
   type ClinicUserDto,
+  type ClinicUsersPageDto,
   type UserRole,
 } from "@/lib/api/users"
 import { clinicsApi } from "@/lib/api/clinics"
@@ -49,6 +53,9 @@ import { ApiError } from "@/lib/api/client"
 import { useSession } from "@/lib/auth/session"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
+
+/** The chip both section headers wear. `/users` is the `config` zone — see the note at « Code de la clinique ». */
+const SECTION_CHIP = `flex size-8 shrink-0 items-center justify-center rounded-lg ${zoneChipClass(ZONES.config)}`
 
 type PendingAction =
   | { type: "reset"; user: ClinicUserDto }
@@ -65,8 +72,17 @@ export function UserManagement() {
    * guaranteed dead end: Cloud identities are managed in Auth0.
    */
   const canResetPasswords = mode === "local"
-  const [userPage, setUserPage] = useState<PagedResponse<ClinicUserDto>>(() => emptyPage<ClinicUserDto>())
+  const [userPage, setUserPage] = useState<ClinicUsersPageDto>(() => ({
+    ...emptyPage<ClinicUserDto>(),
+    pendingActivationCount: 0,
+  }))
   const users = userPage.items
+  /**
+   * I5: self-registration no longer mints a live account, so somebody may be unable to log in right now and the
+   * only place that says so is this screen. Counted server-side over the WHOLE clinic and deliberately not
+   * narrowed by the search box — an admin who typed a name must still learn that someone else is waiting.
+   */
+  const pendingCount = userPage.pendingActivationCount
   const [search, setSearch] = useState("")
   const [debouncedSearch, setDebouncedSearch] = useState("")
   const [page, setPage] = useState(1)
@@ -140,8 +156,15 @@ export function UserManagement() {
         await loadData()
       } else if (pending.type === "status") {
         const nextActive = !pending.user.isActive
+        const wasPending = pending.user.isPendingActivation
         await usersApi.setStatus(pending.user.id, nextActive)
-        toast.success(nextActive ? "Utilisateur réactivé." : "Utilisateur désactivé.")
+        toast.success(
+          nextActive
+            ? wasPending
+              ? "Compte activé. La personne peut maintenant se connecter."
+              : "Utilisateur réactivé."
+            : "Utilisateur désactivé.",
+        )
         await loadData()
       } else if (pending.type === "regenerate") {
         const clinic = await clinicsApi.regenerateCode()
@@ -189,22 +212,35 @@ export function UserManagement() {
   // `min-h-full`, not `min-h-screen` — see the note in `clinic-settings.tsx`: inside `<main>` a full-viewport
   // minimum is always taller than the container, so it guaranteed an unnecessary scroll and trailing dead space.
   return (
-    <div className="min-h-full bg-gray-50 dark:bg-slate-950">
-      <div className="mx-auto max-w-5xl space-y-4 p-4">
-        <div className="mb-2 flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
-            <Users className="h-4 w-4 text-white" />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold text-gray-900 dark:text-white">Gestion des utilisateurs</h1>
-            <p className="text-xs text-muted-foreground">Gérez les comptes de la clinique et le code d'auto-inscription</p>
-          </div>
-        </div>
+    <div>
+      {/* Same as `clinic-settings.tsx`: the hand-rolled header is gone because `/users` now renders
+          `<PageHeader title="Utilisateurs">`, and its solid-primary `Users` mark duplicated the route's own
+          page chip. `p-4` went with it — `AppShell` owns the gutter. */}
+      <div className="mx-auto max-w-5xl space-y-4">
 
         {/* Clinic code + regenerate (AC-4.5) */}
-        <Card className="border border-gray-200 dark:border-slate-800">
+        <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">Code de la clinique</CardTitle>
+            {/*
+              The icon chip — `app/documents/page.tsx`'s template-tile idiom, sized for a header: the glyph goes
+              inside a tinted `rounded-lg` square rather than loose in the heading's own ink, where it would be
+              more text rather than a mark the eye can find. `config` is this page's zone (`lib/zones.ts`), and
+              it is the deliberately near-neutral one, so two of these down a page stay quiet.
+
+              ⚠️ The `Users` glyph repeats the page title's own chip above. That is accepted rather than worked
+              around: the two are different objects — the page mark is a solid `bg-primary` square with an
+              inverted glyph, the section marks are washes — and inventing a second-choice glyph for the users
+              list purely to avoid the repetition would make the *section* harder to recognise, which is the
+              only thing the chip is for. The honest fix is in the page mark, which hand-rolls its header
+              instead of using `ui/page-header.tsx` + `navIconForPath`: the rail draws `UserCog` for `/users`,
+              and that helper exists precisely so a page never shows one icon while the rail shows another.
+            */}
+            <CardTitle className="flex min-w-0 items-center gap-2.5 text-base leading-snug">
+              <span aria-hidden="true" className={SECTION_CHIP}>
+                <KeyRound className="size-4" strokeWidth={1.75} />
+              </span>
+              Code de la clinique
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -214,7 +250,7 @@ export function UserManagement() {
                   {clinicCode ? (
                     <Badge
                       variant="outline"
-                      className="border-primary/40 bg-white px-3 py-1 font-mono text-base font-bold text-primary dark:bg-slate-900"
+                      className="border-primary/40 bg-card px-3 py-1 font-mono text-base font-bold text-primary"
                     >
                       {clinicCode}
                     </Badge>
@@ -238,18 +274,44 @@ export function UserManagement() {
         </Card>
 
         {/* Users list (AC-5.1) */}
-        <Card className="border border-gray-200 dark:border-slate-800">
+        <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base">
+            <CardTitle className="flex min-w-0 flex-wrap items-center gap-2.5 text-base leading-snug">
+              <span aria-hidden="true" className={SECTION_CHIP}>
+                <Users className="size-4" strokeWidth={1.75} />
+              </span>
               Utilisateurs
               <Badge variant="secondary">{userPage.totalCount}</Badge>
+              {/* `active` is the tone that asks for attention — see `ui/status-tone.ts`; there is no
+                  separate "warning" tone and inventing a seventh colour is how the four private palettes
+                  it replaced came about. */}
+              {pendingCount > 0 && (
+                <Badge variant="secondary" className={statusToneClass("active")}>
+                  {pendingCount} en attente
+                </Badge>
+              )}
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {error && (
-              <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
-                {error}
-              </div>
+            <FormErrorBanner message={error} className="mb-4" />
+            {/*
+              I5 — the one thing this screen has to say out loud.
+
+              A self-registered account is created pending, so a new colleague who typed the clinic code cannot
+              log in until somebody here presses « Réactiver ». They have no way to tell an admin through the
+              product, and the row that needs approving may be on another page — so a badge on the row is not
+              enough. The banner is stated in the plural-aware French the count needs and names the action.
+            */}
+            {pendingCount > 0 && (
+              <p
+                role="status"
+                className="mb-4 rounded-md border border-warning/30 bg-warning-wash px-3 py-2 text-sm text-warning-ink"
+              >
+                {pendingCount === 1
+                  ? "1 compte attend votre activation : cette personne s'est inscrite avec le code du cabinet mais ne peut pas encore se connecter."
+                  : `${pendingCount} comptes attendent votre activation : ces personnes se sont inscrites avec le code du cabinet mais ne peuvent pas encore se connecter.`}{" "}
+                Utilisez « Réactiver » sur la ligne concernée pour lui donner accès.
+              </p>
             )}
             {/* AC-P2.29 — this screen now also opens in Cloud, where password resets are not ours to do. */}
             {!canResetPasswords && (
@@ -294,10 +356,22 @@ export function UserManagement() {
                   muted={(u) => !u.isActive}
                   status={(u) => (
                     <>
+                      {/*
+                        Both halves of the pair go through `statusToneClass` (see the table below for the
+                        same change). « Actif » was `bg-green-600 hover:bg-green-600` — a solid, *button*-
+                        coloured pill with a hover state it never uses, on a span nobody can click — while
+                        « Inactif » was the solid destructive variant. Two solids of unequal loudness for
+                        two values of one field; the tones give both the same shape.
+                      */}
+                      {/* I5: three states, not two. « Inactif » on a five-minute-old self-registration reads as
+                          a bug in the registration the person just completed; « En attente » says an approval is
+                          owed and by whom. `active` is the attention tone, `negative` stays for a real shutdown. */}
                       {u.isActive ? (
-                        <Badge className="bg-green-600 hover:bg-green-600">Actif</Badge>
+                        <Badge variant="secondary" className={statusToneClass("positive")}>Actif</Badge>
+                      ) : u.isPendingActivation ? (
+                        <Badge variant="secondary" className={statusToneClass("active")}>En attente d&apos;activation</Badge>
                       ) : (
-                        <Badge variant="destructive">Inactif</Badge>
+                        <Badge variant="secondary" className={statusToneClass("negative")}>Inactif</Badge>
                       )}
                       {u.mustChangePassword && (
                         <Badge variant="secondary" className="text-2xs">Doit changer le mot de passe</Badge>
@@ -359,7 +433,8 @@ export function UserManagement() {
                             </DropdownMenuItem>
                           ) : (
                             <DropdownMenuItem onSelect={() => setPending({ type: "status", user: u })}>
-                              Réactiver
+                              {/* « Réactiver » is wrong for an account that was never active. */}
+                              {u.isPendingActivation ? "Activer le compte" : "Réactiver"}
                             </DropdownMenuItem>
                           )}
                         </DropdownMenuContent>
@@ -430,9 +505,13 @@ export function UserManagement() {
                           <TableCell>
                             <div className="flex flex-wrap items-center gap-1.5">
                               {user.isActive ? (
-                                <Badge className="bg-green-600 hover:bg-green-600">Actif</Badge>
+                                <Badge variant="secondary" className={statusToneClass("positive")}>Actif</Badge>
+                              ) : user.isPendingActivation ? (
+                                <Badge variant="secondary" className={statusToneClass("active")}>
+                                  En attente d&apos;activation
+                                </Badge>
                               ) : (
-                                <Badge variant="destructive">Inactif</Badge>
+                                <Badge variant="secondary" className={statusToneClass("negative")}>Inactif</Badge>
                               )}
                               {user.mustChangePassword && (
                                 <Badge variant="secondary" className="text-2xs">Doit changer le mot de passe</Badge>
@@ -473,7 +552,7 @@ export function UserManagement() {
                                   onClick={() => setPending({ type: "status", user })}
                                 >
                                   <UserCheck className="h-3 w-3" />
-                                  Réactiver
+                                  {user.isPendingActivation ? "Activer le compte" : "Réactiver"}
                                 </Button>
                               )}
                             </div>
@@ -504,7 +583,11 @@ export function UserManagement() {
             <AlertDialogTitle>
               {pending?.type === "reset" && "Réinitialiser le mot de passe de cet utilisateur ?"}
               {pending?.type === "status" &&
-                (pending.user.isActive ? "Désactiver cet utilisateur ?" : "Réactiver cet utilisateur ?")}
+                (pending.user.isActive
+                  ? "Désactiver cet utilisateur ?"
+                  : pending.user.isPendingActivation
+                    ? "Activer ce compte ?"
+                    : "Réactiver cet utilisateur ?")}
               {pending?.type === "regenerate" && "Régénérer le code de la clinique ?"}
               {pending?.type === "role" && "Modifier le rôle de cet utilisateur ?"}
             </AlertDialogTitle>
@@ -522,7 +605,18 @@ export function UserManagement() {
                   Ses données historiques sont conservées.
                 </>
               )}
-              {pending?.type === "status" && !pending.user.isActive && (
+              {pending?.type === "status" && !pending.user.isActive && pending.user.isPendingActivation && (
+                <>
+                  {/* I5 — this is an access grant, not a restoration. Naming the role is the point: it is what
+                      the person chose for themselves at registration, and it decides what they can see. */}
+                  <span className="font-semibold">{pending.user.email}</span> s&apos;est inscrit(e) avec le code
+                  du cabinet et pourra se connecter en tant que{" "}
+                  <span className="font-semibold">{USER_ROLE_LABELS_FR[pending.user.role as UserRole] ?? pending.user.role}</span>.
+                  Vérifiez qu&apos;il s&apos;agit bien d&apos;un membre de votre équipe : le compte donne accès aux
+                  dossiers des patients.
+                </>
+              )}
+              {pending?.type === "status" && !pending.user.isActive && !pending.user.isPendingActivation && (
                 <>
                   <span className="font-semibold">{pending.user.email}</span> pourra de nouveau se connecter.
                 </>
@@ -560,7 +654,12 @@ export function UserManagement() {
             </DialogDescription>
           </DialogHeader>
           <div className="flex items-center gap-2 rounded-lg border bg-muted p-3">
-            <code className="flex-1 font-mono text-lg font-bold tracking-wider">{tempPassword?.password}</code>
+            {/* `min-w-0` because a flex item's automatic minimum is its min-content width, and a monospace
+                password has no break opportunity — without it the string cannot shrink and pushes « Copier »
+                out of the dialog. `break-all` lets it wrap rather than overflow once it can shrink. */}
+            <code className="min-w-0 flex-1 break-all font-mono text-lg font-bold tracking-wider">
+              {tempPassword?.password}
+            </code>
             <Button variant="outline" size="sm" className="gap-1" onClick={copyTempPassword}>
               {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
               {copied ? "Copié" : "Copier"}

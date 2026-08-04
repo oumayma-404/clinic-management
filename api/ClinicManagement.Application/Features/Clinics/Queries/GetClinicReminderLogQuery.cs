@@ -27,7 +27,10 @@ public class GetClinicReminderLogQuery : IRequest<Result<ReminderLogDto>>
     /// <summary>How far back the failure counter looks. See <see cref="ReminderLogDto.FailedRecent"/>.</summary>
     public const int FailedWindowDays = 7;
 
-    /// <summary>`sent` | `pending` | `failed`, or null for every status. An unknown value is ignored, not refused.</summary>
+    /// <summary>
+    /// `sent` | `pending` | `failed` | `blocked`, or null for every status. An unknown value is ignored, not
+    /// refused.
+    /// </summary>
     public string? Status { get; init; }
 
     /// <summary>`SMS` | `WhatsApp`, or null for every channel. An unknown value is ignored, not refused.</summary>
@@ -99,7 +102,8 @@ public class GetClinicReminderLogQueryHandler : IRequestHandler<GetClinicReminde
                     page.TotalCount),
                 counts.SentToday,
                 counts.Pending,
-                counts.FailedRecent));
+                counts.FailedRecent,
+                counts.Blocked));
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
@@ -120,6 +124,7 @@ public class GetClinicReminderLogQueryHandler : IRequestHandler<GetClinicReminde
         "sent" => NotificationStatus.Sent,
         "pending" => NotificationStatus.Pending,
         "failed" => NotificationStatus.Failed,
+        "blocked" => NotificationStatus.Blocked,
         _ => null,
     };
 

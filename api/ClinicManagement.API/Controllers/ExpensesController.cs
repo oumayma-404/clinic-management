@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using MediatR;
 using ClinicManagement.Application.DTOs;
@@ -6,6 +6,8 @@ using ClinicManagement.Application.Features.Expenses.Commands;
 using ClinicManagement.Application.Features.Expenses.Queries;
 
 using ClinicManagement.Domain.Common;
+using ClinicManagement.Application.Common.Authorization;
+using ClinicManagement.Application.Common.Csv;
 
 namespace ClinicManagement.API.Controllers;
 
@@ -15,7 +17,7 @@ namespace ClinicManagement.API.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/expenses")]
-[Authorize]
+[Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
 public class ExpensesController : ApiControllerBase
 {
     private readonly IMediator _mediator;
@@ -32,6 +34,31 @@ public class ExpensesController : ApiControllerBase
     /// Free-text filter. Applied in SQL <b>before</b> the page is cut, so it searches the whole clinic — a
     /// search that only saw the current page would answer a different question from the one that was typed.
     /// </param>
+
+    /// <summary>
+    /// « Exporter » (L5) — the same list, as a CSV.
+    ///
+    /// <para>⚠️ It re-sends the <b>identical query with no paging</b>, which the paging primitive models as a
+    /// first-class case rather than as a huge page. That is what makes « honours the current filters, exports the
+    /// whole filtered set, never the current page » true by construction instead of by discipline — the export
+    /// cannot see a page to accidentally export.</para>
+    /// </summary>
+    [HttpGet("export")]
+    public async Task<ActionResult> ExportExpenses(
+        [FromQuery] DateTime? from = null,
+        [FromQuery] DateTime? to = null,
+        [FromQuery] string? search = null)
+    {
+        var result = await _mediator.Send(new GetExpensesQuery { From = from, To = to, SearchTerm = search });
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+
+        return Csv(ExportTables.Expenses(result.Value!.Items), "depenses");
+    }
+
     [HttpGet]
     public async Task<ActionResult<PagedResult<ExpenseDto>>> GetExpenses(
         [FromQuery] DateTime? from = null,
@@ -70,6 +97,9 @@ public class ExpensesController : ApiControllerBase
 
     /// <summary>Delete an expense.</summary>
     [HttpDelete("{id:guid}")]
+    // Deleting a dépense silently *raises* the reported Net, and no screen shows what used to be there — the
+    // exact shape of change the audit ledger (I6) exists to answer « qui a fait ça ? » about.
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
     public async Task<IActionResult> DeleteExpense(Guid id)
     {
         var result = await _mediator.Send(new DeleteExpenseCommand { Id = id });

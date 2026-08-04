@@ -5,12 +5,13 @@
  * `lib/specialties.ts`, `components/appointment-labels.ts`). The keys are what `Patient.Dentition` stores and what
  * crosses the wire, so they are never renamed.
  *
- * ⚠️ **Two values, with a known limitation.** Real dentition passes through a *mixed* stage — a seven-year-old has
- * baby and permanent teeth at once — so a patient marked `Child` cannot be charted on a permanent molar until their
- * record is switched to `Adult`, and the remaining baby teeth then become unchartable. Chosen knowingly; the escape
- * hatch is that the field is editable on the patient. Note this governs what can be charted *next* — already-stored
- * records are still split by each tooth's own FDI range (`isAdultTooth` in `tooth-multiselect.tsx`), so history
- * containing both dentitions keeps rendering correctly.
+ * ⚠️ **Two values, and they describe the patient, not the chart.** Real dentition passes through a *mixed* stage —
+ * a seven-year-old has baby and permanent teeth at once — which this field cannot express. That used to make the
+ * mixed stage **unchartable**, because the charts read the arch straight off this value. It no longer does: the
+ * chart's arch is a `DentitionView` the user picks (below), seeded from this field but never locked to it, and
+ * `DentalRecord.IsAdultTeeth` stays what the server always said it was — a display hint, not a constraint
+ * (`DentalRecordActParser`). Already-stored records are split by each tooth's own FDI range (`isAdultTooth` in
+ * `tooth-multiselect.tsx`), never by a record-level flag.
  */
 export const DENTITIONS = ["Child", "Adult"] as const
 
@@ -37,6 +38,56 @@ export function isAdultDentition(value: string | null | undefined): boolean {
   // Anything that is not explicitly the child chart reads as adult — the majority case, and the safer default for
   // an unrecognised value since the adult chart is a superset of what most patients need.
   return value !== "Child"
+}
+
+/**
+ * Which arch a tooth chart is **currently showing** — a view, not a patient attribute.
+ *
+ * ⚠️ This is deliberately a third value set rather than a reuse of `Dentition`. `Dentition` is persisted on the
+ * patient and has two values; the chart needs a third, `mixed`, because that is what a 6–12-year-old's mouth
+ * actually is *and* what the official CNAM BS1 odontogram prints (permanent 11–48 **and** deciduous 51–85, with
+ * the instruction that naming the treated tooth is « indispensable »). Nothing stores a `DentitionView`: it is
+ * seeded from the patient (or, when editing, from the fiche's own acts) and then belongs to the user.
+ */
+export const DENTITION_VIEWS = ["adult", "child", "mixed"] as const
+
+export type DentitionView = (typeof DENTITION_VIEWS)[number]
+
+/** Short French captions for the chart's arch switch. */
+export const DENTITION_VIEW_LABELS_FR: Record<DentitionView, string> = {
+  adult: "Adulte",
+  child: "Enfant",
+  mixed: "Mixte",
+}
+
+/** The view a stored `Dentition` opens on. Never a lock — see `DENTITION_VIEWS`. */
+export function dentitionViewFor(value: string | null | undefined): DentitionView {
+  return isAdultDentition(value) ? "adult" : "child"
+}
+
+/**
+ * The narrowest view that can display **every** one of these teeth, or `null` for an empty list (in which case the
+ * caller must fall back to what it knows about the patient rather than guessing).
+ *
+ * This is what makes reopening a fiche safe: a record charted on baby teeth reopens on `child`, one that genuinely
+ * spans both reopens on `mixed`, and neither can open on an arch that hides its own acts. `isAdult` here mirrors
+ * `isAdultTooth` — quadrants 1–4 are permanent, 5–8 deciduous — kept as a parameter so this file stays free of
+ * component imports.
+ */
+export function dentitionViewForTeeth(
+  teeth: readonly number[],
+  isAdult: (tooth: number) => boolean,
+): DentitionView | null {
+  let permanent = false
+  let deciduous = false
+  for (const tooth of teeth) {
+    if (isAdult(tooth)) permanent = true
+    else deciduous = true
+  }
+  if (permanent && deciduous) return "mixed"
+  if (permanent) return "adult"
+  if (deciduous) return "child"
+  return null
 }
 
 /**

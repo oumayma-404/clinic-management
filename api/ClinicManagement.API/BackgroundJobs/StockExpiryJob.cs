@@ -27,17 +27,20 @@ public class StockExpiryJob
     private readonly IClinicRepository _clinicRepository;
     private readonly IStockItemRepository _stockItemRepository;
     private readonly INotificationGenerator _notificationGenerator;
+    private readonly IAuditActorProvider _auditActor;
     private readonly ILogger<StockExpiryJob> _logger;
 
     public StockExpiryJob(
         IClinicRepository clinicRepository,
         IStockItemRepository stockItemRepository,
         INotificationGenerator notificationGenerator,
+        IAuditActorProvider auditActor,
         ILogger<StockExpiryJob> logger)
     {
         _clinicRepository = clinicRepository;
         _stockItemRepository = stockItemRepository;
         _notificationGenerator = notificationGenerator;
+        _auditActor = auditActor;
         _logger = logger;
     }
 
@@ -45,6 +48,10 @@ public class StockExpiryJob
     [AutomaticRetry(Attempts = 3)]
     public async Task FlagExpiringStock()
     {
+        // I6: a job has no token, so without naming itself every row it writes would read « Tâche automatique »
+        // with no clue which one. The declaration happens before anything is saved — see IAuditActorProvider.RunAs.
+        _auditActor.RunAs(nameof(StockExpiryJob));
+
         var now = DateTime.UtcNow;
         var clinics = await _clinicRepository.GetAllAsync();
 

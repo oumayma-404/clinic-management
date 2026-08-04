@@ -11,8 +11,10 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Check, ChevronsUpDown, Clock, Plus, Stethoscope, X } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { groupProceduresByCategory } from "@/components/procedure-categories"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
 import { ApiError } from "@/lib/api/client"
+import { parseAmountInput } from "@/lib/format"
 import type { ProcedureTypeDto } from "@/lib/api/types"
 
 /**
@@ -132,6 +134,9 @@ export function AppointmentActsPicker({
     [value],
   )
   const atCap = value.length >= MAX_ACTS
+  // Shared with the fiche's catalogue picker so both agree on which discipline an act belongs to and in what
+  // order the disciplines appear.
+  const procedureGroups = useMemo(() => groupProceduresByCategory(procedureTypes), [procedureTypes])
 
   const addAct = (procedureTypeId: string) => {
     // The server refuses a duplicate by name; refusing it here too keeps the list honest without a round trip.
@@ -160,7 +165,7 @@ export function AppointmentActsPicker({
     const typed = customDuration ? Number(customDuration) : NaN
     const inferred = Number.isFinite(typed) && typed > 0 ? Math.floor(typed) : fallbackDurationMinutes
     const durationMinutes = Math.min(479, Math.max(1, inferred || 30))
-    const cost = customCost ? Number.parseFloat(customCost) : null
+    const cost = customCost.trim() ? parseAmountInput(customCost) : null
     if (cost !== null && (Number.isNaN(cost) || cost < 0)) {
       setCustomError("Le montant est invalide")
       return
@@ -222,7 +227,16 @@ export function AppointmentActsPicker({
                 style={{ backgroundColor: row.colorHex }}
                 aria-hidden
               />
-              <span className={cn("min-w-0 flex-1 truncate text-sm", row.missing && "text-muted-foreground italic")}>
+              {/* Wraps, never truncates. The row is `flex items-center gap-2 px-3 py-2` with a 12px dot, a
+                  `shrink-0` « N min » span and an `h-7 w-7` remove button, leaving ~170px at 390px — so
+                  « Obturation composite deux faces » clipped to « Obturation composi… » and nothing else in
+                  the row says which act is about to be booked. The act's name IS the row's identity. */}
+              <span
+                className={cn(
+                  "min-w-0 flex-1 text-sm [overflow-wrap:anywhere]",
+                  row.missing && "text-muted-foreground italic",
+                )}
+              >
                 {row.name}
               </span>
               {row.act.planLabel && (
@@ -301,33 +315,49 @@ export function AppointmentActsPicker({
             <CommandInput placeholder="Rechercher un acte…" />
             <CommandList>
               <CommandEmpty>Aucun acte trouvé.</CommandEmpty>
+              {/*
+                One CommandGroup per clinical discipline, in the order a course of treatment runs.
+                A flat list of a clinic's whole catalogue is a wall of French with no landmarks; the headings turn
+                it into something you scan rather than read. `cmdk` hides a group whose every item is filtered
+                out, so typing collapses this back to a flat ranked list on its own — the same behaviour the
+                fiche's picker gets by branching on `searching`, here for free.
+              */}
+              {procedureGroups.map(({ label, items }) => (
+                <CommandGroup key={label} heading={label}>
+                  {items.map((pt) => {
+                    const already = selectedIds.has(pt.id)
+                    return (
+                      <CommandItem
+                        key={pt.id}
+                        // The discipline joins the searchable value, so « endo » finds « Traitement de canal ».
+                        // cmdk matches on `value` alone, so leaving it out would make the group headings
+                        // searchable to the eye but not to the keyboard.
+                        value={pt.category ? `${pt.name} ${pt.category}` : pt.name}
+                        // Kept visible but ticked rather than filtered out: an act vanishing from the list the
+                        // moment it is picked reads as "it failed", and the tick is what says it is already in.
+                        onSelect={() => {
+                          if (!already) addAct(pt.id)
+                          setPickerOpen(false)
+                        }}
+                      >
+                        <Check className={cn("mr-2 h-4 w-4", already ? "opacity-100" : "opacity-0")} />
+                        <span
+                          className="mr-2 h-3 w-3 rounded-full"
+                          style={{ backgroundColor: pt.colorHex }}
+                          aria-hidden
+                        />
+                        <span className="flex-1 truncate">{pt.name}</span>
+                        <span className="ml-2 text-xs tabular-nums text-muted-foreground">
+                          {pt.defaultDurationMinutes} min
+                        </span>
+                      </CommandItem>
+                    )
+                  })}
+                </CommandGroup>
+              ))}
+              {/* Its own group, deliberately: creating an act is not a member of any discipline, and putting it
+                  inside the last one would file it under whatever that happens to be. */}
               <CommandGroup>
-                {procedureTypes.map((pt) => {
-                  const already = selectedIds.has(pt.id)
-                  return (
-                    <CommandItem
-                      key={pt.id}
-                      value={pt.name}
-                      // Kept visible but ticked rather than filtered out: an act vanishing from the list the
-                      // moment it is picked reads as "it failed", and the tick is what says it is already in.
-                      onSelect={() => {
-                        if (!already) addAct(pt.id)
-                        setPickerOpen(false)
-                      }}
-                    >
-                      <Check className={cn("mr-2 h-4 w-4", already ? "opacity-100" : "opacity-0")} />
-                      <span
-                        className="mr-2 h-3 w-3 rounded-full"
-                        style={{ backgroundColor: pt.colorHex }}
-                        aria-hidden
-                      />
-                      <span className="flex-1 truncate">{pt.name}</span>
-                      <span className="ml-2 text-xs tabular-nums text-muted-foreground">
-                        {pt.defaultDurationMinutes} min
-                      </span>
-                    </CommandItem>
-                  )
-                })}
                 <CommandItem
                   value="__acte personnalisé nouveau__"
                   onSelect={() => {
@@ -352,7 +382,9 @@ export function AppointmentActsPicker({
             <button
               type="button"
               onClick={onRetry}
-              className="underline underline-offset-2 hover:no-underline"
+              // A ~16px inline target that is the only recovery from a failed catalogue load in both booking
+              // dialogs. `touch-target` plus real padding; the negative margin keeps the line height unchanged.
+              className="touch-target -my-1 rounded px-1.5 py-1 underline underline-offset-2 hover:no-underline"
             >
               Réessayer
             </button>
@@ -413,11 +445,14 @@ export function AppointmentActsPicker({
               </Label>
               <div className="relative">
                 <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">DT</span>
+                {/* `text` + `inputMode="decimal"`, never `type="number"` (J8). This « Montant » creates a
+                    ProcedureType's `defaultCost` — the same field as the catalogue form's, reached from the
+                    booking dialog — so its `step="0.01"` made the millime unreachable on the value that seeds
+                    every invoice line, and it refused the comma the app prints with. */}
                 <Input
                   id={`${idPrefix}-custom-cost`}
-                  type="number"
-                  min="0"
-                  step="0.01"
+                  type="text"
+                  inputMode="decimal"
                   value={customCost}
                   onChange={(e) => setCustomCost(e.target.value)}
                   onKeyDown={(e) => {
@@ -426,7 +461,7 @@ export function AppointmentActsPicker({
                       void handleCreateCustom()
                     }
                   }}
-                  placeholder="0.00"
+                  placeholder="0,000"
                   className="h-9 pl-8"
                   disabled={creating}
                 />

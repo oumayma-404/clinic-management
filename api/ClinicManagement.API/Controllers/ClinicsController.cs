@@ -14,7 +14,7 @@ namespace ClinicManagement.API.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize]
+[Authorize(Policy = AuthorizationPolicies.Authenticated)]
 public class ClinicsController : ApiControllerBase
 {
     private readonly IMediator _mediator;
@@ -199,6 +199,9 @@ public class ClinicsController : ApiControllerBase
     /// Update clinic information for the current user's clinic
     /// </summary>
     [HttpPut]
+    // Clinic configuration, and specifically the billing settings — matricule fiscal, TVA, timbre, El Fatoora.
+    // Every write on the tabs beside it was already admin-gated; this one was reachable by any authenticated user.
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
     public async Task<IActionResult> UpdateClinic([FromForm] UpdateClinicRequest request)
     {
         var command = new UpdateClinicCommand
@@ -318,6 +321,7 @@ public class ClinicsController : ApiControllerBase
     /// refused, so a stale bookmark shows the full log instead of a French error about a query parameter.</para>
     /// </remarks>
     [HttpGet("reminder-log")]
+    [Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
     public async Task<IActionResult> GetReminderLog(
         [FromQuery] string? status = null,
         [FromQuery] string? channel = null,
@@ -400,6 +404,8 @@ public class ClinicsController : ApiControllerBase
     /// Download clinic logo
     /// </summary>
     [HttpGet("logo")]
+    // Every screen with a header renders it, for every role.
+    [Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
     public async Task<IActionResult> GetLogo(CancellationToken cancellationToken = default)
     {
         var query = new GetClinicLogoQuery();

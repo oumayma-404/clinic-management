@@ -36,6 +36,11 @@ public class CreditNoteReadTests
     private readonly Mock<IInvoiceRepository> _invoices = new();
     private readonly Mock<IPatientRepository> _patients = new();
     private readonly Mock<ICreditNoteRepository> _creditNotes = new();
+
+    // « Total encaissé » reads the devis instalment ledger too since J5. Left unstubbed on purpose: it returns
+    // 0, so these two cases keep testing exactly what they were written for — that the avoir is netted in BOTH
+    // branches — without a plan figure muddying the expected 350.
+    private readonly Mock<ITreatmentPlanRepository> _plans = new();
     private readonly Mock<ICurrentClinicResolver> _clinicResolver = new();
     private readonly Mock<IUnitOfWork> _uow = new();
 
@@ -104,14 +109,21 @@ public class CreditNoteReadTests
         _invoices.Setup(r => r.GetFilteredAsync(
                 ClinicId, It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<Guid?>(),
                 It.IsAny<InvoiceStatus?>(), It.IsAny<string?>(), It.IsAny<PageRequest?>(),
-                It.IsAny<CancellationToken>()))
+                It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((new[] { invoice }).AsPage());
         _creditNotes.Setup(r => r.GetTotalsForInvoicesAsync(
                 It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Dictionary<Guid, decimal> { [invoice.Id] = 250m });
 
+        // L9 — the practitioner-roster read, mocked empty. That reproduces this test's ORIGINAL behaviour exactly:
+        // with no roster, no `DoctorName` resolves and each DTO carries null, which is what it carried before the
+        // column existed. Attribution has its own tests rather than being smuggled into these.
+        var doctors = new Mock<IDoctorRepository>();
+        doctors.Setup(r => r.GetByClinicIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<Doctor>());
+
         var handler = new GetInvoicesQueryHandler(
-            _invoices.Object, _patients.Object, _creditNotes.Object, _clinicResolver.Object,
+            _invoices.Object, _patients.Object, _creditNotes.Object, doctors.Object, _clinicResolver.Object,
             NullLogger<GetInvoicesQueryHandler>.Instance);
 
         var result = await handler.Handle(new GetInvoicesQuery(), CancellationToken.None);
@@ -152,14 +164,14 @@ public class CreditNoteReadTests
         var invoice = PaidInvoice(600m);
         _invoices.Setup(r => r.GetFilteredAsync(
                 ClinicId, null, null, null, null, It.IsAny<string?>(), It.IsAny<PageRequest?>(),
-                It.IsAny<CancellationToken>()))
+                It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((new[] { invoice }).AsPage());
         _creditNotes.Setup(r => r.GetTotalsForInvoicesAsync(
                 It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Dictionary<Guid, decimal> { [invoice.Id] = 250m });
 
         var handler = new GetInvoiceRevenueQueryHandler(
-            _invoices.Object, _creditNotes.Object, _clinicResolver.Object,
+            _invoices.Object, _plans.Object, _creditNotes.Object, _clinicResolver.Object,
             NullLogger<GetInvoiceRevenueQueryHandler>.Instance);
 
         var result = await handler.Handle(new GetInvoiceRevenueQuery(), CancellationToken.None);
@@ -178,15 +190,15 @@ public class CreditNoteReadTests
 
         _invoices.Setup(r => r.GetFilteredAsync(
                 ClinicId, from, to, null, null, It.IsAny<string?>(), It.IsAny<PageRequest?>(),
-                It.IsAny<CancellationToken>()))
+                It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((new[] { invoice }).AsPage());
-        _invoices.Setup(r => r.GetCollectedBetweenAsync(ClinicId, from, to, It.IsAny<CancellationToken>()))
+        _invoices.Setup(r => r.GetCollectedBetweenAsync(ClinicId, from, to, It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(600m);
         _creditNotes.Setup(r => r.GetRefundedBetweenAsync(ClinicId, from, to, It.IsAny<CancellationToken>()))
             .ReturnsAsync(250m);
 
         var handler = new GetInvoiceRevenueQueryHandler(
-            _invoices.Object, _creditNotes.Object, _clinicResolver.Object,
+            _invoices.Object, _plans.Object, _creditNotes.Object, _clinicResolver.Object,
             NullLogger<GetInvoiceRevenueQueryHandler>.Instance);
 
         var result = await handler.Handle(new GetInvoiceRevenueQuery { From = from, To = to }, CancellationToken.None);

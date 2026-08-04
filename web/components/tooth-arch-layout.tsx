@@ -16,6 +16,18 @@ interface ToothArchLayoutProps {
   /** Controlled arch, for a caller that wants to drive it. Omit and the layout keeps its own. */
   arch?: ToothArch
   onArchChange?: (arch: ToothArch) => void
+  /**
+   * Which arch to open on when the user has not chosen one — **derived from the data**, not a preference.
+   *
+   * <p>Below `md:` only one arch shows, and the layout used to hardcode `"upper"`. So a fiche whose acts are all
+   * on lower molars, an odontogramme whose only charted teeth are 3x/4x, and the résumé of a patient treated
+   * exclusively on the mandible all opened on an empty MAXILLAIRE — one wasted tap per open, every time, on the
+   * device where the switch exists in the first place.</p>
+   *
+   * <p>Optional and late-binding: see the `internalArch` note below for why it is honoured even when it only
+   * resolves after an async read lands.</p>
+   */
+  defaultArch?: ToothArch
   /** Override the arch captions. Defaults to « Maxillaire (haut) » / « Mandibule (bas) ». */
   labels?: { upper?: string; lower?: string }
 }
@@ -48,21 +60,44 @@ interface ToothArchLayoutProps {
  * origin. `arch-clipping` in `scripts/check-responsive.mjs` is enforced and fails the build if the old class
  * comes back.
  */
-export function ToothArchLayout({ teeth, renderTooth, arch, onArchChange, labels }: ToothArchLayoutProps) {
+export function ToothArchLayout({
+  teeth,
+  renderTooth,
+  arch,
+  onArchChange,
+  defaultArch,
+  labels,
+}: ToothArchLayoutProps) {
   /*
-   * Below `md:` only one arch fits: an adult arch is ~597px of cells, so a phone would show half of it and the
-   * other half would have to be scrolled to — reachable since AC-32, but never both at once.
+   * When one arch at a time is the only honest layout.
    *
-   * A **width** query, not `(pointer: coarse)`: this is about how much room there is, and P2 settled that
-   * anything about *space* keys on width while anything about *fingers* keys on the pointer. A dentist's
-   * tablet in landscape is 1180px and shows both arches happily.
+   * Below `md:` an adult arch is ~597px of cells, so a phone would show half of it and the other half would have to
+   * be scrolled to — reachable since AC-32, but never both at once.
+   *
+   * ⚠️ **The second clause is the fix for the 768–1023px band.** The gate used to be `(max-width: 767px)` alone,
+   * i.e. purely about *space* — while the thing that decides how much space the arch needs, `coarse:min-w-11` on
+   * each cell, is a **pointer** query. On a tablet portrait (820px, coarse) the two disagreed: sixteen 44px cells
+   * are ~740px of arch inside a ~532px content column, both arches drawn, and no switch offered because the width
+   * query said "desktop room". Tying the switch to the same condition that widens the cells is what keeps the two
+   * from diverging again. A 1180px tablet in landscape still shows both arches happily; a 1440px mouse machine is
+   * untouched, since it never widened its cells in the first place.
    */
-  const isNarrow = useMediaQuery("(max-width: 767px)")
-  const [internalArch, setInternalArch] = useState<ToothArch>("upper")
+  const isNarrow = useMediaQuery("(max-width: 767px), (max-width: 1023px) and (pointer: coarse)")
+  /*
+   * `null` means "the user has not chosen", NOT "upper".
+   *
+   * ⚠️ That distinction is the whole reason `defaultArch` works. Seeding `useState(defaultArch ?? "upper")`
+   * would freeze the answer at first render — and every one of these charts paints before its data arrives
+   * (`RecordToothChart`'s `paint` is fed by an async odontogram read, the odontogram's `byTooth` by its own),
+   * so the seed would be `undefined` on the frame that counts and the derived arch would never be honoured.
+   * Resolving at render time instead lets a late `defaultArch` take effect, while any deliberate tap wins from
+   * then on: once `internalArch` holds a value, nothing overwrites it.
+   */
+  const [internalArch, setInternalArch] = useState<ToothArch | null>(null)
 
   // Uncontrolled by default — none of the three charts has a reason to own this, and making them would have
   // meant the same three lines of state in three files.
-  const shownArch = arch ?? internalArch
+  const shownArch = arch ?? internalArch ?? defaultArch ?? "upper"
   const selectArch = (next: ToothArch) => {
     setInternalArch(next)
     onArchChange?.(next)

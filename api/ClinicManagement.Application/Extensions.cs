@@ -38,8 +38,16 @@ public static class Extensions
         // Backstop tenant scoping: feeds the EF Core global query filter with the caller's clinic id.
         // Inactive (null) when no clinic is in scope so background jobs / CLI / anonymous flows are unaffected.
         services.AddScoped<ICurrentClinicProvider, CurrentClinicProvider>();
+        // Who the audit ledger stamps on the rows written in this scope (I6). Scoped and resolve-once, so one
+        // operation carries one actor even when it changes the caller's own account mid-flight; a job or a console
+        // verb names itself through `RunAs` because it has no token to be read from.
+        services.AddScoped<IAuditActorProvider, AuditActorProvider>();
         // Indicative CNAM reimbursable/out-of-pocket split for invoices + devis (caches the catalog per request).
         services.AddScoped<ICnamBillingCalculator, CnamBillingCalculator>();
+        // Renders the PDF a document email attaches, by delegating to that document's own PDF query. Scoped —
+        // it sends through IMediator, so it must share the request's clinic context.
+        services.AddScoped<Features.DocumentEmails.IDocumentEmailAttachmentRenderer,
+            Features.DocumentEmails.DocumentEmailAttachmentRenderer>();
         // Dashboard section readers. One per section rather than a single handler doing all of it, so a new KPI
         // touches one reader and one test class instead of a 25-field god-query. GetDashboardQueryHandler composes
         // them sequentially — they share the request's DbContext, which is not thread-safe.

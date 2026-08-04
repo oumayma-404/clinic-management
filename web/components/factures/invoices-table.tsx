@@ -21,8 +21,12 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { FileDown, Pencil, Trash2, Send, CreditCard, Ban, Plus, Loader2, Landmark, FileCode2, ReceiptText, MoreHorizontal } from "lucide-react"
+import { FileDown, CreditCard, Plus, Loader2, ReceiptText, MoreHorizontal, SearchX } from "lucide-react"
+import { SendDocumentEmailDialog } from "@/components/send-document-email-dialog"
+import { DOCUMENT_EMAIL_KINDS } from "@/lib/api/document-emails"
 import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
+import { EmptyState } from "@/components/ui/empty-state"
+import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -35,7 +39,8 @@ import { toast } from "sonner"
 import { invoicesApi } from "@/lib/api/invoices"
 import { ApiError } from "@/lib/api/client"
 import type { InvoiceDto } from "@/lib/api/types"
-import { formatAmount, formatDT, formatDateFr, todayLocalIso } from "@/lib/format"
+import { formatAmount, formatDT, formatDateFr, parseAmountInput, todayLocalIso } from "@/lib/format"
+import { ZONES, zoneChipClass } from "@/lib/zones"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { useConnectivity } from "@/lib/connectivity/connectivity"
@@ -48,12 +53,24 @@ import {
   paymentMethodLabel, PAYMENT_METHODS,
 } from "./invoice-labels"
 
+/** « Factures » is the Finances zone — an empty state here wears the hue the rail and the eyebrow already do. */
+const MONEY_CHIP = zoneChipClass(ZONES.money)
+
+/** How many placeholder rows the desktop table shows while the first page loads. */
+const SKELETON_ROWS = 6
+
 interface InvoicesTableProps {
   patientId?: string
   patientName?: string
   from?: string
   to?: string
   status?: string
+  /**
+   * L9 — only the notes attributed to this practitioner. ⚠️ An **unattributed** note is excluded, not silently
+   * included, so a practice that has just upgraded sees fewer rows under a filter than it expects — that is the
+   * truth about its historical data rather than a bug.
+   */
+  doctorId?: string
   showPatientColumn?: boolean
   /** Bumped by the parent (e.g. after filter change) to force a reload. */
   reloadKey?: number
@@ -62,7 +79,8 @@ interface InvoicesTableProps {
 }
 
 export function InvoicesTable({
-  patientId,
+  
+  doctorId,patientId,
   patientName,
   from,
   to,
@@ -90,7 +108,19 @@ export function InvoicesTable({
   const [detailInvoiceId, setDetailInvoiceId] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<InvoiceDto | null>(null)
   const [cancelTarget, setCancelTarget] = useState<InvoiceDto | null>(null)
+  // Which note d'honoraires « Envoyer par email » was clicked for (a draft has no PDF, so it is never offered).
+  const [emailTarget, setEmailTarget] = useState<InvoiceDto | null>(null)
   const [cancelReason, setCancelReason] = useState("")
+  /*
+   * Each destructive dialog keeps its OWN refusal, inline and persistent.
+   *
+   * The three used to report failure through a toast while the `finally` closed the dialog and wiped the typed
+   * motif — so a refused annulation left the user with four seconds of red text and an empty form to retype from
+   * memory. `invoice-detail-modal.tsx` already got this right for voiding a payment; these follow it.
+   */
+  const [cancelError, setCancelError] = useState<string | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [avoirError, setAvoirError] = useState<string | null>(null)
   // Avoir (credit note) modal state (finding #8).
   const [avoirTarget, setAvoirTarget] = useState<InvoiceDto | null>(null)
   const [avoirMethod, setAvoirMethod] = useState<string>("Cash")
@@ -103,8 +133,8 @@ export function InvoicesTable({
   // is cut, so a filter here would only ever see the page already on screen.
   const fetchPage = useCallback(
     ({ page, pageSize, search }: { page: number; pageSize: number; search?: string }) =>
-      invoicesApi.listPaged({ page, pageSize, search, patientId, from, to, status }),
-    [patientId, from, to, status],
+      invoicesApi.listPaged({ page, pageSize, search, patientId, from, to, status, doctorId }),
+    [patientId, from, to, status, doctorId],
   )
 
   const {
@@ -136,27 +166,34 @@ export function InvoicesTable({
     setAvoirAmount("")
     setAvoirReason("")
     setAvoirMethod("Cash")
+    setAvoirError(null)
     // Today, in the browser's own calendar. The API rejects an absent or future date, and the previous
     // dialog sent neither date nor method — so every avoir was stamped "now" with no recorded means of
     // refund, and its PDF had nothing to print.
     setAvoirRefundedOn(todayLocalIso())
   }
 
+  /*
+   * The avoir's client-side gate, mirroring the server's.
+   *
+   * ⚠️ It exists because « Établir l'avoir » was disabled on `busyId` alone: an avoir could be submitted with an
+   * empty amount AND an empty motif, and only the server refused it — while the « Annuler la facture » dialog
+   * forty lines below blocked on `!cancelReason.trim()`. Two adjacent money-reversal flows, opposite rules.
+   */
+  const avoirAmountValue = parseAmountInput(avoirAmount)
+  const avoirAmountIsNumber = Number.isFinite(avoirAmountValue)
+  const avoirExceedsCollected =
+    avoirTarget !== null && avoirAmountIsNumber && avoirAmountValue > avoirTarget.amountCollected
+  const avoirIsValid =
+    avoirAmountIsNumber && avoirAmountValue > 0 && !avoirExceedsCollected && avoirReason.trim().length > 0
+
   const confirmAvoir = async () => {
-    if (!avoirTarget) return
-    const amount = Number.parseFloat(avoirAmount)
-    if (!Number.isFinite(amount) || amount <= 0) {
-      toast.error("Le montant de l'avoir doit être supérieur à 0.")
-      return
-    }
-    if (!avoirReason.trim()) {
-      toast.error("Le motif de l'avoir est requis.")
-      return
-    }
+    if (!avoirTarget || !avoirIsValid) return
     setBusyId(avoirTarget.id)
+    setAvoirError(null)
     try {
       const created = await invoicesApi.createAvoir(avoirTarget.id, {
-        amount,
+        amount: avoirAmountValue,
         reason: avoirReason.trim(),
         method: avoirMethod,
         refundedOn: avoirRefundedOn,
@@ -165,7 +202,9 @@ export function InvoicesTable({
       setAvoirTarget(null)
       afterMutation()
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Échec de l'établissement de l'avoir.")
+      // The dialog stays open with the motif intact — retyping a justification is the last thing a user
+      // should have to do after being refused.
+      setAvoirError(err instanceof ApiError ? err.message : "Échec de l'établissement de l'avoir.")
     } finally {
       setBusyId(null)
     }
@@ -279,35 +318,40 @@ export function InvoicesTable({
   const confirmDelete = async () => {
     if (!deleteTarget) return
     setBusyId(deleteTarget.id)
+    setDeleteError(null)
     try {
       await invoicesApi.delete(deleteTarget.id)
       toast.success("Brouillon supprimé")
+      // Closing belongs to the SUCCESS path. In `finally` it closed on refusal too, which is how a server
+      // « ce brouillon n'existe plus » became a dialog that simply vanished.
+      setDeleteTarget(null)
       afterMutation()
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Échec de la suppression.")
+      setDeleteError(err instanceof ApiError ? err.message : "Échec de la suppression.")
     } finally {
       setBusyId(null)
-      setDeleteTarget(null)
     }
   }
 
   const confirmCancel = async () => {
     if (!cancelTarget) return
     if (!cancelReason.trim()) {
-      toast.error("Le motif d'annulation est requis.")
+      setCancelError("Le motif d'annulation est requis.")
       return
     }
     setBusyId(cancelTarget.id)
+    setCancelError(null)
     try {
       await invoicesApi.cancel(cancelTarget.id, cancelReason.trim())
       toast.success("Facture annulée")
-      afterMutation()
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Échec de l'annulation.")
-    } finally {
-      setBusyId(null)
       setCancelTarget(null)
       setCancelReason("")
+      afterMutation()
+    } catch (err) {
+      // Dialog stays open, motif intact: it is a required justification the user has just composed.
+      setCancelError(err instanceof ApiError ? err.message : "Échec de l'annulation.")
+    } finally {
+      setBusyId(null)
     }
   }
 
@@ -323,6 +367,134 @@ export function InvoicesTable({
 
   const colSpan = showPatientColumn ? 9 : 8
 
+  /*
+   * ONE actions menu, rendered by both halves of the responsive pair.
+   *
+   * The desktop row used to carry up to **eleven** `size="icon"` ghost buttons labelled only by a `title=`
+   * tooltip — which does not exist on the tablet this app is used on, so the actions column was a row of
+   * indistinguishable grey glyphs, and only one of them had an `aria-label`. The mobile card already had the
+   * right answer; extracting it means the two can never offer different actions for the same invoice, which a
+   * second hand-maintained copy of eleven gates guarantees eventually.
+   */
+  const renderActions = (inv: InvoiceDto) => {
+    const isBusy = busyId === inv.id
+    const isDraft = inv.status === "Draft"
+    const isPayable = inv.status === "Issued" || inv.status === "PartiallyPaid"
+    const label = inv.number ? `la facture ${inv.number}` : "le brouillon"
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon" disabled={isBusy} aria-label={`Actions pour ${label}`}>
+            {isBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <MoreHorizontal className="h-4 w-4" />}
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onSelect={() => setDetailInvoiceId(inv.id)}>Voir le détail</DropdownMenuItem>
+          {isDraft && (
+            <>
+              <DropdownMenuItem onSelect={() => openEdit(inv)}>Modifier</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => handleIssue(inv)}>Émettre</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => handleIssueAndPay(inv)}>Émettre et encaisser</DropdownMenuItem>
+            </>
+          )}
+          {isPayable && (
+            <DropdownMenuItem onSelect={() => setPaymentTarget(inv)}>Enregistrer un paiement</DropdownMenuItem>
+          )}
+          {inv.canCreateAvoir && (
+            <DropdownMenuItem onSelect={() => openAvoir(inv)}>Établir un avoir</DropdownMenuItem>
+          )}
+          {!isDraft && eInvoicingEnabled && inv.canSubmitToElFatoora && (
+            <DropdownMenuItem onSelect={() => handleSubmitEInvoice(inv)}>
+              {inv.eInvoiceStatus === "Rejected" || inv.eInvoiceStatus === "Failed"
+                ? "Renvoyer à El Fatoora"
+                : internetReachable
+                  ? "Envoyer à El Fatoora"
+                  : "Mettre en file d'attente"}
+            </DropdownMenuItem>
+          )}
+          {inv.hasSignedXml && (
+            <DropdownMenuItem onSelect={() => handleDownloadArtifact(inv, "xml")}>
+              Télécharger le TEIF signé
+            </DropdownMenuItem>
+          )}
+          {inv.hasTtnReceipt && (
+            <DropdownMenuItem onSelect={() => handleDownloadArtifact(inv, "receipt")}>
+              Télécharger le reçu TTN
+            </DropdownMenuItem>
+          )}
+          {!isDraft && (
+            <DropdownMenuItem onSelect={() => handleDownloadPdf(inv)}>Télécharger le PDF</DropdownMenuItem>
+          )}
+          {!isDraft && (
+            <DropdownMenuItem onSelect={() => setEmailTarget(inv)}>Envoyer par email</DropdownMenuItem>
+          )}
+          {(isDraft || inv.canCancel) && <DropdownMenuSeparator />}
+          {isDraft && (
+            <DropdownMenuItem
+              className="text-destructive focus:text-destructive"
+              onSelect={() => { setDeleteError(null); setDeleteTarget(inv) }}
+            >
+              Supprimer
+            </DropdownMenuItem>
+          )}
+          {inv.canCancel && (
+            <DropdownMenuItem
+              className="text-destructive focus:text-destructive"
+              onSelect={() => { setCancelError(null); setCancelTarget(inv) }}
+            >
+              Annuler
+            </DropdownMenuItem>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    )
+  }
+
+  /*
+   * Three emptinesses, not two — and only the last may offer « Nouvelle facture ».
+   *
+   * A search that matched nothing and a *date/statut* filter that matched nothing are both cases where the note
+   * probably exists and the question was simply too narrow; an « Ajouter » button there is an invitation to
+   * raise a duplicate note d'honoraires, which consumes a gapless fiscal number.
+   */
+  const hasParentFilter = Boolean(from || to || status)
+  const emptyState = isSearching ? (
+    <EmptyState
+      size="compact"
+      icon={SearchX}
+      chipClassName={MONEY_CHIP}
+      title="Aucune facture ne correspond à votre recherche"
+      description="La recherche porte sur le numéro et sur le nom du patient, dans toute la période filtrée."
+      secondaryAction={
+        <Button size="sm" variant="outline" onClick={() => setSearch("")}>
+          Effacer la recherche
+        </Button>
+      }
+    />
+  ) : hasParentFilter ? (
+    <EmptyState
+      size="compact"
+      icon={SearchX}
+      chipClassName={MONEY_CHIP}
+      title="Aucune facture sur cette période"
+      description="Aucune note d'honoraires ne correspond aux filtres de date et de statut choisis ci-dessus."
+    />
+  ) : (
+    <EmptyState
+      size="compact"
+      icon={ReceiptText}
+      chipClassName={MONEY_CHIP}
+      title={patientName ? `Aucune facture pour ${patientName}` : "Aucune facture"}
+      description="Les notes d'honoraires apparaîtront ici, du brouillon à l'encaissement."
+      action={
+        <Button size="sm" onClick={openCreate} className="gap-2">
+          <Plus className="h-4 w-4" />
+          Nouvelle facture
+        </Button>
+      }
+    />
+  )
+
   return (
     <div className="space-y-3">
       <div className="flex justify-end">
@@ -331,11 +503,8 @@ export function InvoicesTable({
         </Button>
       </div>
 
-      {error && (
-        <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-800 dark:bg-red-950 dark:border-red-900 dark:text-red-200">
-          {error}
-        </div>
-      )}
+      {/* The shared banner, on `--destructive-wash` — not a fifth hand-maintained `red-50 / dark:red-950` pair. */}
+      <FormErrorBanner message={error} />
 
       <div>
         <Label htmlFor="invoices-search" className="sr-only">
@@ -405,80 +574,8 @@ export function InvoicesTable({
               value: inv.issueDate ? formatDateFr(inv.issueDate) : formatDateFr(inv.createdAt),
             },
           ]}
-          actions={(inv) => {
-            const isBusy = busyId === inv.id
-            const isDraft = inv.status === "Draft"
-            const isPayable = inv.status === "Issued" || inv.status === "PartiallyPaid"
-            return (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" disabled={isBusy} aria-label="Actions de la facture">
-                    {isBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <MoreHorizontal className="h-4 w-4" />}
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onSelect={() => setDetailInvoiceId(inv.id)}>Voir le détail</DropdownMenuItem>
-                  {isDraft && (
-                    <>
-                      <DropdownMenuItem onSelect={() => openEdit(inv)}>Modifier</DropdownMenuItem>
-                      <DropdownMenuItem onSelect={() => handleIssue(inv)}>Émettre</DropdownMenuItem>
-                      <DropdownMenuItem onSelect={() => handleIssueAndPay(inv)}>
-                        Émettre et encaisser
-                      </DropdownMenuItem>
-                    </>
-                  )}
-                  {isPayable && (
-                    <DropdownMenuItem onSelect={() => setPaymentTarget(inv)}>
-                      Enregistrer un paiement
-                    </DropdownMenuItem>
-                  )}
-                  {inv.canCreateAvoir && (
-                    <DropdownMenuItem onSelect={() => openAvoir(inv)}>Établir un avoir</DropdownMenuItem>
-                  )}
-                  {!isDraft && eInvoicingEnabled && inv.canSubmitToElFatoora && (
-                    <DropdownMenuItem onSelect={() => handleSubmitEInvoice(inv)}>
-                      {inv.eInvoiceStatus === "Rejected" || inv.eInvoiceStatus === "Failed"
-                        ? "Renvoyer à El Fatoora"
-                        : internetReachable
-                          ? "Envoyer à El Fatoora"
-                          : "Mettre en file d'attente"}
-                    </DropdownMenuItem>
-                  )}
-                  {inv.hasSignedXml && (
-                    <DropdownMenuItem onSelect={() => handleDownloadArtifact(inv, "xml")}>
-                      Télécharger le TEIF signé
-                    </DropdownMenuItem>
-                  )}
-                  {inv.hasTtnReceipt && (
-                    <DropdownMenuItem onSelect={() => handleDownloadArtifact(inv, "receipt")}>
-                      Télécharger le reçu TTN
-                    </DropdownMenuItem>
-                  )}
-                  {!isDraft && (
-                    <DropdownMenuItem onSelect={() => handleDownloadPdf(inv)}>Télécharger le PDF</DropdownMenuItem>
-                  )}
-                  {(isDraft || inv.canCancel) && <DropdownMenuSeparator />}
-                  {isDraft && (
-                    <DropdownMenuItem
-                      className="text-destructive focus:text-destructive"
-                      onSelect={() => setDeleteTarget(inv)}
-                    >
-                      Supprimer
-                    </DropdownMenuItem>
-                  )}
-                  {inv.canCancel && (
-                    <DropdownMenuItem
-                      className="text-destructive focus:text-destructive"
-                      onSelect={() => setCancelTarget(inv)}
-                    >
-                      Annuler
-                    </DropdownMenuItem>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )
-          }}
-          empty={isSearching ? "Aucune facture ne correspond à votre recherche." : "Aucune facture."}
+          actions={renderActions}
+          empty={emptyState}
         />
         <Table containerClassName={TABLE_ONLY}>
           {/* Sticky: this list pages, so the columns are gone by row ten and « Reste » becomes an unlabelled
@@ -498,15 +595,23 @@ export function InvoicesTable({
           </TableHeader>
           <TableBody>
             {loading ? (
-              <TableRow>
-                <TableCell colSpan={colSpan} className="text-center text-muted-foreground py-8">
-                  Chargement...
-                </TableCell>
-              </TableRow>
+              /* Skeleton ROWS, not a one-line « Chargement... » that a 25-row table then shoves off the screen.
+                 The mobile CardList beside this already renders skeletons; the desktop half jumped. */
+              Array.from({ length: SKELETON_ROWS }).map((_, rowIndex) => (
+                <TableRow key={`skeleton-${rowIndex}`} aria-hidden="true">
+                  {Array.from({ length: colSpan }).map((__, cellIndex) => (
+                    <TableCell key={cellIndex}>
+                      <span className="block h-4 animate-pulse rounded bg-muted" />
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))
             ) : invoices.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={colSpan} className="text-center text-muted-foreground py-8">
-                  {isSearching ? "Aucune facture ne correspond à votre recherche." : "Aucune facture."}
+                {/* `p-0`: the empty state owns its own vertical rhythm, and the cell's padding on top of it
+                    would push the « Nouvelle facture » action a screen down. */}
+                <TableCell colSpan={colSpan} className="p-0">
+                  {emptyState}
                 </TableCell>
               </TableRow>
             ) : (
@@ -514,12 +619,6 @@ export function InvoicesTable({
                 const isBusy = busyId === invoice.id
                 const isDraft = invoice.status === "Draft"
                 const isPayable = invoice.status === "Issued" || invoice.status === "PartiallyPaid"
-                // Both gates now come from the SERVER. Re-deriving them here from status + amountCollected is
-                // what produced an enabled « Annuler » the API refuses: after a full void the status is Issued
-                // and collected is 0, but the voided payment rows are still there — and a TTN-registered
-                // invoice can never be cancelled regardless of either value.
-                const isCancellable = invoice.canCancel
-                const canCreateAvoir = invoice.canCreateAvoir
                 return (
                   // A cancelled note dims: the badge already says « Annulée », and a row rendering in
                   // full-strength ink beside it made the least relevant line as loud as the rest.
@@ -590,71 +689,39 @@ export function InvoicesTable({
                     </TableCell>
                     <TableCell numeric>{formatAmount(invoice.outstanding)}</TableCell>
                     <TableCell>
-                      <div className="flex justify-end gap-1">
-                        {isBusy && <Loader2 className="h-4 w-4 animate-spin self-center" />}
-                        {isDraft && (
-                          <>
-                            <Button variant="ghost" size="icon" title="Modifier" onClick={() => openEdit(invoice)} disabled={isBusy}>
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button variant="ghost" size="icon" title="Émettre" onClick={() => handleIssue(invoice)} disabled={isBusy}>
-                              <Send className="h-4 w-4" />
-                            </Button>
-                            <Button variant="ghost" size="icon" title="Émettre et encaisser" onClick={() => handleIssueAndPay(invoice)} disabled={isBusy}>
-                              <CreditCard className="h-4 w-4" />
-                            </Button>
-                            <Button variant="ghost" size="icon" title="Supprimer" onClick={() => setDeleteTarget(invoice)} disabled={isBusy}>
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </>
-                        )}
+                      {/*
+                        Two shortcuts and a menu, not eleven glyphs. « Enregistrer un paiement » and
+                        « Télécharger le PDF » are the two a receptionist performs all day, so they keep a
+                        one-tap button — each with a real `aria-label` naming the invoice, because a `title=`
+                        tooltip does not exist under a finger. Everything else lives in the same labelled menu
+                        the phone card uses, so there is exactly one list of what an invoice can do.
+                      */}
+                      <div className="flex items-center justify-end gap-1">
                         {isPayable && (
-                          <Button variant="ghost" size="icon" title="Enregistrer un paiement" onClick={() => setPaymentTarget(invoice)} disabled={isBusy}>
-                            <CreditCard className="h-4 w-4" />
-                          </Button>
-                        )}
-                        {canCreateAvoir && (
-                          <Button variant="ghost" size="icon" title="Établir un avoir" onClick={() => openAvoir(invoice)} disabled={isBusy}>
-                            <ReceiptText className="h-4 w-4" />
-                          </Button>
-                        )}
-                        {!isDraft && eInvoicingEnabled && invoice.canSubmitToElFatoora && (
                           <Button
                             variant="ghost"
                             size="icon"
-                            title={
-                              invoice.eInvoiceStatus === "Rejected" || invoice.eInvoiceStatus === "Failed"
-                                ? "Renvoyer à El Fatoora"
-                                : internetReachable
-                                  ? "Envoyer à El Fatoora"
-                                  : "Mettre en file d'attente (envoi au retour d'internet)"
-                            }
-                            onClick={() => handleSubmitEInvoice(invoice)}
+                            title="Enregistrer un paiement"
+                            aria-label={`Enregistrer un paiement sur la facture ${invoice.number ?? "brouillon"}`}
+                            onClick={() => setPaymentTarget(invoice)}
                             disabled={isBusy}
                           >
-                            <Landmark className="h-4 w-4" />
-                          </Button>
-                        )}
-                        {invoice.hasSignedXml && (
-                          <Button variant="ghost" size="icon" title="Télécharger le TEIF signé" onClick={() => handleDownloadArtifact(invoice, "xml")} disabled={isBusy}>
-                            <FileCode2 className="h-4 w-4" />
-                          </Button>
-                        )}
-                        {invoice.hasTtnReceipt && (
-                          <Button variant="ghost" size="icon" title="Télécharger le reçu TTN" onClick={() => handleDownloadArtifact(invoice, "receipt")} disabled={isBusy}>
-                            <ReceiptText className="h-4 w-4" />
+                            <CreditCard className="h-4 w-4" />
                           </Button>
                         )}
                         {!isDraft && (
-                          <Button variant="ghost" size="icon" title="Télécharger le PDF" onClick={() => handleDownloadPdf(invoice)} disabled={isBusy}>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Télécharger le PDF"
+                            aria-label={`Télécharger le PDF de la facture ${invoice.number ?? ""}`.trim()}
+                            onClick={() => handleDownloadPdf(invoice)}
+                            disabled={isBusy}
+                          >
                             <FileDown className="h-4 w-4" />
                           </Button>
                         )}
-                        {isCancellable && (
-                          <Button variant="ghost" size="icon" title="Annuler" onClick={() => setCancelTarget(invoice)} disabled={isBusy}>
-                            <Ban className="h-4 w-4" />
-                          </Button>
-                        )}
+                        {renderActions(invoice)}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -695,7 +762,10 @@ export function InvoicesTable({
         onChanged={afterMutation}
       />
 
-      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+      <AlertDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => { if (!open) { setDeleteTarget(null); setDeleteError(null) } }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Supprimer ce brouillon ?</AlertDialogTitle>
@@ -703,20 +773,37 @@ export function InvoicesTable({
               Cette action est irréversible. Seuls les brouillons peuvent être supprimés.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <FormErrorBanner message={deleteError} />
           <AlertDialogFooter>
             <AlertDialogCancel disabled={busyId === deleteTarget?.id}>Annuler</AlertDialogCancel>
+            {/* `preventDefault` because `AlertDialogAction` closes the dialog on click: without it a refusal
+                dismisses the surface the refusal would have been shown on. */}
             <AlertDialogAction
-              onClick={confirmDelete}
+              onClick={(e) => { e.preventDefault(); void confirmDelete() }}
               disabled={busyId === deleteTarget?.id}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              Supprimer
+              {busyId === deleteTarget?.id ? "Suppression…" : "Supprimer"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
-      <Dialog open={!!cancelTarget} onOpenChange={(open) => { if (!open) { setCancelTarget(null); setCancelReason("") } }}>
+      {emailTarget && (
+        <SendDocumentEmailDialog
+          open={Boolean(emailTarget)}
+          onOpenChange={(next) => { if (!next) setEmailTarget(null) }}
+          documentKind={DOCUMENT_EMAIL_KINDS.Invoice}
+          documentId={emailTarget.id}
+          documentLabel={`Note d'honoraires ${emailTarget.number ?? ""}`.trim()}
+          patientId={emailTarget.patientId}
+        />
+      )}
+
+      <Dialog
+        open={!!cancelTarget}
+        onOpenChange={(open) => { if (!open) { setCancelTarget(null); setCancelReason(""); setCancelError(null) } }}
+      >
         <DialogContent className="md:max-w-md">
           <DialogHeader>
             <DialogTitle>Annuler la facture</DialogTitle>
@@ -724,6 +811,7 @@ export function InvoicesTable({
               {cancelTarget?.number ? `Facture ${cancelTarget.number}` : "Facture"} — le numéro est conservé. Un motif est requis.
             </DialogDescription>
           </DialogHeader>
+          <FormErrorBanner message={cancelError} />
           <div className="space-y-1.5">
             {/* AC-P3.41 — a real <Label htmlFor>, as the avoir dialog forty lines below already does. The
                 placeholder was the only thing naming this required field, and a placeholder disappears the
@@ -739,7 +827,11 @@ export function InvoicesTable({
             />
           </div>
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => { setCancelTarget(null); setCancelReason("") }} disabled={busyId === cancelTarget?.id}>
+            <Button
+              variant="outline"
+              onClick={() => { setCancelTarget(null); setCancelReason(""); setCancelError(null) }}
+              disabled={busyId === cancelTarget?.id}
+            >
               Retour
             </Button>
             <Button
@@ -753,7 +845,7 @@ export function InvoicesTable({
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!avoirTarget} onOpenChange={(open) => { if (!open) setAvoirTarget(null) }}>
+      <Dialog open={!!avoirTarget} onOpenChange={(open) => { if (!open) { setAvoirTarget(null); setAvoirError(null) } }}>
         <DialogContent className="md:max-w-md">
           <DialogHeader>
             <DialogTitle>Établir un avoir</DialogTitle>
@@ -761,20 +853,33 @@ export function InvoicesTable({
               {avoirTarget?.number ? `Facture ${avoirTarget.number}` : "Facture"} — encaissé {avoirTarget ? formatDT(avoirTarget.amountCollected) : ""}. L'avoir crédite tout ou partie du montant encaissé.
             </DialogDescription>
           </DialogHeader>
+          <FormErrorBanner message={avoirError} />
           <div className="space-y-3">
             <div className="space-y-1.5">
-              <Label htmlFor="avoirAmount">Montant (DT)</Label>
+              <Label htmlFor="avoirAmount">
+                Montant (DT) <span className="text-destructive">*</span>
+              </Label>
+              {/* `type="text" inputMode="decimal"`, deliberately — see `parseAmountInput`. A `type="number"`
+                  field silently discards the comma this product prints everywhere, returning "" for a value
+                  the user can see in the box. `inputMode` still brings up the numeric keypad on a tablet. */}
               <Input
                 id="avoirAmount"
-                type="number"
-                min="0"
-                step="0.001"
+                type="text"
+                inputMode="decimal"
                 value={avoirAmount}
                 onChange={(e) => setAvoirAmount(e.target.value)}
                 placeholder="0,000"
+                aria-invalid={avoirExceedsCollected || undefined}
               />
+              {avoirExceedsCollected && avoirTarget && (
+                <p className="text-xs text-destructive">
+                  Le montant ne peut pas dépasser {formatDT(avoirTarget.amountCollected)} encaissés.
+                </p>
+              )}
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            {/* `grid-cols-1` base: at 390 px this dialog is ~358 px wide, so two columns give each field 165 px —
+                enough for « Mode » and not for « Date du remboursement » plus a native date picker's glyph. */}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="avoirRefundedOn">Date du remboursement</Label>
                 <Input
@@ -787,7 +892,9 @@ export function InvoicesTable({
               <div className="space-y-1.5">
                 <Label htmlFor="avoirMethod">Mode</Label>
                 <Select value={avoirMethod} onValueChange={setAvoirMethod}>
-                  <SelectTrigger id="avoirMethod">
+                  {/* `w-full`: `ui/select.tsx` ships `w-fit`, so the trigger otherwise renders narrower than
+                      the date field beside it in the same grid cell pair. */}
+                  <SelectTrigger id="avoirMethod" className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -801,31 +908,42 @@ export function InvoicesTable({
               </div>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="avoirReason">Motif</Label>
+              <Label htmlFor="avoirReason">
+                Motif <span className="text-destructive">*</span>
+              </Label>
               <Textarea
                 id="avoirReason"
                 value={avoirReason}
                 onChange={(e) => setAvoirReason(e.target.value)}
                 placeholder="Motif de l'avoir"
                 rows={3}
+                required
               />
             </div>
 
             {/* AC-45: only the invoice is transmitted to TTN — the avoir never is. Silence here would let
-                a clinic assume El Fatoora had been corrected along with the books. */}
+                a clinic assume El Fatoora had been corrected along with the books.
+                On the theme's warning family (`--warning-wash` + `--warning-ink`), not a hand-maintained
+                `amber-50 / dark:amber-950` pair. */}
             {avoirTarget && ["Submitted", "Validating", "Valid"].includes(avoirTarget.eInvoiceStatus) && (
-              <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+              <div className="rounded-md border border-warning/30 bg-warning-wash p-3 text-sm text-warning-ink">
                 Cette facture est enregistrée auprès de TTN « El Fatoora ». L&apos;avoir n&apos;est pas
                 télétransmis : la régularisation auprès de TTN reste à effectuer par le cabinet.
               </div>
             )}
           </div>
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setAvoirTarget(null)} disabled={busyId === avoirTarget?.id}>
+            <Button
+              variant="outline"
+              onClick={() => { setAvoirTarget(null); setAvoirError(null) }}
+              disabled={busyId === avoirTarget?.id}
+            >
               Retour
             </Button>
-            <Button onClick={confirmAvoir} disabled={busyId === avoirTarget?.id}>
-              Établir l'avoir
+            {/* Blocked until the amount AND the motif are real — the same rule « Annuler la facture » above
+                already enforced. An avoir is a numbered fiscal document; it cannot be issued blank. */}
+            <Button onClick={confirmAvoir} disabled={busyId === avoirTarget?.id || !avoirIsValid}>
+              {busyId === avoirTarget?.id ? "Établissement…" : "Établir l'avoir"}
             </Button>
           </DialogFooter>
         </DialogContent>

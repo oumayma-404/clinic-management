@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation"
 import { useClinicAccess } from "@/lib/hooks/use-clinic-access"
 import { useAuthToken } from "@/lib/hooks/use-auth-token"
 import { useSession } from "@/lib/auth/session"
+import { Button } from "@/components/ui/button"
 import UnauthorizedPage from "./unauthorized-page"
 
 interface ClinicGuardProps {
@@ -96,12 +97,10 @@ export function ClinicGuard({
             Le serveur de la clinique n&apos;a pas pu confirmer votre session. Vérifiez qu&apos;il est démarré,
             puis réessayez.
           </p>
-          <button
-            onClick={() => window.location.reload()}
-            className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90"
-          >
-            Réessayer
-          </button>
+          {/* The primitive, not a hand-rolled button: same paint, plus the 44px `touch-target` hit area and
+              the press feedback. This is the ONLY interactive element on a full-screen blocking error state —
+              there is no other way out of this screen — and it was a 36px target. */}
+          <Button onClick={() => window.location.reload()}>Réessayer</Button>
         </div>
       </div>
     )
@@ -139,12 +138,8 @@ export function ClinicGuard({
           <p className="text-muted-foreground mb-6">
             Impossible de vérifier votre accès pour le moment. Vérifiez votre connexion et réessayez.
           </p>
-          <button
-            onClick={refresh}
-            className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90"
-          >
-            Réessayer
-          </button>
+          {/* Same reasoning as the retry above — the sole control on a blocking screen. */}
+          <Button onClick={refresh}>Réessayer</Button>
         </div>
       </div>
     )

@@ -1,7 +1,15 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { toast } from "sonner"
+import { useRouter } from "next/navigation"
+/*
+ * ⚠️ The page-level `toast.error(error)` effect is gone, deliberately.
+ *
+ * One failed dashboard read produced FIVE simultaneous reports of itself: a toast, plus the « Indisponible »
+ * banner each of the four `DashboardSection`s already renders. The sections are the better surface and the only
+ * one with a recovery action — they carry « Réessayer », they persist, and they say which block failed. A toast
+ * on top of that is noise that also expires, which is why nothing here imports `sonner` any more.
+ */
 import {
   AlertCircle,
   BadgeCheck,
@@ -22,6 +30,9 @@ import {
 import { AppShell } from "@/components/app-shell"
 import { AppointmentList } from "@/components/appointment-list"
 import { ClinicGuard } from "@/components/clinic-guard"
+import { PageHeader } from "@/components/ui/page-header"
+import { useSession } from "@/lib/auth/session"
+import { hidesClinicWideMoney } from "@/lib/nav"
 import { KpiCard } from "@/components/dashboard/kpi-card"
 import { KpiGrid } from "@/components/dashboard/kpi-grid"
 import { DashboardSection } from "@/components/dashboard/dashboard-section"
@@ -44,8 +55,13 @@ import { blocksInSection, type DashboardBlockKey } from "@/lib/dashboard-blocks"
 import { formatDT } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import type { DashboardPeriodKey, PeriodComparison } from "@/lib/api/types"
+import { useDoctors } from "@/lib/hooks/use-doctors"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 const PERIOD_PARAM = "period"
+/** Radix cannot hold an empty Select value, so « tous » is an explicit sentinel. */
+const ALL_DOCTORS = "all-doctors"
 const PERIODS: DashboardPeriodKey[] = ["Today", "Week", "Month"]
 
 /** A count: French grouping, « — » when the figure is genuinely absent. */
@@ -61,9 +77,52 @@ const percent = (value: number | null | undefined) =>
 const money = (value: number | null | undefined) =>
   value === null || value === undefined ? "—" : formatDT(value)
 
+/**
+ * DEV-3 — where a secretary's morning starts.
+ *
+ * <p>I1 gates `GET /api/dashboard` to `AdminOrDoctor` (its Argent section *is* the clinic's revenue) and I3 hides
+ * « Tableau de bord » from the rail. But `/` is where login lands, so without this reception would open the app
+ * every morning onto the one screen they cannot read — a refusal card as the first thing the product says, every
+ * day. `/appointments` is reception's actual first screen and is open to every role.</p>
+ *
+ * <p>A wrapper rather than a branch inside the page, for the same reason as « Caisse » and « Factures »: the body
+ * below fires the dashboard read on mount, and a secretary must not spend a 403 to be told where to go. The
+ * redirect is a `replace`, so Back does not bounce them straight back into it.</p>
+ */
 export default function DashboardPage() {
+  const { user, isLoading } = useSession()
+  const router = useRouter()
+  const redirectToAgenda = hidesClinicWideMoney(user?.role)
+
+  useEffect(() => {
+    if (redirectToAgenda) router.replace("/appointments")
+  }, [redirectToAgenda, router])
+
+  // Nothing is rendered while the session resolves or while the redirect is in flight: a flash of the dashboard
+  // shell — or of a refusal card that is about to be replaced — is worse than a blank moment.
+  if (isLoading || redirectToAgenda) {
+    return (
+      <ClinicGuard>
+        <AppShell width="none" gutter={false}>
+          <p className="p-8 text-center text-muted-foreground">Chargement…</p>
+        </AppShell>
+      </ClinicGuard>
+    )
+  }
+
+  return <DashboardContent />
+}
+
+function DashboardContent() {
+  const { user } = useSession()
   const [period, setPeriod] = useState<DashboardPeriodKey>("Month")
-  const { data, loading, refetching, error, refetch } = useDashboard(period)
+  // L9 — the Argent section's practitioner filter. `ALL_DOCTORS` because Radix cannot hold an empty Select value.
+  const [moneyDoctorId, setMoneyDoctorId] = useState<string>(ALL_DOCTORS)
+  const { doctors } = useDoctors()
+  const { data, loading, refetching, error, refetch } = useDashboard(
+    period,
+    moneyDoctorId === ALL_DOCTORS ? undefined : moneyDoctorId,
+  )
   /*
    * Per-user layout, persisted server-side (`GET/PUT /api/dashboard/preferences`).
    *
@@ -111,9 +170,39 @@ export default function DashboardPage() {
     refetch,
   )
 
+  /*
+   * The date, resolved after mount.
+   *
+   * `new Date()` in a client component still runs during Next's prerender, where the server's calendar day and
+   * the browser's can differ — so rendering it inline produces a hydration mismatch on exactly the boundary
+   * (around midnight, and for any clinic whose server sits in another zone) where the date matters most. An
+   * empty first paint is the honest version: the greeting is complete either way, and the line simply fills in.
+   */
+  const [todayLabel, setTodayLabel] = useState("")
   useEffect(() => {
-    if (error) toast.error(error)
-  }, [error])
+    setTodayLabel(
+      new Intl.DateTimeFormat("fr-TN", {
+        weekday: "long",
+        day: "numeric",
+        month: "long",
+      }).format(new Date()),
+    )
+  }, [])
+
+  /**
+   * « Bonjour, Dr Ben Salah » — the practitioner's own name when the session carries one.
+   *
+   * <p>Deliberately not a fallback to the email: « Bonjour, o.benkhalifa@… » is worse than no name at all.
+   * Cloud sessions may carry only an email, and « Bonjour » alone reads perfectly well in French.</p>
+   *
+   * <p>« Dr » is prefixed only when the stored name does not already carry it, so a clinic that types
+   * « Dr Ben Salah » into its roster does not get « Dr Dr Ben Salah ».</p>
+   */
+  const greeting = (() => {
+    const name = user?.name?.trim()
+    if (!name) return "Bonjour"
+    return /^(dr|docteur|pr)\b/i.test(name) ? `Bonjour, ${name}` : `Bonjour, Dr ${name}`
+  })()
 
   const previousLabel = PREVIOUS_PERIOD_LABELS[period]
   // The bounds the SERVER used. Links are built from these, never from a client-side recomputation — otherwise a card
@@ -178,15 +267,28 @@ export default function DashboardPage() {
   return (
     <ClinicGuard>
       <AppShell contentClassName="space-y-8">
-        {/* Title + the one filter row, above everything it scopes. */}
+        {/*
+          The dashboard now uses the app's own `PageHeader` (it was the one screen still hand-rolling its
+          title at `text-2xl md:text-3xl` rather than the `text-title` token, and the only one with no zone
+          eyebrow — so the first screen of every day was the one most off-system).
+
+          The title is a **greeting**, not « Tableau de bord ». The rail already names this page and marks it
+          `aria-current`; repeating the label as the largest text on screen tells the reader something they
+          used to get here. A name and a date are what a person actually wants at 08:00, and for a user who is
+          not comfortable with software it is the difference between opening a tool and being addressed by one.
+        */}
         <div className="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            {/* 30 px of title eats a fifth of a 320 px screen before any figure appears. */}
-            <h1 className="text-2xl font-semibold text-foreground md:text-3xl">Tableau de bord</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {PERIOD_LABELS[period]} — chaque chiffre ouvre le détail correspondant.
-            </p>
-          </div>
+          <PageHeader
+            title={greeting}
+            subtitle={
+              <>
+                {/* `capitalize` because `Intl` returns « vendredi », and a sentence opens with a capital. */}
+                {todayLabel && <span className="capitalize">{todayLabel}</span>}
+                {todayLabel && " · "}
+                {PERIOD_LABELS[period]} — chaque chiffre ouvre le détail correspondant.
+              </>
+            }
+          />
           <div className="flex flex-wrap items-center gap-2">
             <PeriodSelector value={period} onChange={changePeriod} disabled={loading} />
             {/* Beside the period selector, in the one row that scopes the whole page — the same reasoning
@@ -227,6 +329,48 @@ export default function DashboardPage() {
               columns instead of a `col-span-2` cell, and the grid drops to full width on its own when this
               user has « Net » switched off.
             */}
+            {/*
+              L9 — the practitioner filter, and it lives INSIDE the Argent section rather than beside the period
+              selector at the top. That placement is the honest one: it narrows this section only. « RDV honorés » and
+              « Prothèses en retard » are the practice's operational state, and a filter at page level would look
+              like it applied to them too. Offered only when the practice has more than one practitioner.
+            */}
+            {doctors.length > 1 && (
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <Label htmlFor="money-doctor" className="text-xs font-medium text-muted-foreground">
+                  Praticien
+                </Label>
+                <Select value={moneyDoctorId} onValueChange={setMoneyDoctorId}>
+                  <SelectTrigger id="money-doctor" className="h-9 w-full sm:w-56">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ALL_DOCTORS}>Tout le cabinet</SelectItem>
+                    {doctors
+                      .filter((d) => d.id)
+                      .map((d) => (
+                        <SelectItem key={d.id} value={d.id as string}>
+                          {d.name}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            {/*
+              ⚠️ The scope caveats, from the response rather than inferred here. Two of them, and both matter: an
+              expense has no practitioner, so Dépenses and Net (and Créances below) stay clinic-wide — presenting
+              them as one dentist's would show their income minus everybody's costs. And a filtered « Encaissé »
+              counts invoice payments only, because échéance collections are not attributable in this slice.
+            */}
+            {data?.money.clinicWideOutgoings && (
+              <p role="note" className="mb-3 rounded-md bg-warning-wash p-2.5 text-xs text-warning-ink">
+                Filtré par praticien&nbsp;: «&nbsp;Encaissé&nbsp;» ne compte que les paiements de factures
+                {data.money.collectedInvoicesOnly ? " (hors échéances de devis)" : ""}, et
+                «&nbsp;Dépenses&nbsp;», «&nbsp;Net&nbsp;» et «&nbsp;Créances&nbsp;» restent ceux de tout le cabinet —
+                une dépense n&apos;appartient à aucun praticien.
+              </p>
+            )}
             <div
               className={cn(
                 "grid gap-3",

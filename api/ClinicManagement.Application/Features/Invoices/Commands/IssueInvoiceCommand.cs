@@ -232,7 +232,13 @@ public class IssueInvoiceCommandHandler : IRequestHandler<IssueInvoiceCommand, R
 
         foreach (var payment in collected)
         {
-            invoice.RecordPayment(payment.Amount, payment.Method, payment.PaidOn, payment.Id);
+            // ⚠️ The cheque's identity travels with the money (L8). The plan side stops being counted the moment
+            // this bridge invoice is issued, so a cheque left behind here would vanish from « chèques à
+            // encaisser » entirely — the row that still has to be banked becoming the one row nothing lists.
+            // `ToChequeDetails()` rebuilds it through `ChequeDetails.For`, so the method/details invariant is
+            // re-checked on the way across rather than trusted.
+            invoice.RecordPayment(
+                payment.Amount, payment.Method, payment.PaidOn, payment.Id, payment.ToChequeDetails());
         }
 
         _logger.LogInformation(

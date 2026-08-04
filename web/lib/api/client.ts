@@ -79,7 +79,16 @@ const TOKEN_RENEW_SKEW_MS = 60_000;
 /** Cache window when the server reports no expiry (Cloud — the Auth0 SDK caches on its own side). */
 const TOKEN_FALLBACK_TTL_MS = 30_000;
 
-/** French text for statuses that can reach the client with an empty body. */
+/**
+ * What a status means when nothing better arrived, for the statuses worth naming individually.
+ *
+ * ⚠️ This map is the *specific* half only — read it through {@link statusMessageFr}, never directly. It used to
+ * be the whole mechanism, and the lookup that consumed it did `if (french) errorMessage = french`, so a status
+ * with no entry silently kept the raw `HTTP <n>: <statusText>` line built below. That was not a theoretical gap:
+ * a 400 whose body failed to parse, and the 502/503/504 the Local same-origin front door (YARP → Next/Kestrel)
+ * returns whenever the proxied hop is down, all reached a French-speaking dentist as « HTTP 502: Bad Gateway ».
+ * The fallback is therefore **unconditional** now — an unnamed status still gets French.
+ */
 const STATUS_FALLBACK_FR: Record<number, string> = {
   401: "Votre session a expiré. Reconnectez-vous.",
   403: "Vous n'avez pas les droits nécessaires pour cette action.",
@@ -87,11 +96,84 @@ const STATUS_FALLBACK_FR: Record<number, string> = {
   409: "Cet enregistrement a été modifié par quelqu'un d'autre pendant votre saisie. "
     + "Rechargez pour voir la version à jour, puis appliquez à nouveau votre modification.",
   500: "Une erreur est survenue lors du traitement de votre demande.",
+  // The three the front-door proxy raises on its own — the API process is down, restarting, or too slow. They
+  // are transport-shaped rather than a refusal, so they say « momentanément » : the same request is worth making
+  // again, which « Une erreur est survenue » does not convey.
+  502: "Le serveur de la clinique est momentanément indisponible.",
+  503: "Le serveur de la clinique est momentanément indisponible.",
+  504: "Le serveur de la clinique est momentanément indisponible.",
 };
+
+/**
+ * The catch-all for every other status. Deliberately says three things: it failed, retrying is reasonable, and
+ * who to tell if it keeps happening — a clinic has no console to read and no way to know a 418 from a 507.
+ */
+const GENERIC_STATUS_FALLBACK_FR =
+  "Le serveur n'a pas pu traiter votre demande. Réessayez dans un instant, et prévenez votre support si cela persiste.";
+
+/** French for any HTTP status, named or not. Never returns undefined — that was the defect. */
+function statusMessageFr(status: number): string {
+  return STATUS_FALLBACK_FR[status] ?? GENERIC_STATUS_FALLBACK_FR;
+}
+
+/**
+ * A C# property path — `CnamInfo.IdentifiantUnique`, `Items[0].PlannedCost`. PascalCase either side of a dot is
+ * the giveaway; French prose does not put a capital letter straight after a full stop with no space.
+ */
+const PASCAL_CASE_PATH = /\b[A-Z][A-Za-z0-9]*\.[A-Z][A-Za-z0-9]*/;
+
+/**
+ * Words that are common in English validation text and are **not** French words. Deliberately excludes the
+ * near-homographs (`invalide`, `erreur`, `serveur`, `requis`) — `\b` boundaries keep `invalide` from matching
+ * `invalid`, and leaving them out entirely costs nothing.
+ */
+const ENGLISH_MARKERS =
+  /\b(the|this|that|these|those|field|value|must|match|is|are|was|were|be|been|being|not|cannot|unable|failed|fail|error|errors|occurred|occurs|required|require|invalid|one|more|and|with|of|to|for|please|try|again|request|bad|gateway|unexpected|internal|forbidden|unauthorized|found|allowed|expected|length|between|greater|less|than)\b/gi;
+
+/**
+ * Whether a message is machine text rather than something to put in front of a dentist.
+ *
+ * <p>Two distinct **English markers** are required, not one: a lone hit is how a legitimate French sentence with
+ * a borrowed word gets thrown away, and discarding a real reason is worse than showing a slightly awkward one.
+ * A PascalCase property path needs no corroboration — nothing else produces `Foo.Bar`.</p>
+ */
+function looksTechnical(text: string | undefined | null): boolean {
+  const trimmed = text?.trim();
+  if (!trimmed) return true;
+  if (PASCAL_CASE_PATH.test(trimmed)) return true;
+  const hits = trimmed.match(ENGLISH_MARKERS);
+  return new Set(hits?.map((h) => h.toLowerCase())).size >= 2;
+}
+
+/**
+ * The readable half of a ProblemDetails `errors` bag.
+ *
+ * ⚠️ **The key is dropped.** This used to build `` `${key}: ${value}` ``, so a French sentence was followed by
+ * « CnamInfo.IdentifiantUnique: The field must match… » — a C# property path and an English regex complaint, in
+ * the one place the user is being told they did something wrong. The key names a DTO field, not anything the
+ * user typed, so it can never help them; the *value* sometimes can, when the backend wrote it in French.
+ *
+ * Filtered per value rather than all-or-nothing: one bag can legitimately hold a French message from a handler
+ * and an English one from model binding, and there is no reason to lose the first because of the second.
+ */
+function readableValidationDetail(errors: unknown): string {
+  if (!errors || typeof errors !== 'object') return '';
+  const parts: string[] = [];
+  for (const value of Object.values(errors as Record<string, unknown>)) {
+    for (const entry of Array.isArray(value) ? value : [value]) {
+      const text = typeof entry === 'string' ? entry.trim() : '';
+      if (text && !looksTechnical(text)) parts.push(text);
+    }
+  }
+  return parts.join(' ');
+}
 
 async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
-    let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+    // Kept as a named value rather than rebuilt twice: it is the sentinel meaning "nothing usable arrived",
+    // and the two places that compare against it have to compare against the *same* string.
+    const rawStatusLine = `HTTP ${response.status}: ${response.statusText}`;
+    let errorMessage = rawStatusLine;
     // The backend's optional machine-readable failure tag (`{ error, code }`) — see ApiErrorCode.
     let errorCode: string | undefined;
     try {
@@ -110,14 +192,27 @@ async function handleResponse<T>(response: Response): Promise<T> {
         // ExceptionMiddleware) and must be read first — without it every Result.Failure reason in the app
         // was dropped and the user only saw "HTTP 400: Bad Request". `title`/`message` still cover ASP.NET
         // ProblemDetails and the raw Result envelope a few endpoints return (Auth/Clinics BadRequest(result)).
-        if (errorData.error || errorData.title || errorData.message) {
-          errorMessage = errorData.error || errorData.title || errorData.message;
+        // `typeof … === 'string'`: a body whose `error` is an object (a nested Result, a serialised exception)
+        // used to be assigned straight through and reached the toast as « [object Object] ». Ignoring it lets
+        // the unconditional French status fallback below answer instead.
+        const reason = [errorData.error, errorData.title, errorData.message].find(
+          (candidate) => typeof candidate === 'string' && candidate.trim(),
+        );
+        if (reason) {
+          errorMessage = reason;
         }
         if (errorData.errors) {
-          const validationErrors = Object.entries(errorData.errors)
-            .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : value}`)
-            .join('; ');
-          errorMessage = `${errorMessage} - ${validationErrors}`;
+          // A ProblemDetails validation response. Its `title` is ASP.NET's own English « One or more validation
+          // errors occurred. », so the base message is just as likely to be machine text as the detail is —
+          // both are tested, and if neither survives the message is reset to the sentinel so the unconditional
+          // French status fallback below speaks instead of appending nonsense to nonsense.
+          const detail = readableValidationDetail(errorData.errors);
+          const baseIsUsable = errorMessage !== rawStatusLine && !looksTechnical(errorMessage);
+          if (detail) {
+            errorMessage = baseIsUsable ? `${errorMessage} ${detail}` : detail;
+          } else if (!baseIsUsable) {
+            errorMessage = rawStatusLine;
+          }
         }
       }
     } catch {
@@ -128,7 +223,7 @@ async function handleResponse<T>(response: Response): Promise<T> {
     // surfaces it. This is the safety net for a 429 whose body is missing or unparseable (e.g. refused by
     // an intermediary): "HTTP 429: Too Many Requests" is not something to show a clinic
     // (security-hardening AC-4.5).
-    if (response.status === 429 && errorMessage.startsWith('HTTP 429')) {
+    if (response.status === 429 && errorMessage === rawStatusLine) {
       const retryAfter = Number(response.headers.get('retry-after'));
       errorMessage = Number.isFinite(retryAfter) && retryAfter > 0
         ? `Trop de tentatives. Veuillez réessayer dans ${Math.ceil(retryAfter / 60)} minute(s).`
@@ -136,11 +231,16 @@ async function handleResponse<T>(response: Response): Promise<T> {
     }
 
     // Some statuses arrive with no body at all — most importantly the 403 that ASP.NET's authorization
-    // pipeline returns before any handler runs, which short-circuits the `{ error }` contract. Falling back
-    // to the raw status line put « HTTP 403: Forbidden » in front of a French-speaking dentist.
-    if (errorMessage === `HTTP ${response.status}: ${response.statusText}`) {
-      const french = STATUS_FALLBACK_FR[response.status];
-      if (french) errorMessage = french;    }
+    // pipeline returns before any handler runs, which short-circuits the `{ error }` contract, and the
+    // 502/503/504 the Local front-door proxy raises before the API is even asked. Falling back to the raw
+    // status line put « HTTP 403: Forbidden » in front of a French-speaking dentist.
+    //
+    // ⚠️ Unconditional on purpose (see STATUS_FALLBACK_FR): the previous `if (french)` guard meant every status
+    // absent from the map — 400 with an unparseable body, 405, 413, 502… — fell through to English anyway, and
+    // `lib/errors.ts` hands an ApiError message to the toast verbatim.
+    if (errorMessage === rawStatusLine) {
+      errorMessage = statusMessageFr(response.status);
+    }
 
     throw new ApiError(response.status, errorMessage, undefined, errorCode);
   }

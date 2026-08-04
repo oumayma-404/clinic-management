@@ -62,6 +62,10 @@ public class ApplicationDbContext : DbContext
     // Treatment plans / devis (clinic-scoped aggregate root; children TreatmentPlanItem/Installment reached via it).
     public DbSet<TreatmentPlan> TreatmentPlans { get; set; }
     public DbSet<ClinicReminderSettings> ClinicReminderSettings { get; set; }
+    // Outbound document-email outbox (clinic-scoped aggregate root — added to the global filter below). Its
+    // dispatcher job runs with no clinic in scope, so the filter is inactive there and it can drain every
+    // clinic's queue, exactly like the reminder and e-invoice outboxes.
+    public DbSet<DocumentEmail> DocumentEmails { get; set; }
     // One user's dashboard layout choices (1:1 with User, shared PK). Deliberately carries NO clinic query
     // filter: the row is keyed by the user id and a user belongs to exactly one clinic, so it is scoped by
     // UserId alone — the same reasoning as NotificationRead below.
@@ -77,6 +81,21 @@ public class ApplicationDbContext : DbContext
     public DbSet<MedicationActiveIngredient> MedicationActiveIngredients { get; set; }
     // Per-clinic dental act catalog (chapitre DCH, #5): clinic-scoped. Backs the treatment-plan act picker.
     public DbSet<DentalActCode> DentalActCodes { get; set; }
+    // The audit ledger (I6) — written only by AuditSaveChangesInterceptor, read only by GET /api/audit.
+    // ⚠️ Deliberately carries **no** global clinic query filter, unlike every other clinic-scoped table here.
+    // Two reasons, and both point the same way: its ClinicId is nullable (a job or a console verb can mutate a
+    // row with no clinic derivable from it), so a filter comparing it to the scoped id would silently hide
+    // exactly the unattributed rows an owner most needs to see; and the interceptor writes on a context whose
+    // clinic scope belongs to the request being audited, not to the row — filtering the write side is
+    // meaningless. `GetAuditEntriesQuery` filters by the caller's DB-resolved clinic explicitly, which is the
+    // authoritative check everywhere in this codebase anyway.
+    public DbSet<AuditEntry> AuditEntries { get; set; }
+
+    // The backup ledger (L4d). Clinic-scoped and **filtered** (see OnModelCreating), unlike AuditEntries: its
+    // ClinicId is non-nullable, so the filter has nothing to hide. The daily job runs with no clinic in scope,
+    // which leaves the filter inactive — the same arrangement the reminder dispatcher and the per-clinic seeder
+    // already rely on.
+    public DbSet<BackupRun> BackupRuns { get; set; }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -149,6 +168,9 @@ public class ApplicationDbContext : DbContext
         // ClinicReminderSettings is keyed by the clinic id (shared PK) → filter on Id. The reminder dispatcher
         // runs with no clinic in scope (filter inactive) so it can still resolve any clinic's settings by id.
         modelBuilder.Entity<ClinicReminderSettings>().HasQueryFilter(s => !IsClinicScoped || s.Id == ScopedClinicId);
+        // DocumentEmail is directly clinic-owned → filtered like the other aggregate roots. Its dispatcher runs
+        // with no clinic in scope (filter inactive), which is what lets one tick drain every clinic's queue.
+        modelBuilder.Entity<DocumentEmail>().HasQueryFilter(e => !IsClinicScoped || e.ClinicId == ScopedClinicId);
         // Per-clinic reference catalogs (#5): scoped like the other aggregate roots. The per-clinic seeder runs
         // with no clinic in scope (filter inactive) so it can read/write any clinic's rows by explicit ClinicId.
         // MedicationActiveIngredient is reached only through Medication, so it needs no filter of its own.
@@ -171,6 +193,10 @@ public class ApplicationDbContext : DbContext
         modelBuilder.Entity<StockItem>().HasQueryFilter(s => !IsClinicScoped || s.ClinicId == ScopedClinicId);
         // StockBatch is a child of StockItem, reached only through its filtered parent → no filter of its own,
         // the same rule as InvoiceLine/Installment. ProcedureTypeMaterial likewise, under ProcedureType.
+        // L4d — the backup ledger is clinic-owned with a NON-nullable ClinicId, so unlike AuditEntries it is
+        // filtered like the rest. The daily BackupJob runs with no clinic in scope, which leaves the filter
+        // inactive and lets it iterate every clinic — the same arrangement the reminder dispatcher uses.
+        modelBuilder.Entity<BackupRun>().HasQueryFilter(b => !IsClinicScoped || b.ClinicId == ScopedClinicId);
 
         // Optimistic concurrency for every entity, with no schema change: map Entity<T>.Version onto
         // PostgreSQL's xmin system column. EF then appends it to the WHERE of each UPDATE/DELETE, so a row a

@@ -1,5 +1,6 @@
-using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
+using ClinicManagement.Application.Common.Authorization;
 using MediatR;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Stock.Commands;
@@ -7,12 +8,13 @@ using ClinicManagement.Application.Features.Stock.Queries;
 using Microsoft.AspNetCore.Http;
 
 using ClinicManagement.Domain.Common;
+using ClinicManagement.Application.Common.Csv;
 
 namespace ClinicManagement.API.Controllers;
 
 [ApiController]
 [Route("api/stock")]
-[Authorize]
+[Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
 public class StockController : ApiControllerBase
 {
     private readonly IMediator _mediator;
@@ -31,6 +33,37 @@ public class StockController : ApiControllerBase
     /// Free-text filter. Applied in SQL <b>before</b> the page is cut, so it searches the whole clinic — a
     /// search that only saw the current page would answer a different question from the one that was typed.
     /// </param>
+
+    /// <summary>
+    /// « Exporter » (L5) — the same list, as a CSV.
+    ///
+    /// <para>⚠️ It re-sends the <b>identical query with no paging</b>, which the paging primitive models as a
+    /// first-class case rather than as a huge page. That is what makes « honours the current filters, exports the
+    /// whole filtered set, never the current page » true by construction rather than by discipline.</para>
+    /// </summary>
+    [HttpGet("export")]
+    public async Task<ActionResult> ExportStock(
+        [FromQuery] bool lowStockOnly = false,
+        [FromQuery] string? search = null,
+        [FromQuery] string? category = null,
+        [FromQuery] bool expiringOnly = false)
+    {
+        var result = await _mediator.Send(new GetStockItemsQuery
+        {
+            LowStockOnly = lowStockOnly,
+            SearchTerm = search,
+            Category = category,
+            ExpiringOnly = expiringOnly,
+        });
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+
+        return Csv(ExportTables.Stock(result.Value!.Items), "stock");
+    }
+
     [HttpGet]
     public async Task<ActionResult<StockPageDto>> GetStockItems(
         [FromQuery] bool lowStockOnly = false,
@@ -133,6 +166,9 @@ public class StockController : ApiControllerBase
     /// Delete a stock item.
     /// </summary>
     [HttpDelete("{id}")]
+    // Takes the article's whole movement history with it — the one operation here whose effect cannot be read
+    // off any screen afterwards, because the screen that would show it is what disappears.
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
     public async Task<IActionResult> DeleteStockItem(Guid id)
     {
         var result = await _mediator.Send(new DeleteStockItemCommand { Id = id });

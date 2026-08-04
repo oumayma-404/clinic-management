@@ -19,14 +19,16 @@ namespace ClinicManagement.API.Controllers;
 // authenticates it in BOTH modes' terms — in Local mode it is also covered by the fail-closed fallback
 // policy (FR-E3); in Cloud it now requires the Auth0 bearer the frontend already sends (verified: the
 // one raw-fetch caller attaches the token).
-[Authorize]
+[Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
 public class MedicalDocumentsController : ApiControllerBase
 {
     private readonly IMediator _mediator;
+    private readonly ILogger<MedicalDocumentsController> _logger;
 
-    public MedicalDocumentsController(IMediator mediator)
+    public MedicalDocumentsController(IMediator mediator, ILogger<MedicalDocumentsController> logger)
     {
         _mediator = mediator;
+        _logger = logger;
     }
 
     [HttpGet]
@@ -285,12 +287,14 @@ public class MedicalDocumentsController : ApiControllerBase
             documentData.DoctorCachetContentType = null;
             documentData.DoctorOrdreNumber = null;
             documentData.ClinicCity = null;
+            documentData.ClinicEmail = null;
 
             var snapshotResult = await _mediator.Send(new GetPractitionerRenderSnapshotQuery(), cancellationToken);
             if (snapshotResult.IsSuccess && snapshotResult.Value != null)
             {
                 var snap = snapshotResult.Value;
                 documentData.ClinicCity = snap.ClinicCity;
+                documentData.ClinicEmail = snap.ClinicEmail;
                 documentData.DoctorOrdreNumber = snap.DoctorOrdreNumber;
                 documentData.DoctorCachetKey = snap.DoctorCachetKey;
                 documentData.DoctorCachetContentType = snap.DoctorCachetContentType;
@@ -304,7 +308,20 @@ public class MedicalDocumentsController : ApiControllerBase
         }
         catch (Exception ex)
         {
-            return BadRequest($"Error generating PDF: {ex.Message}");
+            // Was `BadRequest($"Error generating PDF: {ex.Message}")` — a bare JSON *string*, not the canonical
+            // `{ error }` body. The client's `generatePdfForDownload` therefore threw a plain `Error` rather than
+            // an `ApiError`, and `handleDownloadPdf` only surfaces a message `if (error instanceof ApiError)`, so
+            // the three deliberate French operator messages on this path (a missing or unreadable `Assets/BS1.pdf`,
+            // no system font for the overlay) were **structurally unreachable** — the dentist got a generic toast
+            // for a problem with a named remedy.
+            //
+            // Only `InvalidOperationException` is surfaced verbatim: that is the type those three fail-fast
+            // messages use, and they are written for an operator. Anything else is generic — an arbitrary
+            // exception message is a .NET internal, not French, and can carry a path or a connection string.
+            _logger.LogError(ex, "Failed to render a document PDF for download ({DocumentType})", documentData.DocumentType);
+            return ex is InvalidOperationException
+                ? Failure(ex.Message)
+                : Failure(ClinicManagement.Application.Common.ErrorMessages.Generic);
         }
     }
 }
