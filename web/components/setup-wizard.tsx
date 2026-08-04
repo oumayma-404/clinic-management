@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { Building2, Plus, Trash2, Upload, X, ChevronRight, ChevronLeft, CheckCircle2, ArrowRight } from "lucide-react"
 import Image from "next/image"
 import { useRouter } from "next/navigation"
@@ -282,13 +283,6 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
             </Button>
           </div>
         </div>
-
-        {/* Error Message */}
-        {error && (
-          <div className="mb-4 p-4 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive text-sm">
-            {error}
-          </div>
-        )}
 
         {/* Progress Steps */}
         <div className="flex items-center justify-center gap-4 mb-8">
@@ -728,49 +722,57 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
             )}
 
             {/* Navigation Buttons */}
-            <div className="flex items-center justify-between mt-8 pt-6 border-t">
-              <Button
-                variant="outline"
-                onClick={() => setCurrentStep(currentStep - 1)}
-                disabled={currentStep === 1 || isLoading}
-                className="border-primary/25"
-              >
-                <ChevronLeft className="w-4 h-4 mr-2" />
-                Précédent
-              </Button>
-
-              {currentStep < 3 ? (
+            <div className="mt-8 pt-6 border-t">
+              {/*
+                The refusal belongs here, beside the button that produced it — it used to render at the top of
+                the page, above the progress rail, where step 3's seven weekday rows push it off screen and a
+                rejected « Terminer » reads as a dead button.
+              */}
+              <FormErrorBanner message={error} className="mb-4" />
+              <div className="flex items-center justify-between">
                 <Button
-                  onClick={() => setCurrentStep(currentStep + 1)}
-                  disabled={
-                    currentStep === 1 ? !isStep1Valid()
-                    : currentStep === 2 ? !isStep2Valid()
-                    : false
-                  }
-                  className="bg-primary hover:bg-primary/90"
+                  variant="outline"
+                  onClick={() => setCurrentStep(currentStep - 1)}
+                  disabled={currentStep === 1 || isLoading}
+                  className="border-primary/25"
                 >
-                  Suivant
-                  <ChevronRight className="w-4 h-4 ml-2" />
+                  <ChevronLeft className="w-4 h-4 mr-2" />
+                  Précédent
                 </Button>
-              ) : (
-                /*
-                  The default (primary) fill, not `bg-green-600`. There is deliberately no solid-success
-                  token: `--success` is an INK meant for `--success-wash`, and at its dark-mode step
-                  (L 0.70) white type on it measures ~2.6:1 — so "convert the green button to `bg-success`"
-                  would have shipped an unreadable CTA. The completion signal is carried by the check icon
-                  and « Terminer la configuration », which is where it belongs.
-                */
-                <Button onClick={handleComplete} disabled={isLoading}>
-                  {isLoading ? (
-                    "Création…"
-                  ) : (
-                    <>
-                      <CheckCircle2 className="w-4 h-4 mr-2" />
-                      Terminer la configuration
-                    </>
-                  )}
-                </Button>
-              )}
+
+                {currentStep < 3 ? (
+                  <Button
+                    onClick={() => setCurrentStep(currentStep + 1)}
+                    disabled={
+                      currentStep === 1 ? !isStep1Valid()
+                      : currentStep === 2 ? !isStep2Valid()
+                      : false
+                    }
+                    className="bg-primary hover:bg-primary/90"
+                  >
+                    Suivant
+                    <ChevronRight className="w-4 h-4 ml-2" />
+                  </Button>
+                ) : (
+                  /*
+                    The default (primary) fill, not `bg-green-600`. There is deliberately no solid-success
+                    token: `--success` is an INK meant for `--success-wash`, and at its dark-mode step
+                    (L 0.70) white type on it measures ~2.6:1 — so "convert the green button to `bg-success`"
+                    would have shipped an unreadable CTA. The completion signal is carried by the check icon
+                    and « Terminer la configuration », which is where it belongs.
+                  */
+                  <Button onClick={handleComplete} disabled={isLoading}>
+                    {isLoading ? (
+                      "Création…"
+                    ) : (
+                      <>
+                        <CheckCircle2 className="w-4 h-4 mr-2" />
+                        Terminer la configuration
+                      </>
+                    )}
+                  </Button>
+                )}
+              </div>
             </div>
           </CardContent>
         </Card>

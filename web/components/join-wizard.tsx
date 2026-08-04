@@ -8,7 +8,8 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Building2, ChevronRight, CheckCircle2, AlertCircle } from "lucide-react"
+import { Building2, ChevronRight, CheckCircle2 } from "lucide-react"
+import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { clinicsApi, type JoinClinicRequest } from "@/lib/api/clinics"
 import { useSession } from "@/lib/auth/session"
 import { getErrorMessage } from "@/lib/errors"
@@ -178,14 +179,6 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
           <h1 className="text-3xl font-bold text-accent-foreground">Rejoindre une clinique</h1>
           <p className="text-muted-foreground">Complétez votre profil pour accéder à la clinique</p>
         </div>
-
-        {/* Error Message */}
-        {error && (
-          <div className="mb-4 p-4 bg-destructive/10 border border-destructive/20 rounded-lg flex items-start gap-3">
-            <AlertCircle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
-            <p className="text-sm text-destructive">{error}</p>
-          </div>
-        )}
 
         {/* Progress Steps */}
         <div className="flex items-center justify-center gap-4 mb-8">
@@ -403,46 +396,50 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
             )}
 
             {/* Navigation Buttons */}
-            <div className="flex items-center justify-between mt-8 pt-6 border-t">
-              <Button
-                variant="outline"
-                onClick={() => setCurrentStep(currentStep - 1)}
-                disabled={currentStep === 1 || isLoading}
-                className="border-primary/25"
-              >
-                Précédent
-              </Button>
-
-              {currentStep < steps.length ? (
+            <div className="mt-8 pt-6 border-t">
+              {/* Beside the button that produced it — see `setup-wizard.tsx` for the defect this replaced. */}
+              <FormErrorBanner message={error} className="mb-4" />
+              <div className="flex items-center justify-between">
                 <Button
-                  onClick={() => {
-                    if (role === "secretary" && currentStep === 1) {
-                      // Complete immediately if secretary
-                      handleComplete()
-                    } else {
-                      setCurrentStep(currentStep + 1)
-                    }
-                  }}
-                  disabled={!isStep1Valid()}
-                  className="bg-primary hover:bg-primary/90"
+                  variant="outline"
+                  onClick={() => setCurrentStep(currentStep - 1)}
+                  disabled={currentStep === 1 || isLoading}
+                  className="border-primary/25"
                 >
-                  {role === "secretary" && currentStep === 1 ? "Terminer" : "Suivant"}
-                  <ChevronRight className="w-4 h-4 ml-2" />
+                  Précédent
                 </Button>
-              ) : (
-                /* The default (primary) fill — same reason as `setup-wizard.tsx`: there is no solid-success
-                   token, and `bg-success` with white type fails contrast at its dark-mode step. */
-                <Button onClick={handleComplete} disabled={isLoading || !isStep2Valid()}>
-                  {isLoading ? (
-                    "Adhésion…"
-                  ) : (
-                    <>
-                      <CheckCircle2 className="w-4 h-4 mr-2" />
-                      Terminer
-                    </>
-                  )}
-                </Button>
-              )}
+
+                {currentStep < steps.length ? (
+                  <Button
+                    onClick={() => {
+                      if (role === "secretary" && currentStep === 1) {
+                        // Complete immediately if secretary
+                        handleComplete()
+                      } else {
+                        setCurrentStep(currentStep + 1)
+                      }
+                    }}
+                    disabled={!isStep1Valid()}
+                    className="bg-primary hover:bg-primary/90"
+                  >
+                    {role === "secretary" && currentStep === 1 ? "Terminer" : "Suivant"}
+                    <ChevronRight className="w-4 h-4 ml-2" />
+                  </Button>
+                ) : (
+                  /* The default (primary) fill — same reason as `setup-wizard.tsx`: there is no solid-success
+                     token, and `bg-success` with white type fails contrast at its dark-mode step. */
+                  <Button onClick={handleComplete} disabled={isLoading || !isStep2Valid()}>
+                    {isLoading ? (
+                      "Adhésion…"
+                    ) : (
+                      <>
+                        <CheckCircle2 className="w-4 h-4 mr-2" />
+                        Terminer
+                      </>
+                    )}
+                  </Button>
+                )}
+              </div>
             </div>
           </CardContent>
         </Card>
