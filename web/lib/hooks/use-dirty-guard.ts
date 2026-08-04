@@ -104,13 +104,15 @@ export function useDirtyGuard(
    * ⚠️ On a *clean* dialog back must still close it, which is what the whole app already expects from a
    * phone. So this runs the same guarded path rather than only firing when dirty.
    *
-   * ⚠️ **Keyed on `open` alone, and the callback is read through a ref.** Every call site passes an inline
-   * arrow, so an `onOpenChange` dependency re-ran this on every *parent* re-render — and the teardown's
-   * `history.back()` fires `popstate` asynchronously, after the re-run has installed a fresh listener, which
-   * then catches its own event and closes a clean dialog. It broke the `?addRecord=1&appointmentId=…`
-   * deep-link (`app/patients/[id]/page.tsx`): that opens the fiche while the page is still finishing its
-   * phase-2 reads, so a re-render was guaranteed within a tick of the dialog opening. A dialog opened by hand
-   * on an idle page survived, which is why it read as "only the deep link is broken".
+   * ⚠️ **A `popstate` that lands on another guard marker is one we caused, and must be ignored.** The
+   * teardown's `history.back()` is delivered asynchronously, so whenever this effect runs again the newly
+   * installed listener receives the *previous* run's pop and read it as a back gesture — closing a dialog the
+   * user had just opened. React double-invokes effects on mount in development, so the case that hit it is a
+   * dialog whose very first mount already has `open === true`: the `?addRecord=1&appointmentId=…` deep-link
+   * (`app/patients/[id]/page.tsx`), where the fiche is opened by the page's own mount effect. A dialog opened
+   * by hand is mounted closed and only *toggled* open, which React does not double-invoke — which is why this
+   * read as "only the deep link is broken". Keying on `open` alone (the callback comes through a ref, since
+   * every call site passes an inline arrow) removes the other re-run, on every parent render.
    */
   useEffect(() => {
     if (!open) return
@@ -118,6 +120,8 @@ export function useDirtyGuard(
     window.history.pushState(marker, "")
 
     const onPop = () => {
+      // Still on a marker ⇒ our own teardown popped it, not the user. A real back lands on the page entry.
+      if (window.history.state?.dialogGuard) return
       if (dirty.current) {
         // Re-arm: the browser already consumed our entry, so without this a second back would leave the page.
         window.history.pushState(marker, "")
