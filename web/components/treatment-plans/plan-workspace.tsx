@@ -318,10 +318,16 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
    * <p>The flag exists because the dialog reports a successful create by calling `onSuccess` and *then*
    * `onOpenChange(false)` — and closing is what abandons the run. Without distinguishing the two, booking the
    * first of three séances would shift the queue and immediately discard the rest.</p>
+   *
+   * <p>⚠️ The queue is emptied and the remainder re-queued on the **next tick** rather than sliced in place. The
+   * dialog is no longer remounted between séances (see its `key` below), so a closed render is what runs its
+   * reset — shifting in one go would leave the previous visit's time and acts in the form.</p>
    */
   const finishCurrentBooking = () => {
     justAdvancedRef.current = true
-    setBookingQueue((prev) => prev.slice(1))
+    const rest = bookingQueue.slice(1)
+    setBookingQueue([])
+    if (rest.length > 0) setTimeout(() => setBookingQueue(rest), 0)
     onChanged()
   }
 
@@ -1173,12 +1179,13 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
       />
 
       {/*
-        Keyed on the queue's head so React remounts the dialog between two séances of a « séparément » run — the
-        form's own reset runs on close, and reusing one instance would carry the previous visit's time and acts
-        into the next one.
+        ⚠️ Deliberately **not** keyed on the queue's head. That key changed in the same render that flipped `open`
+        to true, so clicking « Planifier » unmounted the closed instance and mounted a new one that was *already
+        open* — the case `useDirtyGuard` documents as hazardous, since its history push/back round-trip then fires
+        a real `popstate` on mount and the dialog closed itself a frame later. One stable instance only ever
+        *toggles*; `finishCurrentBooking` supplies the closed render that resets the form between two séances.
       */}
       <CreateAppointmentDialog
-        key={bookingQueue[0]?.map((a) => a.planItemId).join("|") ?? "idle"}
         open={bookingQueue.length > 0}
         onOpenChange={(open) => {
           if (open) return
