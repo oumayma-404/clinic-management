@@ -127,6 +127,22 @@ Infrastructure/ → service/repo/persistence tests: renderers, senders, e-invoic
 - **`Features/Patients/DentalRecordPostVisitCompletionTests.cs.deferred`** — the `.deferred` extension deliberately excludes it from compilation (parked, not deleted). Don't rename it back without checking why it was parked.
 - **Running the suite on this machine.** `dotnet test` fails at assembly-load with `0x800711C7` because Windows **Smart App Control** is ON and blocks freshly-built DLLs — environmental, not a test defect. See the user's `smart-app-control-blocks-tests` memory. Workaround: `dotnet build <UnitTests.csproj> -p:OutDir=<scratch>/` then `dotnet vstest <scratch>/ClinicManagement.UnitTests.dll`. (SAC's verdict is **time-varying** — the full suite has run clean through this workaround; do not attribute a red run to it without first clearing `bin/`+`obj/` and running `dotnet build-server shutdown`.)
 - **Nothing here touches a database — so migrations are outside this suite's reach entirely.** An index can be missing, an exclusion constraint can be non-partial, a data backfill can cover zero rows, and a model change can have no applied migration at all, while every test in this project passes. That class of change is gated by the **`verify-schema` console verb** instead (`Application/Common/Maintenance/SchemaVerificationService` + `Infrastructure/Persistence/SchemaVerificationReader`), run before and after a migration batch and diffed. `SchemaVerificationServiceTests` covers the assertions against a **mocked reader** — which is why the reader seam exists at all. Do **not** add a database-touching test here to cover a migration; extend `verify-schema` and its service tests.
+- **A handler test failing on `Assert.True(result.IsSuccess)` is almost always a fixture that has not kept up with
+  the handler's dependencies — not a behaviour change.** When a handler grows a read that returns a **collection**
+  (`GetByIdsAsync`, `GetDistinctCategoriesAsync`, `GetTreatmentPlanLinksAsync`, …), Moq's default for an unstubbed
+  one is **null**; the handler dereferences it, and this codebase's `catch → Result.Failure` convention converts the
+  `NullReferenceException` into a French business error. So the test fails on the *success* assertion and the
+  message points nowhere near the missing stub. Check what the handler calls before theorising about behaviour —
+  six of the 24 failures cleared in `multi-tenant-cloud` Part B's session were exactly this, and all six had been
+  mis-diagnosed as filter drift on first read.
+- **When a filter moves from a handler into SQL, its handler tests become vacuous rather than wrong — rewrite them,
+  don't delete them.** A mocked repository applies no predicate, so « hand it the whole catalogue and assert the
+  handler narrows it » silently tests a capability the handler has correctly lost. What is still worth holding is
+  that **every argument reaches the repository verbatim** (including *untrimmed* — normalisation belongs to
+  `SearchTerm` inside the repository): a silently dropped `category` or a term the handler "helpfully" trims is a
+  real defect nothing else in this project can see. See `GetCnamNomenclatureQueryHandlerTests` /
+  `GetMedicationsQueryHandlerTests` for the shape, and say out loud in the class docstring that the matching itself
+  is SQL and therefore out of this suite's reach.
 - **A failing test here has three times been a stale fixture, not a defect.** `data-and-money-integrity` inherited
   an "8-failure baseline" that turned out to be exactly that, in all three cases with the production code correct
   and the test drifted behind it: `ReminderSchedulerTests` stubbed `ResolveEnabledChannelsAsync` while the
