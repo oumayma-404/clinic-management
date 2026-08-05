@@ -12,11 +12,11 @@ The unit of progress is the **part**, not the story. Each part boundary is a com
 | Part | Slice | Name | Status | Commit |
 |------|-------|------|--------|--------|
 | 1 | Phase 0 | The web fixes a webview makes load-bearing | **implemented** — gate green; on-device verification owed | see § Session 1 |
-| 2 | Phase 2b | The session lasts the working day | not-started | — |
+| 2 | Phase 2b | The session lasts the working day | **implemented** — gate green; the felt behaviour (AC-37) owed | see § Session 2 |
 | 3 | Phase 2 | A stale app says so | not-started | — |
 | 4 | Phase 1 | The Android shell | not-started (R-12 tooling check owed) | — |
 | 5 | Phase 1 | The iOS shell | **blocked** — macOS + Xcode + Apple Developer Program | — |
-| 6 | Phase 3 | A backgrounded phone still knows | **blocked** — `multi-tenant-cloud` US-2 (`ITenantScope`) | — |
+| 6 | Phase 3 | A backgrounded phone still knows | **UNBLOCKED as of session 2** — `multi-tenant-cloud` US-2 has landed (`Application/Common/Interfaces/ITenantScope.cs` + `UnitTests/Common/SystemWideCallerCoverageTests.cs` both exist, suite green). Read `ITenantScope` before executing (plan R-3) | — |
 | 7 | Phase 4 | The phone becomes an instrument | not-started (web + Android halves only) | — |
 | 8 | Phase 5 | Two store listings | **blocked** — store accounts + 4 deferred business decisions | — |
 
@@ -226,3 +226,159 @@ Recorded rather than claimed. The user confirmed no phone/tablet hardware is rea
 nothing imports either (`document-editor-content.tsx` was the sole caller). Left in place deliberately: removing
 them touches the lockfile, which is a wider blast radius than this part's inventory, and an unused dependency is not
 dead code in the repo. Worth dropping in a later part that already touches `package.json`.
+
+---
+
+### Session 2 — 2026-08-05 · Part 2 (Phase 2b, AC-35…AC-39)
+
+**Scope chosen by the user:** Part 2 only. Same branch as Part 1 (`feature/audit-sections-3-to-10`) — the branch
+deviation recorded in Session 1 still stands and was not re-opened.
+
+#### Working tree note (start of session)
+
+⚠️ **The tree was clean when this session began and did not stay clean.** A parallel `multi-tenant-cloud` **US-3**
+change (self-registration retired in favour of operator-provisioned clinics + admin-created users) appeared in the
+working tree *during* the session — 10 modified files plus 8 new ones (`AuthController`, `UsersController`,
+`Program.cs`, `CreateClinicCommand`, `DeploymentProfile`, `DeploymentProfileTests`, `join/page.tsx`,
+`join-wizard.tsx`, `user-management.tsx`, `lib/api/users.ts`, and the new `ProvisionClinicCommand`,
+`CreateClinicUserCommand`, `LocalClinicProvisioning`, `CreatedClinicUserDto`, `CreateClinicUserRequest`,
+`join-unavailable.tsx`, `lib/api/auth.ts`). **None of it is Part 2's and none of it was staged** — files were staged
+explicitly by path after `git diff HEAD --numstat`, per the repo's standing rule.
+
+⚠️ **One consequence worth recording, because it nearly became a wrong fix.** A mid-session full-suite run showed
+`DeploymentProfileTests.Every_capability_is_covered_by_the_matrix` **failing**: US-3 had added a 13th capability,
+`AllowsSelfRegistration`, with no row in the test's matrix — the derived drift guard doing exactly its job. It read
+as an inherited red to clear under the 0-failures policy, and the edit was already drafted when `Edit` refused with
+*"File has been modified since read"*: **its own author had fixed it in parallel, in the same minute.** A red seen in
+a shared working tree is not necessarily a red on `HEAD`, and it is not necessarily yours to fix. The file was left
+untouched and the suite is green.
+
+#### What changed
+
+| File | Change |
+|---|---|
+| `Application/Features/Auth/Commands/RefreshTokenCommand.cs` | Mints a fresh refresh credential per exchange (`GenerateRefreshToken`) and returns `RefreshToken`/`RefreshExpiresAt`; the doc comment states the **sliding-expiry, not revoking-rotation** property (AC-39, LEARNINGS `:61` at the call site) |
+| `Application/DTOs/LoginResultDto.cs` | Doc only — the two fields said "empty on a refresh" / "the refresh path mints an access token only", which this part makes false |
+| `web/lib/auth/session-cookie.ts` | **New.** The single writer/clearer of both session cookies: `writeSessionCookies`, `clearSessionCookies`, `clearMustChangeCookie` |
+| `web/app/bff/auth/token/route.ts` | Re-sets the cookie through that helper on a successful exchange. The 401-clears and 429/503-leave-alone paths are unchanged, and the JSON body still carries **only** the access token |
+| `web/app/bff/auth/local-login/route.ts` | Cookie write replaced by the helper — no attribute changed |
+| `web/app/bff/auth/local-logout/route.ts` · `bff/auth/change-password/route.ts` | Their raw `cookies.set` deletions now go through the helper, so no route touches a cookie name directly |
+| `UnitTests/Features/Auth/RefreshTokenCommandHandlerTests.cs` | **New**, 7 tests |
+
+**No UI file was touched**, so there is no eye pass to record for this part — the four web files are BFF route
+handlers plus one server-only module. `check:responsive` was run anyway: it is the repo's gate, not a UI-diff trigger.
+
+#### Post-change gate
+
+| Gate | Result |
+|------|--------|
+| `dotnet build` (UnitTests, `--no-incremental`) | **0 errors**, 57 warnings — the pre-existing baseline; **0 of them in any file this part touched** (the full warning list was grepped for the three `.cs` filenames: no hits) |
+| `dotnet vstest` — **whole suite**, not just the new class | **1921 passed, 0 failed, 0 skipped** |
+| `npm run check:responsive` | **13/13 passed** — unchanged from Part 1. Re-run last, on the committed tree |
+| `npx tsc --noEmit` | **0 errors**. Re-run last, on the committed tree |
+| `npm run build` | **exit 0, 1 warning** — the same pre-existing `@auth0/nextjs-auth0` Edge-Runtime warning as Part 1's baseline, same text, same import trace. ⚠️ **That green run pre-dates the final comment-only trims** — read *Build gate* below before relying on it |
+
+**The new test class was proved to fail.** Removing the two new lines from the handler and re-running gave **3 of 7
+red** — the AC-35 credential/expiry test, the AC-39 double-exchange test *and* the `mustChangePassword` test all
+caught it; the probe was then reverted and the restoration verified. A green test never shown red proves nothing.
+
+#### Build gate — the dev-server collision, diagnosed rather than guessed
+
+`npm run build` could not simply be run: the parallel session had **`next dev --turbopack` live against the shared
+`web/.next`**, the same collision that produced Session 1's spurious `routes-manifest.json` failure. The user was
+asked and chose to stop the dev server; `.next` was removed and **build #1 ran green — exit 0, one warning, matching
+Part 1's baseline exactly.**
+
+⚠️ **Then three further builds failed, with three *different* errors, and the diagnosis is worth keeping** because
+each one individually looks like a code defect or an environment problem and neither is true:
+
+| # | Failure, all *after* `✓ Compiled successfully` + `Checking validity of types` |
+|---|---|
+| 2 | `ENOENT … rename '.next/export/500.html' -> '.next/server/pages/500.html'` (29/29 static pages had generated) |
+| 3 | `PageNotFoundError: Cannot find module for page: /appointments` at *Collecting page data* |
+| 4 | `Cannot find module './5611.js'` from `.next/server/webpack-runtime.js` |
+
+Three plausible wrong conclusions were available: a code defect (no — compilation and typecheck passed every time),
+disk exhaustion (no — 318 GB free), and **Smart App Control holding freshly-written files**, which the repo already
+documents for the .NET test runner and which fitted the symptom well enough to be believable. The actual cause was
+found by noticing that `Remove-Item -Recurse -Force .next` **left 103 files behind**, including
+`cache/webpack/client-development/` — *dev* artifacts. `Get-CimInstance Win32_Process` then showed a `next dev`
+**created at 21:17:27**, i.e. after build #1 and before builds #2–#4: the parallel session had restarted it. Every
+one of the three failures was the same collision, re-created.
+
+**What this means for the gate.** The green build ran against a tree identical to the committed one **except for
+three comment-only trims** made afterwards (`local-login`, `token`, `session-cookie` — the comment-budget rule);
+`npx tsc --noEmit` and `check:responsive` were both re-run **after** those trims and are green, and a malformed
+comment is precisely what `tsc` would have caught. A build re-run on the exact committed tree is therefore **owed but
+low-value**, and it needs the dev server stopped a second time — the user's call, not to be assumed from the first.
+⚠️ Two operational notes: the `Remove-Item` above ran while that dev server was live and partly cleared its `.next`,
+so **the parallel session's `npm run dev` may need restarting**; and never diagnose a `.next` error on this repo
+without first checking for a live `next dev`, whatever the error text says.
+
+#### Findings that changed the work
+
+##### F-2 · `Deactivate()` bumps `TokenVersion`, so the deactivation test had to be arranged backwards
+
+The obvious arrangement — set the exchange up, then `user.Deactivate()` — makes the handler refuse at the **version**
+check, one branch *above* the `IsActive` check the test exists for. It would have passed while asserting nothing
+about deactivation. Every arrangement in `RefreshTokenCommandHandlerTests` therefore mutates the account **before**
+reading the version it presents, and the class docstring says so, because the next person adding a case will hit it.
+
+##### F-3 · The sliding session would have outlived the forced-password-change cookie
+
+`local_must_change_password` was set **only at login**, with the session's own expiry. Once the session slides the
+flag lapses first — so a user who owes a password change would find the middleware had stopped redirecting them,
+while `LocalAuthEnforcementMiddleware` still 403s every non-change-password call: an app that looks usable and is
+dead. Both cookies are now written from one server answer on every exchange (DEV-6). Incidentally this also
+**clears** a stale flag at login, which the old code never did — a leftover cookie used to strand the next user of
+that browser on `/change-password`.
+
+## Deviations (Part 2)
+
+### DEV-5: The shared helper keeps the request-scheme fallback for `Secure`
+
+**Date:** 2026-08-05 · **Story:** 1, Part 2 · **Category:** Technical
+**Original plan:** step 2 — "`Secure` from the explicit config flag, **never** re-derived from `NODE_ENV` or the
+internal request scheme" (R-8, LEARNINGS `:67`).
+**Actual implementation:** `AUTH_COOKIE_SECURE` wins when set; **otherwise** `request.nextUrl.protocol === 'https:'`
+— i.e. `local-login`'s existing rule, extracted verbatim into `session-cookie.ts`.
+**Justification:** Following the letter would have **removed** `Secure` from the session cookie on any deployment
+served over HTTPS that has not set the env var — a silent security downgrade to a route that works today, in order
+to fix a divergence that does not exist. LEARNINGS `:67`'s own recommendation is « an explicit config flag **(or the
+request's actual scheme)**, never `NODE_ENV` ». And R-8's real concern is that the two writers must not disagree,
+which one helper makes structurally impossible whichever rule it contains.
+**Impact:** None on later parts. `local-login`'s emitted cookie is byte-identical to before.
+**Approved:** Yes — the user chose this over the literal wording.
+
+### DEV-6: The must-change cookie is written by the same helper, on every exchange
+
+**Date:** 2026-08-05 · **Story:** 1, Part 2 · **Category:** Scope (small, additive)
+**Original plan:** step 3 names only `SESSION_COOKIE` — "re-set `SESSION_COOKIE` through that helper on success".
+**Actual implementation:** `writeSessionCookies` sets **both** cookies from one server answer: it re-sets
+`local_must_change_password` with the session's new expiry when the API reports `mustChangePassword`, and clears it
+when the API reports false.
+**Justification:** F-3 above — the plan's scope leaves the client-side forced-change gate expiring *before* the
+session that now slides past it. Deriving the flag from the server's answer rather than from login-time state is
+also what makes it self-correcting.
+**Impact:** None on later parts. The API's own 403 gate was and remains the authority; this only keeps the redirect
+honest. Part 7's biometric-resume work touches the same cookie and now has one writer to go through.
+**Approved:** Yes — the user chose this over the plan's literal scope.
+
+### Auto-approved deviations (trivial, Part 2)
+
+| Deviation | Classification | Reason |
+|-----------|----------------|--------|
+| `local-logout` and `change-password` also moved onto the helper | Trivial | Their deletions were byte-identical copies of the one in `token/route.ts`. Internal, no attribute changed, no API touched — and it makes the helper's "the single place these cookies are written" claim true rather than aspirational |
+| Three multi-line `//` blocks in `local-login`/`token` compressed | Trivial | Comment budget (1–2 lines). No reasoning was dropped: the AC-5.12 "the cookie value is a decodable JWT" note moved into `SessionCookieState.credential`'s doc |
+
+## Owed verification (Part 2)
+
+- [ ] **AC-37, the felt behaviour** — the criterion AC-35 exists to serve, and it needs a running stack: a user
+      **active all day** is never prompted by time alone (the cookie's expiry moves forward on each exchange, roughly
+      every 30 min), while a user **idle past the refresh window** still is. Not observable in a unit test — the
+      exchange is driven by `client.ts`'s token cache and the sliding half lives in a `Set-Cookie` header.
+- [ ] **AC-35's cookie half in a real browser** — inspect `local_session` in devtools after ~30 min of activity and
+      confirm both the **value** and the **expiry** changed. The handler and the route are tested; the browser's
+      acceptance of that `Set-Cookie` is not.
+- [ ] **AC-38** — the **desktop WebView2 shell** still signs in and stays signed in. It renders the same bundle
+      through the same BFF, so nothing shell-specific is expected, but it is a named criterion and was not run.

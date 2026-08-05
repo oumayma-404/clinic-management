@@ -1,8 +1,8 @@
 # Story 1: Full — The clinic works from a phone
 
 **Status:** APPROVED
-**Story Status:** in-progress — **Part 1 implemented** (2026-08-05); Parts 2–8 not started. Live part status and the
-per-part session log are in [`progress.md`](./progress.md).
+**Story Status:** in-progress — **Parts 1 and 2 implemented** (2026-08-05); Parts 3–8 not started. Live part status
+and the per-part session log are in [`progress.md`](./progress.md).
 **Layer:** Full ⚠️ *(deliberate departure from the single-layer rule — see Notes)*
 **Depends On:** None
 **Blocks:** None
@@ -37,12 +37,14 @@ _From spec (`../spec.md`) — all 77, grouped by the part that satisfies them:_
 
 *`[~]` = the code half is done and gated; a physical-device half is recorded as owed in `progress.md`, not claimed.*
 
-**Part 2 — Phase 2b, session continuity**
-- [ ] AC-35 — a refresh exchange returns a new credential **and the session cookie carries it afterwards**
-- [ ] AC-36 — deactivation, a bumped token version and a forced password change all still take effect, with one indistinguishable failure message
-- [ ] AC-37 — a user active all day is never prompted by time alone; an idle user is
-- [ ] AC-38 — the browser app and the desktop shell still work; a client ignoring both new fields is not broken
-- [ ] AC-39 — a superseded credential is **not** rejected while unexpired
+**Part 2 — Phase 2b, session continuity** — *implemented 2026-08-05*
+- [x] AC-35 — the handler mints a fresh credential + expiry, and `bff/auth/token` re-sets the cookie through the one shared writer. **The browser half needs a running stack** — owed
+- [x] AC-36 — all four guards pinned: bumped `TokenVersion` refuses · deactivated refuses · non-local refuses · `mustChangePassword` **surfaces**; every refusal shares one message
+- [~] AC-37 — the mechanism is in place and tested; **the felt behaviour (active all day vs. idle past the window) needs a running stack** — owed
+- [~] AC-38 — the response body is unchanged, so a client ignoring both fields is unaffected. **The desktop shell was not exercised** — owed
+- [x] AC-39 — asserted **positively**: the same credential exchanges twice, both succeed, each mints its own. The property is recorded in the handler's doc comment
+
+*`[~]` = the code half is done; a running-stack half is recorded as owed in `progress.md`, not claimed.*
 
 **Part 3 — Phase 2, client version floor**
 - [ ] AC-28 · AC-29 — the floor is readable anonymously, and that route is exempt from the floor itself

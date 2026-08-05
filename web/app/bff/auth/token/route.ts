@@ -1,6 +1,7 @@
 import { auth0 } from '@/lib/auth0';
 import { NextRequest, NextResponse } from 'next/server';
-import { SESSION_COOKIE, MUST_CHANGE_COOKIE, resolveAuthMode } from '@/lib/auth/local-auth';
+import { SESSION_COOKIE, resolveAuthMode } from '@/lib/auth/local-auth';
+import { clearSessionCookies, writeSessionCookies } from '@/lib/auth/session-cookie';
 import { forwardedForHeader } from '@/lib/auth/forwarded-for';
 
 // Server-side handler: must reach the .NET API with an ABSOLUTE URL. The browser-facing NEXT_PUBLIC_API_URL
@@ -42,10 +43,25 @@ export async function GET(request: NextRequest) {
       const data = await res.json().catch(() => null);
 
       if (res.ok && data?.isSuccess && data?.value?.accessToken) {
-        return NextResponse.json({
+        // The response body carries only the access token, exactly as before — the durable credential must
+        // never reach browser JavaScript, which is the whole point of the HttpOnly cookie (AC-5.5).
+        const response = NextResponse.json({
           accessToken: data.value.accessToken,
           expiresAt: data.value.expiresAt,
         });
+
+        // The half that used to be missing (AC-35): storing the freshly-minted credential is what makes the
+        // session slide. An older API build sends no `refreshToken`, and then the cookie is left alone.
+        const { refreshToken, refreshExpiresAt, mustChangePassword } = data.value;
+        if (refreshToken) {
+          writeSessionCookies(response, request, {
+            credential: refreshToken,
+            expiresAt: refreshExpiresAt,
+            mustChangePassword: Boolean(mustChangePassword),
+          });
+        }
+
+        return response;
       }
 
       // Below here the exchange did not produce a token. Only the API's own 401 means the credential
@@ -83,8 +99,7 @@ export async function GET(request: NextRequest) {
         { error: data?.error || 'Session expirée. Veuillez vous reconnecter.' },
         { status: 401 }
       );
-      response.cookies.set(SESSION_COOKIE, '', { httpOnly: true, path: '/', maxAge: 0 });
-      response.cookies.set(MUST_CHANGE_COOKIE, '', { httpOnly: true, path: '/', maxAge: 0 });
+      clearSessionCookies(response);
       return response;
     } catch {
       // The API is unreachable — distinct from "session invalid", so the client can retry rather than

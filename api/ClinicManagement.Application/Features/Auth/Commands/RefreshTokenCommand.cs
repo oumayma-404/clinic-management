@@ -12,6 +12,13 @@ namespace ClinicManagement.Application.Features.Auth.Commands;
 ///
 /// This is what lets the browser hold a credential valid for only ~30 minutes without the user ever being
 /// bounced to the login screen (AC-5.3 / AC-5.4).
+///
+/// <para><b>Sliding expiry, not revoking rotation</b> (mobile-native-shells AC-35 / AC-39). Every exchange
+/// mints a <i>new</i> refresh credential, so a staff member who keeps working keeps their session — but the
+/// superseded one stays valid until its own expiry, because it is a stateless JWT and nothing stores it. That
+/// is deliberate: two tabs exchanging at once must both keep working, and <c>TokenVersion</c> remains the only
+/// revocation (LEARNINGS: server-side state changes don't take effect until expiry). A test asserting that a
+/// superseded credential is refused would pin a property this design does not claim.</para>
 /// </summary>
 public class RefreshTokenCommand : IRequest<Result<LoginResultDto>>
 {
@@ -69,10 +76,17 @@ public class RefreshTokenCommandHandler : IRequestHandler<RefreshTokenCommand, R
             // that one endpoint, so surfacing the flag is enough.
             var accessToken = _localAuthService.GenerateToken(user);
 
+            // The durable credential is re-minted too, and the BFF re-sets its cookie with it. Returning only an
+            // access token left the cookie holding the token issued at login, so the session died 12 h after
+            // sign-in whatever the user was doing — a password prompt mid-afternoon, every afternoon.
+            var refreshToken = _localAuthService.GenerateRefreshToken(user);
+
             return Result<LoginResultDto>.Success(new LoginResultDto
             {
                 AccessToken = accessToken.AccessToken,
                 ExpiresAt = accessToken.ExpiresAtUtc,
+                RefreshToken = refreshToken.AccessToken,
+                RefreshExpiresAt = refreshToken.ExpiresAtUtc,
                 MustChangePassword = user.MustChangePassword,
                 User = new UserDto
                 {

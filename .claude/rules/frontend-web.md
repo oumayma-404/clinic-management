@@ -270,8 +270,13 @@ section used to list three things as missing; all three now exist, so **use them
 **One way to deliver a file:** `lib/download.ts`. Never a hand-rolled `<a download>`, never `file-saver` — both are
 ignored by iOS Safari for a `blob:` URL, so the file silently never arrives. The `blob-delivery` check fails on it.
 
+**One way to write the Local session cookies:** `lib/auth/session-cookie.ts` (Part 2). `/bff/auth/token` re-sets the
+session cookie on every refresh exchange, so `local-login` is no longer the only writer — and a second rule for
+`Secure` there would replace a stored cookie with one the browser drops, i.e. silently end the session. No route
+sets `local_session` or `local_must_change_password` by name; the two are written and cleared together.
+
 Still open, so do not write code that assumes it and do not claim it in a report: everything in
-`features/mobile-native-shells` **Parts 2–8** — the client-version floor and its `X-Client-Version` header, the two
+`features/mobile-native-shells` **Parts 3–8** — the client-version floor and its `X-Client-Version` header, the two
 native shells and `window.__clinicShell`'s `print()`/`onPushToken()`, OS push, biometric resume, and the native PDF
 viewer. `window.__clinicShell` is **always** feature-detected; with it absent, behaviour must be byte-identical to
 a plain browser.

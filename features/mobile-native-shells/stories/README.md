@@ -71,11 +71,11 @@ convention `/next` defines for a single `Layer: Full` story delivered part-by-pa
 | Part | Slice | Name | Executable here? | ACs | Status |
 |------|-------|------|------------------|-----|--------|
 | 1 | Phase 0 | The web fixes a webview makes load-bearing | ✅ yes | AC-1…AC-12, AC-69 | **implemented** (gate green; on-device checks owed — `progress.md`) |
-| 2 | Phase 2b | The session lasts the working day | ✅ yes | AC-35…AC-39 | not-started |
+| 2 | Phase 2b | The session lasts the working day | ✅ yes | AC-35…AC-39 | **implemented** (gate green; the felt behaviour + desktop shell owed — `progress.md`) |
 | 3 | Phase 2 | A stale app says so | ✅ yes | AC-28…AC-34, AC-70, AC-71 | not-started |
 | 4 | Phase 1 | The Android shell | ⚠️ pending a JDK/Android-SDK check (R-12) | AC-13…AC-27, AC-74, AC-76 | not-started |
 | 5 | Phase 1 | The iOS shell | 🔒 **BLOCKED** — macOS + Apple Developer Program | AC-13…AC-27 (iOS half) | blocked |
-| 6 | Phase 3 | A backgrounded phone still knows | 🔒 **BLOCKED** — `multi-tenant-cloud` **US-2** only | AC-40…AC-55, AC-70…AC-73, AC-75 | blocked |
+| 6 | Phase 3 | A backgrounded phone still knows | ✅ **now yes** — US-2 landed, verified 2026-08-05 (session 2) | AC-40…AC-55, AC-70…AC-73, AC-75 | not-started |
 | 7 | Phase 4 | The phone becomes an instrument | ⚠️ web + Android halves only | AC-8, AC-56…AC-64, AC-77 | not-started |
 | 8 | Phase 5 | Two store listings | 🔒 **BLOCKED** — accounts + 4 deferred decisions | AC-65…AC-68 | blocked |
 
@@ -105,5 +105,5 @@ deliver nothing, blank PDF previews, printing the sidebar, a dead mic button on 
 |------|-----------|--------------------|
 | 4 | A JDK + Android SDK on the build machine | Verifiable in the first step of Part 4 — check, don't assume |
 | 5 | macOS + Xcode (or Xcode Cloud / Codemagic) **and** an Apple Developer Program membership | Not solvable in this repo: win32, no CI, and the project **has never had an iOS device** |
-| 6 | `features/multi-tenant-cloud` **US-2** (`ITenantScope`) merged | ⚠️ **US-1 has landed** (verified 2026-08-05: `DeploymentProfile.cs`, 13 capabilities, both guards live), so US-2 is the only blocker left. Without it the dispatch job reads **zero rows and logs success** |
+| ~~6~~ | ~~`features/multi-tenant-cloud` **US-2** (`ITenantScope`) merged~~ | ✅ **UNBLOCKED, verified 2026-08-05 (session 2)** — `Application/Common/Interfaces/ITenantScope.cs` and `UnitTests/Common/SystemWideCallerCoverageTests.cs` both exist and the suite is green. Part 6's `PushDispatchJob` must declare `UseSystemWide(...)` or that guard fails the build |
 | 8 | Store accounts + a public domain a reviewer can reach + the four deferred decisions (hosted domain · bundle ids and display name · demo-tenant data policy · store-account ownership) | Business/ops. ⚠️ A bundle identifier **cannot be changed after first submission** |

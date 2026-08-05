@@ -83,6 +83,8 @@ web/
   app/                 App Router pages, layouts, route handlers
     bff/auth/          token/ (mode-aware JWT for the client), session/ (decode local cookie → {email,role}),
                        local-login/ + local-logout/ (set/clear session + must-change cookies), change-password/ (proxy).
+                       ⚠️ No route writes a cookie name itself — lib/auth/session-cookie.ts is the one writer, because
+                       token/ now re-sets the session cookie too and a second rule for `Secure` would break login.
                        Under /bff/* (Phase 5) so the front-door proxy routes them to Next, not the API's /api/*.
     api/               empty (legacy; route handlers relocated to bff/auth/)
     layout.tsx         root layout: session/connectivity/sidebar providers, Toaster, AIChat, Analytics, FR metadata
