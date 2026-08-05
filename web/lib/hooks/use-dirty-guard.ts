@@ -97,27 +97,26 @@ export function useDirtyGuard(
   )
 
   /*
-   * The back gesture (AC-23). It never reaches `onOpenChange`, so the hook pushes a history entry while the
-   * dialog is open and treats `popstate` as a close request. The entry is popped again on close so the user
-   * does not end up with a dead back step.
+   * The back gesture (AC-23). It never reaches `onOpenChange`, so the hook owns a history entry while the dialog
+   * is open and treats `popstate` as a close request; the entry is popped on close so no dead back step is left.
+   * On a *clean* dialog back must still close it — what a phone expects — so this runs the guarded path always.
    *
-   * ⚠️ On a *clean* dialog back must still close it, which is what the whole app already expects from a
-   * phone. So this runs the same guarded path rather than only firing when dirty.
-   *
-   * ⚠️ **A `popstate` that lands on another guard marker is one we caused, and must be ignored.** The
-   * teardown's `history.back()` is delivered asynchronously, so whenever this effect runs again the newly
-   * installed listener receives the *previous* run's pop and read it as a back gesture — closing a dialog the
-   * user had just opened. React double-invokes effects on mount in development, so the case that hit it is a
-   * dialog whose very first mount already has `open === true`: the `?addRecord=1&appointmentId=…` deep-link
-   * (`app/patients/[id]/page.tsx`), where the fiche is opened by the page's own mount effect. A dialog opened
-   * by hand is mounted closed and only *toggled* open, which React does not double-invoke — which is why this
-   * read as "only the deep link is broken". Keying on `open` alone (the callback comes through a ref, since
-   * every call site passes an inline arrow) removes the other re-run, on every parent render.
+   * ⚠️ **The push is deferred by a tick, and that is the whole fix for a dialog that mounts already open.**
+   * React double-invokes effects on mount in development, so such a dialog pushed an entry, tore down, called
+   * `history.back()` and pushed again — a real `popstate` the dialog never asked for, which closed it a frame
+   * after it appeared. Ignoring the pop here was not enough: the browser and the router see it too. Deferring
+   * means the teardown of that discarded first run has nothing to undo, so no pop is ever emitted. The two
+   * surfaces this broke are the post-visit fiche deep-link (`?addRecord=1&appointmentId=…`) and the plan
+   * workspace's « Planifier », which remounted its dialog by changing its `key` as it opened.
    */
   useEffect(() => {
     if (!open) return
     const marker = { dialogGuard: true }
-    window.history.pushState(marker, "")
+    let pushed = false
+    const pushTimer = window.setTimeout(() => {
+      window.history.pushState(marker, "")
+      pushed = true
+    }, 0)
 
     const onPop = () => {
       // Still on a marker ⇒ our own teardown popped it, not the user. A real back lands on the page entry.
@@ -133,8 +132,10 @@ export function useDirtyGuard(
 
     window.addEventListener("popstate", onPop)
     return () => {
+      window.clearTimeout(pushTimer)
       window.removeEventListener("popstate", onPop)
-      if (window.history.state?.dialogGuard) window.history.back()
+      // Only undo an entry we actually got as far as pushing.
+      if (pushed && window.history.state?.dialogGuard) window.history.back()
     }
   }, [open])
 
