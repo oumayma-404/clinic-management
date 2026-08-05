@@ -147,4 +147,26 @@ public class MinioFileStorage : IFileStorage
             throw;
         }
     }
+
+    /// <summary>
+    /// Asks MinIO whether the bucket exists. That single call exercises everything the storage path depends on —
+    /// DNS, the endpoint, TLS and the credentials — and it neither creates nor stores anything.
+    ///
+    /// <para>⚠️ A <b>missing</b> bucket is reported as reachable-but-unusable rather than as unreachable, because
+    /// the two have different operator answers: the first is « create it / fix the name », the second is « the
+    /// container is down ». <c>UploadAsync</c> creates the bucket on demand, so a missing bucket is not fatal —
+    /// which is why the message says so instead of pretending the endpoint is unreachable.</para>
+    /// </summary>
+    public async Task ProbeAsync(CancellationToken cancellationToken = default)
+    {
+        var exists = await _minioClient.BucketExistsAsync(
+            new BucketExistsArgs().WithBucket(_bucketName),
+            cancellationToken);
+
+        if (!exists)
+        {
+            throw new InvalidOperationException(
+                $"MinIO is reachable but the bucket '{_bucketName}' does not exist yet.");
+        }
+    }
 }

@@ -62,12 +62,22 @@ public static class RestoreBackupCommand
 
             var configuration = InstallConfiguration.BuildForConsoleVerb();
 
+            // ⚠️ The ONLY verb of this family that keeps a deployment-profile gate, and deliberately so (M3
+            // ungated its three siblings). Two reasons, and the second is the load-bearing one:
+            //   1. pg_restore is not on the box outside a local install;
+            //   2. step 2 below — « refuse while the application is listening » — is this verb's whole safety
+            //      interlock, and it is enforced by looking for a listener on THIS machine. In a container the
+            //      API listens in a sibling container, so the check finds nothing and PASSES, silently, while
+            //      `pg_restore --clean --if-exists` drops every table out from under a live application.
+            // A gate that refuses is the honest answer until a restore path exists that can stop the app first.
             var profile = DeploymentProfile.Resolve(configuration);
             if (!profile.HasLocalDbTooling)
             {
                 Console.Error.WriteLine(
-                    "Cet utilitaire de restauration a besoin de pg_restore et d'une connexion directe à la base "
-                    + $"(profil de déploiement : {profile.Kind}).");
+                    "Cet utilitaire de restauration ne s'applique qu'à une installation locale "
+                    + $"(profil de déploiement : {profile.Kind}) : pg_restore n'y est pas installé, et surtout "
+                    + "le contrôle « refuser tant que l'application écoute » ne peut pas être appliqué depuis "
+                    + "un conteneur, où l'API écoute dans un autre conteneur.");
                 return 1;
             }
 

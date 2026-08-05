@@ -124,4 +124,51 @@ public class LocalDiskFileStorageTests : IDisposable
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => _storage.UploadAsync(Bytes("evil"), "text/plain", maliciousPath, CancellationToken.None));
     }
+
+    // ---- ProbeAsync: the /health storage check (multi-tenant-cloud US-6) ----
+
+    // [US-6] A writable base folder is healthy, and the folder is created if it does not exist yet — first boot.
+    [Fact]
+    public async Task Probe_Succeeds_And_Creates_The_Base_Folder()
+    {
+        Assert.False(Directory.Exists(_basePath));
+
+        await _storage.ProbeAsync(CancellationToken.None);
+
+        Assert.True(Directory.Exists(_basePath));
+    }
+
+    // [US-6] It leaves nothing behind. A probe that littered would fill the clinic's own file store, one file per
+    // health poll, for the life of the install.
+    [Fact]
+    public async Task Probe_Leaves_No_File_Behind()
+    {
+        await _storage.ProbeAsync(CancellationToken.None);
+        await _storage.ProbeAsync(CancellationToken.None);
+
+        Assert.Empty(Directory.GetFileSystemEntries(_basePath));
+    }
+
+    // [US-6] It actually WRITES. An unmounted volume, a full disk and a folder the service account cannot write to
+    // all look like an existing directory — checking only for existence would report healthy and then fail the
+    // first upload.
+    [Fact]
+    public async Task Probe_Fails_When_The_Base_Path_Is_Not_A_Directory()
+    {
+        var parent = Path.Combine(Path.GetTempPath(), "clinic-localdisk-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(parent);
+        var occupied = Path.Combine(parent, "not-a-folder");
+        await File.WriteAllTextAsync(occupied, "in the way");
+
+        try
+        {
+            var storage = new LocalDiskFileStorage(occupied, NullLogger<LocalDiskFileStorage>.Instance);
+
+            await Assert.ThrowsAnyAsync<IOException>(() => storage.ProbeAsync(CancellationToken.None));
+        }
+        finally
+        {
+            Directory.Delete(parent, recursive: true);
+        }
+    }
 }

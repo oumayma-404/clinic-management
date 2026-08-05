@@ -48,12 +48,10 @@ public static class ReconcileMoneyCommand
             // `ClinicManagement.API.exe reconcile-money` works from any working directory.
             var configuration = InstallConfiguration.BuildForConsoleVerb();
 
-            var profile = DeploymentProfile.Resolve(configuration);
-            if (!profile.HasLocalDbTooling)
+            // Gated on having a database, not on the deployment profile (M3) — it is verify-schema's sibling and
+            // the two are meant to be run before and after a migration batch and diffed, wherever the data is.
+            if (!MaintenanceDatabase.HasConnectionString(configuration, "This reconciliation utility"))
             {
-                Console.Error.WriteLine(
-                    "This reconciliation utility needs a direct database connection " +
-                    $"(deployment profile: {profile.Kind}).");
                 return 1;
             }
 

@@ -202,6 +202,37 @@ public class NotificationRepository : INotificationRepository
         return new ReminderLogCounts(sentToday, pending, failedRecent, blocked);
     }
 
+    public async Task<ReminderOutboxDepth> GetOutboxDepthAsync(
+        Guid clinicId,
+        DateTime nowUtc,
+        DateTime failedSinceUtc,
+        CancellationToken cancellationToken = default)
+    {
+        var scoped = _context.Notifications.Where(n => n.ClinicId == clinicId);
+
+        var pending = await scoped.CountAsync(n => n.Status == NotificationStatus.Pending, cancellationToken);
+
+        // The dispatcher's own predicate (GetDueForDispatchAsync): Pending AND its send time has come. Counted
+        // against the caller's `nowUtc` for that reason — see the interface's note.
+        var due = scoped.Where(n => n.Status == NotificationStatus.Pending && n.ScheduledFor <= nowUtc);
+
+        var dueCount = await due.CountAsync(cancellationToken);
+
+        // MinAsync on an empty set throws; Min() over a nullable projection returns null instead, which is the
+        // honest answer for « nothing is waiting ».
+        var oldestDue = await due
+            .Select(n => (DateTime?)n.ScheduledFor)
+            .MinAsync(cancellationToken);
+
+        var blocked = await scoped.CountAsync(n => n.Status == NotificationStatus.Blocked, cancellationToken);
+
+        var failedRecent = await scoped.CountAsync(
+            n => n.Status == NotificationStatus.Failed && n.ScheduledFor >= failedSinceUtc,
+            cancellationToken);
+
+        return new ReminderOutboxDepth(pending, dueCount, blocked, failedRecent, oldestDue);
+    }
+
     public async Task<IEnumerable<Notification>> GetRecallBatchAsync(
         Guid patientId, DateTime scheduledFor, CancellationToken cancellationToken = default)
     {

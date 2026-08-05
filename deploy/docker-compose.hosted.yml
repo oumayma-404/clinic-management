@@ -1,0 +1,153 @@
+# Production compose for the HOSTED MULTI-TENANT deployment (multi-tenant-cloud US-6).
+#
+#   docker compose -f docker-compose.hosted.yml up -d --build
+#
+# Many clinics, one hosted backend, each clinic running the existing Windows desktop client and
+# logging in with the product's OWN accounts — never Auth0. This is docker-compose.prod.yml's
+# infrastructure with the LAN install's authentication, which is why only `api` and `web` are
+# written out below: postgres, minio, caddy, backup and pitr `extends` their prod definitions so
+# there is one place to change a backup schedule or a WAL-G prefix.
+#
+# ⚠️ `extends` deliberately does NOT carry `depends_on` (Compose excludes it), so every dependency
+# an extended service had is restated here. A silently-dropped `depends_on` starts the API against a
+# database that is not accepting connections yet — R-6's failure shape exactly: it works on a warm
+# machine and fails on a cold boot.
+#
+# Every secret comes from the gitignored `.env` beside this file (see .env.hosted.example).
+# Only `caddy` publishes ports; everything else is reachable on the internal network alone.
+name: clinic-management
+
+services:
+  postgres:
+    extends:
+      file: docker-compose.prod.yml
+      service: postgres
+
+  minio:
+    extends:
+      file: docker-compose.prod.yml
+      service: minio
+
+  api:
+    build:
+      context: ../api
+      dockerfile: Dockerfile
+    container_name: clinic-api-prod
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:5000
+      # THE key of this file. Absent, the profile is derived from Auth:Mode → CloudBrowser → Auth0 —
+      # and no Auth0__* is set here, so JWT bearer is never configured and every request is
+      # anonymous-or-401. Named explicitly, which is also why Auth__Mode is deliberately absent: the
+      # derivation exists for installs that predate this key, not as a second place to state the answer.
+      Deployment__Profile: HostedMultiTenant
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+      # OAuth success redirect + primary CORS origin (same-origin, so CORS is not exercised by the browser).
+      FrontendUrl: "https://${DOMAIN}"
+      # Required in this profile — startup fails loud when it is unset (US-4/US-6 step 17). The named
+      # volume below is the other half: a path with no volume behind it works until the first redeploy,
+      # after which every clinic's reminder channel reports « non configuré » because the ring that
+      # encrypted its credentials is gone.
+      DataProtection__KeyRingPath: /keys
+      GoogleCalendar__ClientId: ${GOOGLE_CLIENT_ID}
+      GoogleCalendar__ClientSecret: ${GOOGLE_CLIENT_SECRET}
+      GoogleCalendar__RedirectUri: "https://${DOMAIN}/api/googlecalendar/callback"
+      # No GoogleCalendar__RefreshToken / __CalendarId: each clinic connects its own calendar and the
+      # token is stored per-clinic on the Clinic row. A shared one here would sync every clinic's
+      # appointments into one operator calendar.
+      HuggingFace__ApiKey: ${HUGGINGFACE_API_KEY}
+      MinIO__Endpoint: "minio:9000"
+      MinIO__AccessKey: ${MINIO_ROOT_USER}
+      MinIO__SecretKey: ${MINIO_ROOT_PASSWORD}
+      MinIO__UseSSL: "false"
+    volumes:
+      - dataprotection_keys:/keys
+    networks: [internal]
+    # No `ports:` — Caddy proxies /api/*, /hub/* and /health to this service over the internal network.
+    #
+    # ⚠️ No container-level `healthcheck:` here, deliberately. The endpoint exists — GET /health reports the
+    # database round trip and the storage probe — but `mcr.microsoft.com/dotnet/aspnet:8.0` ships no HTTP client
+    # (no curl, no wget), so a CMD-SHELL test would need one installed into the image the Cloud profile also
+    # builds from. Poll it from outside instead: `https://${DOMAIN}/health` (Caddy routes it) answers 200 for
+    # Healthy AND Degraded, 503 only when the database is unreachable.
+    #
+    # ⚠️ `restore-backup` deliberately REFUSES in this profile: its safety interlock is « no restore while the
+    # application is listening », and it looks for a listener on its own machine — here the API listens in this
+    # container, so from a one-off container the check would pass and pg_restore --clean would drop tables under
+    # a live application. The three read-only/recovery verbs do run:
+    #   docker exec clinic-api-prod dotnet ClinicManagement.API.dll verify-schema
+    #   docker exec clinic-api-prod dotnet ClinicManagement.API.dll reconcile-money
+    #   docker exec clinic-api-prod dotnet ClinicManagement.API.dll provision-clinic --name … --admin-email … --admin-name …
+
+  web:
+    build:
+      context: ../web
+      dockerfile: Dockerfile
+      args:
+        # Relative => same-origin: the browser calls whatever host it loaded from, so one image works
+        # on any domain and the SignalR hub URL resolves to https://${DOMAIN}/hub/clinic.
+        NEXT_PUBLIC_API_URL: /api
+    container_name: clinic-web-prod
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      NODE_ENV: production
+      # Mounts LocalSessionProvider and un-gates the /bff/auth/* routes. Left at `cloud` the app expects
+      # Auth0 and there is no way to log in at all.
+      AUTH_MODE: local
+      # The BFF handlers fetch server-side, where a relative /api has no origin — their default is
+      # http://localhost:5000/api, which inside this container is Next itself. Omitted, login, refresh
+      # and change-password all 500, and only those.
+      API_INTERNAL_URL: http://api:5000/api
+      # Caddy terminates TLS and speaks plain HTTP to this container, so the handler would derive a
+      # non-secure scheme from its own hop and drop `Secure` from an internet-facing session cookie.
+      AUTH_COOKIE_SECURE: "true"
+    networks: [internal]
+    # No `ports:` — Caddy proxies everything except /api/* and /hub/* to this service.
+
+  caddy:
+    extends:
+      file: docker-compose.prod.yml
+      service: caddy
+    # Restated: `extends` does not carry depends_on.
+    depends_on:
+      - api
+      - web
+
+  backup:
+    extends:
+      file: docker-compose.prod.yml
+      service: backup
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  pitr:
+    extends:
+      file: docker-compose.prod.yml
+      service: pitr
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  minio_data:
+  caddy_data:
+  caddy_config:
+  backups:
+  # The Data Protection key ring. Everything encrypted at rest — each clinic's reminder credentials,
+  # and from US-4 its TTN secrets — is unreadable without it, so this volume is as load-bearing as
+  # postgres_data and belongs in the same backup policy.
+  dataprotection_keys:

@@ -101,4 +101,109 @@ public class RateLimitingTests
     {
         Assert.StartsWith("Trop de tentatives", RateLimiting.TooManyRequestsMessage(120), StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void The_health_endpoint_is_not_globally_limited()
+    {
+        // Polled every few seconds for the life of the deployment, and a 429 reads to an orchestrator exactly
+        // like « unhealthy » (multi-tenant-cloud US-6).
+        Assert.True(RateLimiting.IsExempt(Request(HealthChecks.Path)));
+    }
+
+    // ---- The auth limiter's partition: per submitted ACCOUNT, address as the second dimension (US-6) ----
+
+    [Theory]
+    [InlineData("/api/auth/login")]
+    [InlineData("/api/auth/register")]
+    [InlineData("/api/auth/setup")]
+    [InlineData("/api/auth/refresh")]
+    [InlineData("/API/AUTH/LOGIN")] // routes are not case-sensitive
+    public void The_anonymous_auth_surface_is_recognised(string path)
+    {
+        Assert.True(RateLimiting.IsAnonymousAuthPath(Request(path).Request.Path));
+    }
+
+    [Theory]
+    [InlineData("/api/patients")]
+    [InlineData("/api/authors")]  // must not match on a mere prefix of the segment
+    [InlineData("/api")]
+    [InlineData("/")]
+    public void Everything_else_is_not_the_anonymous_auth_surface(string path)
+    {
+        Assert.False(RateLimiting.IsAnonymousAuthPath(Request(path).Request.Path));
+    }
+
+    [Fact]
+    public void An_attempt_that_named_an_account_is_partitioned_on_it()
+    {
+        // The whole point of US-6's re-key: a practice arrives through ONE public NAT address, so one colleague
+        // mistyping their password must not spend their colleagues' budget.
+        var first = Request("/api/auth/login");
+        first.Items[RateLimiting.SubmittedAccountItemKey] = "amel@cabinet.tn";
+
+        var second = Request("/api/auth/login");
+        second.Items[RateLimiting.SubmittedAccountItemKey] = "bechir@cabinet.tn";
+
+        Assert.NotEqual(
+            RateLimiting.AuthAttemptPartitionKey(first),
+            RateLimiting.AuthAttemptPartitionKey(second));
+    }
+
+    [Fact]
+    public void The_same_account_shares_one_partition_regardless_of_address()
+    {
+        var fromTheClinic = Request("/api/auth/login");
+        fromTheClinic.Items[RateLimiting.SubmittedAccountItemKey] = "amel@cabinet.tn";
+        fromTheClinic.Connection.RemoteIpAddress = System.Net.IPAddress.Parse("41.229.0.1");
+
+        var fromElsewhere = Request("/api/auth/login");
+        fromElsewhere.Items[RateLimiting.SubmittedAccountItemKey] = "amel@cabinet.tn";
+        fromElsewhere.Connection.RemoteIpAddress = System.Net.IPAddress.Parse("197.0.0.9");
+
+        // Guessing one account from a hundred addresses must not buy a hundred budgets — which is exactly what a
+        // compound « account + address » key would have done.
+        Assert.Equal(
+            RateLimiting.AuthAttemptPartitionKey(fromTheClinic),
+            RateLimiting.AuthAttemptPartitionKey(fromElsewhere));
+    }
+
+    [Fact]
+    public void An_attempt_with_no_account_falls_back_to_the_address()
+    {
+        // POST auth/refresh carries no email at all, and a malformed body yields none. Those requests are bounded
+        // exactly as every request was before the re-key — never exempt, and never sharing one « no-account »
+        // bucket an attacker could empty for everybody.
+        var context = Request("/api/auth/refresh");
+        context.Connection.RemoteIpAddress = System.Net.IPAddress.Parse("41.229.0.1");
+
+        var key = RateLimiting.AuthAttemptPartitionKey(context);
+
+        Assert.Equal("ip:41.229.0.1", key);
+    }
+
+    [Fact]
+    public void An_account_key_can_never_collide_with_an_address_key()
+    {
+        var byAccount = Request("/api/auth/login");
+        byAccount.Items[RateLimiting.SubmittedAccountItemKey] = "41.229.0.1";
+
+        var byAddress = Request("/api/auth/login");
+        byAddress.Connection.RemoteIpAddress = System.Net.IPAddress.Parse("41.229.0.1");
+
+        // An email is caller-supplied text, so without the prefixes an account literally named after an address
+        // would share that address's budget.
+        Assert.NotEqual(
+            RateLimiting.AuthAttemptPartitionKey(byAccount),
+            RateLimiting.AuthAttemptPartitionKey(byAddress));
+    }
+
+    [Fact]
+    public void A_blank_captured_account_is_treated_as_no_account()
+    {
+        var context = Request("/api/auth/login");
+        context.Items[RateLimiting.SubmittedAccountItemKey] = string.Empty;
+        context.Connection.RemoteIpAddress = System.Net.IPAddress.Parse("41.229.0.1");
+
+        Assert.Equal("ip:41.229.0.1", RateLimiting.AuthAttemptPartitionKey(context));
+    }
 }

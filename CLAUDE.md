@@ -12,7 +12,7 @@ Full-stack **dental/medical clinic management** system (Tunisia-targeted: French
 | Backend API | .NET 8, Clean Architecture, ASP.NET Core, MediatR (CQRS), Hangfire | `api/` |
 | Database | PostgreSQL 16 (EF Core) | docker-compose `postgres` |
 | Object storage | MinIO (S3-compatible) | docker-compose `minio` |
-| Auth | **Pluggable** by `Auth:Mode`: **Cloud** = Auth0 (JWT bearer); **Local** = self-issued email+password accounts for offline LAN installs. Clinic membership resolved server-side. | both |
+| Auth | **Pluggable** by `Auth:Mode`: **Cloud** = Auth0 (JWT bearer); **Local** = self-issued email+password accounts (an offline LAN install **and** the hosted multi-tenant backend). Clinic membership resolved server-side. ⚠️ `Auth:Mode` answers *who issues tokens* only — every other deployment difference is a named capability on `Deployment:Profile`. | both |
 | External | Google Calendar (two-way sync), HuggingFace (AI chat), SMS/WhatsApp reminders, TTN « El Fatoora » e-invoicing, Meta WhatsApp onboarding | `api/...Infrastructure/Services` |
 
 ## Layout
@@ -31,8 +31,11 @@ clinic-management/
 │   └── lib/                              → CLAUDE.md  (API client layer, hooks, realtime, utils)
 ├── desktop/                      WPF + WebView2 thin client shell (Local mode, Phase 5) → CLAUDE.md
 ├── packaging/                    Local/offline-LAN publish + installers (PowerShell + Inno Setup) → CLAUDE.md (+ README.md operator guide)
+├── deploy/                       Hosted deployments (Docker + Caddy) → README.md operator guide
+│                                   docker-compose.prod.yml   = CloudBrowser  (Auth0)
+│                                   docker-compose.hosted.yml = HostedMultiTenant (own accounts) — `extends` prod's infra
 ├── backend/                      EMPTY (only .idea/) — ignore
-├── docker-compose.yml            postgres (5432) + minio (9000 API / 9001 console)
+├── docker-compose.yml            postgres (5432) + minio (9000 API / 9001 console) — LOCAL DEV only
 └── *.md (root setup docs, see below)
 ```
 
@@ -504,6 +507,69 @@ Frontend talks to the API via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
   authorization**: per-practitioner data scoping is deliberately out of scope. `verify-schema` gained
   `practitioner-attribution-backfill`, because a backfill is the one thing invisible to every other layer.
 - **Multi-tenancy**: every request is scoped to a clinic. The **authoritative** check is per-request in the handlers — the clinic is resolved from the DB user record (`ICurrentClinicResolver`/`IClinicContext` → DB lookup of the `sub`, not purely from the JWT claim) and each loaded aggregate's `ClinicId` is re-verified. Since `cloud-security-and-tenant-isolation` (PR #11) there is **also** a second layer: EF Core **global query filters** on **21** clinic-owned aggregate roots. ⚠️ **They were fail-open — and therefore inert — until `multi-tenant-cloud` US-2 (Part B).** They are now fed by a three-valued **`ITenantScope`** (`Unset` | `Clinic(id)` | `SystemWide(reason)`) through `ICurrentClinicProvider`, and **only `Unset` refuses**: a path that never established a scope reads **nothing** instead of every clinic. The scope is set per request by `TenantScopeMiddleware` from the **DB-resolved** `User.ClinicId` — never from the JWT claim (amendment C3′: the Cloud claim is written by an Auth0 Action outside this repo, and a stale token used to be harmless under fail-open but would now mean zero rows with no error). Everything that reads with no HTTP context says so explicitly: the five recurring jobs, the startup scope and the three DB-touching console verbs call `UseSystemWide(reason)`; `PdfGenerationJob` and the App→Google dispatcher call `UseClinic(id)` because they handle exactly one record. Pinned by `TenantScopeFilterTests` (derived over every filtered root) and `SystemWideCallerCoverageTests` (derived over « reads a filtered entity with no HTTP context »). ⚠️ **Seven clinical tables carry no `ClinicId` at all** (`MedicalDocument`, `DentalRecord`, `PatientMedicalHistory`, `PatientFamilyHistory`, `PatientFile`, `PatientFolder`, `ToothState`), so no filter is possible and the per-handler check is their **only** layer — held by `*TenantIsolationTests` + `ClinicalRecordTenantIsolationTests`. ⚠️ **SignalR hub methods run with no scope** (HTTP middleware does not run per invocation); `ClinicHub` is safe only because it reads `User`, which is unfiltered. See `Infrastructure/Persistence/ApplicationDbContext.cs`.
+- **Three deployment topologies, one capability per question (`multi-tenant-cloud` US-1 / Part A)**: `Deployment:Profile`
+  resolves to a **`DeploymentProfile`** — a `DeploymentKind` plus **13** named capabilities — and every mode branch in
+  the solution asks one of them. It replaced `LocalAuthConfig.IsLocalMode`, a single boolean answering a dozen
+  unrelated questions at ~30 call sites; two profiles happened to agree on all of them, so one flag sufficed, and a
+  third does not. Absent ⇒ derived from `Auth:Mode` (`Local` → `SelfHostedLan`, else `CloudBrowser`); an
+  **unrecognised value fails startup loud**, because falling back would hand a hosted deployment Auth0 login on a typo.
+
+  | Kind | What it is | Status |
+  |---|---|---|
+  | `SelfHostedLan` | the clinic's own Windows PC serving its LAN: its data, its disk, its self-signed certificate, local accounts | **built** (`windows-desktop-app`, 5 phases) |
+  | `HostedMultiTenant` | **one hosted backend serving many clinics**, each reached over the internet, on the product's own accounts — no Auth0 | **built** (`multi-tenant-cloud`, Parts A–C + F; D/E outstanding) |
+  | `CloudBrowser` | one hosted backend reached by a browser, with Auth0 as the identity provider | **built** (the original path) |
+
+  ⚠️ **`HostedMultiTenant` runs with `AUTH_MODE=local`** — it owns its accounts — so anything that asked « is this
+  Local? » to mean « is this a clinic's own PC? » was already wrong there. That is the whole reason the profile exists,
+  and `DeploymentProfileTests` asserts the two shipped kinds reproduce the old `IsLocalMode` truth table exactly.
+  Deploy assets: `deploy/docker-compose.hosted.yml` + `deploy/.env.hosted.example`; operator guide in
+  [`deploy/README.md`](deploy/README.md).
+- **The hosted runtime can be watched, and it cannot race itself (`multi-tenant-cloud` US-6 / Part F)**: five hardenings
+  that share one premise — **in a datacentre nobody is looking at the console.**
+  - **`GET /health`** (anonymous, un-rate-limited, every profile) answers what a TCP probe cannot: the database round
+    trips, and the file storage is reachable through the new `IFileStorage.ProbeAsync`. ⚠️ **Storage down is `Degraded`
+    (200), not `Unhealthy`** — a clinic with no object storage still books, records and collects; grading it unhealthy
+    would pull every instance out of rotation and turn a partial outage into a total one, and restarting the API does
+    not bring MinIO back. The body carries check **names and statuses only**; reasons go to the log, never to an
+    anonymous caller.
+  - **`GET /api/outbox`** (`AdminOnly`) reports the depth of the three background queues — reminders (pending / **due**
+    / blocked / failed), e-invoices, document emails — each with **the age of its oldest waiting row**. ⚠️ That age is
+    the diagnosis, not the count: « 40 pending » is meaningless when a reminder for next Tuesday is *supposed* to be
+    waiting, while a row due three hours ago says the dispatcher is not running. It exists because `/hangfire` is
+    loopback-only in **both** modes and behind a reverse proxy every request arrives from the proxy container — correct
+    as security, total as blindness — and because US-2's stated risk (R-1) is that a job with no tenant scope reads
+    **nothing** and logs a clean run. Each queue's predicates are **copies of its own dispatcher's**, clause for
+    clause, or the read would report a backlog nothing will ever drain.
+  - **The login limiter is keyed on the submitted account**, with the address as a second and looser ceiling. Per
+    address alone is a lockout waiting to happen once a deployment is reached over the internet: a whole practice
+    arrives through **one** public NAT address, so one colleague mistyping ten times spent everybody's budget.
+    ⚠️ It could not be a compound `account+address` key — that hands one attacker a fresh budget per address — so the
+    named policy partitions on the account while the global limiter partitions the same request on its address
+    (`RateLimiting.IsAnonymousAuthPath`). The email is lifted out of the body by `AuthAttemptAccount` **before** the
+    limiter, since the partitioner is synchronous and runs long before model binding; **anything unreadable falls back
+    to the address**, so `auth/refresh` and a malformed body are bounded exactly as they were before.
+  - **`Security:EnforceCsp`** promotes the CSP from report-only to enforcing. Default **false in every profile** and
+    deliberately *not* derived from the kind: what makes enforcing safe is that somebody walked these pages in this
+    deployment. (Checked against Next's own policy first — `web/next.config.ts` emits **no** CSP in either branch, so
+    there is nothing to intersect with.)
+  - **`MigrationLock`** wraps the startup migrate-and-backfill block in a PostgreSQL **session-level advisory lock**:
+    EF Core 8 takes none, so two containers starting together both apply the same migrations and the loser fails
+    part-way, leaving a schema that is neither old nor new. Advisory rather than a lock table (a table would need the
+    migration it protects, and a crashed holder would wedge the next deploy for ever); ⚠️ **`pg_advisory_lock`, never
+    the `xact` variant**, which would release at the first commit *inside* the migration.
+  - **`DataProtection:KeyRingPath` is required in `HostedMultiTenant` and fails startup without it.** The framework
+    fallback is per-instance and ephemeral: it works, and then the first redeploy replaces the ring, so every clinic's
+    encrypted reminder and TTN credentials become undecryptable and each channel reports « non configuré » with
+    nothing in any log tying that to a deployment. A path with **no durable volume** behind it produces the identical
+    symptom, which no code can detect — that half is stated beside the volume in the compose file.
+  - **The three read-only/recovery verbs gate on the connection string, not the profile** (amendment M3):
+    `verify-schema`, `reconcile-money` and `reset-admin-password` run no PostgreSQL binary, so `HasLocalDbTooling` was
+    the wrong question. It mattered twice — `verify-schema` is the **only** gate a schema change has anywhere in this
+    product, and a hosted clinic's locked-out admin had no recovery once `provision-clinic` could create one.
+    ⚠️ **`restore-backup` keeps its profile gate**, because its safety interlock (« refuse while the app is
+    listening ») looks for a listener on *this* machine and in a container the API listens in a sibling — so the check
+    would pass silently while `pg_restore --clean` drops tables under a live application.
 - **Pluggable auth (`Auth:Mode` = `Cloud` | `Local`)**: Cloud is the original Auth0 path; **Local** (for offline Windows/LAN installs) issues its own HS256 JWTs against local email+password accounts. Backend seam: `ILocalAuthService`/`LocalAuthService` (+ per-install signing key via `LocalAuthConfig`), a mode-branched JWT setup in `Program.cs`, and `AuthController` (`login`/`setup`/`register`/`mode`/`change-password`). `CreateClinicCommand`/`JoinClinicCommand` branch to a Local path when a `Password` is present. Frontend seam: a single `useSession()` context (`web/lib/auth/session.tsx`) backed by either `CloudSessionProvider` (Auth0) or `LocalSessionProvider` (HttpOnly cookie), gated on `AUTH_MODE`. All Local behavior is additive; the Cloud path is unchanged. Offline admin lockout recovery is a console command (`dotnet run -- reset-admin-password`), not a web endpoint. *All 5 phases of the offline-Windows repackaging are complete — see `features/windows-desktop-app/`.*
   ⚠️ **The Local session slides, and it takes two halves to do so (`mobile-native-shells` P2)**: `RefreshTokenCommandHandler` mints a **fresh** refresh credential on every exchange *and* `web/app/bff/auth/token` re-sets the HttpOnly cookie with it — a backend-only change would rotate a credential nobody stores and no user would feel. Before this, the cookie kept the token issued at login, so a staff member working through the day was asked for their password again twelve hours in. It is **sliding expiry, not revoking rotation**: the superseded credential stays valid until its own expiry (stateless, nothing stores it — two tabs exchanging at once must both keep working), and `User.TokenVersion` is still the only revocation. `web/lib/auth/session-cookie.ts` is now the **single writer** of both `local_session` and `local_must_change_password`; they are written together because a sliding session would otherwise outlive the forced-password-change flag, leaving an app that looks usable while `LocalAuthEnforcementMiddleware` 403s every call.
 - **A stale app says so, once, instead of failing screen by screen (`mobile-native-shells` P3)**: a native shell sends

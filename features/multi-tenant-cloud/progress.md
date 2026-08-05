@@ -16,10 +16,10 @@ unit ( « 18 steps and ~35 files will not fit one session » ). This table is th
 | C | US-3 | 11–13 | **implemented** (code gate) | 2026-08-05 |
 | D | US-4 | 14 | not-started | — |
 | E | US-5 | 15 | not-started | — |
-| F | US-6 | 16–18 | not-started | — |
+| F | US-6 | 16–18 | **implemented** (code gate) | 2026-08-05 |
 
-⚠️ **Part F's step 17 (`DataProtection:KeyRingPath` required) must land before Part D**, per the story's own
-ordering: a PFX password protected by Data Protection makes e-invoice signing depend on the key ring.
+✅ **Part F's step 17 landed before Part D, as the ordering required** — `DataProtection:KeyRingPath` is now required
+in `HostedMultiTenant` and fails startup without it, so Part D's PFX password can safely depend on the key ring.
 
 ## Working tree note (start of session)
 
@@ -538,3 +538,182 @@ check.
 `/review-story` for Part C, then Part D — ⚠️ **but Part F's step 17 (`DataProtection:KeyRingPath` required) must
 land first**, per the story's ordering: a PFX password protected by Data Protection makes e-invoice signing depend
 on the key ring. Finding #3 above belongs to that same step.
+
+---
+
+# Part F — operations, and the runtime nobody is watching (steps 16–18)
+
+**Session:** 2026-08-05 · **Branch:** unchanged (`feature/audit-sections-3-to-10`).
+
+Part F landed **out of order on purpose**: the story's own ordering says step 17's `DataProtection:KeyRingPath`
+requirement must precede Part D, because a PFX password protected by Data Protection makes e-invoice signing depend
+on the key ring. Parts D and E remain not-started.
+
+## Working tree note (start of session)
+
+⚠️ **A second session was again editing this working tree throughout**, and this time it was building a whole
+feature: OS push notifications (`mobile-native-shells` Part 6 — `DeviceRegistration`, `PushDelivery`, four senders,
+a Hangfire job, a migration, ~25 files). **Nothing of theirs is in this commit**, and one file needed real care:
+
+| File | What happened |
+|---|---|
+| `Program.cs` | **shared.** Their hunk registers `dispatch-os-push`; my four are `AddConfiguredHealthChecks`, the auth-attempt capture, `HealthChecks.Register` and the `MigrationLock` wrap. Staged **hunk-selectively** (see below) |
+| `appsettings.json` · `Extensions.cs` · `ApplicationDbContext.cs` · `DeploymentProfile.cs` · `NotificationGenerator.cs` · `ReminderSchedule.cs` · the three `SchemaVerification*` files | theirs entirely — **not staged**, not read as mine |
+
+**How `Program.cs` was split**, since `git add -p` is unavailable here and a reconstructed patch was rejected
+(`corrupt patch at line 88`): copy the working file aside → delete *their* contiguous block by its own text
+(asserting the removed text contains `dispatch-os-push` and contains neither `HealthChecks` nor `MigrationLock`) →
+`git add` → restore the copy. The staged version has **zero** occurrences of `dispatch-os-push`; the working tree
+keeps their 20 lines unstaged. Verified both ways before committing.
+
+## What landed
+
+| Step | Deliverable |
+|---|---|
+| 16 | `deploy/Caddyfile` — **`/hub/*`** and **`/health`** routed to `api:5000` before the catch-all, plus the page security headers Caddy is the only thing that can set in this topology; `deploy/docker-compose.hosted.yml` + `deploy/.env.hosted.example` |
+| 17 | `LocalDataProtection` — `KeyRingPath` **required** in `HostedMultiTenant`; `Maintenance/MaintenanceDatabase` + the three verbs re-gated (M3); `Startup/MigrationLock` around `MigrateAsync`; `Startup/HealthChecks` + `IFileStorage.ProbeAsync`; `Features/Outbox/GetOutboxDepthQuery` + `OutboxController`; `RateLimiting` re-keyed + `Startup/AuthAttemptAccount`; `SecurityHeadersMiddleware` CSP flag |
+| 18 | `deploy/README.md` (new — the hosted operator view), the root guide's **topology table** + a Part F bullet, and the API / Application / Infrastructure / Domain / UnitTests guides |
+
+Step 18's other half — the three `CLAUDE.md` files that described the query filter as fail-open — was **already
+done in Part B**, deliberately, because leaving an inverted contract documented for one part longer is worse than
+committing the doc with the code that changes it.
+
+## Deviations
+
+### DEV-13: `IFileStorage` gains `ProbeAsync`
+**Category:** Technical · **Approved:** self (the story asks for a storage check and names no seam)
+**Story:** « `MapHealthChecks("/health")` (DB + storage) ».
+**Actual:** a new `ProbeAsync` on the interface, implemented in both backends.
+**Why the alternatives were worse:** a round trip through the *existing* methods (upload → download → delete a
+sentinel blob) proves more but writes into the clinic's own file store **every few seconds for the life of the
+deployment**; and the check cannot live in Infrastructure, which has no ASP.NET framework reference. Reachability is
+the failure this exists to catch. It **throws** rather than returning a bool because « storage: false » leaves the
+operator exactly as blind as the 503 it produced.
+**Impact:** two implementations; no other `IFileStorage` implementers exist (the tests mock it).
+
+### DEV-14: the login limiter is re-keyed in **two** slots, not one
+**Category:** Technical · **Approved:** self (the literal reading is a security regression)
+**Story:** « re-key `AnonymousAuthPolicy` on the submitted email (+ address as a second dimension) ».
+**Why not literally:** a compound `account+address` partition key hands one attacker a **fresh budget per address**
+— it fixes the NAT lockout by opening credential stuffing. And .NET 8's `AddPolicy` yields exactly one partition, so
+a named policy cannot chain two windows.
+**Actual:** the named policy partitions on the **account**; the **global** limiter recognises the same `/api/auth`
+prefix and partitions the same request on its **address** with its own ceiling
+(`RateLimiting:Auth:AddressPermitLimit`, default 150 = 5 × the per-account limit, same window). Both apply. Without
+the second slot the address ceiling on a login would have been the *API* window (600/min), i.e. none.
+**Impact:** one new config key; `AuthAttemptAccount` is a new middleware registered immediately before
+`UseRateLimiter()`.
+
+### DEV-15: `/health` is routed through Caddy, and there is no container `healthcheck:`
+**Category:** Technical · **Approved:** self
+The endpoint is mapped at the host root, so behind Caddy it fell through to the catch-all, reached the Next
+container and **404'd** — an endpoint nothing in the topology it was built for could reach, which is the
+dead-capability shape this repo keeps flagging. A `handle /health` block fixes that. A compose-level `healthcheck:`
+was **not** added: `mcr.microsoft.com/dotnet/aspnet:8.0` ships no HTTP client, so it would mean installing `curl`
+into the image the `CloudBrowser` profile also builds from. Stated in the compose file rather than left to be
+discovered.
+
+### DEV-16: `GET /api/outbox` reports three named sections and an *age*, not five scalars
+**Category:** Scope (additive) · **Approved:** self
+**Story:** « pending / **blocked** / failed reminder rows, queued e-invoices, queued document emails ».
+**Actual:** those five, **plus** a `Due` figure and the oldest waiting row's instant per queue, and
+`FailedSinceUtc` beside `FailedRecent`.
+**Why:** a depth alone cannot distinguish « three reminders enqueued a second ago » from « three stuck since
+yesterday », and R-1's failure mode is precisely the second. A reminder scheduled for next Tuesday is *supposed* to
+be waiting, so « pending » is not a backlog — « pending **and due** » is. Three named sections rather than one
+uniform row per queue because only reminders can be `Blocked` and only a document email has no scheduled instant; a
+`0` standing in for a concept that does not exist is a field the operator must learn to ignore.
+
+### Auto-approved (trivial)
+
+| Deviation | Classification | Reason |
+|---|---|---|
+| `MigrationLock.{Acquire,Release}Sql` are `static readonly`, not `const` | Trivial | An interpolated string is only a compile-time constant when every hole is a string constant, and `LockKey` is a `long`. It **did not compile** as left by the previous session — two `CS0133`s |
+| Ten members widened `internal` → `public` for the tests | Trivial | The test project has no `InternalsVisibleTo`, and the repo's precedent (`StartupDiagnostics`, `TrustPortGate`, `ClientIp`) is public static helpers precisely so they are testable |
+| `/health` listed in `ExemptPathPrefixes` although the not-`/api` rule already covers it | Trivial | The exemption must hold because of what the endpoint **is**, not where it happens to be mounted |
+| `Security:EnforceCsp` read **once** in the constructor | Trivial | A per-request read would let a mid-session config reload change the header a page's assets are already loading under |
+| `AuthAttemptAccount` scoped by the `/api/auth` **prefix**, not by a list of the four `[EnableRateLimiting]` actions | Trivial | A list is a second place to remember; the fifth auth endpoint somebody adds would silently get the API ceiling. Shared with `RateLimiting.IsAnonymousAuthPath` so the two halves cannot disagree |
+| `RateLimiting:Auth:AddressPermitLimit` shares `Auth:WindowSeconds` | Trivial | « the address may spend five accounts' worth » is only a comparison while both cover the same period; a fourth knob invites them to diverge |
+
+## Quality gate — Part F
+
+| Gate | Result |
+|---|---|
+| Backend build (`--no-incremental`, scratch `BaseOutputPath`) | **0 errors, 60 warnings.** Parts B and C left it at 57; the **+3 are the parallel session's** `Features/PushDevices/*` (untracked), confirmed by file name |
+| New warnings in changed files | **0.** The warning list was filtered against every file Part F touched — **empty intersection**. The only warning in a shared file is `Program.cs` `CS0618` (Hangfire obsolete overload), pre-existing since Part A |
+| Part F's own classes | **126/126 green** — `AuthAttemptAccountTests` · `RateLimitingTests` (+9 US-6 cases) · `HealthCheckTests` · `SecurityHeadersMiddlewareTests` · `MigrationLockTests` · `MaintenanceDatabaseTests` · `LocalDataProtectionTests` (+6) · `LocalDiskFileStorageTests` (+3) · `GetOutboxDepthQueryHandlerTests` |
+| Full unit suite | **2 078 passed / 0 failed** (Part C left it at 1 963; +115 here and the parallel session's own) |
+| Frontend gate | **Not applicable** — Part F changes no `web/` file. Both scripts re-confirmed present in `web/package.json` |
+| `verify-schema` / `reconcile-money` | **Not applicable** — Part F adds no migration. Both verbs were *edited* here (M3) and their new gate is covered by tests |
+
+### Two red tests, and they were Part F's own debt
+
+The full suite came back **2 red** before this session's own classes were added to it:
+`{ReconcileMoney,VerifySchema}CommandTests.Run_refuses_and_returns_nonzero_when_not_in_local_mode` still asserted
+the refusal message names `CloudBrowser` — which is exactly what **M3 retired**, since those verbs now gate on the
+connection string. Part B had *strengthened* those two assertions (`nameof(DeploymentKind.CloudBrowser)`), so the
+test was right until this part deliberately changed the contract. Both were rewritten as a `[Theory]` over
+`Cloud`/`Local`, asserting the refusal happens in **every** profile and that it names the config key an operator
+must set — a stronger claim than the one it replaced, and the one M3 actually makes.
+
+### ⚠️ The test runner works — and where the output goes is what decides it
+
+Every recipe recorded in the `smart-app-control-blocks-tests` memory failed this session: `dotnet vstest` over a
+scratchpad `OutDir` **and** over a scratchpad `BaseOutputPath`, then a throwaway reflection-based mini-runner (its
+generated `.exe` was blocked, and running the `.dll` through `dotnet` then blocked each referenced project DLL in
+turn) — all `0x800711C7`. What worked was building the **same assembly into the repository tree**:
+
+```
+dotnet build api/ClinicManagement.UnitTests/ClinicManagement.UnitTests.csproj -p:OutDir=<repo>/api/.testrun/
+dotnet vstest api/.testrun/ClinicManagement.UnitTests.dll
+```
+
+Whole suite, SAC on, dev API running. **Smart App Control's verdict depends on the output *location*, not on the
+runner** — which no prior session had isolated, because the two blockers look like one: SAC is `0x800711C7` at
+**load**, while the running dev API holding `bin/Debug` is `MSB3021 … locked by ClinicManagement.API (PID 9364)` at
+**build**, and a redirected output fixes only the second. Recorded in `UnitTests/CLAUDE.md` and in the memory file.
+⚠️ `api/.testrun/` is **not** covered by `.gitignore` — delete it after a run.
+
+## Findings recorded, not fixed (out of Part F's scope)
+
+1. **The hosted profile served page responses with no security headers at all** — `SecurityHeadersMiddleware` covers
+   what Kestrel serves (behind Caddy: `/api/*` only) and `web/next.config.ts` emits headers only when
+   `AUTH_MODE != local`, which is false here. Already closed in the Caddyfile; recorded because the *reason* is a
+   structural gap in a two-sided condition, and that shape can reappear anywhere the two sides are set separately.
+2. **`restore-backup` has no hosted path at all.** Its gate is honest, but « restore one clinic, or restore at all,
+   in a container topology » remains unanswered — the story names it as a hazard belonging to the topology rather
+   than to a part.
+3. **No `/api/outbox` frontend surface.** Deliberate here (the consumer is the operator, like `/health`), but if a
+   « files d'attente » admin screen is ever wanted, the read already returns everything it would need.
+4. **The three verbs are now reachable in `CloudBrowser` too.** M3 gates them on the connection string, so an Auth0
+   operator running `verify-schema` gets past the gate — harmless and arguably correct, just wider than before, and
+   worth knowing before someone reads the old « Local-only console verbs » framing.
+
+## Learnings
+
+- **« Re-key X on Y » can be a security regression when read literally.** A compound `account+address` key fixes a
+  lockout by opening credential stuffing, and the framework's one-partition-per-policy shape hides that from you
+  until you try to chain two windows. The fix was to use the two slots that already existed rather than to invent a
+  third.
+- **An endpoint mapped at the host root does not exist behind a reverse proxy until the proxy is told.** `/health`
+  would have 404'd in the exact topology it was written for — the same defect, in the same file, as the `/hub/*`
+  route this part opened with. Two occurrences in one part is a pattern: **every root-mounted route needs a Caddy
+  block**, and the Caddyfile's header comment now lists all three.
+- **A guard can only assert what is reachable — so assert what a mistake would *look like*.** No test here can take
+  a real advisory lock, but two things a wrong implementation would show are reachable: both statements naming one
+  fixed key, and `pg_advisory_lock` rather than the `xact` variant. The third property — that the migration is
+  *inside* the wrap — is only visible in `Program.cs`'s own source, so that is where it is asserted.
+- **Sharing a tree with a session that is mid-feature is different from sharing with one that is finishing.** Part C
+  shared a tree with docs edits; this part shared it with a 25-file feature touching `Program.cs`,
+  `ApplicationDbContext` and `Extensions.cs`. `git diff HEAD --numstat` is not enough when the overlap is *inside* a
+  file — the answer was hunk-level staging with an assertion that the removed text was theirs and not mine, checked
+  in both directions before the commit.
+- **A doc gate can be « already done » for a good reason, and should say so.** Step 18's filter-contract half landed
+  in Part B on purpose: a `CLAUDE.md` asserting the inverted contract is worse than no doc, so it could not wait for
+  the part that owns the docs step. Recording *that* is what stops a later reader treating it as skipped.
+
+## Next
+
+`/review-story` for Part F, then **Part D** (US-4, per-clinic TTN e-invoicing identity — now unblocked: the key ring
+is required, so a PFX password protected by Data Protection is safe) and **Part E** (US-5, per-clinic storage key
+prefix). Both are additive; A–C + F are the story's whole security and operations thesis.

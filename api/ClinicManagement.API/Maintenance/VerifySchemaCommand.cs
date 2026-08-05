@@ -43,12 +43,11 @@ public static class VerifySchemaCommand
             // `ClinicManagement.API.exe verify-schema` works from any working directory.
             var configuration = InstallConfiguration.BuildForConsoleVerb();
 
-            var profile = DeploymentProfile.Resolve(configuration);
-            if (!profile.HasLocalDbTooling)
+            // Gated on having a database, not on the deployment profile (M3): this is the only gate a schema
+            // change has anywhere in the product, so it must run wherever the schema lives — including against
+            // the hosted database, over `docker exec`. See MaintenanceDatabase.
+            if (!MaintenanceDatabase.HasConnectionString(configuration, "This schema-verification utility"))
             {
-                Console.Error.WriteLine(
-                    "This schema-verification utility needs a direct database connection " +
-                    $"(deployment profile: {profile.Kind}).");
                 return 1;
             }
 

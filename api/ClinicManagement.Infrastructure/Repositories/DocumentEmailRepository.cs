@@ -38,6 +38,26 @@ public class DocumentEmailRepository : IDocumentEmailRepository
             .Take(batchSize)
             .ToListAsync(cancellationToken);
 
+    public async Task<DocumentEmailOutboxDepth> GetOutboxDepthAsync(
+        Guid clinicId, CancellationToken cancellationToken = default)
+    {
+        var scoped = _context.DocumentEmails.Where(e => e.ClinicId == clinicId);
+
+        var queued = scoped.Where(e => e.Status == DocumentEmailStatus.Queued);
+
+        var queuedCount = await queued.CountAsync(cancellationToken);
+
+        // Min over a nullable projection rather than MinAsync over the value: an empty queue must give null, not
+        // an exception.
+        var oldestQueuedAt = await queued
+            .Select(e => (DateTime?)e.QueuedAt)
+            .MinAsync(cancellationToken);
+
+        var failed = await scoped.CountAsync(e => e.Status == DocumentEmailStatus.Failed, cancellationToken);
+
+        return new DocumentEmailOutboxDepth(queuedCount, failed, oldestQueuedAt);
+    }
+
     public async Task AddAsync(DocumentEmail documentEmail, CancellationToken cancellationToken = default) =>
         await _context.DocumentEmails.AddAsync(documentEmail, cancellationToken);
 

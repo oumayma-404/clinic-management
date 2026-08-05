@@ -20,6 +20,24 @@ namespace ClinicManagement.Domain.Repositories;
 /// </summary>
 public record ReminderLogCounts(int SentToday, int Pending, int FailedRecent, int Blocked);
 
+/// <summary>
+/// How deep the reminder outbox is, for the operator read behind <c>GET /api/outbox</c> (multi-tenant-cloud US-6).
+///
+/// <para><b><see cref="Due"/> is the figure that matters, and it is why this is not <see cref="ReminderLogCounts"/>.</b>
+/// « 40 pending » says nothing on its own — a reminder for next Tuesday is *supposed* to be waiting. What names a
+/// stuck dispatcher is a pending row whose send time has passed, and <see cref="OldestDueScheduledFor"/> says for
+/// how long: minutes is a queue draining normally, hours is the job not running at all. That is the story's R-1
+/// exactly — a job with no tenant scope reads nothing and logs a clean run — and nothing else in the product can
+/// see it, because <c>/hangfire</c> is loopback-only in every profile and behind a reverse proxy every request
+/// arrives from the proxy container.</para>
+/// </summary>
+public record ReminderOutboxDepth(
+    int Pending,
+    int Due,
+    int Blocked,
+    int FailedRecent,
+    DateTime? OldestDueScheduledFor);
+
 public interface INotificationRepository
 {
     Task<Notification?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
@@ -100,6 +118,20 @@ public interface INotificationRepository
         Guid clinicId,
         DateTime todayFromUtc,
         DateTime todayToUtcInclusive,
+        DateTime failedSinceUtc,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The queue-depth figures for one clinic — see <see cref="ReminderOutboxDepth"/> for what each one is for.
+    ///
+    /// <para>⚠️ <paramref name="nowUtc"/> exists so <see cref="ReminderOutboxDepth.Due"/> is counted against
+    /// <b>the same instant the dispatcher scans with</b>: <see cref="GetDueForDispatchAsync"/> reads
+    /// <c>Pending &amp;&amp; ScheduledFor &lt;= now</c>, and a depth read that invented its own clock would report a
+    /// backlog the dispatcher does not yet see (or miss one it does).</para>
+    /// </summary>
+    Task<ReminderOutboxDepth> GetOutboxDepthAsync(
+        Guid clinicId,
+        DateTime nowUtc,
         DateTime failedSinceUtc,
         CancellationToken cancellationToken = default);
     /// <summary>

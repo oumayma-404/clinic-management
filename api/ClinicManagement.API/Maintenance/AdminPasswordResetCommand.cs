@@ -37,13 +37,21 @@ public static class AdminPasswordResetCommand
             // against the install directory via LocalAuthConfig.
             var configuration = InstallConfiguration.BuildForConsoleVerb();
 
-            // Two things are needed: accounts this product owns, and a direct connection to reset one in.
+            // Two things are needed: accounts this product owns, and a database to reset one in.
+            // ⚠️ The second used to ask HasLocalDbTooling, which is false in HostedMultiTenant (M3) — so from the
+            // moment provision-clinic could create a hosted clinic, that clinic's admin could be locked out with
+            // no recovery path at all. This verb runs no PostgreSQL binary; it needs the connection string.
             var profile = DeploymentProfile.Resolve(configuration);
-            if (!profile.UsesLocalAccounts || !profile.HasLocalDbTooling)
+            if (!profile.UsesLocalAccounts)
             {
                 Console.Error.WriteLine(
-                    "This recovery utility needs local accounts and a direct database connection " +
-                    $"(deployment profile: {profile.Kind}). An Auth0 deployment resets passwords through Auth0.");
+                    $"This deployment does not own its accounts (deployment profile: {profile.Kind}). "
+                    + "An Auth0 deployment resets passwords through Auth0.");
+                return 1;
+            }
+
+            if (!MaintenanceDatabase.HasConnectionString(configuration, "This recovery utility"))
+            {
                 return 1;
             }
 

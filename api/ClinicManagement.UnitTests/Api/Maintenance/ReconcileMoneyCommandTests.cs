@@ -62,33 +62,43 @@ public sealed class ReconcileMoneyCommandTests
         }
     }
 
-    // [AC-74] Local-only, mirroring the other two console verbs: the command must refuse with a clear message
-    // and make NO database connection when the resolved auth mode is not Local. The Auth__Mode env var
-    // overrides the copied appsettings.json so the assertion is deterministic.
-    [Fact]
-    public async Task Run_refuses_and_returns_nonzero_when_not_in_local_mode()
+    // [AC-74 / US-6 M3] The gate is « is there a database to connect to? », NOT the deployment profile.
+    //
+    // ⚠️ This case used to assert the refusal named `CloudBrowser`, and amendment M3 deliberately retired that:
+    // the verb needs a connection string, not pg_dump, and gating it on the profile made its sibling
+    // `verify-schema` — the product's ONLY gate on a schema change — unreachable in a hosted deployment. What it
+    // must still do is refuse, exit non-zero and open no connection when no connection string is configured, in
+    // EVERY profile. Env vars override the copied appsettings.json so the assertion is deterministic.
+    [Theory]
+    [InlineData("Cloud")]
+    [InlineData("Local")]
+    public async Task Run_refuses_and_returns_nonzero_without_a_connection_string(string authMode)
     {
         const string authModeVar = "Auth__Mode";
+        const string connectionVar = "ConnectionStrings__DefaultConnection";
         var previousMode = Environment.GetEnvironmentVariable(authModeVar);
+        var previousConnection = Environment.GetEnvironmentVariable(connectionVar);
         var originalError = Console.Error;
         var capturedError = new StringWriter();
 
         try
         {
-            Environment.SetEnvironmentVariable(authModeVar, "Cloud");
+            Environment.SetEnvironmentVariable(authModeVar, authMode);
+            Environment.SetEnvironmentVariable(connectionVar, string.Empty);
             Console.SetError(capturedError);
 
             var exitCode = await ReconcileMoneyCommand.RunAsync(new[] { ReconcileMoneyCommand.CommandName });
 
             Assert.Equal(1, exitCode);
-            // Part A replaced « Local mode » with the resolved profile, so the refusal now names it. `nameof` so a
-            // rename cannot leave this asserting a string that no longer exists.
-            Assert.Contains(nameof(DeploymentKind.CloudBrowser), capturedError.ToString());
+            // Names the key an operator has to set, and both spellings of it — the refusal is the whole
+            // instruction they get.
+            Assert.Contains("ConnectionStrings:DefaultConnection", capturedError.ToString(), StringComparison.Ordinal);
         }
         finally
         {
             Console.SetError(originalError);
             Environment.SetEnvironmentVariable(authModeVar, previousMode);
+            Environment.SetEnvironmentVariable(connectionVar, previousConnection);
         }
     }
 }

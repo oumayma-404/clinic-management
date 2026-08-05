@@ -43,33 +43,41 @@ public sealed class VerifySchemaCommandTests
         Assert.Equal(ReconcileMoneyCommand.DriftFoundExitCode, VerifySchemaCommand.DriftFoundExitCode);
     }
 
-    // Local-only, mirroring the other console verbs: refuse with a clear message and make NO database
-    // connection when the resolved auth mode is not Local. The Auth__Mode env var overrides the copied
-    // appsettings.json so the assertion is deterministic.
-    [Fact]
-    public async Task Run_refuses_and_returns_nonzero_when_not_in_local_mode()
+    // [US-6 M3] The gate is « is there a database to connect to? », NOT the deployment profile — and for this
+    // verb that is the point of the amendment rather than a detail of it.
+    //
+    // ⚠️ This case used to assert the refusal named `CloudBrowser`. `verify-schema` is the product's ONLY gate on
+    // a schema change (nothing in this test project touches a database), so refusing in a hosted deployment left
+    // the one topology where a bad migration hits every clinic at once with no gate at all. What it must still do
+    // is refuse, exit non-zero and open no connection when no connection string is configured, in EVERY profile.
+    [Theory]
+    [InlineData("Cloud")]
+    [InlineData("Local")]
+    public async Task Run_refuses_and_returns_nonzero_without_a_connection_string(string authMode)
     {
         const string authModeVar = "Auth__Mode";
+        const string connectionVar = "ConnectionStrings__DefaultConnection";
         var previousMode = Environment.GetEnvironmentVariable(authModeVar);
+        var previousConnection = Environment.GetEnvironmentVariable(connectionVar);
         var originalError = Console.Error;
         var capturedError = new StringWriter();
 
         try
         {
-            Environment.SetEnvironmentVariable(authModeVar, "Cloud");
+            Environment.SetEnvironmentVariable(authModeVar, authMode);
+            Environment.SetEnvironmentVariable(connectionVar, string.Empty);
             Console.SetError(capturedError);
 
             var exitCode = await VerifySchemaCommand.RunAsync(new[] { VerifySchemaCommand.CommandName });
 
             Assert.Equal(1, exitCode);
-            // Part A replaced « Local mode » with the resolved profile, so the refusal now names it. `nameof` so a
-            // rename cannot leave this asserting a string that no longer exists.
-            Assert.Contains(nameof(DeploymentKind.CloudBrowser), capturedError.ToString());
+            Assert.Contains("ConnectionStrings:DefaultConnection", capturedError.ToString(), StringComparison.Ordinal);
         }
         finally
         {
             Console.SetError(originalError);
             Environment.SetEnvironmentVariable(authModeVar, previousMode);
+            Environment.SetEnvironmentVariable(connectionVar, previousConnection);
         }
     }
 }

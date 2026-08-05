@@ -293,6 +293,13 @@ Concrete EF Core impls of Domain repo interfaces. Pattern: ctor-inject `Applicat
 - **`Storage/LocalDiskFileStorage`** (Local) — blobs under `FileStorage:BasePath` (resolved install-relative via
   `LocalInstallPaths`); opaque relative keys; mirrors MinIO semantics (guid keys, deterministic custom-path
   overwrite, seekable download, idempotent delete, path-traversal-safe).
+- **`ProbeAsync` (both, multi-tenant-cloud US-6)** — the reachability check behind `/health`. MinIO asks whether the
+  bucket exists (one call exercising DNS, endpoint, TLS and credentials, storing nothing); ⚠️ a **missing** bucket is
+  reported as reachable-but-unusable rather than unreachable, because the two have different operator answers and
+  `UploadAsync` creates it on demand anyway. Local disk creates the base folder and then **writes** a per-attempt probe
+  file, deleting it in a `finally` — the write half is the point: an unmounted volume, a full disk and a folder the
+  service account cannot write to all present as an existing directory, and every one of them breaks the first upload
+  rather than an existence check.
 
 ### PDF & CNAM
 - **`PdfGenerationService`** (`IPdfGenerationService`, scoped) — QuestPDF (Community license). Renders French

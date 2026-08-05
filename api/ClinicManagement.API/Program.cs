@@ -198,6 +198,11 @@ try
     // Both auth modes — Cloud is internet-facing and needs it at least as much as a LAN install.
     builder.Services.AddConfiguredRateLimiter(builder.Configuration);
 
+    // Liveness for whoever decides whether this instance may take traffic (multi-tenant-cloud US-6). Every
+    // profile: a datacentre orchestrator polls it, and on a clinic's PC it gives the installer's smoke test
+    // something to check that is not a login. See HealthChecks.
+    builder.Services.AddConfiguredHealthChecks();
+
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddSwaggerGen(c =>
     {
@@ -548,8 +553,14 @@ try
         });
     }
 
+    // Immediately before the limiter, because after it the partition has already been chosen: lifts the submitted
+    // email out of an auth request's body so the tight window is spent per ACCOUNT instead of per address. See
+    // AuthAttemptAccount — it can neither refuse a request nor consume the body.
+    app.UseAuthAttemptAccountCapture();
+
     // Before authentication: an unauthenticated flood must be refused as cheaply as possible, and the
-    // anonymous auth endpoints (the brute-force surface) are gated on the client address, not on identity.
+    // anonymous auth endpoints (the brute-force surface) are gated on the submitted account, with the client
+    // address as a second and looser ceiling.
     app.UseRateLimiter();
 
     app.UseMiddleware<ExceptionMiddleware>();
@@ -577,6 +588,10 @@ try
     }
 
     app.MapControllers();
+
+    // Anonymous and un-rate-limited, both deliberately — see HealthChecks.Register. Mapped before the YARP
+    // catch-all so a self-hosted front door answers it here rather than proxying /health to the Next app.
+    HealthChecks.Register(app);
 
     // Real-time hub. A literal route, so it is more specific than the Local-mode YARP catch-all below
     // and wins endpoint selection (the WebSocket reaches the hub in-process, not the Next proxy).
@@ -618,21 +633,30 @@ try
             .UseSystemWide("startup migrations and per-clinic backfills");
 
         var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-        context.Database.Migrate();
 
-        if (profile.RunsStartupBackfills)
-        {
-            // Backfill per-clinic reference catalogs for any existing clinic missing one (#5). Idempotent —
-            // new clinics are seeded on creation; this covers clinics that predate the per-clinic conversion.
-            var catalogSeeder = scope.ServiceProvider.GetRequiredService<IClinicCatalogSeeder>();
-            await catalogSeeder.SeedAllClinicsAsync();
+        // Serialised across instances: EF Core takes no lock of its own, so two containers starting together
+        // apply the same migrations concurrently and the loser fails part-way. See MigrationLock.
+        await ClinicManagement.API.Startup.MigrationLock.RunExclusivelyAsync(
+            context.Database,
+            app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Startup"),
+            async () =>
+            {
+                await context.Database.MigrateAsync();
 
-            // Give existing clinics an admin (finding: onboarding used to assign only doctor/secretary, so
-            // pre-fix clinics have none). Idempotent — promotes the earliest user only when a clinic has no
-            // active admin. New clinics already get an admin at creation.
-            var adminBackfill = scope.ServiceProvider.GetRequiredService<IClinicAdminBackfill>();
-            await adminBackfill.BackfillAsync();
-        }
+                if (profile.RunsStartupBackfills)
+                {
+                    // Backfill per-clinic reference catalogs for any existing clinic missing one (#5). Idempotent —
+                    // new clinics are seeded on creation; this covers clinics that predate the per-clinic conversion.
+                    var catalogSeeder = scope.ServiceProvider.GetRequiredService<IClinicCatalogSeeder>();
+                    await catalogSeeder.SeedAllClinicsAsync();
+
+                    // Give existing clinics an admin (finding: onboarding used to assign only doctor/secretary, so
+                    // pre-fix clinics have none). Idempotent — promotes the earliest user only when a clinic has no
+                    // active admin. New clinics already get an admin at creation.
+                    var adminBackfill = scope.ServiceProvider.GetRequiredService<IClinicAdminBackfill>();
+                    await adminBackfill.BackfillAsync();
+                }
+            });
     }
 
 

@@ -64,7 +64,8 @@ public class AuthController : ApiControllerBase
     /// Local-mode login: email + password → signed JWT. Returns 401 on any failure.
     /// </summary>
     [AllowAnonymous]
-    // Per-client-address limit: this is the brute-force surface (US-4 / AC-4.1).
+    // The brute-force surface (US-4 / AC-4.1): a tight window per submitted account, plus a looser per-address
+    // ceiling — a whole practice arrives through one NAT address, so the address alone cannot be the brake.
     [EnableRateLimiting(RateLimiting.AnonymousAuthPolicy)]
     [HttpPost("login")]
     public async Task<IActionResult> Login([FromBody] LoginRequest request)

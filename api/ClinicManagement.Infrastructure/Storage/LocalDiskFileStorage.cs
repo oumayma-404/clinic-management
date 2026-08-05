@@ -116,6 +116,36 @@ public class LocalDiskFileStorage : IFileStorage
     }
 
     /// <summary>
+    /// Confirms the base folder exists and is writable, by creating it if absent and then opening — and
+    /// immediately deleting — a probe file. The write half is the point: an unmounted volume, a full disk and a
+    /// folder the service account cannot write to all present as an existing directory, and every one of them
+    /// breaks the first upload rather than the check.
+    ///
+    /// <para>The probe file is named per attempt so two concurrent checks cannot collide on it, and it is deleted
+    /// in a <c>finally</c> so a failure mid-way leaves nothing behind.</para>
+    /// </summary>
+    public async Task ProbeAsync(CancellationToken cancellationToken = default)
+    {
+        Directory.CreateDirectory(_basePath);
+
+        var probePath = Path.Combine(_basePath, $".health-{Guid.NewGuid():N}");
+
+        try
+        {
+            await using var probe = new FileStream(
+                probePath, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+            await probe.WriteAsync(new byte[] { 0 }, cancellationToken);
+        }
+        finally
+        {
+            if (File.Exists(probePath))
+            {
+                File.Delete(probePath);
+            }
+        }
+    }
+
+    /// <summary>
     /// Resolves a storage key to an absolute path and guarantees it stays within the base folder,
     /// so a crafted key (e.g. one containing "..") can never escape the storage root.
     /// </summary>
