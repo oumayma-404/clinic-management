@@ -1,4 +1,5 @@
 using ClinicManagement.Infrastructure.Auth;
+using ClinicManagement.Infrastructure.Deployment;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -19,27 +20,30 @@ namespace ClinicManagement.Infrastructure.Security;
 /// definition makes that structurally impossible — the same convention <see cref="LocalAuthConfig"/>
 /// applies to the JWT signing key, where issuer and validator resolve through one path.
 ///
-/// Key-ring location is mode-resolved: Local → the gitignored per-install <c>.local/</c> (via
-/// <see cref="LocalInstallPaths"/>); Cloud → an optional configured directory
-/// (<c>DataProtection:KeyRingPath</c>). If Cloud leaves it unset, keys use the framework default location
-/// (single-instance only — a multi-instance Cloud deployment must configure a shared key ring; ops note).
+/// Key-ring location follows the deployment profile: an install whose paths are install-relative keeps it in the
+/// gitignored per-install <c>.local/</c> (via <see cref="LocalInstallPaths"/>); a hosted one uses an optional
+/// configured directory (<c>DataProtection:KeyRingPath</c>). Left unset, keys use the framework default location
+/// (single-instance only — a multi-instance hosted deployment must configure a shared key ring; ops note).
 /// </summary>
 public static class LocalDataProtection
 {
     /// <summary>Purpose-independent application discriminator. Changing it invalidates all ciphertext.</summary>
     public const string ApplicationName = "ClinicManagement";
 
-    /// <summary>Key-ring folder name inside the per-install <c>.local/</c> directory (Local mode).</summary>
+    /// <summary>Key-ring folder name inside the per-install <c>.local/</c> directory.</summary>
     public const string LocalKeyRingFolderName = "dataprotection-keys";
 
+    /// <summary>Configuration key naming a hosted deployment's shared key-ring directory.</summary>
+    public const string KeyRingPathKey = "DataProtection:KeyRingPath";
+
     /// <summary>
-    /// The directory the key ring is persisted to, or <c>null</c> when Cloud has not configured one (in
-    /// which case the framework default location is used).
+    /// The directory the key ring is persisted to, or <c>null</c> when a hosted deployment has not configured
+    /// one (in which case the framework default location is used).
     /// </summary>
     public static string? ResolveKeyRingPath(IConfiguration configuration) =>
-        LocalAuthConfig.IsLocalMode(configuration)
+        DeploymentProfile.Resolve(configuration).RunsAsWindowsService
             ? Path.Combine(LocalInstallPaths.LocalDir, LocalKeyRingFolderName)
-            : configuration["DataProtection:KeyRingPath"];
+            : configuration[KeyRingPathKey];
 
     /// <summary>
     /// Registers Data Protection with this install's configuration. Called by <c>AddInfrastructure</c> for
@@ -50,7 +54,7 @@ public static class LocalDataProtection
         IConfiguration configuration)
     {
         var builder = services.AddDataProtection().SetApplicationName(ApplicationName);
-        var isLocalMode = LocalAuthConfig.IsLocalMode(configuration);
+        var profile = DeploymentProfile.Resolve(configuration);
         var keyRingPath = ResolveKeyRingPath(configuration);
 
         if (!string.IsNullOrWhiteSpace(keyRingPath))
@@ -63,9 +67,9 @@ public static class LocalDataProtection
             // credentials, and the DB passwords) in cleartext on disk. On the Local Windows install, protect
             // them with machine-scoped DPAPI so a stolen/copied key-ring folder is useless off the host —
             // this is what makes the protected db-credentials file machine-bound (spec AC-3.1). DPAPI is
-            // Windows-only; a Cloud key ring at DataProtection:KeyRingPath relies on that directory's ACLs
+            // Windows-only; a hosted key ring at DataProtection:KeyRingPath relies on that directory's ACLs
             // (ops responsibility).
-            if (isLocalMode && OperatingSystem.IsWindows())
+            if (profile.RunsAsWindowsService && OperatingSystem.IsWindows())
             {
                 builder.ProtectKeysWithDpapi(protectToLocalMachine: true);
             }

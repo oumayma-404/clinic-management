@@ -164,7 +164,9 @@ Middleware order (after `Build()`): `UseSwagger`/`UI` (Dev only) → `UseHttpsRe
 
 **EF migrations — mode-branched.** Cloud runs `context.Database.Migrate()` synchronously in `Program.cs` + `IClinicCatalogSeeder.SeedAllClinicsAsync()` backfill. Local defers both to `Startup/DeferredStartupService` (an `IHostedService` that fire-and-forgets the work after the host reports "started"), because applying migrations synchronously as a Windows service blew past the SCM ~30s start timeout (killed mid-migration). `PublishReadyToRun` speeds cold start for that window. The deferred service surfaces a DB-unreachable failure via `StartupDiagnostics.ReportFatal` + `StopApplication()`.
 
-Outer try/catch: `catch when (startupIsLocalMode && StartupDiagnostics.IsAddressInUse(ex))` → clear "port in use" message + `return 1`; else `Log.Fatal` + rethrow; `Log.CloseAndFlush()` in `finally`.
+Outer try/catch: `catch when (startupProfile.SelfHostsFrontDoor && StartupDiagnostics.IsAddressInUse(ex))` → clear "port in use" message + `return 1`; else `Log.Fatal` + rethrow; `Log.CloseAndFlush()` in `finally`.
+
+**Every mode branch in `Program.cs` asks a named capability of the resolved `DeploymentProfile`** (multi-tenant-cloud US-1), never `IsLocalMode`: `RunsAsWindowsService` (service host + install-relative log path), `UsesLocalAccounts` (JWT bearer), `FailClosedAuthz` (the fallback policy — `ConfigurePolicies` keeps its `bool` because it lives in Application), `SelfHostsFrontDoor` (YARP, HTTPS redirect, the port-in-use catch), `SelfSignsCertificate` (the Kestrel cert block + HSTS default), `EnforcesTokenState` (`LocalAuthEnforcementMiddleware`), `ExposesTrustEndpoints` (trust port + `/api/connectivity`), and **`DefersMigrations` vs `RunsStartupBackfills`** — two questions that used to share one `if`. The seven console verbs gate on what each actually needs (`HasLocalDbTooling`, `RunsAsWindowsService`, `SelfSignsCertificate`).
 
 ## Startup diagnostics (`Startup/`) — Local mode
 `StartupDiagnostics` (static, unit-testable) classifies the two operator-recoverable boot failures into clear French messages: `IsDatabaseConnectionFailure` (socket/timeout/bare `NpgsqlException`, but NOT `PostgresException` = server answered) and `IsAddressInUse`. `ReportFatal(message, ex?)` fans to console + Serilog + (best-effort, Windows-only) the Windows Event Log. Invoked only on the Local startup path (Cloud keeps its fatal-rethrow).
@@ -172,6 +174,7 @@ Outer try/catch: `catch when (startupIsLocalMode && StartupDiagnostics.IsAddress
 ## Key configuration keys (`appsettings.json` / `appsettings.Development.json`) — names only
 Secrets are **not committed** (feature cloud-security-and-tenant-isolation, AC-3): committed `appsettings.json` has empty strings + `// SECRET` comments; supply real values via env / user-secrets / `.local/` / the installer's `appsettings.Production.json`.
 - `ConnectionStrings:DefaultConnection` (PostgreSQL + Hangfire; **required**, empty → fail-loud)
+- **`Deployment:Profile`** (`SelfHostedLan`|`HostedMultiTenant`|`CloudBrowser`) — absent ⇒ derived from `Auth:Mode` (`Local` → `SelfHostedLan`, else `CloudBrowser`); an unrecognised value **fails startup loud** rather than falling back to Auth0 login on a typo
 - `Auth:Mode` (`Cloud`|`Local`), `Auth:Local:SigningKey` (optional; else generated `.local/signing-key`)
 - `Connectivity:{ProbeUrl,ProbeTimeoutSeconds,ProbeCacheSeconds}` (Local egress probe)
 - `Auth0:{Domain,Audience}`, `Auth0:ManagementApi:{ClientId,ClientSecret}`

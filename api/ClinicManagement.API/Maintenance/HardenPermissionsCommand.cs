@@ -1,4 +1,4 @@
-﻿using ClinicManagement.Infrastructure.Auth;
+﻿using ClinicManagement.Infrastructure.Deployment;
 using ClinicManagement.Infrastructure.Security;
 using ClinicManagement.API.Startup;
 
@@ -35,11 +35,12 @@ public static class HardenPermissionsCommand
             // `ClinicManagement.API.exe harden-permissions` works from any working directory.
             var configuration = InstallConfiguration.BuildForConsoleVerb();
 
-            if (!LocalAuthConfig.IsLocalMode(configuration))
+            var profile = DeploymentProfile.Resolve(configuration);
+            if (!profile.RunsAsWindowsService)
             {
                 Console.Error.WriteLine(
-                    "Cet utilitaire de sécurisation des droits ne fonctionne qu'en mode Local (hors ligne) " +
-                    "(Auth:Mode=Local).");
+                    "Cet utilitaire de sécurisation des droits ne s'applique qu'à une installation Windows " +
+                    $"locale (profil de déploiement : {profile.Kind}).");
                 return 1;
             }
 

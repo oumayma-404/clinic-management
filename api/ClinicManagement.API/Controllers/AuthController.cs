@@ -8,6 +8,7 @@ using ClinicManagement.Application.Features.Auth.Commands;
 using ClinicManagement.Application.Features.Clinics.Commands;
 using ClinicManagement.API.Models;
 using ClinicManagement.Infrastructure.Auth;
+using ClinicManagement.Infrastructure.Deployment;
 using ClinicManagement.API.Startup;
 using Microsoft.AspNetCore.RateLimiting;
 
@@ -34,14 +35,19 @@ public class AuthController : ApiControllerBase
         _configuration = configuration;
     }
 
+    private DeploymentProfile Deployment => DeploymentProfile.Resolve(_configuration);
+
     /// <summary>
-    /// Public: reports the configured auth mode so the frontend can render the right login UI.
+    /// Public: reports whether this deployment owns its accounts, so the frontend renders the right login UI.
+    ///
+    /// <para>⚠️ The only read here that is a <b>value</b> and not a guard: it must keep answering in every
+    /// profile, or the frontend's mode probe has nothing to branch on. The wire values are unchanged.</para>
     /// </summary>
     [AllowAnonymous]
     [HttpGet("mode")]
     public IActionResult GetMode()
     {
-        var mode = LocalAuthConfig.IsLocalMode(_configuration)
+        var mode = Deployment.UsesLocalAccounts
             ? LocalAuthConfig.LocalMode
             : LocalAuthConfig.CloudMode;
         return Ok(new { mode });
@@ -57,7 +63,7 @@ public class AuthController : ApiControllerBase
     public async Task<IActionResult> Login([FromBody] LoginRequest request)
     {
         // Local-mode only — Cloud login is owned by Auth0 (mirrors Setup/Register).
-        if (!LocalAuthConfig.IsLocalMode(_configuration))
+        if (!Deployment.UsesLocalAccounts)
         {
             return NotFound();
         }
@@ -91,7 +97,7 @@ public class AuthController : ApiControllerBase
     [HttpPost("refresh")]
     public async Task<IActionResult> Refresh([FromBody] RefreshRequest request)
     {
-        if (!LocalAuthConfig.IsLocalMode(_configuration))
+        if (!Deployment.UsesLocalAccounts)
         {
             return NotFound();
         }
@@ -113,7 +119,7 @@ public class AuthController : ApiControllerBase
     [HttpPost("setup")]
     public async Task<IActionResult> Setup([FromBody] SetupRequest request)
     {
-        if (!LocalAuthConfig.IsLocalMode(_configuration))
+        if (!Deployment.UsesLocalAccounts)
         {
             return NotFound();
         }
@@ -158,7 +164,7 @@ public class AuthController : ApiControllerBase
     [HttpPost("register")]
     public async Task<IActionResult> Register([FromBody] RegisterRequest request)
     {
-        if (!LocalAuthConfig.IsLocalMode(_configuration))
+        if (!Deployment.UsesLocalAccounts)
         {
             return NotFound();
         }

@@ -2,7 +2,7 @@ using System.Net;
 using System.Text;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Infrastructure;
-using ClinicManagement.Infrastructure.Auth;
+using ClinicManagement.Infrastructure.Deployment;
 using ClinicManagement.Infrastructure.Security;
 using Microsoft.AspNetCore.Authorization;
 using ClinicManagement.Application.Common.Authorization;
@@ -60,12 +60,14 @@ public class TrustController : ApiControllerBase
         _qrCodeGenerator = qrCodeGenerator;
     }
 
+    private DeploymentProfile Deployment => DeploymentProfile.Resolve(_configuration);
+
     /// <summary>The instructions page itself — the only HTML this API serves.</summary>
     [AllowAnonymous]
     [HttpGet]
     public IActionResult Page()
     {
-        if (!LocalAuthConfig.IsLocalMode(_configuration))
+        if (!Deployment.ExposesTrustEndpoints)
         {
             return NotFound();
         }
@@ -82,7 +84,7 @@ public class TrustController : ApiControllerBase
     [HttpGet("ca.crt")]
     public IActionResult CaCertificate()
     {
-        if (!LocalAuthConfig.IsLocalMode(_configuration))
+        if (!Deployment.ExposesTrustEndpoints)
         {
             return NotFound();
         }
@@ -100,7 +102,7 @@ public class TrustController : ApiControllerBase
     [HttpGet("profile.mobileconfig")]
     public IActionResult AppleProfile()
     {
-        if (!LocalAuthConfig.IsLocalMode(_configuration))
+        if (!Deployment.ExposesTrustEndpoints)
         {
             return NotFound();
         }
@@ -124,7 +126,7 @@ public class TrustController : ApiControllerBase
     [HttpGet("qr.png")]
     public IActionResult QrCode()
     {
-        if (!LocalAuthConfig.IsLocalMode(_configuration))
+        if (!Deployment.ExposesTrustEndpoints)
         {
             return NotFound();
         }

@@ -7,7 +7,7 @@ using ClinicManagement.Application.Features.Clinics.Queries;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Common.Authorization;
 using ClinicManagement.API.Models;
-using ClinicManagement.Infrastructure.Auth;
+using ClinicManagement.Infrastructure.Deployment;
 using System.Text.Json;
 
 namespace ClinicManagement.API.Controllers;
@@ -361,7 +361,7 @@ public class ClinicsController : ApiControllerBase
     public async Task<IActionResult> ConnectWhatsApp(
         [FromBody] ConnectWhatsAppRequest request, CancellationToken cancellationToken = default)
     {
-        if (LocalAuthConfig.IsLocalMode(_configuration))
+        if (!DeploymentProfile.Resolve(_configuration).ExposesMetaOnboarding)
         {
             return NotFound();
         }
@@ -385,7 +385,7 @@ public class ClinicsController : ApiControllerBase
     [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
     public async Task<IActionResult> DisconnectWhatsApp(CancellationToken cancellationToken = default)
     {
-        if (LocalAuthConfig.IsLocalMode(_configuration))
+        if (!DeploymentProfile.Resolve(_configuration).ExposesMetaOnboarding)
         {
             return NotFound();
         }

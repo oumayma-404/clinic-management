@@ -2,7 +2,7 @@
 using ClinicManagement.Application.Common.Maintenance;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Infrastructure;
-using ClinicManagement.Infrastructure.Auth;
+using ClinicManagement.Infrastructure.Deployment;
 using ClinicManagement.API.Startup;
 
 namespace ClinicManagement.API.Maintenance;
@@ -37,11 +37,13 @@ public static class AdminPasswordResetCommand
             // against the install directory via LocalAuthConfig.
             var configuration = InstallConfiguration.BuildForConsoleVerb();
 
-            if (!LocalAuthConfig.IsLocalMode(configuration))
+            // Two things are needed: accounts this product owns, and a direct connection to reset one in.
+            var profile = DeploymentProfile.Resolve(configuration);
+            if (!profile.UsesLocalAccounts || !profile.HasLocalDbTooling)
             {
                 Console.Error.WriteLine(
-                    "This recovery utility only runs in Local (offline) mode (Auth:Mode=Local). " +
-                    "Cloud deployments reset passwords through Auth0.");
+                    "This recovery utility needs local accounts and a direct database connection " +
+                    $"(deployment profile: {profile.Kind}). An Auth0 deployment resets passwords through Auth0.");
                 return 1;
             }
 

@@ -6,6 +6,7 @@ using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Services;
 using ClinicManagement.Infrastructure.Auth;
+using ClinicManagement.Infrastructure.Deployment;
 using ClinicManagement.Infrastructure.Persistence;
 using ClinicManagement.Infrastructure.Repositories;
 using ClinicManagement.Infrastructure.Security;
@@ -20,6 +21,9 @@ public static class Extensions
 {
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
+        // Resolved once: every branch below asks a named capability of it rather than re-reading Auth:Mode.
+        var profile = DeploymentProfile.Resolve(configuration);
+
         // Database
         var connectionString = configuration.GetConnectionString("DefaultConnection");
 
@@ -108,8 +112,8 @@ public static class Extensions
         // shared IMemoryCache registered above, so lockout state is transient by design — see the class.
         services.AddScoped<ILoginAttemptTracker, LoginAttemptTracker>();
 
-        // Auth0 Management Service — real in Cloud mode, no-op in Local mode (no Auth0 tenant).
-        if (LocalAuthConfig.IsLocalMode(configuration))
+        // Auth0 Management Service — real where Auth0 owns identity, no-op where the product does (no Auth0 tenant).
+        if (profile.UsesLocalAccounts)
         {
             services.AddScoped<IAuth0ManagementService, NoOpAuth0ManagementService>();
         }
@@ -118,9 +122,9 @@ public static class Extensions
             services.AddScoped<IAuth0ManagementService, Auth0ManagementService>();
         }
 
-        // File storage backend, selected by auth mode:
-        //   Local (offline) → local disk (no MinIO); Cloud → MinIO (unchanged).
-        if (LocalAuthConfig.IsLocalMode(configuration))
+        // File storage backend: the clinic's own disk (no MinIO) where the deployment stores blobs locally,
+        // MinIO everywhere else (unchanged).
+        if (profile.UsesDiskStorage)
         {
             services.AddScoped<IFileStorage>(sp =>
             {

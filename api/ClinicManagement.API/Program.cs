@@ -4,6 +4,7 @@ using ClinicManagement.API.Hubs;
 using ClinicManagement.API.Maintenance;
 using ClinicManagement.API.Startup;
 using ClinicManagement.Infrastructure;
+using ClinicManagement.Infrastructure.Deployment;
 using ClinicManagement.Infrastructure.Persistence;
 using ClinicManagement.Infrastructure.Security;
 using ClinicManagement.Application.Common.Exceptions;
@@ -93,16 +94,17 @@ if (args.Length > 0 && string.Equals(args[0], CredentialProtectionCommand.ReadCo
     return CredentialProtectionCommand.RunRead(args);
 }
 
-// Determine auth mode early (before Serilog is configured) so Local installs can anchor the log file to
-// the install directory (R-6) — a Windows service's CWD is System32, where a relative "logs/" path would
-// scatter or fail. Cloud keeps its prior relative path, byte-for-byte. This early config is also the seam
-// used for the outer-catch startup-failure handling below (both need the mode before builder.Build()).
+// Resolve the deployment profile early (before Serilog is configured) so an install that runs as a Windows
+// service can anchor the log file to the install directory (R-6) — a service's CWD is System32, where a
+// relative "logs/" path would scatter or fail. Cloud keeps its prior relative path, byte-for-byte. This early
+// config is also the seam used for the outer-catch startup-failure handling below (both need the profile
+// before builder.Build()). An unrecognised Deployment:Profile throws here, i.e. before anything binds.
 // L4e — the layers come from InstallConfiguration so the host and the four console verbs cannot read a
 // different set. `appsettings.Install.json` (installer-owned, machine-derived) sits between the shipped defaults
 // and the operator's own `appsettings.Production.json`, which is what stopped an upgrade from truncating it.
 var startupConfig = new ConfigurationBuilder().AddInstallLayers().Build();
-var startupIsLocalMode = ClinicManagement.Infrastructure.Auth.LocalAuthConfig.IsLocalMode(startupConfig);
-var logFilePath = startupIsLocalMode
+var startupProfile = DeploymentProfile.Resolve(startupConfig);
+var logFilePath = startupProfile.RunsAsWindowsService
     ? Path.Combine(LocalInstallPaths.BaseDirectory, "logs", "clinic-management-.log")
     : "logs/clinic-management-.log";
 
@@ -167,9 +169,9 @@ try
     builder.Host.UseSerilog();
 
     // Local installs (Phase 5 S2): run as an auto-starting Windows service. UseWindowsService() also sets
-    // the content root to the install directory. Gated on mode so Cloud (and console/dev) is unaffected;
+    // the content root to the install directory. Gated on the capability so hosted profiles are unaffected;
     // it is additionally a no-op when the process was not launched as a Windows service.
-    if (startupIsLocalMode)
+    if (startupProfile.RunsAsWindowsService)
     {
         builder.Host.UseWindowsService();
     }
@@ -208,16 +210,18 @@ try
         c.OperationFilter<ClinicManagement.API.Swagger.FileUploadOperationFilter>();
     });
 
-    // JWT Authentication — mode-branched (Auth:Mode = Cloud | Local, default Cloud).
-    // Cloud: validate Auth0-issued tokens (unchanged). Local: validate app-issued tokens
-    // signed with the per-install key. Authorization policies are the same in both modes.
-    var isLocalAuthMode = ClinicManagement.Infrastructure.Auth.LocalAuthConfig.IsLocalMode(builder.Configuration);
+    // JWT Authentication — profile-branched. Auth0-issued tokens when the deployment defers identity to Auth0;
+    // app-issued tokens signed with the per-install key when it owns its own accounts. Authorization policies
+    // are the same either way.
+    // Resolved from builder.Configuration rather than reused from startupProfile: CreateBuilder(args) adds
+    // command-line arguments, so this is the host's authoritative view of the same key.
+    var profile = DeploymentProfile.Resolve(builder.Configuration);
     var auth0Domain = builder.Configuration["Auth0:Domain"];
     var auth0Audience = builder.Configuration["Auth0:Audience"];
 
     var authConfigured = false;
 
-    if (isLocalAuthMode)
+    if (profile.UsesLocalAccounts)
     {
         builder.Services.AddAuthentication(options =>
         {
@@ -269,9 +273,10 @@ try
     {
         builder.Services.AddAuthorization(options =>
         {
-            // Local mode (FR-E3 release gate): install a fail-closed fallback policy so every endpoint
-            // without an explicit [AllowAnonymous] requires an authenticated session. Cloud stays unchanged.
-            AuthorizationPolicies.ConfigurePolicies(options, isLocalAuthMode);
+            // FR-E3 release gate: install a fail-closed fallback policy so every endpoint without an explicit
+            // [AllowAnonymous] requires an authenticated session. ConfigurePolicies keeps its bool parameter
+            // because it lives in Application, which cannot reference Infrastructure.
+            AuthorizationPolicies.ConfigurePolicies(options, profile.FailClosedAuthz);
         });
 
         // Register authorization handlers
@@ -311,12 +316,12 @@ try
         config.UsePostgreSqlStorage(hangfireConnectionString));
     builder.Services.AddHangfireServer();
 
-    // Local installs run as a Windows service, where the SCM kills any service that does not report
-    // "running" within its ~30s start timeout. Applying the migrations synchronously on a fresh DB (see
-    // the migrate block below) exceeded that on first boot and the service was killed before Kestrel
-    // bound. In Local mode, defer migrations to a post-startup hosted service so the host reports
-    // "started" as soon as it binds; Cloud keeps the synchronous migrate (no service-start timeout).
-    if (isLocalAuthMode)
+    // A Windows service is killed by the SCM if it does not report "running" within its ~30s start timeout.
+    // Applying the migrations synchronously on a fresh DB (see the migrate block below) exceeded that on first
+    // boot and the service was killed before Kestrel bound. Where that applies, defer migrations to a
+    // post-startup hosted service so the host reports "started" as soon as it binds; every other profile keeps
+    // the synchronous migrate (no service-start timeout to stay inside).
+    if (profile.DefersMigrations)
     {
         builder.Services.AddHostedService<ClinicManagement.API.Startup.DeferredStartupService>();
     }
@@ -342,9 +347,9 @@ try
     // Kestrel is the single browser-facing HTTPS endpoint: it serves /api/* via controllers in-process and
     // reverse-proxies every other route (pages, /_next/*, static assets, /bff/*) to the co-located Next
     // server on http://localhost:<webPort>. So one hosted web build serves clients at any server IP
-    // (NEXT_PUBLIC_API_URL=/api, same-origin) and TLS terminates once, inside the audited .NET app. Cloud
-    // installs no proxy (absolute API URL, separate origins) and is unchanged.
-    if (isLocalAuthMode)
+    // (NEXT_PUBLIC_API_URL=/api, same-origin) and TLS terminates once, inside the audited .NET app. A hosted
+    // profile installs no proxy (its front door is Caddy, with separate api/web containers) and is unchanged.
+    if (profile.SelfHostsFrontDoor)
     {
         var webPort = builder.Configuration.GetValue<int?>("Hosting:WebPort") ?? 3000;
         var proxyRoutes = new[]
@@ -389,11 +394,13 @@ try
     // "generated" | "configured" | "cloud" — logged in the startup transport posture (S3 step 4).
     var certSource = "cloud";
 
-    if (isLocalAuthMode)
+    if (profile.SelfSignsCertificate)
     {
-        // LOCAL: always serve HTTPS. If a cert path is explicitly configured it MUST exist — refuse the
-        // silent HTTP downgrade (Phase 4 Finding 2 / fail closed & loud). Otherwise self-generate a CA +
-        // server cert into .local/ (FR-E2). Gated on the *mode*, never on a capability flag (Finding 4).
+        // Always serve HTTPS here. If a cert path is explicitly configured it MUST exist — refuse the silent
+        // HTTP downgrade (Phase 4 Finding 2 / fail closed & loud). Otherwise self-generate a CA + server cert
+        // into .local/ (FR-E2). Finding 4 warned against gating this on `httpsConfigured`, a *configuration*
+        // value that merely correlated with the mode; SelfSignsCertificate is derived from the profile itself,
+        // so no operator setting can flip it without changing the profile.
         string certPath;
         string? certPassword;
 
@@ -462,7 +469,8 @@ try
     }
     else
     {
-        // CLOUD — byte-for-byte unchanged: opt-in HTTPS only when a cert file exists, else honor Hosting:Urls.
+        // HOSTED — byte-for-byte unchanged: opt-in HTTPS only when a cert file exists, else honor Hosting:Urls
+        // (behind Caddy, TLS terminates at the proxy and this stays plain HTTP on the container network).
         var httpsConfigured = !string.IsNullOrWhiteSpace(httpsCertPath) && System.IO.File.Exists(httpsCertPath);
         if (httpsConfigured)
         {
@@ -494,12 +502,12 @@ try
         app.UseSwaggerUI();
     }
 
-    // Redirect HTTP → HTTPS — CLOUD only. In LOCAL mode we must NOT redirect: the only HTTP consumer is
-    // the co-located Next BFF calling the API over http://localhost:5000 (loopback). Redirecting that to
-    // the self-signed HTTPS front door makes Node reject the untrusted cert, surfacing as
-    // "cannot reach the clinic server" on login. Local's LAN surface is HTTPS-only by bind (5001) and the
-    // HTTP port is loopback-only, so there is no external HTTP client that needs redirecting.
-    if (!isLocalAuthMode)
+    // Redirect HTTP → HTTPS everywhere the front door is NOT self-hosted. Where it is, we must not redirect:
+    // the only HTTP consumer is the co-located Next BFF calling the API over http://localhost:5000 (loopback).
+    // Redirecting that to the self-signed HTTPS front door makes Node reject the untrusted cert, surfacing as
+    // "cannot reach the clinic server" on login. That LAN surface is HTTPS-only by bind (5001) and the HTTP
+    // port is loopback-only, so there is no external HTTP client that needs redirecting.
+    if (!profile.SelfHostsFrontDoor)
     {
         app.UseHttpsRedirection();
     }
@@ -515,7 +523,7 @@ try
     // request for any other path on that port dies before rate limiting, authentication, the controllers and
     // the Next proxy have had any chance to answer it. This is the half that makes ListenAnyIP(trustPort)
     // safe; see TrustPortGate for why the bind alone is not.
-    if (isLocalAuthMode && trustPort > 0)
+    if (profile.ExposesTrustEndpoints && trustPort > 0)
     {
         app.Use(async (context, next) =>
         {
@@ -539,9 +547,9 @@ try
     app.UseAuthentication();
     app.UseAuthorization();
 
-    // Local mode: the app-issued JWT is stateless, so enforce account state per request —
-    // revoke deactivated accounts and gate users with a pending forced password change.
-    if (isLocalAuthMode)
+    // The app-issued JWT is stateless, so enforce account state per request — revoke deactivated accounts and
+    // gate users with a pending forced password change.
+    if (profile.EnforcesTokenState)
     {
         app.UseMiddleware<ClinicManagement.API.Middleware.LocalAuthEnforcementMiddleware>();
     }
@@ -560,10 +568,10 @@ try
         Authorization = new[] { new HangfireAuthorizationFilter() }
     });
 
-    // Same-origin front door (Local): forward every non-/api route to the localhost Next server. The
-    // catch-all is the least-specific endpoint, so /api/* controllers and the loopback-gated /hangfire
-    // middleware take precedence. Cloud maps no proxy (unchanged).
-    if (isLocalAuthMode)
+    // Same-origin front door: forward every non-/api route to the localhost Next server. The catch-all is the
+    // least-specific endpoint, so /api/* controllers and the loopback-gated /hangfire middleware take
+    // precedence. A hosted profile maps no proxy (unchanged).
+    if (profile.SelfHostsFrontDoor)
     {
         // The proxy serves the Next web app (login/setup pages, static assets, /bff/* auth routes), which
         // handles its OWN authentication. It must be AllowAnonymous — otherwise the Local-mode fail-closed
@@ -572,27 +580,30 @@ try
         app.MapReverseProxy().AllowAnonymous();
     }
 
-    // Ensure database is created (FR-F3: migrations apply automatically on startup).
-    // CLOUD: run migrations synchronously here (no Windows-service start timeout applies) — byte-for-byte
-    // as before. LOCAL: skip here — migrations are deferred to DeferredStartupService (registered above)
-    // so the Windows service reports "started" to the SCM before the migrations run; a fresh-DB first
-    // boot otherwise exceeds the ~30s service-start timeout and the API is killed mid-migration.
-    if (!isLocalAuthMode)
+    // Ensure database is created (FR-F3: migrations apply automatically on startup), then run the boot-time
+    // data backfills. ⚠️ These are TWO questions that used to share one mode boolean: *when*
+    // migrations run is an SCM start-timeout concern, while the backfills are data obligations. Under one flag
+    // a new profile gets them right only by accident, and this is the block Part B must scope and Part F must
+    // wrap in an advisory lock — so "correct by luck" is not good enough.
+    if (!profile.DefersMigrations)
     {
         using var scope = app.Services.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
         context.Database.Migrate();
 
-        // Backfill per-clinic reference catalogs for any existing clinic missing one (#5). Idempotent —
-        // new clinics are seeded on creation; this covers clinics that predate the per-clinic conversion.
-        var catalogSeeder = scope.ServiceProvider.GetRequiredService<IClinicCatalogSeeder>();
-        await catalogSeeder.SeedAllClinicsAsync();
+        if (profile.RunsStartupBackfills)
+        {
+            // Backfill per-clinic reference catalogs for any existing clinic missing one (#5). Idempotent —
+            // new clinics are seeded on creation; this covers clinics that predate the per-clinic conversion.
+            var catalogSeeder = scope.ServiceProvider.GetRequiredService<IClinicCatalogSeeder>();
+            await catalogSeeder.SeedAllClinicsAsync();
 
-        // Give existing Cloud clinics an admin (finding: onboarding used to assign only doctor/secretary, so
-        // pre-fix clinics have none). Idempotent — promotes the earliest user only when a clinic has no
-        // active admin. New clinics already get an admin at creation.
-        var adminBackfill = scope.ServiceProvider.GetRequiredService<IClinicAdminBackfill>();
-        await adminBackfill.BackfillAsync();
+            // Give existing clinics an admin (finding: onboarding used to assign only doctor/secretary, so
+            // pre-fix clinics have none). Idempotent — promotes the earliest user only when a clinic has no
+            // active admin. New clinics already get an admin at creation.
+            var adminBackfill = scope.ServiceProvider.GetRequiredService<IClinicAdminBackfill>();
+            await adminBackfill.BackfillAsync();
+        }
     }
 
 
@@ -652,21 +663,21 @@ try
     RecurringJob.RemoveIfExists("sync-google-calendar");
 
     // Log the transport posture on startup so it is observable (S3 step 4 / fail-loud-and-observable).
-    if (isLocalAuthMode)
+    if (profile.SelfSignsCertificate)
     {
         Log.Information(
-            "Transport posture (Local): HTTPS on port {HttpsPort} (HTTP {HttpPort} redirects), certificate source: {CertSource}.",
-            httpsPort, httpPort, certSource);
+            "Transport posture ({Profile}): HTTPS on port {HttpsPort} (HTTP {HttpPort} redirects), certificate source: {CertSource}.",
+            profile.Kind, httpsPort, httpPort, certSource);
     }
 
     Log.Information("Clinic Management API started successfully");
     app.Run();
 }
-catch (Exception ex) when (startupIsLocalMode && StartupDiagnostics.IsAddressInUse(ex))
+catch (Exception ex) when (startupProfile.SelfHostsFrontDoor && StartupDiagnostics.IsAddressInUse(ex))
 {
-    // FR-F5 (Local): the bind port is already taken — name it and exit non-zero with a clear message
-    // instead of a raw AddressInUseException. Uses the early startup config (the in-try mode flag is out
-    // of scope here). Cloud (filter false) falls through to the fatal-rethrow below, unchanged.
+    // FR-F5: the bind port is already taken — name it and exit non-zero with a clear message instead of a raw
+    // AddressInUseException. Uses the early startup profile (the in-try one is out of scope here). A hosted
+    // profile falls through to the fatal-rethrow below, unchanged.
     var port = startupConfig.GetValue<int?>("Hosting:HttpsPort") ?? 5001;
     StartupDiagnostics.ReportFatal(StartupDiagnostics.PortInUseMessage(port), ex);
     return 1;

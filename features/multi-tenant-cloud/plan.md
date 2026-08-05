@@ -15,8 +15,14 @@ outbox-depth read since `/hangfire` is unreachable in this topology.
 acceptance criteria to verify against; if this grows past US-2, write one.
 **Predecessor:** `features/cloud-deployment/` (APPROVED, implemented) — supplies the hosted front door this plan
 depends on and does **not** re-build.
-**Branch:** to be created off `main`. ⚠️ Not off `feature/audit-sections-3-to-10`, which carries unrelated
-in-flight work (agenda density + the duplicate-patient fix).
+**Branch:** **`feature/audit-sections-3-to-10`** — work continues on the existing branch, by decision.
+⚠️ This reverses the plan's original « cut off `main` » instruction, and the reason that instruction existed is
+**gone**: the unrelated in-flight work it warned about (agenda density, the duplicate-patient fix, the secretary
+clinical-record access) was committed as `90660b9`, so the tree is clean. Two things remain true and worth
+knowing: the branch is **259 commits ahead of `main`**, so this work will reach `main` in the same PR as
+everything else on it (a review-scope consequence, not a correctness one) — and per the repo's own standing rule,
+still run `git diff HEAD --numstat` before any `git add`, because this branch has repeatedly carried 40+ dirty
+files and a blanket stage would swallow in-flight work.
 
 ---
 

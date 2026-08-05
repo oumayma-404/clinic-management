@@ -1,7 +1,7 @@
 ﻿using System.Diagnostics;
 using System.Net.NetworkInformation;
 using ClinicManagement.Infrastructure;
-using ClinicManagement.Infrastructure.Auth;
+using ClinicManagement.Infrastructure.Deployment;
 using Npgsql;
 using ClinicManagement.API.Startup;
 
@@ -62,11 +62,12 @@ public static class RestoreBackupCommand
 
             var configuration = InstallConfiguration.BuildForConsoleVerb();
 
-            if (!LocalAuthConfig.IsLocalMode(configuration))
+            var profile = DeploymentProfile.Resolve(configuration);
+            if (!profile.HasLocalDbTooling)
             {
                 Console.Error.WriteLine(
-                    "Cet utilitaire de restauration ne fonctionne qu'en mode Local (Auth:Mode=Local). "
-                    + "Un déploiement Cloud se restaure avec l'outillage de son hébergeur.");
+                    "Cet utilitaire de restauration a besoin de pg_restore et d'une connexion directe à la base "
+                    + $"(profil de déploiement : {profile.Kind}).");
                 return 1;
             }
 

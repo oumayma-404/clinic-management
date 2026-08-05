@@ -1,5 +1,5 @@
 ﻿using ClinicManagement.Infrastructure;
-using ClinicManagement.Infrastructure.Auth;
+using ClinicManagement.Infrastructure.Deployment;
 using ClinicManagement.Infrastructure.Security;
 using ClinicManagement.API.Startup;
 
@@ -145,10 +145,13 @@ public static class CredentialProtectionCommand
 
         var configuration = InstallConfiguration.BuildForConsoleVerb();
 
-        if (!LocalAuthConfig.IsLocalMode(configuration))
+        // The ciphertext is bound to this machine's DPAPI key ring under .local/ — meaningless anywhere else.
+        var profile = DeploymentProfile.Resolve(configuration);
+        if (!profile.RunsAsWindowsService)
         {
             Console.Error.WriteLine(
-                "Cet utilitaire ne fonctionne qu'en mode Local (hors ligne) (Auth:Mode=Local).");
+                "Cet utilitaire ne s'applique qu'à une installation Windows locale "
+                + $"(profil de déploiement : {profile.Kind}).");
             return null;
         }
 

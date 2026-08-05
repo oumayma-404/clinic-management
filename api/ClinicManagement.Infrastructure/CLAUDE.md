@@ -9,9 +9,13 @@ rendering, Auth0 management (Cloud) / local JWT auth (Local), and — for offlin
 self-generated HTTPS trust material, and per-clinic reference-catalog seeding. All wiring lives in
 `Extensions.cs` (`AddInfrastructure`).
 
-> Two auth modes gate behavior: `Auth:Mode` = `Cloud` (Auth0, MinIO) | `Local` (offline LAN, self-issued
-> JWT, local-disk storage). Resolved via `LocalAuthConfig.IsLocalMode(config)`. Local additions are additive;
-> Cloud is unchanged unless noted.
+> Behavior is gated by the resolved **deployment profile**, not by an auth-mode boolean:
+> `Deployment/DeploymentProfile.Resolve(config)` → `SelfHostedLan` (offline LAN, self-issued JWT, local-disk
+> storage) | `HostedMultiTenant` | `CloudBrowser` (Auth0, MinIO), each exposing **a capability per question**
+> (`UsesLocalAccounts`, `UsesDiskStorage`, `RunsAsWindowsService`, `SelfSignsCertificate`, …). `Deployment:Profile`
+> names it; **absent, it derives from `Auth:Mode`** exactly as the old boolean did (`Local` → `SelfHostedLan`, else
+> `CloudBrowser`), so existing installs need no config edit. ⚠️ `LocalAuthConfig.IsLocalMode` survives only as that
+> derivation — a branch anywhere else asking it fails `DeploymentProfileCoverageTests`.
 
 ## EF Core Persistence (`Persistence/`)
 
@@ -365,7 +369,9 @@ a call fails cleanly ("pg_dump introuvable").
 `ConnectionStrings:DefaultConnection`; `FileStorage:BasePath`; `MinIO:{Endpoint,AccessKey,SecretKey,BucketName,
 UseSSL}`; `GoogleCalendar:{ClientId,ClientSecret}` (per-clinic refresh token/calendar id live on `Clinic`);
 `HuggingFace:{ApiKey,Model}`; `Auth0:{Domain,ManagementApi:ClientId,ManagementApi:ClientSecret}`;
-`Auth:Mode` (`Cloud`|`Local`); `Auth:Local:{SigningKey,SigningKeyPath,Issuer,Audience,TokenLifetimeMinutes}`
+**`Deployment:Profile`** (`SelfHostedLan`|`HostedMultiTenant`|`CloudBrowser`; absent ⇒ derived from `Auth:Mode`, an
+unrecognised value **fails startup loud**); `Auth:Mode` (`Cloud`|`Local`);
+`Auth:Local:{SigningKey,SigningKeyPath,Issuer,Audience,TokenLifetimeMinutes}`
 (all optional; key else generated `.local/signing-key`); `Connectivity:{ProbeUrl,ProbeTimeoutSeconds,
 ProbeCacheSeconds}`; `Cors:AllowedOrigins` (Local); `Reminders:{Channels,LeadTimesHours,MinLeadHours,MaxRetries,
 Sms:{ApiUrl,SenderId,ApiKey},WhatsApp:{ApiUrl,PhoneNumberId,TemplateName,AccessToken,TemplateLanguage,

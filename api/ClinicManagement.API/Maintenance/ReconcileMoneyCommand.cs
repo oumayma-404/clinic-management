@@ -2,7 +2,7 @@
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Maintenance;
 using ClinicManagement.Infrastructure;
-using ClinicManagement.Infrastructure.Auth;
+using ClinicManagement.Infrastructure.Deployment;
 using ClinicManagement.Infrastructure.Persistence;
 using ClinicManagement.API.Startup;
 
@@ -48,11 +48,12 @@ public static class ReconcileMoneyCommand
             // `ClinicManagement.API.exe reconcile-money` works from any working directory.
             var configuration = InstallConfiguration.BuildForConsoleVerb();
 
-            if (!LocalAuthConfig.IsLocalMode(configuration))
+            var profile = DeploymentProfile.Resolve(configuration);
+            if (!profile.HasLocalDbTooling)
             {
                 Console.Error.WriteLine(
-                    "This reconciliation utility only runs in Local (offline) mode (Auth:Mode=Local). " +
-                    "Cloud deployments apply migrations at startup and are verified through their own tooling.");
+                    "This reconciliation utility needs a direct database connection " +
+                    $"(deployment profile: {profile.Kind}).");
                 return 1;
             }
 

@@ -1,4 +1,4 @@
-﻿using ClinicManagement.Infrastructure.Auth;
+﻿using ClinicManagement.Infrastructure.Deployment;
 using ClinicManagement.Infrastructure.Security;
 using Microsoft.Extensions.Logging.Abstractions;
 using ClinicManagement.API.Startup;
@@ -37,11 +37,12 @@ public static class ProvisionCertCommand
             // CertificateProvisioner), so the CLI and the web host write/read the same .local/ folder.
             var configuration = InstallConfiguration.BuildForConsoleVerb();
 
-            if (!LocalAuthConfig.IsLocalMode(configuration))
+            var profile = DeploymentProfile.Resolve(configuration);
+            if (!profile.SelfSignsCertificate)
             {
                 Console.Error.WriteLine(
-                    "This certificate-provisioning utility only runs in Local (offline) mode " +
-                    "(Auth:Mode=Local). Cloud deployments use a configured certificate.");
+                    "This certificate-provisioning utility only runs where the deployment signs its own " +
+                    $"certificate (deployment profile: {profile.Kind} uses a configured one).");
                 return 1;
             }
 
