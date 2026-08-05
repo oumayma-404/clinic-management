@@ -96,13 +96,8 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
   const [busy, setBusy] = useState(false)
   const [paymentTarget, setPaymentTarget] = useState<InstallmentDto | null>(null)
   const [emailTarget, setEmailTarget] = useState<PlanEmailTarget | null>(null)
-  /**
-   * Bookings still to make, each element being **one appointment**.
-   *
-   * <p>A queue rather than a single target, because that is what makes « 3 ensemble, 1 à part » one gesture: the
-   * user ticks the acts and says how to split them, and the workspace walks the resulting groups through the same
-   * dialog one at a time. « Ensemble » enqueues one group of N; « Séparément » enqueues N groups of one.</p>
-   */
+  /** Bookings still to make, each element being one appointment. Only ever empty or a single group now — the bar's
+   * « séparément » split (N groups of one) was removed as a duplicate of each act's own « Planifier ». */
   const [bookingQueue, setBookingQueue] = useState<PresetPlanAct[][]>([])
   /** Plan acts ticked for booking (ids). Only « À planifier » acts can be in here. */
   const [selectedActIds, setSelectedActIds] = useState<string[]>([])
@@ -312,17 +307,8 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
     setSelectedActIds([])
   }
 
-  /**
-   * Advance to the next appointment in the queue (or close), then refetch so états update.
-   *
-   * <p>The flag exists because the dialog reports a successful create by calling `onSuccess` and *then*
-   * `onOpenChange(false)` — and closing is what abandons the run. Without distinguishing the two, booking the
-   * first of three séances would shift the queue and immediately discard the rest.</p>
-   *
-   * <p>⚠️ The queue is emptied and the remainder re-queued on the **next tick** rather than sliced in place. The
-   * dialog is no longer remounted between séances (see its `key` below), so a closed render is what runs its
-   * reset — shifting in one go would leave the previous visit's time and acts in the form.</p>
-   */
+  /** Close the booking dialog, then refetch so états update. The flag marks this close as a successful create
+   * rather than the user backing out — the dialog calls `onSuccess` and *then* `onOpenChange(false)`. */
   const finishCurrentBooking = () => {
     justAdvancedRef.current = true
     const rest = bookingQueue.slice(1)
@@ -666,12 +652,9 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
             />
           )}
           {/*
-            The grouping bar. It only exists while acts are ticked, and it offers **both** splits explicitly rather
-            than guessing: « ensemble » is one appointment carrying every ticked act, « séparément » is one
-            appointment each. Neither is the default, because neither is more correct — a détartrage and an
-            obturation on the same tooth belong in one visit, two extractions on opposite sides do not, and only
-            the dentist knows which. Mixed splits fall out of repeating the gesture: tick two → ensemble, tick the
-            rest → séparément.
+            The grouping bar — one action: the ticked acts become **one** appointment. Booking them separately is
+            what each act's own « Planifier » already does, one row at a time, so the bar carrying a second
+            « séparément » button duplicated that path and walked a queue of dialogs to do it.
           */}
           {selectedActIds.length > 0 && (
             <div
@@ -683,28 +666,18 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                 {selectedActIds.length > 1 ? "s" : ""}
               </span>
               <div className="ml-auto flex flex-wrap items-center gap-2">
-                {selectedActIds.length > 1 && (
-                  <Button
-                    size="sm"
-                    className="h-8 gap-1"
-                    disabled={busy}
-                    onClick={() => startBooking([selectedItems])}
-                  >
-                    <Layers className="h-4 w-4" />
-                    Planifier ensemble — 1 RDV
-                  </Button>
-                )}
                 <Button
                   size="sm"
-                  variant="outline"
                   className="h-8 gap-1"
                   disabled={busy}
-                  onClick={() => startBooking(selectedItems.map((i) => [i]))}
+                  onClick={() => startBooking([selectedItems])}
                 >
-                  <CalendarPlus className="h-4 w-4" />
-                  {selectedActIds.length > 1
-                    ? `Planifier séparément — ${selectedActIds.length} RDV`
-                    : "Planifier"}
+                  {selectedActIds.length > 1 ? (
+                    <Layers className="h-4 w-4" />
+                  ) : (
+                    <CalendarPlus className="h-4 w-4" />
+                  )}
+                  {selectedActIds.length > 1 ? "Planifier ensemble — 1 RDV" : "Planifier"}
                 </Button>
                 <Button
                   size="sm"
@@ -1189,13 +1162,11 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
         open={bookingQueue.length > 0}
         onOpenChange={(open) => {
           if (open) return
-          // A close that follows a successful create is the queue advancing, not the user backing out.
+          // A close that follows a successful create is already handled by `finishCurrentBooking`.
           if (justAdvancedRef.current) {
             justAdvancedRef.current = false
             return
           }
-          // Cancelling abandons the WHOLE run, not just this appointment: after « Planifier séparément — 3 RDV »,
-          // silently advancing to the next act would leave the user in a dialog they did not ask to reopen.
           setBookingQueue([])
         }}
         presetPatientId={plan.patientId}
