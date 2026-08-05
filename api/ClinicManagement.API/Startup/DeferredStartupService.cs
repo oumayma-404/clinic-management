@@ -50,6 +50,12 @@ public sealed class DeferredStartupService : IHostedService
         try
         {
             using var scope = _services.CreateScope();
+
+            // No request behind this scope, and the catalog backfill below is a per-clinic obligation across
+            // every clinic — the query filters refuse an unset scope, so it has to be declared (US-2).
+            scope.ServiceProvider.GetRequiredService<ITenantScope>()
+                .UseSystemWide("deferred startup migrations and per-clinic catalog backfill");
+
             var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
             // L4f — back up BEFORE migrating, and abort the migration if that backup fails.

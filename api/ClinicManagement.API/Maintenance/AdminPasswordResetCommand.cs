@@ -60,6 +60,11 @@ public static class AdminPasswordResetCommand
             // Resolves to `ProcessAuditActorProvider` here: this container has no `AddApplication` and no claims.
             scope.ServiceProvider.GetRequiredService<IAuditActorProvider>().RunAs(CommandName);
 
+            // US-2: recovery searches for an admin across every clinic — there is no clinic in scope to search
+            // within, which is the whole point of an offline lockout recovery.
+            scope.ServiceProvider.GetRequiredService<ITenantScope>()
+                .UseSystemWide($"{CommandName} recovers an admin account in any clinic");
+
             var recovery = new AdminPasswordRecoveryService(
                 scope.ServiceProvider.GetRequiredService<IUserRepository>(),
                 scope.ServiceProvider.GetRequiredService<ILocalAuthService>(),

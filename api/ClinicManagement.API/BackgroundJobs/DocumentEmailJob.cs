@@ -33,6 +33,7 @@ public class DocumentEmailJob
     private readonly IInternetProbe _internetProbe;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IConfiguration _configuration;
+    private readonly ITenantScope _tenantScope;
     private readonly ILogger<DocumentEmailJob> _logger;
 
     public DocumentEmailJob(
@@ -43,6 +44,7 @@ public class DocumentEmailJob
         IInternetProbe internetProbe,
         IUnitOfWork unitOfWork,
         IConfiguration configuration,
+        ITenantScope tenantScope,
         ILogger<DocumentEmailJob> logger)
     {
         _documentEmailRepository = documentEmailRepository;
@@ -52,6 +54,7 @@ public class DocumentEmailJob
         _internetProbe = internetProbe;
         _unitOfWork = unitOfWork;
         _configuration = configuration;
+        _tenantScope = tenantScope;
         _logger = logger;
     }
 
@@ -59,6 +62,10 @@ public class DocumentEmailJob
     [AutomaticRetry(Attempts = 3)]
     public async Task DispatchQueuedEmails()
     {
+        // US-2: DocumentEmail is clinic-filtered and this drains every clinic's queue. Without this
+        // « Envoyer par email » stops for every clinic while the job keeps reporting success.
+        _tenantScope.UseSystemWide("DocumentEmailJob drains the document-email outbox for every clinic");
+
         // The server (not a LAN client) is the source of truth for internet egress. Offline ⇒ send nothing and
         // consume no retry, so a week offline does not exhaust every row's attempts.
         if (!await _internetProbe.IsInternetReachableAsync())

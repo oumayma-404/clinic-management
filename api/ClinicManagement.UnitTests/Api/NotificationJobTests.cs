@@ -104,6 +104,7 @@ public class NotificationJobTests
             // I6 wired an audit actor into every job. A permissive mock keeps these scenarios exactly as they
             // were: the job declares itself, nothing here observes it.
             new Mock<IAuditActorProvider>().Object,
+            new Mock<ITenantScope>().Object,
             NullLogger<NotificationJob>.Instance);
     }
 
@@ -322,6 +323,7 @@ public class NotificationJobTests
             config, new IReminderChannelSender[] { sender }, new Mock<INotificationGenerator>().Object,
             // I6: permissive audit-actor mock — see the shared builder above.
             new Mock<IAuditActorProvider>().Object,
+            new Mock<ITenantScope>().Object,
             NullLogger<NotificationJob>.Instance);
 
         await job.ProcessPendingNotifications();
@@ -372,6 +374,7 @@ public class NotificationJobTests
             config, new IReminderChannelSender[] { sender }, new Mock<INotificationGenerator>().Object,
             // I6: permissive audit-actor mock — see the shared builder above.
             new Mock<IAuditActorProvider>().Object,
+            new Mock<ITenantScope>().Object,
             NullLogger<NotificationJob>.Instance);
 
         await job.ProcessPendingNotifications();
@@ -429,6 +432,7 @@ public class NotificationJobTests
             // I6 wired an audit actor into every job. A permissive mock keeps these scenarios exactly as they
             // were: the job declares itself, nothing here observes it.
             new Mock<IAuditActorProvider>().Object,
+            new Mock<ITenantScope>().Object,
             NullLogger<NotificationJob>.Instance);
 
         await job.ProcessPendingNotifications();
@@ -633,7 +637,8 @@ public class NotificationJobTests
         return new NotificationJob(
             notifications.Object, patients.Object, appointments.Object, uow.Object, probe.Object,
             settingsProvider.Object, config, senders, new Mock<INotificationGenerator>().Object,
-            new Mock<IAuditActorProvider>().Object, NullLogger<NotificationJob>.Instance);
+            new Mock<IAuditActorProvider>().Object, new Mock<ITenantScope>().Object,
+            NullLogger<NotificationJob>.Instance);
     }
 
     /// <summary>

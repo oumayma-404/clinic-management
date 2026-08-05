@@ -1,4 +1,5 @@
 ﻿using System.Text;
+using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Maintenance;
 using ClinicManagement.Infrastructure;
 using ClinicManagement.Infrastructure.Deployment;
@@ -53,12 +54,18 @@ public static class VerifySchemaCommand
 
             var services = new ServiceCollection();
             services.AddLogging();
-            // AddInfrastructure ONLY — never AddApplication. Without it no ICurrentClinicProvider is registered,
-            // so the DbContext's global clinic query filters stay inactive and the row counts span every clinic.
+            // AddInfrastructure ONLY — never AddApplication. It registers the tenant scope and a floor
+            // ICurrentClinicProvider, which is what lets the declaration below actually mean something.
             services.AddInfrastructure(configuration);
 
             await using var provider = services.BuildServiceProvider();
             using var scope = provider.CreateScope();
+
+            // US-2: the backfill row counts are counted over every clinic. Under an unset scope the filtered ones
+            // would come back 0 — indistinguishable from « the backfill covered nothing », which is exactly the
+            // finding this verb exists to surface.
+            scope.ServiceProvider.GetRequiredService<ITenantScope>()
+                .UseSystemWide($"{CommandName} verifies the schema and counts backfilled rows across every clinic");
 
             var reader = new SchemaVerificationReader(
                 scope.ServiceProvider.GetRequiredService<ApplicationDbContext>());

@@ -28,6 +28,7 @@ public class StockExpiryJob
     private readonly IStockItemRepository _stockItemRepository;
     private readonly INotificationGenerator _notificationGenerator;
     private readonly IAuditActorProvider _auditActor;
+    private readonly ITenantScope _tenantScope;
     private readonly ILogger<StockExpiryJob> _logger;
 
     public StockExpiryJob(
@@ -35,12 +36,14 @@ public class StockExpiryJob
         IStockItemRepository stockItemRepository,
         INotificationGenerator notificationGenerator,
         IAuditActorProvider auditActor,
+        ITenantScope tenantScope,
         ILogger<StockExpiryJob> logger)
     {
         _clinicRepository = clinicRepository;
         _stockItemRepository = stockItemRepository;
         _notificationGenerator = notificationGenerator;
         _auditActor = auditActor;
+        _tenantScope = tenantScope;
         _logger = logger;
     }
 
@@ -51,6 +54,10 @@ public class StockExpiryJob
         // I6: a job has no token, so without naming itself every row it writes would read « Tâche automatique »
         // with no clue which one. The declaration happens before anything is saved — see IAuditActorProvider.RunAs.
         _auditActor.RunAs(nameof(StockExpiryJob));
+
+        // US-2: the scan reads StockItem, which is clinic-filtered, for every clinic. Without this it would find
+        // no items anywhere and log a clean pass — R-1's failure mode exactly.
+        _tenantScope.UseSystemWide("StockExpiryJob scans every clinic's stock for approaching expiry");
 
         var now = DateTime.UtcNow;
         var clinics = await _clinicRepository.GetAllAsync();

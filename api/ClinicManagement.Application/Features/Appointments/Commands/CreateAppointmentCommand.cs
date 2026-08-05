@@ -301,7 +301,7 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
 
             // Push to Google Calendar post-commit (fire-and-forget, connectivity-gated). Best-effort — a
             // Google failure never affects the created appointment; patient-less slots are skipped by the service.
-            _googleSyncDispatcher.Dispatch(appointment.Id);
+            _googleSyncDispatcher.Dispatch(appointment.Id, clinicId);
 
             return Result<AppointmentDto>.Success(dto);
         }

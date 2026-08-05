@@ -35,8 +35,8 @@ public static class Extensions
         services.AddScoped<IStockConsumptionService, StockConsumptionService>();
         // Fire-and-forget, connectivity-gated Google Calendar sync for appointment create/update.
         services.AddScoped<IAppointmentGoogleSyncDispatcher, AppointmentGoogleSyncDispatcher>();
-        // Backstop tenant scoping: feeds the EF Core global query filter with the caller's clinic id.
-        // Inactive (null) when no clinic is in scope so background jobs / CLI / anonymous flows are unaffected.
+        // Feeds the EF Core global query filter the scope's clinic (US-2). ITenantScope itself is registered in
+        // AddInfrastructure, which the console verbs also call — see the floor there.
         services.AddScoped<ICurrentClinicProvider, CurrentClinicProvider>();
         // Who the audit ledger stamps on the rows written in this scope (I6). Scoped and resolve-once, so one
         // operation carries one actor even when it changes the caller's own account mid-flight; a job or a console

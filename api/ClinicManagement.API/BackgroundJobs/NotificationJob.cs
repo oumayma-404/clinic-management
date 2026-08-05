@@ -28,6 +28,7 @@ public class NotificationJob
     private readonly IReadOnlyDictionary<NotificationType, IReminderChannelSender> _senders;
     private readonly INotificationGenerator _notificationGenerator;
     private readonly IAuditActorProvider _auditActor;
+    private readonly ITenantScope _tenantScope;
     private readonly ILogger<NotificationJob> _logger;
 
     public NotificationJob(
@@ -41,6 +42,7 @@ public class NotificationJob
         IEnumerable<IReminderChannelSender> senders,
         INotificationGenerator notificationGenerator,
         IAuditActorProvider auditActor,
+        ITenantScope tenantScope,
         ILogger<NotificationJob> logger)
     {
         _notificationRepository = notificationRepository;
@@ -53,6 +55,7 @@ public class NotificationJob
         _senders = senders.ToDictionary(s => s.Channel);
         _notificationGenerator = notificationGenerator;
         _auditActor = auditActor;
+        _tenantScope = tenantScope;
         _logger = logger;
     }
 
@@ -65,6 +68,10 @@ public class NotificationJob
         // I6: a job has no token, so without naming itself every row it writes would read « Tâche automatique »
         // with no clue which one. The declaration happens before anything is saved — see IAuditActorProvider.RunAs.
         _auditActor.RunAs(nameof(NotificationJob));
+
+        // US-2: the due-row scan, the per-clinic settings and the appointment re-check all read clinic-filtered
+        // tables across every clinic. Without this the queue reads as empty and every reminder stops, silently.
+        _tenantScope.UseSystemWide("NotificationJob dispatches the reminder outbox for every clinic");
 
         // AC-5: the server (not a LAN client) is the source of truth for internet egress. Offline ⇒ send
         // nothing, leave rows Pending, and do NOT touch the retry count — the offline skip is free.

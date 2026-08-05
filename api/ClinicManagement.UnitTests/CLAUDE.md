@@ -34,6 +34,29 @@ Infrastructure/ → service/repo/persistence tests: renderers, senders, e-invoic
 - **`Common/Authorization/AuthorizationPoliciesTests.cs`** — the `FallbackPolicy` is installed only in Local mode.
 - **`Common/Behaviors/RealtimeBroadcastBehavior*`** — the MediatR pipeline behavior that auto-broadcasts SignalR resource-changed events.
 - **`Common/Behaviors/RealtimeResourceResolverTests.cs`** — the backend↔frontend realtime key contract, and a worked example of a guard that derives both sides instead of listing them (AC-P4.23–4.25). It reflects over every `IBaseRequest` in the Application assembly for the emitted set, **parses `web/lib/realtime/clinic-hub.ts`** for the declared set, and asserts they are **equal in both directions**; two allow-lists (emit-only / listen-only) exist for intentional asymmetry and are asserted **empty**. It replaced a 16-row `[InlineData]` table that stayed green throughout the entire period five keys were broadcast with nothing listening (audit § 9.1) — a table can only fail on rows someone remembered to write, never on the new area. It finds the frontend file via **`[CallerFilePath]`**, not `AppContext.BaseDirectory`, because the suite is routinely built to a scratch OutDir outside the repo (the SAC workaround); and it **throws** rather than skipping when the file is absent.
+- **`Common/TenantScopeFilterTests.cs`** + **`Common/SystemWideCallerCoverageTests.cs`** (`multi-tenant-cloud` US-2)
+  — the pair that holds the query filter's inversion from fail-open to refusing. The filter test asserts **SQL**,
+  not rows (no database, no in-memory provider — `ToQueryString()`, same technique and same reason as
+  `RecallQueryTranslationTests`), and it iterates **every filtered root read off `db.Model`**, so a 22nd
+  clinic-owned aggregate is covered the day it is configured. It also pins the two cases that look alike and are
+  not: an **`Unset` scope** (a scope exists and said nothing ⇒ compares against `Guid.Empty` ⇒ no rows) versus **no
+  provider at all** (the design-time factory and hand-built contexts ⇒ everything, or `dotnet ef` and half this
+  project stop working). Its one hand-written list is the four clinic-owned tables deliberately left unfiltered
+  (`User`, `Clinic`, `AuditEntry`, `Notification`), asserted **equal** to the model in both directions.
+  The coverage test derives its candidates from the *criterion* — « reads a filtered entity with no HTTP context »
+  — by reflecting over the API assembly for background jobs, `IHostedService`s and `Maintenance/*Command`s plus a
+  source scan for `CreateScope()`; reading it off « is it a job? » produced a wrong list in both directions during
+  planning. It carries its own red-proof (`The_Guard_Rejects_A_Job_Whose_Declaration_Is_Removed`) rather than
+  asking a reviewer to delete a call by hand. ⚠️ Exclude compiler-generated **nested** types when reflecting over a
+  namespace: in a Debug build an async state machine is a *class*, so `<FlagExpiringStock>d__3` arrives as a
+  candidate whose source file does not exist.
+- **`Hubs/ClinicHubTenantScopeTests.cs`** — asserts on the hub's **constructor**, because the defect it guards
+  against cannot be caught behaviourally: HTTP middleware does not run per hub invocation, so a hub method reading
+  a clinic-filtered entity returns an **empty result and reports success**.
+- **`Features/Patients/ClinicalRecordTenantIsolationTests.cs`** — the four PHI tables with no `ClinicId` column
+  (`DentalRecord`, `PatientMedicalHistory`, `PatientFamilyHistory`, `ToothState`) that had no by-id isolation test.
+  No filter is possible for them, so the per-handler DB check is their only layer and this is the only place it can
+  be held; `features/fix-patient-file-tenant-isolation` exists because this class already leaked once.
 - **`Infrastructure/Persistence/RecallQueryTranslationTests.cs`** — proves the bounded relance read is genuinely **in SQL** (AC-P4.41) by calling `ToQueryString()` on `PatientRepository.RecallCandidateQuery` and asserting `EXISTS`, `MAX(`, `IsArchived`, `RecallSnoozedUntil` and `PhoneNumber` all appear. Needed because every other test mocks the repository and so cannot distinguish "pushed to SQL" from "filtered in memory", and because an untranslatable LINQ expression fails at **runtime on the request**, not at build. It opens no connection (Npgsql is configured only because SQL generation is provider-specific) — so it does not break the no-database rule below. The production method is shared rather than copied, so the test cannot drift into a parallel implementation.
 - **`Api/TreatmentPlansControllerAuthorizationTests.cs`** — pins `CancelPlan` to `AdminOrDoctor` (altering a numbered financial document) and every other action to *no* method-level policy. Carries a **drift guard** (`Every_Action_Is_Classified_By_This_Test`) that fails when a new action is added without deciding its policy — deliberate, so slice B's `amend`/`revise-installments`/`items/order` cannot land unclassified.
 - **`Features/Common/ConcurrencyConflictTests.cs`** — the optimistic-concurrency contract. Reflection-based where it can be, so a new entity or DTO is covered without editing the test: every `Entity<>` carries the token, the six round-tripped DTOs and their update commands expose it, a `ConflictException` **escapes** the handler catch-alls rather than being flattened, and the handler actually calls `SetExpectedVersion` (without which the whole feature is inert while looking present).

@@ -255,6 +255,7 @@ public class RecallDeliveryTruthTests
                 Generator.Object,
                 // I6: the job names itself as the audit actor. Permissive mock — unobserved here.
                 new Mock<IAuditActorProvider>().Object,
+                new Mock<ITenantScope>().Object,
                 NullLogger<NotificationJob>.Instance);
         }
     }

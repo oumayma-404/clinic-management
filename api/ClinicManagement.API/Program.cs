@@ -547,6 +547,12 @@ try
     app.UseAuthentication();
     app.UseAuthorization();
 
+    // Whose rows this request may read. Unconditional and in EVERY profile: the global query filters refuse an
+    // unset scope, so a request that reached a controller without passing here would read nothing at all. It
+    // sits after UseAuthorization so a refused request never pays for the account lookup, and before the
+    // token-state middleware so the two share that one lookup (see RequestAccount).
+    app.UseMiddleware<ClinicManagement.API.Middleware.TenantScopeMiddleware>();
+
     // The app-issued JWT is stateless, so enforce account state per request — revoke deactivated accounts and
     // gate users with a pending forced password change.
     if (profile.EnforcesTokenState)
@@ -588,6 +594,13 @@ try
     if (!profile.DefersMigrations)
     {
         using var scope = app.Services.CreateScope();
+
+        // This scope has no request behind it, and the backfills below are per-clinic obligations across every
+        // clinic — so the query filters have to be told, or the seeder and the admin backfill would each see an
+        // empty database and report success (US-2, R-1).
+        scope.ServiceProvider.GetRequiredService<ITenantScope>()
+            .UseSystemWide("startup migrations and per-clinic backfills");
+
         var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
         context.Database.Migrate();
 

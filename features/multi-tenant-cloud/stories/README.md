@@ -82,7 +82,7 @@ graph TD
 
 | Story | Layer | Name | Status | Depends On |
 |-------|-------|------|--------|------------|
-| 1 | Full | [Hosted multi-tenant profile](story-1-full-hosted-multi-tenant.md) | in-progress — **Part A implemented** | — |
+| 1 | Full | [Hosted multi-tenant profile](story-1-full-hosted-multi-tenant.md) | in-progress — **Parts A + B implemented** | — |
 
 ### Internal parts (the resumable unit)
 
@@ -113,7 +113,10 @@ a real hosted deploy. So the story has two gates:
 | **Operator gate** — `verify-schema`/`reconcile-money` before+after diffed, two-clinic isolation, two-browser live refresh, reminder + email dispatch, hosted login | no | `done` |
 
 ⚠️ **Smart App Control** (`0x800711C7`) blocks the test runner intermittently on this machine. A red run is **not
-evidence** until `bin/` + `obj/` are cleared and `dotnet build-server shutdown` has run.
+evidence** until `bin/` + `obj/` are cleared and `dotnet build-server shutdown` has run. ⚠️ **The converse bit too:**
+it blocked Part A entirely, so the suite went unrun for two sessions and nobody saw that it was **27 red**. It
+worked in Part B's session. When it works, run the *whole* suite and diff the failing-test names against a build of
+untouched `HEAD` — that diff is the only thing that separates « my change broke this » from « this was already red ».
 
 ⚠️ **R-6 — this profile's failure modes are overwhelmingly silent, and they live in deploy assets no test can
 reach.** A missing `/hub/*` route kills realtime behind a bare `catch {}`; a missing `API_INTERNAL_URL` 500s only

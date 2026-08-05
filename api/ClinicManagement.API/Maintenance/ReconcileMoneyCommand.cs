@@ -59,12 +59,18 @@ public static class ReconcileMoneyCommand
 
             var services = new ServiceCollection();
             services.AddLogging();
-            // AddInfrastructure ONLY — never AddApplication. Without it no ICurrentClinicProvider is registered,
-            // so the DbContext's global clinic query filters stay inactive and this reads across every clinic.
+            // AddInfrastructure ONLY — never AddApplication. It registers the tenant scope and a floor
+            // ICurrentClinicProvider, which is what lets the declaration below actually mean something.
             services.AddInfrastructure(configuration);
 
             await using var provider = services.BuildServiceProvider();
             using var scope = provider.CreateScope();
+
+            // US-2: a per-clinic reconciliation over every clinic's two payment ledgers. The clinic query filters
+            // refuse an unset scope, so an undeclared run would reconcile an empty database and report it clean —
+            // the worst possible answer from a verb whose only job is to find drift.
+            scope.ServiceProvider.GetRequiredService<ITenantScope>()
+                .UseSystemWide($"{CommandName} reconciles every clinic's money ledgers");
 
             var reader = new MoneyReconciliationReader(
                 scope.ServiceProvider.GetRequiredService<ApplicationDbContext>());

@@ -11,6 +11,14 @@ namespace ClinicManagement.API.Hubs;
 /// that clinic's group, so a broadcast reaches only clients of the same clinic (multi-tenant
 /// isolation, AC-2). Requires an authenticated session in both auth modes (AC-3) — the connection's
 /// bearer JWT is validated by the same mode-branched scheme as the REST API.
+///
+/// <para>⚠️ <b>HTTP middleware does not run per hub invocation, so no tenant scope is ever set here</b>
+/// (multi-tenant-cloud US-2). <c>TenantScopeMiddleware</c> runs on the negotiate request; a hub method runs in
+/// its own DI scope, which lands in <c>TenantScopeKind.Unset</c> — and the global query filters now refuse that,
+/// so a hub method touching a clinic-filtered entity would read <b>nothing, silently</b>. This hub is safe only
+/// because it reads exactly one thing: <c>User</c>, which carries no filter. Any hub method that needs a
+/// filtered entity must set the scope itself, from the clinic it resolves below. <c>ClinicHubTenantScopeTests</c>
+/// fails if a filtered repository is injected here.</para>
 /// </summary>
 [Authorize]
 public class ClinicHub : Hub

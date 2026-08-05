@@ -40,12 +40,21 @@ public static class Extensions
         // the console verbs, which build their container from this method alone — see `ProcessAuditActorProvider`.
         services.TryAddScoped<IAuditActorProvider, ProcessAuditActorProvider>();
 
-        // Built through an explicit factory rather than `AddScoped<T>()` so the *optional* clinic provider is
-        // resolved with `GetService` and not `GetRequiredService`: a console verb has none by design, and relying on
-        // the container's handling of a defaulted constructor parameter would make that work by accident.
+        // Whose rows this scope may read (multi-tenant-cloud US-2). Registered here rather than in
+        // `AddApplication` for one reason: the console verbs build their container from *this* method alone, and
+        // the filters now refuse an unset scope — so without these two a verb would read nothing at all instead
+        // of declaring itself cross-clinic. `ICurrentClinicProvider` gets the same **floor** treatment as the
+        // audit actor above (`AddApplication` runs first in `Program.cs`, so TryAdd is a no-op in the API).
+        services.AddScoped<ITenantScope, TenantScope>();
+        services.TryAddScoped<ICurrentClinicProvider, CurrentClinicProvider>();
+
+        // Built through an explicit factory rather than `AddScoped<T>()` so its dependencies are resolved
+        // explicitly. The clinic provider used to be resolved with `GetService` because a console verb had none;
+        // the floor above means every container that can produce a DbContext can produce one, so a missing
+        // registration is now a loud startup failure rather than a silent null on a non-nullable parameter.
         services.AddScoped(provider => new AuditSaveChangesInterceptor(
             provider.GetRequiredService<IAuditActorProvider>(),
-            provider.GetService<ICurrentClinicProvider>(),
+            provider.GetRequiredService<ICurrentClinicProvider>(),
             provider.GetRequiredService<IServiceScopeFactory>(),
             provider.GetRequiredService<ILogger<AuditSaveChangesInterceptor>>()));
 

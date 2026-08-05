@@ -45,6 +45,7 @@ public class BackupJob
     private readonly IUnitOfWork _unitOfWork;
     private readonly INotificationGenerator _notificationGenerator;
     private readonly IAuditActorProvider _auditActor;
+    private readonly ITenantScope _tenantScope;
     private readonly ILogger<BackupJob> _logger;
 
     public BackupJob(
@@ -54,6 +55,7 @@ public class BackupJob
         IUnitOfWork unitOfWork,
         INotificationGenerator notificationGenerator,
         IAuditActorProvider auditActor,
+        ITenantScope tenantScope,
         ILogger<BackupJob> logger)
     {
         _clinicRepository = clinicRepository;
@@ -62,6 +64,7 @@ public class BackupJob
         _unitOfWork = unitOfWork;
         _notificationGenerator = notificationGenerator;
         _auditActor = auditActor;
+        _tenantScope = tenantScope;
         _logger = logger;
     }
 
@@ -72,6 +75,11 @@ public class BackupJob
         // I6: a job has no token, so without naming itself every row it writes would read « Tâche automatique »
         // with no clue which one.
         _auditActor.RunAs(nameof(BackupJob));
+
+        // US-2: BackupRun is clinic-filtered, so the due-check, the retention prune and the staleness alert all
+        // need every clinic's ledger. Unscoped, every clinic would read as « never backed up » and be backed up
+        // again on every tick.
+        _tenantScope.UseSystemWide("BackupJob runs and prunes scheduled backups for every clinic");
 
         var clinics = await _clinicRepository.GetAllAsync();
 

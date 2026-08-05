@@ -20,6 +20,7 @@ public class EInvoiceOutboxJob
     private readonly IInternetProbe _internetProbe;
     private readonly IConfiguration _configuration;
     private readonly IAuditActorProvider _auditActor;
+    private readonly ITenantScope _tenantScope;
     private readonly ILogger<EInvoiceOutboxJob> _logger;
 
     public EInvoiceOutboxJob(
@@ -28,6 +29,7 @@ public class EInvoiceOutboxJob
         IInternetProbe internetProbe,
         IConfiguration configuration,
         IAuditActorProvider auditActor,
+        ITenantScope tenantScope,
         ILogger<EInvoiceOutboxJob> logger)
     {
         _invoiceRepository = invoiceRepository;
@@ -35,6 +37,7 @@ public class EInvoiceOutboxJob
         _internetProbe = internetProbe;
         _configuration = configuration;
         _auditActor = auditActor;
+        _tenantScope = tenantScope;
         _logger = logger;
     }
 
@@ -45,6 +48,10 @@ public class EInvoiceOutboxJob
         // I6: a job has no token, so without naming itself every row it writes would read « Tâche automatique »
         // with no clue which one. The declaration happens before anything is saved — see IAuditActorProvider.RunAs.
         _auditActor.RunAs(nameof(EInvoiceOutboxJob));
+
+        // US-2: the queued-invoice scan reads the clinic-filtered Invoices table across every clinic. Without
+        // this it finds nothing and reports a clean run while no e-invoice is ever submitted.
+        _tenantScope.UseSystemWide("EInvoiceOutboxJob dispatches queued e-invoices for every clinic");
 
         // The server (not a LAN client) is the source of truth for internet egress. Offline ⇒ dispatch
         // nothing and leave invoices Queued; the next tick with connectivity picks them up.

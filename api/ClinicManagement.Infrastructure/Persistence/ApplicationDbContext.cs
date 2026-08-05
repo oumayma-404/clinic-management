@@ -12,8 +12,8 @@ public class ApplicationDbContext : DbContext
 {
     private readonly ICurrentClinicProvider? _clinicProvider;
 
-    // The clinic provider is optional so the design-time factory and any manual construction still work
-    // (they pass no provider → the global query filter is inactive). At runtime AddDbContext injects it.
+    // The clinic provider is optional so the design-time factory and any manual construction still work (they
+    // pass no provider → the filters return everything, as before). At runtime AddDbContext always injects it.
     public ApplicationDbContext(
         DbContextOptions<ApplicationDbContext> options,
         ICurrentClinicProvider? clinicProvider = null) : base(options)
@@ -21,10 +21,15 @@ public class ApplicationDbContext : DbContext
         _clinicProvider = clinicProvider;
     }
 
-    // Exposed for the global query filters below. Accessed through the context instance so EF Core
-    // treats them as parameters re-evaluated per query (never baked into the cached model). When no
-    // clinic is in scope (background jobs, CLI, anonymous flows) the filter is inactive → all rows.
-    private bool IsClinicScoped => _clinicProvider?.ClinicId != null;
+    // Exposed for the global query filters below. Accessed through the context instance so EF Core treats them
+    // as parameters re-evaluated per query (never baked into the cached model).
+    //
+    // ⚠️ The three states are ITenantScope's, and only one of them returns everything: a scope that declared
+    // itself cross-clinic. A scope nobody set leaves ScopedClinicId at Guid.Empty, which no row carries — so the
+    // filter refuses instead of switching off, and a path that forgot to establish a scope reads nothing rather
+    // than every clinic. No provider *at all* (the design-time factory, a hand-constructed context) still reads
+    // as system-wide; every DI'd path has one, including the console verbs (see the floor in AddInfrastructure).
+    private bool IsSystemWide => _clinicProvider is null || _clinicProvider.IsSystemWide;
     private Guid ScopedClinicId => _clinicProvider?.ClinicId ?? Guid.Empty;
 
     public DbSet<Clinic> Clinics { get; set; }
@@ -143,60 +148,63 @@ public class ApplicationDbContext : DbContext
         // has to be matched by the database or it only ever sees the page the user is already looking at.
         SqlSearch.MapUnaccent(modelBuilder);
 
-        // Multi-tenant backstop (defense-in-depth): scope the directly-clinic-owned entities by the
-        // caller's clinic. Inactive when no clinic is in scope (see IsClinicScoped). This is a backstop —
-        // handlers still do the authoritative DB-resolved User.ClinicId check. Where a request-scoped path
-        // must read across clinics, it calls IgnoreQueryFilters() explicitly. User/Clinic are deliberately
-        // NOT filtered (auth/join flows resolve them cross-clinic before a clinic context exists).
-        modelBuilder.Entity<Patient>().HasQueryFilter(p => !IsClinicScoped || p.ClinicId == ScopedClinicId);
-        modelBuilder.Entity<Appointment>().HasQueryFilter(a => !IsClinicScoped || a.ClinicId == ScopedClinicId);
-        modelBuilder.Entity<ProcedureType>().HasQueryFilter(pt => !IsClinicScoped || pt.ClinicId == ScopedClinicId);
+        // Multi-tenant isolation layer: scope the directly-clinic-owned entities to the scope's clinic.
+        //
+        // ⚠️ These filters used to be **fail-open** — no clinic in scope meant no filter — which made them a
+        // backstop that protected nothing on any path that failed to establish one. They now refuse
+        // (ITenantScope.Unset ⇒ ScopedClinicId is Guid.Empty ⇒ no rows), so a job, verb or request that reads
+        // across clinics has to say so through UseSystemWide and is answerable for it. Handlers still do the
+        // authoritative DB-resolved User.ClinicId check: this is the second layer, not the first.
+        //
+        // User/Clinic stay deliberately unfiltered — the auth, setup and join flows resolve them before any
+        // clinic exists to be in scope, and filtering them would break onboarding rather than protect it.
+        modelBuilder.Entity<Patient>().HasQueryFilter(p => IsSystemWide || p.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<Appointment>().HasQueryFilter(a => IsSystemWide || a.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<ProcedureType>().HasQueryFilter(pt => IsSystemWide || pt.ClinicId == ScopedClinicId);
         // StaffNotification is directly clinic-owned → filtered like the others. NotificationRead has no
         // ClinicId; it is always queried scoped by UserId and joined to its clinic-filtered notification
         // (a user belongs to one clinic), so it needs no filter of its own (plan R-5).
-        modelBuilder.Entity<StaffNotification>().HasQueryFilter(n => !IsClinicScoped || n.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<StaffNotification>().HasQueryFilter(n => IsSystemWide || n.ClinicId == ScopedClinicId);
         // Invoice is directly clinic-owned → filtered like the other aggregate roots. Its children
         // (InvoiceLine/Payment) are reached only through the invoice, so they need no filter of their own.
-        modelBuilder.Entity<Invoice>().HasQueryFilter(i => !IsClinicScoped || i.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<Invoice>().HasQueryFilter(i => IsSystemWide || i.ClinicId == ScopedClinicId);
         // CreditNote (avoir) is directly clinic-owned → filtered like the other aggregate roots.
-        modelBuilder.Entity<CreditNote>().HasQueryFilter(c => !IsClinicScoped || c.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<CreditNote>().HasQueryFilter(c => IsSystemWide || c.ClinicId == ScopedClinicId);
         // StockMovement is directly clinic-owned → filtered like the other aggregate roots.
-        modelBuilder.Entity<StockMovement>().HasQueryFilter(m => !IsClinicScoped || m.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<StockMovement>().HasQueryFilter(m => IsSystemWide || m.ClinicId == ScopedClinicId);
         // TreatmentPlan is directly clinic-owned → filtered like the other aggregate roots. Its children
         // (TreatmentPlanItem/Installment) are reached only through the plan, so they need no filter of their own.
-        modelBuilder.Entity<TreatmentPlan>().HasQueryFilter(p => !IsClinicScoped || p.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<TreatmentPlan>().HasQueryFilter(p => IsSystemWide || p.ClinicId == ScopedClinicId);
         // ClinicReminderSettings is keyed by the clinic id (shared PK) → filter on Id. The reminder dispatcher
-        // runs with no clinic in scope (filter inactive) so it can still resolve any clinic's settings by id.
-        modelBuilder.Entity<ClinicReminderSettings>().HasQueryFilter(s => !IsClinicScoped || s.Id == ScopedClinicId);
-        // DocumentEmail is directly clinic-owned → filtered like the other aggregate roots. Its dispatcher runs
-        // with no clinic in scope (filter inactive), which is what lets one tick drain every clinic's queue.
-        modelBuilder.Entity<DocumentEmail>().HasQueryFilter(e => !IsClinicScoped || e.ClinicId == ScopedClinicId);
-        // Per-clinic reference catalogs (#5): scoped like the other aggregate roots. The per-clinic seeder runs
-        // with no clinic in scope (filter inactive) so it can read/write any clinic's rows by explicit ClinicId.
+        // declares UseSystemWide, which is what lets it resolve any clinic's settings by id.
+        modelBuilder.Entity<ClinicReminderSettings>().HasQueryFilter(s => IsSystemWide || s.Id == ScopedClinicId);
+        // DocumentEmail is directly clinic-owned → filtered like the other aggregate roots. Its dispatcher
+        // declares UseSystemWide, which is what lets one tick drain every clinic's queue.
+        modelBuilder.Entity<DocumentEmail>().HasQueryFilter(e => IsSystemWide || e.ClinicId == ScopedClinicId);
+        // Per-clinic reference catalogs (#5): scoped like the other aggregate roots. The per-clinic seeder reads
+        // through IgnoreQueryFilters() throughout, so it is immune to the scope rather than dependent on it.
         // MedicationActiveIngredient is reached only through Medication, so it needs no filter of its own.
-        modelBuilder.Entity<CnamNomenclatureEntry>().HasQueryFilter(e => !IsClinicScoped || e.ClinicId == ScopedClinicId);
-        modelBuilder.Entity<CnamLetterValue>().HasQueryFilter(v => !IsClinicScoped || v.ClinicId == ScopedClinicId);
-        modelBuilder.Entity<Medication>().HasQueryFilter(m => !IsClinicScoped || m.ClinicId == ScopedClinicId);
-        modelBuilder.Entity<DentalActCode>().HasQueryFilter(e => !IsClinicScoped || e.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<CnamNomenclatureEntry>().HasQueryFilter(e => IsSystemWide || e.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<CnamLetterValue>().HasQueryFilter(v => IsSystemWide || v.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<Medication>().HasQueryFilter(m => IsSystemWide || m.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<DentalActCode>().HasQueryFilter(e => IsSystemWide || e.ClinicId == ScopedClinicId);
         // Clinical-workflow-depth aggregate roots — directly clinic-owned → filtered like the others. Their
         // Patient children are reached only through the aggregate, so they need no filter of their own.
-        modelBuilder.Entity<Expense>().HasQueryFilter(e => !IsClinicScoped || e.ClinicId == ScopedClinicId);
-        modelBuilder.Entity<WaitingListEntry>().HasQueryFilter(w => !IsClinicScoped || w.ClinicId == ScopedClinicId);
-        modelBuilder.Entity<LabWorkOrder>().HasQueryFilter(l => !IsClinicScoped || l.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<Expense>().HasQueryFilter(e => IsSystemWide || e.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<WaitingListEntry>().HasQueryFilter(w => IsSystemWide || w.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<LabWorkOrder>().HasQueryFilter(l => IsSystemWide || l.ClinicId == ScopedClinicId);
         // RecurringAppointment gained a ClinicId (clinical-workflow-depth) → clinic-scoped like the others.
-        modelBuilder.Entity<RecurringAppointment>().HasQueryFilter(r => !IsClinicScoped || r.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<RecurringAppointment>().HasQueryFilter(r => IsSystemWide || r.ClinicId == ScopedClinicId);
         // AC-P4.27 — Doctor and StockItem were the last two directly-clinic-owned roots left unfiltered, and
         // StockItem's own child StockMovement was filtered while its PARENT was not: the backstop protected the
-        // ledger but not the item it belongs to. Same fail-open shape as the 17 above, so jobs, the CLI and the
-        // auth flows (which run with no clinic in scope) keep reading across clinics.
-        modelBuilder.Entity<Doctor>().HasQueryFilter(d => !IsClinicScoped || d.ClinicId == ScopedClinicId);
-        modelBuilder.Entity<StockItem>().HasQueryFilter(s => !IsClinicScoped || s.ClinicId == ScopedClinicId);
+        // ledger but not the item it belongs to.
+        modelBuilder.Entity<Doctor>().HasQueryFilter(d => IsSystemWide || d.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<StockItem>().HasQueryFilter(s => IsSystemWide || s.ClinicId == ScopedClinicId);
         // StockBatch is a child of StockItem, reached only through its filtered parent → no filter of its own,
         // the same rule as InvoiceLine/Installment. ProcedureTypeMaterial likewise, under ProcedureType.
         // L4d — the backup ledger is clinic-owned with a NON-nullable ClinicId, so unlike AuditEntries it is
-        // filtered like the rest. The daily BackupJob runs with no clinic in scope, which leaves the filter
-        // inactive and lets it iterate every clinic — the same arrangement the reminder dispatcher uses.
-        modelBuilder.Entity<BackupRun>().HasQueryFilter(b => !IsClinicScoped || b.ClinicId == ScopedClinicId);
+        // filtered like the rest. The hourly BackupJob declares UseSystemWide to iterate every clinic.
+        modelBuilder.Entity<BackupRun>().HasQueryFilter(b => IsSystemWide || b.ClinicId == ScopedClinicId);
 
         // Optimistic concurrency for every entity, with no schema change: map Entity<T>.Version onto
         // PostgreSQL's xmin system column. EF then appends it to the WHERE of each UPDATE/DELETE, so a row a

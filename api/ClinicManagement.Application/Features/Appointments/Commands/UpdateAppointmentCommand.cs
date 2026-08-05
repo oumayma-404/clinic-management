@@ -655,7 +655,7 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
             // Push to Google Calendar post-commit (fire-and-forget, connectivity-gated). Best-effort — a
             // Google failure never affects the update; cancelled/completed appointments are removed from
             // Google by the sync service.
-            _googleSyncDispatcher.Dispatch(appointment.Id);
+            _googleSyncDispatcher.Dispatch(appointment.Id, appointment.ClinicId);
 
             return Result<AppointmentDto>.Success(dto);
         }

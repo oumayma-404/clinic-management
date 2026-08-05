@@ -321,7 +321,7 @@ public class CreateRecurringSeriesCommandHandler : IRequestHandler<CreateRecurri
                     appointment.AppointmentDateTime + appointment.Duration, cancellationToken);
                 await _reminderScheduler.ScheduleForAppointmentAsync(
                     clinicId, appointment.Id, patient.Id, patientName, appointment.AppointmentDateTime, cancellationToken);
-                _googleSyncDispatcher.Dispatch(appointment.Id);
+                _googleSyncDispatcher.Dispatch(appointment.Id, clinicId);
             }
 
             return Result<RecurringSeriesResultDto>.Success(new RecurringSeriesResultDto

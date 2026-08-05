@@ -1,4 +1,5 @@
 using ClinicManagement.API.Maintenance;
+using ClinicManagement.Infrastructure.Deployment;
 using Xunit;
 
 namespace ClinicManagement.UnitTests.Api.Maintenance;
@@ -80,7 +81,9 @@ public sealed class ReconcileMoneyCommandTests
             var exitCode = await ReconcileMoneyCommand.RunAsync(new[] { ReconcileMoneyCommand.CommandName });
 
             Assert.Equal(1, exitCode);
-            Assert.Contains("Local", capturedError.ToString());
+            // Part A replaced « Local mode » with the resolved profile, so the refusal now names it. `nameof` so a
+            // rename cannot leave this asserting a string that no longer exists.
+            Assert.Contains(nameof(DeploymentKind.CloudBrowser), capturedError.ToString());
         }
         finally
         {

@@ -1,8 +1,10 @@
 # Story 1: Full — Hosted multi-tenant profile (desktop clients, hosted data)
 
 **Status:** APPROVED
-**Story Status:** in-progress — **Part A implemented** (code gate; 2026-08-05). Parts B–F not started.
-See [../progress.md](../progress.md) for the part table, four deviations and the gate results.
+**Story Status:** in-progress — **Parts A and B implemented** (code gate; 2026-08-05). Parts C–F not started.
+See [../progress.md](../progress.md) for the part table, eight deviations and the gate results. ⚠️ Part B's session
+found a **pre-existing 24-test red baseline** from earlier features, invisible until then because Part A's runner
+was blocked; proven unchanged by Part B and awaiting a decision (see progress.md § Part B).
 **Layer:** Full — ⚠️ **a deliberate departure from the skill's BE/FE separation rule**, chosen because the plan is
 one coherent topology change: the third profile is « the second deployment's infrastructure with the first's
 authentication », and splitting it would produce a backend story that cannot be exercised (no login path) and a
@@ -52,15 +54,24 @@ _Story-specific:_
 - [x] ⚠️ **Twelfth capability added** — `ExposesMetaOnboarding`, for `ClinicsController`'s two Meta/WhatsApp
       guards, which had no capability among the plan's eleven (DEV-1, approved)
 
-**Part B — the tenant scope**
-- [ ] `ITenantScope` has three states; **only `Unset` refuses**. `Clinic(id)` returns that clinic's rows,
-      `SystemWide` returns all
-- [ ] The scope is set by **async middleware from the DB-resolved `User.ClinicId`** (`ICurrentClinicResolver`),
-      never from the JWT claim (amendment **C3′**)
-- [ ] `UseClinic` then `UseSystemWide` in one scope **throws**; so does the reverse. One scope, one answer
-- [ ] Every path that reads a filtered entity with no HTTP context sets a scope, enforced by a **derived** guard
-- [ ] Onboarding still works with **no** clinic in scope (`Unset`): `auth/mode`, login, register,
-      `POST /clinics`, `POST /clinics/join`, `user-status`
+**Part B — the tenant scope** — all five met, and every one of them **run** (the runner worked this session).
+- [x] `ITenantScope` has three states; **only `Unset` refuses**. `Clinic(id)` returns that clinic's rows,
+      `SystemWide` returns all — asserted over **every** filtered root derived from `db.Model`, plus the separate
+      no-provider-at-all case the design-time factory needs
+- [x] The scope is set by **async middleware from the DB-resolved `User.ClinicId`**, never from the JWT claim
+      (amendment **C3′**). ⚠️ Resolved through `IUserRepository` + a shared per-request accessor rather than
+      `ICurrentClinicResolver`, so the `User` lookup is shared with `LocalAuthEnforcementMiddleware` as the same
+      plan bullet requires — same DB-resolved value (DEV-7, approved)
+- [x] `UseClinic` then `UseSystemWide` in one scope **throws**; so does the reverse. One scope, one answer
+- [x] Every path that reads a filtered entity with no HTTP context sets a scope, enforced by a **derived** guard —
+      candidates by reflection over the API assembly + a `CreateScope()` source scan, five named exemptions, and
+      the guard is **proven to go red**
+- [x] Onboarding still works with **no** clinic in scope (`Unset`) — asserted via `User`/`Clinic` carrying no
+      filter, which is the only reason it works
+- [x] ⚠️ Three call sites could not take the plan's literal wording, because **what sets the scope was itself
+      behind the filter**: the Google dispatcher now takes the clinic from its caller (DEV-5), `PdfGenerationJob`
+      resolves its document's clinic through one `IgnoreQueryFilters` projection (DEV-6), and `AddInfrastructure`
+      gained a provider floor without which the console verbs' declarations would be decoration (DEV-8)
 
 **Part C — provisioning**
 - [ ] `provision-clinic --name … --admin-email …` creates a clinic + its first admin and prints a one-time

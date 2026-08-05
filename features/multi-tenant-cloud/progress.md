@@ -12,7 +12,7 @@ unit ( « 18 steps and ~35 files will not fit one session » ). This table is th
 | Part | Plan | Steps | Status | Session |
 |------|------|-------|--------|---------|
 | A | US-1 | 1–4 | **implemented** (code gate) | 2026-08-05 |
-| B | US-2 | 5–10 | not-started | — |
+| B | US-2 | 5–10 | **implemented** (code gate) | 2026-08-05 |
 | C | US-3 | 11–13 | not-started | — |
 | D | US-4 | 14 | not-started | — |
 | E | US-5 | 15 | not-started | — |
@@ -171,7 +171,171 @@ Recorded because they are the case for running a check rather than reading it:
 - **Changing a check's pattern demands re-proving it, not re-reading it.** Both defects above were in code that
   looked obviously right; one crashed, the other passed for the wrong reason.
 
+---
+
+# Part B — `ITenantScope`, and the query filter starts refusing (steps 5–10)
+
+**Session:** 2026-08-05 · **Branch:** unchanged (`feature/audit-sections-3-to-10`, per the story's decision — the
+branch already matched the feature, so no re-prompt).
+
+## Working tree note (start of session)
+
+Same as Part A's, and still nobody else's business: `features/mobile-native-shells/{spec,blueprint,exploration}.md`
+dirty + untracked `plan.md` and `stories/` — a parallel session's work. **Not staged.** Every `git add` in this
+session named paths explicitly (`git diff HEAD --numstat` first), per the standing rule.
+
+## What landed
+
+| Step | Deliverable |
+|---|---|
+| 5 | `Application/Common/Interfaces/ITenantScope.cs` (3 states + `SystemWideReason`) · `Common/Services/TenantScope.cs` — single-assignment **in both directions**, reason required and logged |
+| 6 | `ICurrentClinicProvider` gains `IsSystemWide`; `CurrentClinicProvider` projects the **scope** instead of the JWT claim; all **21** filters become `IsSystemWide \|\| ClinicId == ScopedClinicId` |
+| 7 | `API/Middleware/TenantScopeMiddleware.cs` + `RequestAccount.cs`; registered unconditionally after `UseAuthorization`, before the token-state middleware |
+| 8 | `UseSystemWide` on the 5 recurring jobs, both startup scopes and the 3 DB-touching verbs; `UseClinic` in `PdfGenerationJob` + the Google dispatcher's child scope |
+| 9 | `TenantScopeTests`, `TenantScopeFilterTests`, `SystemWideCallerCoverageTests`, `ClinicalRecordTenantIsolationTests`; `CurrentClinicProviderTests` rewritten |
+| 10 | Onboarding-under-`Unset` assertion, `AuditEntries` left alone, `ClinicHub` note + `ClinicHubTenantScopeTests` |
+
+Plus the docs the change falsifies — root `CLAUDE.md`, Application, Infrastructure, API and UnitTests guides — because
+after step 6 all three said « fail-open is deliberate » about code that refuses. (Step 18's *other* halves — the
+topology table row, the `Deployment:Profile` config list, the `deploy/` operator note — stay Part F.)
+
+## The scope call sites
+
+| Caller | Scope | Reason it is that one |
+|---|---|---|
+| `NotificationJob` · `EInvoiceOutboxJob` · `DocumentEmailJob` · `StockExpiryJob` · `BackupJob` | `UseSystemWide` | genuinely drain/scan every clinic |
+| `Program.cs` startup scope · `DeferredStartupService` | `UseSystemWide` | migrations + per-clinic backfills |
+| `reset-admin-password` · `reconcile-money` · `verify-schema` | `UseSystemWide` | no clinic to be in scope of |
+| `PdfGenerationJob` | **`UseClinic`** | renders **one** document |
+| `AppointmentGoogleSyncDispatcher` child scope | **`UseClinic`** | pushes **one** appointment |
+| `provision-cert` · `harden-permissions` · `protect/read-credential` | *exempt* | no `DbContext` at all |
+| `restore-backup` | *exempt* | raw ADO (`NpgsqlCommand`) — no filter in play |
+| `AuditSaveChangesInterceptor`'s child scope | *exempt* | writes only `AuditEntry`, unfiltered by design |
+| `ClinicCatalogSeeder` | *not listed* | every read is `IgnoreQueryFilters()` — structurally immune, per the plan |
+
+## Deviations
+
+Four asked, all confirmed. Each exists because the plan's wording could not be implemented literally — in every
+case because **the thing needed to set the scope is itself behind the filter**.
+
+### DEV-5: the Google dispatcher takes the clinic id from its caller
+**Category:** Technical · **Approved:** Yes (asked)
+**Plan:** « the App→Google dispatcher's child scope → `UseClinic(appointment.ClinicId)` … the clinic is already
+loaded to resolve the connection ».
+**Actual:** `IAppointmentGoogleSyncDispatcher.Dispatch(Guid appointmentId, Guid clinicId)`; the three callers pass
+the clinic they already resolved.
+**Justification:** the appointment is only loaded *inside* `SyncAppointmentToGoogleCalendarAsync`, and
+`Appointment` is filtered — so under `Unset` that load returns null and the push dies with « appointment not
+found » on every write. The clinic cannot be read before the scope exists. Passing it costs one signature change
+and adds no filter-bypassing read.
+**Impact:** three call sites; no test needed updating (the dispatcher is mocked loosely everywhere).
+
+### DEV-6: `PdfGenerationJob` resolves its clinic through an `IgnoreQueryFilters` projection
+**Category:** Technical · **Approved:** Yes (asked)
+**Plan:** « `PdfGenerationJob` → `UseClinic(document's clinic)` ».
+**Actual:** new `IMedicalDocumentRepository.GetOwningClinicIdAsync(id)` — `IgnoreQueryFilters()`, projecting one
+`Guid?`.
+**Justification:** a `MedicalDocument` has **no `ClinicId`** and its owning `Patient` *is* filtered, so under
+`Unset` the `Include` comes back null and the clinic is unreachable. The alternatives were leaving it `Unset`
+(works today only by accident — nothing it reads happens to be filtered) or `UseSystemWide` for one PDF, which the
+plan's own table names as spending the widest scope on the narrowest work. The job now **fails loud** when the
+clinic cannot be resolved rather than rendering unscoped.
+**Impact:** one new repository method, explicitly documented as the one scope-independent read.
+
+### DEV-7: the middleware resolves the account itself, through a shared per-request accessor
+**Category:** Technical · **Approved:** Yes (asked)
+**Plan:** the *Modify* line says « resolves the clinic through `ICurrentClinicResolver` »; the very next sentence
+says « the two should share one lookup rather than issue two ».
+**Actual:** `RequestAccount.ResolveAsync(context, users)` — reads the `sub` claim, queries once, caches on
+`HttpContext.Items`; both middlewares call it.
+**Justification:** the two halves of that bullet conflict. `ICurrentClinicResolver` returns only a `Guid`, so it
+cannot hand `LocalAuthEnforcementMiddleware` the `User` entity it needs (`TokenVersion`/`IsActive`/
+`MustChangePassword`) — using it literally means two `User` queries per authenticated request in every profile
+that enforces token state. The clinic id is **the same DB-resolved `User.ClinicId`** either way, so C3′ is
+honoured exactly; and the duplicated `sub`-claim reading collapses from two copies to one.
+**Impact:** neither middleware assumes ordering (the cache is keyed, not positional).
+
+### DEV-8: `AddInfrastructure` gets `ITenantScope` and a floor `ICurrentClinicProvider`
+**Category:** Technical · **Approved:** Yes (asked)
+**Plan:** silent on where these are registered; the story's file table says « register `ITenantScope` » in
+`Infrastructure/Extensions.cs`.
+**Actual:** `AddScoped<ITenantScope, TenantScope>()` + `TryAddScoped<ICurrentClinicProvider, CurrentClinicProvider>()`
+there, beside the existing `IAuditActorProvider` floor.
+**Justification:** without the *provider* floor the three DB-touching verbs still have **no provider at all**, so
+the context's optional provider stays null, the filters stay inactive, and their `UseSystemWide` calls are
+decoration — Part B would change nothing for the CLI and R-1's mitigation would be theatre for three of the
+listed callers. With it, a verb that forgets reads nothing and the guard catches it. Behaviour for the two shipped
+profiles is unchanged: the verbs still read every clinic, now because they said so.
+**Impact:** `AuditSaveChangesInterceptor`'s provider moved from `GetService` to `GetRequiredService` (see below).
+
+### Auto-approved (trivial)
+
+| Deviation | Classification | Reason |
+|---|---|---|
+| `TenantScope.UseClinic` refuses `Guid.Empty` | Trivial | It is the value the filter compares against when unset; accepting it would make « scoped to the empty clinic » and « unscoped » produce identical SQL |
+| Same-value `UseClinic`/`UseSystemWide` is idempotent rather than throwing | Trivial | The plan says « a second call **with a different id** throws »; restating the same answer lets a handler assert what the middleware established |
+| `SolutionSources` extracted; `DeploymentProfileCoverageTests` now uses it | Trivial | Test-only, behaviour identical. The alternative was a second copy of the `bin`/`obj` non-descent lesson — the repo's own `fixes-dont-propagate` shape |
+| `AuditSaveChangesInterceptor`'s provider → `GetRequiredService` | Trivial | Made honest by DEV-8's floor: the parameter is non-nullable and can no longer be null. Clears one pre-existing `CS8604` (58 → 57 warnings) |
+| The `Unset`-per-aggregate case lives in `TenantScopeFilterTests`, derived, not copied into nine `*TenantIsolationTests` | Trivial | Those are Moq-based handler tests with no `DbContext`, so an `Unset` case there would assert the mock, not the filter. The derived version covers **every** filtered root instead of the nine that have a suite |
+
+## Quality gate — Part B
+
+| Gate | Result |
+|---|---|
+| Backend build (`--no-incremental`, scratch `BaseOutputPath`) | **0 errors, 57 warnings.** Baseline captured this session on untouched `HEAD`: **0 / 58** |
+| New warnings in changed files | **0** — the changed-file list was diffed against the warning list; empty intersection. The one warning that *disappeared* is `Extensions.cs` `CS8604`, cleared deliberately by DEV-8 |
+| **The test runner worked this session** | Smart App Control did **not** block it (its verdict is time-varying). `dotnet vstest` over a scratch `OutDir`: **1 887 passed / 24 failed / 1 911 total** |
+| Part B's own classes | **31/31 green** — `TenantScopeTests` (11), `TenantScopeFilterTests` (6), `SystemWideCallerCoverageTests` (3), `CurrentClinicProviderTests` (3), `ClinicalRecordTenantIsolationTests` (8) |
+| `SystemWideCallerCoverageTests` proven to go **red** | Yes — `The_Guard_Rejects_A_Job_Whose_Declaration_Is_Removed` feeds the predicate the real `StockExpiryJob` source with its declaration stripped |
+| Frontend gate | **Not applicable** — Part B changes no `web/` file (Part C step 13 is the first that does). Both scripts re-confirmed present in `web/package.json` |
+| `verify-schema` / `reconcile-money` | **Not applicable** — Part B adds no migration. Both verbs confirmed to **exist** (`API/Maintenance/{VerifySchema,ReconcileMoney}Command.cs`) and both were *edited* by step 8 |
+
+### ⚠️ The 24 remaining failures are a pre-existing red baseline — and it was invisible until now
+
+Part A recorded that the runner could not load the test assembly, so **the suite has not actually been run on this
+branch for at least two sessions**. It runs now, and it is 24 red. Proven not to be Part B's:
+
+- The identical suite was built from untouched `HEAD` (`base-build`) and run: **27 failures**.
+- After Part B: **24**, and `comm` of the two sorted name lists shows **zero new** failures and exactly **three
+  fixed**.
+
+The three fixed are this story's own debt and were repaired here: `ProvisionCertCommandTests`,
+`ReconcileMoneyCommandTests` and `VerifySchemaCommandTests` each asserted the refusal message contains
+`"Local"`, which **Part A** changed to name the resolved profile. They now assert
+`nameof(DeploymentKind.CloudBrowser)` — a stronger claim, and `nameof` so a rename cannot leave them green
+against a string that no longer exists.
+
+The other **24 belong to earlier features**, in six areas, with two root causes:
+
+| Count | Tests | Root cause |
+|---|---|---|
+| 16 | `GetCnamNomenclatureQueryHandlerTests` (7) · `GetMedicationsQueryHandlerTests` (7) · `GetStockItemsQueryHandlerTests` (2) | `list-pagination` moved free-text/category filtering **into SQL**; a mocked repository applies none, so the handler correctly returns everything the mock hands it while the fixture still asserts in-memory filtering |
+| 5 | `CreditNoteReadTests` (3) · `InvoiceTenantIsolationTests.List_Is_Scoped_To_Caller_Clinic` · `ProcedureTypeTenantIsolationTests.List_Should_Only_Return_Own_Clinic` | same shape — list scoping is now the repository's SQL job. ⚠️ The **by-id** cases in both isolation files pass, so the per-handler guard is intact; only the list assertions drifted |
+| 3 | `LiaisonRenderContentTests` | a section heading was reworded « Motif » → « Motif de la liaison » |
+
+None is a production defect; all are the « stale fixture, not a defect » pattern `UnitTests/CLAUDE.md` already
+names three times. **Left for a decision** rather than fixed here: it is six unrelated feature areas and would
+swamp Part B's review. ⚠️ But it must not be left long — a 24-red baseline means the next session cannot tell new
+breakage from old, which is exactly how this went unnoticed.
+
+## Learnings
+
+- **« Set the scope from X » is unimplementable whenever X is behind the filter.** Three of the four deviations
+  are one shape: the appointment, the document's clinic and the user's clinic all had to be read *before* the scope
+  existed. Worth checking first on any future scope/context work — the fix is either « the caller already knows,
+  pass it » or « one explicitly-`IgnoreQueryFilters` projection », never « widen the scope ».
+- **A guard that reflects over a namespace must exclude compiler-generated nested types.** In a **Debug** build an
+  async state machine is a *class*, not a struct, so `<FlagExpiringStock>d__3` arrived as a candidate whose source
+  file does not exist — the guard failed on its own machinery. Found by running it; unreadable from the source.
+- **« Could not run the tests » compounds silently.** Part A's blocked runner hid 27 red tests, three of which it
+  had caused itself. The cost was not the three assertions — it was that nobody could see them. When the runner
+  works, run the **whole** suite and diff against a baseline build; that diff is what made « Part B broke nothing »
+  a fact rather than a claim.
+- **A doc that describes the inverted contract is worse than no doc.** Three `CLAUDE.md` files asserted the filter
+  was fail-open « deliberately ». Left one part longer, the next session would have read them and believed them.
+
 ## Next
 
-`/review-story` for Part A, then Part B (steps 5–10 — `ITenantScope`, and the query filter starts refusing).
-Part B is the plan's whole security thesis and is the largest part.
+`/review-story` for Part B, then Part C (steps 11–13 — `provision-clinic`, self-registration closed, the `/join`
+explanation; the first part that touches `web/`). ⚠️ Part F's step 17 (`DataProtection:KeyRingPath` required) still
+must land **before** Part D.

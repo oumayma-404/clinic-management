@@ -45,9 +45,21 @@ self-generated HTTPS trust material, and per-clinic reference-catalog seeding. A
 
 - **`ApplicationDbContext.cs`** — the single `DbContext`. Injects an optional `ICurrentClinicProvider?` (null
   at design-time / in manual construction → filters inactive). Key mechanisms:
-  - **Multi-tenant global query filters** (defense-in-depth backstop, NOT the authoritative check — handlers
-    still verify the DB-resolved `User.ClinicId`). `IsClinicScoped`/`ScopedClinicId` are read through the
-    instance so EF treats them as per-query parameters. `HasQueryFilter` scopes the directly-clinic-owned
+  - **Multi-tenant global query filters** — the second isolation layer, not the authoritative check (handlers
+    still verify the DB-resolved `User.ClinicId`, which remains the *only* layer for the seven `ClinicId`-less
+    clinical tables). ⚠️ **They were fail-open, and therefore inert, until `multi-tenant-cloud` US-2**: no clinic
+    in scope meant no filter, so every path that failed to establish one read every clinic and nothing said so.
+    The two instance properties are now `IsSystemWide`/`ScopedClinicId` (read through the instance so EF treats
+    them as per-query parameters, never baked into the cached model), fed by `ICurrentClinicProvider` →
+    **`ITenantScope`**, and the shape is `IsSystemWide || ClinicId == ScopedClinicId`. **Only a scope that
+    declared `UseSystemWide(reason)` returns everything**; an `Unset` scope compares against `Guid.Empty` and
+    returns **nothing**, which is what makes a forgotten scope loud instead of a silent cross-clinic read.
+    `ITenantScope` + a **floor** `ICurrentClinicProvider` are registered in `Extensions.cs` (not `AddApplication`)
+    precisely so the console verbs, which build their container from `AddInfrastructure` alone, resolve both and
+    have to declare themselves — before US-2 they had no provider at all and read everything by accident. A
+    context constructed with **no** provider (the design-time factory, hand-built contexts in tests) still reads
+    everything: that is a different case from `Unset`, and `TenantScopeFilterTests` pins both.
+    `HasQueryFilter` scopes the directly-clinic-owned
     aggregate roots: `Patient`, `Appointment`, `ProcedureType`, `StaffNotification`, `Invoice`,
     `TreatmentPlan`, `ClinicReminderSettings` (by `Id` = clinic id), `CnamNomenclatureEntry`,
     `CnamLetterValue`, `Medication`, `DentalActCode`, `Expense`, `WaitingListEntry`, `LabWorkOrder`,
@@ -61,8 +73,10 @@ self-generated HTTPS trust material, and per-clinic reference-catalog seeding. A
     writes on a context whose clinic scope belongs to the request being audited, not to the row.
     `GetAuditEntriesQuery` filters by the caller's DB-resolved clinic explicitly, which is the authoritative check
     everywhere in this codebase anyway.
-    Cross-clinic paths (per-clinic seeder, reminder dispatcher, Google→App sync when no scope) call
-    `IgnoreQueryFilters()` or run with no clinic in scope so the filter is inactive.
+    Cross-clinic paths either call `IgnoreQueryFilters()` (the per-clinic seeder does, on every read — it is
+    structurally immune to the scope rather than dependent on it) or **declare `UseSystemWide(reason)`** (the five
+    recurring jobs, the startup scope, the three DB-touching verbs). « Runs with no clinic in scope » is no longer
+    a way to read across clinics — it is how a read returns nothing.
   - **Money precision by convention** - `ConfigureConventions` sets `HavePrecision(18, 3)` for every `decimal`, and the **26 redundant `HasColumnType("decimal(18,3)")` calls across 17 configuration files were deleted** (AC-P4.37). The deletions are load-bearing: `GetColumnType()` returns an explicit annotation verbatim and bypasses facet-derived store types, so with them in place the convention emits **zero** `AlterColumn`s and `StockItem.UnitPrice` stays at 2 decimals - the exact bug it looks like it fixes. `Clinic.VatRate` and `Invoice.VatRate` keep `(5,2)` via a retained annotation with the reason at each site: they are rates, not money (AC-P4.38). `verify-schema` asserts both halves.
   - **UTC everywhere**: `OnModelCreating` installs a global value converter forcing every `DateTime`/`DateTime?`
     to UTC (PostgreSQL `timestamp with time zone`), and `SaveChanges`/`SaveChangesAsync` re-run
@@ -362,8 +376,13 @@ a call fails cleanly ("pg_dump introuvable").
 - **Not registered here:** `CertificateProvisioner` (constructed manually pre-Build in `Program.cs`);
   `AdminPasswordRecoveryService` (console-only). **Retired:** `IGoogleTokenStore`/`FileGoogleTokenStore` — Google
   refresh tokens now live per-clinic on the `Clinic` entity.
-- **Depends on (registered in the API layer):** `ICurrentClinicProvider` (DbContext query filters),
-  `ICurrentClinicResolver`, `IClinicContext`.
+- **Tenant scope (US-2)** — `AddScoped<ITenantScope, TenantScope>()` plus a `TryAddScoped` **floor** for
+  `ICurrentClinicProvider`, both here rather than in `AddApplication` so the seven console verbs (container from
+  this method alone) can declare their scope and have it honoured. `AuditSaveChangesInterceptor` now resolves the
+  provider with `GetRequiredService`, since the floor means a missing registration is a bug rather than the
+  console verbs' normal state.
+- **Depends on (registered in the API layer):** `ICurrentClinicResolver`, `IClinicContext`, and the
+  `TenantScopeMiddleware` that sets the per-request scope.
 
 ## Config keys consumed (names only)
 `ConnectionStrings:DefaultConnection`; `FileStorage:BasePath`; `MinIO:{Endpoint,AccessKey,SecretKey,BucketName,

@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using ClinicManagement.Infrastructure.Deployment;
 using Xunit;
 
@@ -36,61 +35,10 @@ public class DeploymentProfileCoverageTests
 
     private static string Needle() => "IsLocalMode" + "(";
 
-    /// <summary>
-    /// Locates the <c>api/</c> tree from this source file's own compile-time path. Deliberately NOT
-    /// <c>AppContext.BaseDirectory</c>: the suite is routinely built to an output directory outside the
-    /// repository (the Smart App Control workaround), which would make a walk-up from the binary fail.
-    /// </summary>
-    private static DirectoryInfo SolutionDirectory([CallerFilePath] string thisFile = "")
-    {
-        for (var dir = new FileInfo(thisFile).Directory; dir != null; dir = dir.Parent)
-        {
-            if (File.Exists(Path.Combine(dir.FullName, "ClinicManagement.sln")))
-            {
-                return dir;
-            }
-        }
+    // The solution walk and the bin/obj rule live in SolutionSources, shared with the other derived guards.
+    private static DirectoryInfo SolutionDirectory() => SolutionSources.Root();
 
-        throw new InvalidOperationException(
-            $"Could not locate ClinicManagement.sln by walking up from '{thisFile}'. This guard reads sources, "
-            + "so it must fail rather than silently pass when it cannot find them.");
-    }
-
-    /// <summary>
-    /// Every tracked C# source under the solution, skipping build output.
-    ///
-    /// <para>⚠️ <c>bin</c>/<c>obj</c> are skipped by <b>not descending into them</b>, not by filtering the
-    /// results: <c>obj/</c> holds generated copies of the sources (which would double every hit), and
-    /// <c>EnumerateFiles(…, AllDirectories)</c> uses the legacy options where <c>IgnoreInaccessible</c> is
-    /// <c>false</c> — so on a machine where <c>harden-permissions</c> has ACL'd a backup folder inside
-    /// <c>bin/</c>, enumerating first and filtering after throws <see cref="UnauthorizedAccessException"/>
-    /// before any assertion runs.</para>
-    /// </summary>
-    private static IEnumerable<string> SourceFiles(DirectoryInfo root)
-    {
-        var pending = new Stack<DirectoryInfo>();
-        pending.Push(root);
-
-        while (pending.Count > 0)
-        {
-            var directory = pending.Pop();
-
-            foreach (var child in directory.EnumerateDirectories())
-            {
-                if (child.Name is "bin" or "obj")
-                {
-                    continue;
-                }
-
-                pending.Push(child);
-            }
-
-            foreach (var file in directory.EnumerateFiles("*.cs"))
-            {
-                yield return file.FullName;
-            }
-        }
-    }
+    private static IEnumerable<string> SourceFiles(DirectoryInfo root) => SolutionSources.CsFiles(root);
 
     [Fact]
     public void The_old_mode_boolean_is_named_only_where_it_is_still_legitimate()
