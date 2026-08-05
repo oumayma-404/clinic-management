@@ -65,6 +65,14 @@ Dockerized via `web/Dockerfile`.
     mount, so a branch would still fire every request and stack three 403 toasts on top of the refusal card. A
     section whose every item is hidden is dropped rather than rendered empty — « Finances » with no rows under it
     advertises exactly the capability the gate withholds.
+    ⚠️ **The secretary gate is about money, and nothing else.** The patient page is fully open to reception — its
+    only role gate is the delete affordance on a fiche de soins and on a document (`app/patients/[id]/page.tsx`),
+    because the five clinical controllers behind those tabs moved to `AnyClinicRole` server-side: reception reads
+    and records the patient file, and only destruction is refused. There is **no** client-side gate to add here for
+    the clinical record, and the « a lot of things say you are not allowed » symptom that prompted the change was
+    never client-side at all — it was `client.ts`'s 403 fallback (« Vous n'avez pas les droits nécessaires pour
+    cette action. ») surfacing an ASP.NET refusal that fired *before* any handler ran. If a clinical read refuses
+    again, the fix is a policy on the controller, not a branch in the page.
 - `app/layout.tsx` (a server component) reads `AUTH_MODE` and mounts either `CloudSessionProvider` or `LocalSessionProvider`, then `ConnectivityProvider` (Phase 3 — polls `/api/connectivity` in Local mode, static online default in Cloud), `SidebarProvider`, children, the floating `<AIChat>` widget (inside connectivity so it can gate on reachability), the global `<Toaster>`, and Vercel `<Analytics>`. French `metadata` (title via `PRODUCT_NAME` from `lib/brand.ts`) + theme-aware favicons.
 
 ## Folder Structure
@@ -106,7 +114,7 @@ All app pages are client components (`"use client"`) that render `DashboardSideb
 | Route | File | Renders |
 |-------|------|---------|
 | `/` | `app/page.tsx` | **Redirects a secretary to `/appointments`** (I3 — `GET /api/dashboard` is `AdminOrDoctor`). Otherwise the dashboard (`useDashboard` → `GET /api/dashboard`): a period selector (Aujourd'hui / Cette semaine / Ce mois, held in `?period=`) above four sections — **Activité** and **Argent** (every figure with its delta vs. the previous period), **À traiter**, and the **Tendance** sparkline — then the kept `AppointmentList`. **Every figure is a `Link`**; the KPI→route mapping lives in one place, `lib/dashboard-links.ts` (an exhaustive `Record<DashboardKpiKey, …>`, so adding a KPI without a destination fails `tsc`). |
-| `/appointments` | `app/appointments/page.tsx` | Day/week calendar, create/edit dialogs, Google Calendar sync controls (Local: gated on internet reachability + per-appointment "non synchronisé"/Push-to-Google via `useConnectivity()`) |
+| `/appointments` | `app/appointments/page.tsx` | Day/week/month calendar, create/edit dialogs, Google Calendar sync controls (Local: gated on internet reachability + per-appointment "non synchronisé"/Push-to-Google via `useConnectivity()`). ⚠️ **The page renders no toolbar of its own any more — only the active-filter chips.** The view switch, « Nouveau rendez-vous », the praticien filter and the Google controls are props on `<AppointmentCalendar>` and render inside the one agenda bar that component owns (see `components/CLAUDE.md`); four rows across two files is what put an administrative Google row between the date and the view switch. The chips stay here because they are a statement about *this page's* URL state (`?status=` from two `lib/dashboard-links.ts` entries) and § 13 requires an unrequested filter to be visible and removable at every width — so they must not be folded into the popover holding the switches themselves. |
 | `/recurring-series` | `app/recurring-series/page.tsx` | Recurring appointment series ("Rendez-vous récurrents") — create/list via `appointmentsApi` |
 | `/waiting-list` | `app/waiting-list/page.tsx` | "Salle d'attente / Liste d'attente" (`waitingListApi`) — queue + promote to appointment |
 | `/patients` | `app/patients/page.tsx` | Patients table + search/flag filter, create patient dialog. (`patients/loading.tsx` exists but `return null` — it is a no-op, **not** a skeleton.) |

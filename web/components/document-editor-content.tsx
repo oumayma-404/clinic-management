@@ -589,15 +589,23 @@ export function DocumentEditorContent() {
   const isOfficialForm = documentType === "bulletin-cnam" || documentType === "arret-travail"
 
   /*
-   * ⚠️ The `doctors[0]` fall-back survives for the **other** document types, deliberately and narrowly. It is the
-   * same defect there — an ordonnance or a certificat should not silently attribute itself either — but those
-   * documents are `ordonnance-certificat-norms`' subject, they have no code conventionnel on the line, and
-   * removing the fall-back here would change what three other document types print as a side effect of a CNAM fix.
-   * Scoped to the bulletin, where the wrong name is a rejected claim.
+   * ⚠️ The `doctors[0]` fall-back is **gone**, for every document type — the narrow scoping K3 left in place no
+   * longer holds. K3 kept it for the four free-form documents on the grounds that removing it would change what
+   * they print as a side effect of a CNAM fix, and that the wrong name only costs a rejected claim on a bulletin.
+   * Both premises depended on who could reach this editor: the caller was always a practitioner, so
+   * `currentUserDoctor` answered first and the guess was nearly unreachable.
+   *
+   * `MedicalDocumentsController` is now `AnyClinicRole`, so the routine caller is reception — who has no linked
+   * `Doctor` record — and the guess became the *normal* path. `doctors[0]` is the first name in the roster: on an
+   * ordonnance that is a prescription attributed to a dentist who did not write it, and it is now the server's
+   * resolved cachet too (`issuingDoctorId` below). A guess nobody sees is worse on a prescription than on a
+   * bulletin, not better.
+   *
+   * Note what did *not* change: the defaulting effect above still pre-fills the caller's own record, and still
+   * pre-fills the single-practitioner cabinet — there is nothing to guess between there. This only stops the
+   * ≥2-practitioner case from silently picking one, which is exactly the case reception works in.
    */
-  const selectedDoctor = isOfficialForm
-    ? chosenDoctor
-    : chosenDoctor ?? currentUserDoctor ?? (doctors.length > 0 ? doctors[0] : null)
+  const selectedDoctor = chosenDoctor ?? currentUserDoctor ?? null
 
 
   const formData = {
@@ -1551,6 +1559,16 @@ export function DocumentEditorContent() {
       // (a caller must not be able to put another cabinet's address on a document it issues).
       doctorName: formData.doctorName,
       doctorSpecialty: formData.doctorSpecialty,
+      /*
+       * The chosen practitioner's **id**, alongside the name that is printed. This is what the server resolves the
+       * cachet + n° d'ordre from, so the rendered document carries the identity of the practitioner named on it
+       * rather than of whoever is logged in — the case that matters now that reception can author documents.
+       *
+       * ⚠️ Sending an id here is not the same as sending a cachet: `doctorCachetKey`, its content type, the ordre
+       * and the cabinet city are all stripped server-side and re-resolved (like `clinicEmail` above). This is a
+       * *selector*, checked against the caller's own clinic roster.
+       */
+      issuingDoctorId: selectedDoctor?.id || undefined,
       recipientDoctorName: documentType === "liaison" ? recipientDoctorName : undefined,
       recipientDoctorSpecialty: documentType === "liaison" ? recipientDoctorSpecialty : undefined,
       content,
@@ -2112,6 +2130,11 @@ export function DocumentEditorContent() {
           recipientDoctorName: recipientDoctorName || undefined,
           recipientDoctorSpecialty: recipientDoctorSpecialty || undefined,
           contentJson,
+          // Re-assert the practitioner on every save: the editor rebuilds contentJson from its own fields, so the
+          // reserved cachet/ordre keys are not in the payload and the server re-resolves them. Omitted, it would
+          // fall back to the stored snapshot — right for the background PDF job, wrong here, where the user may
+          // have just changed who the document is issued by.
+          issuingDoctorId: selectedDoctor?.id || undefined,
         })
         toast.success("Document mis à jour avec succès", {
           description: "Les modifications ont été enregistrées",
@@ -2132,6 +2155,7 @@ export function DocumentEditorContent() {
           clinicPhone: formData.clinicPhone,
           doctorName: formData.doctorName,
           doctorSpecialty: formData.doctorSpecialty,
+          issuingDoctorId: selectedDoctor?.id || undefined,
           appointmentId: urlAppointmentId || undefined,
         })
         savedDocumentId = result.id;

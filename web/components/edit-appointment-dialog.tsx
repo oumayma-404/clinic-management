@@ -474,21 +474,26 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
     }
   }
 
-  if (!appointment) return null
-
-
-  // AC-P1.41/1.44: was a string-mangler whose ([A-Z]) branch was dead (the value is lower-cased at
-  // hydration), so « Inprogress » and « Noshow » reached the screen. One shared map now.
-
-
   /*
    * A typed booking is not discarded by a stray tap (J9). Below `md:` this is a full-screen sheet, so the strip
    * above it is a live dismiss target over a form that can hold a patient, several acts, a doctor and a time.
    *
    * Only the ROOT and « Annuler » route through the guard; every save path calls the raw prop, and so do the
    * AlertDialog escalations below — a confirmation the user just accepted must not then ask whether to discard.
+   *
+   * ⚠️ **Above the `!appointment` early return, and that placement is the whole of a crash fix.** This is the
+   * only hook in the file that sat *below* it, and the page mounts this dialog permanently with
+   * `appointment={null}` — so the first render recorded a hook list that stopped short, and the very first click
+   * on an appointment rendered one hook longer. React answers that with « Rendered more hooks than during the
+   * previous render », which is a throw during render: the whole agenda was replaced by `app/error.tsx`. Every
+   * other hook here already precedes the return; a hook must never sit after a conditional return.
    */
   const guard = useDirtyGuard(open, onOpenChange)
+
+  if (!appointment) return null
+
+  // AC-P1.41/1.44: was a string-mangler whose ([A-Z]) branch was dead (the value is lower-cased at
+  // hydration), so « Inprogress » and « Noshow » reached the screen. One shared map now.
 
   return (
     <>

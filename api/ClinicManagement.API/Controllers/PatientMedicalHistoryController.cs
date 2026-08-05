@@ -8,9 +8,17 @@ using ClinicManagement.Application.Features.Patients.Queries;
 
 namespace ClinicManagement.API.Controllers;
 
+/// <summary>
+/// A patient's antécédents médicaux. <b><c>AnyClinicRole</c> to read and record, <c>AdminOrDoctor</c> to delete.</b>
+///
+/// <para>The controller was <c>AdminOrDoctor</c> while <c>POST /api/patients</c> — <c>AnyClinicRole</c> — has
+/// always inserted rows into <b>this very table</b> (<c>CreatePatientCommand</c>'s
+/// <c>MedicalHistoryEntries</c>), and <c>PUT /api/patients/{id}</c> writes the <c>Patient.MedicalHistory</c> free
+/// text. So the gate never described the data it guarded; it only decided which door reception had to use.</para>
+/// </summary>
 [ApiController]
 [Route("api/patients/{patientId}/medical-history")]
-[Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+[Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
 public class PatientMedicalHistoryController : ApiControllerBase
 {
     private readonly IMediator _mediator;
@@ -68,7 +76,13 @@ public class PatientMedicalHistoryController : ApiControllerBase
         return Ok(result.Value);
     }
 
+    /// <summary>
+    /// Delete an antécédent. <c>AdminOrDoctor</c> — this is where an <b>allergy</b> is recorded, and removing one
+    /// is the one edit on this controller whose consequence is a clinical decision taken later on information
+    /// that is no longer there. A typo stays correctable by <see cref="UpdateMedicalHistory"/>, which is open.
+    /// </summary>
     [HttpDelete("{id}")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
     public async Task<ActionResult> DeleteMedicalHistory(Guid patientId, Guid id)
     {
         var command = new DeletePatientMedicalHistoryCommand

@@ -27,6 +27,17 @@ public class CreateMedicalDocumentCommand : IRequest<Result<MedicalDocumentDto>>
     public string DoctorSpecialty { get; set; } = string.Empty;
     public byte[]? PdfFile { get; set; } // PDF file as byte array (optional, generated on frontend)
     public Guid? AppointmentId { get; set; } // Optional link to the documented appointment (post-visit review)
+
+    /// <summary>
+    /// The practitioner this document is issued in the name of — the editor's explicit choice, which is what
+    /// <c>DoctorName</c> already carries as free text. It resolves the cachet + n° d'ordre CNOMDT
+    /// (<c>PractitionerRenderSnapshot.ResolveAsync</c>), so that the identity printed on the document is the one
+    /// named on it rather than the one who happened to type it — the case that matters now that reception can
+    /// author documents. A <b>selector, not a value</b>: it is tenant-checked, and the cachet key itself is still
+    /// stripped from any client payload. Optional — omitted, the caller's own doctor record is used, which is the
+    /// single-dentist cabinet and stays correct.
+    /// </summary>
+    public Guid? IssuingDoctorId { get; set; }
 }
 
 public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedicalDocumentCommand, Result<MedicalDocumentDto>>
@@ -229,7 +240,8 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
             // city into ContentJson at creation, so the unauthenticated background PDF job can render them
             // without a live doctor/clinic lookup. Best-effort: a resolution problem must never fail the
             // document creation — the document simply carries no snapshot (renderer falls back cleanly).
-            var contentJson = await SnapshotPractitionerAndClinicAsync(request.ContentJson, cancellationToken);
+            var contentJson = await SnapshotPractitionerAndClinicAsync(
+                request.ContentJson, request.IssuingDoctorId, cancellationToken);
 
             var document = new MedicalDocument(
                 Guid.NewGuid(),
@@ -348,11 +360,18 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
         }
     }
 
-    // Merges the current practitioner's cachet/ordre + the cabinet city into the document's ContentJson
+    // Merges the issuing practitioner's cachet/ordre + the cabinet city into the document's ContentJson
     // (FR-3.3 / FR-6.1). The keys are shared with the renderers via PractitionerRenderSnapshot. Any failure
     // (unresolved clinic, malformed JSON, missing doctor) falls back to the original ContentJson unchanged —
     // the snapshot is an enrichment, never a gate on document creation.
-    private async Task<string> SnapshotPractitionerAndClinicAsync(string originalContentJson, CancellationToken cancellationToken)
+    //
+    // `issuingDoctorId` is the practitioner the editor named. It wins over the caller's own doctor record, which
+    // is what lets reception type a dentist's ordonnance and have it carry *that dentist's* cachet — the id is
+    // tenant-checked inside ResolveAsync, so a foreign or stale one falls through instead of resolving.
+    private async Task<string> SnapshotPractitionerAndClinicAsync(
+        string originalContentJson,
+        Guid? issuingDoctorId,
+        CancellationToken cancellationToken)
     {
         try
         {
@@ -363,7 +382,8 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
             // inject a foreign cachet reference that the unauthenticated PDF job would later dereference.
             var snapshot = clinicResult.IsSuccess
                 ? await PractitionerRenderSnapshot.ResolveAsync(
-                    _clinicContext.GetUserId(), clinicResult.Value, _doctorRepository, _clinicRepository, cancellationToken)
+                    issuingDoctorId, _clinicContext.GetUserId(), clinicResult.Value,
+                    _doctorRepository, _clinicRepository, cancellationToken)
                 : PractitionerRenderSnapshot.Empty;
 
             return snapshot.ApplyTo(originalContentJson);

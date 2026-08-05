@@ -20,6 +20,14 @@ public class UpdateMedicalDocumentCommand : IRequest<Result<MedicalDocumentDto>>
     public string ContentJson { get; set; } = string.Empty;
     public Guid? FileId { get; set; }
     public byte[]? PdfFile { get; set; } // PDF file as byte array (optional, for updating the file)
+
+    /// <summary>
+    /// The practitioner the document is issued in the name of — see
+    /// <see cref="CreateMedicalDocumentCommand.IssuingDoctorId"/>. Omitted (which is what the background
+    /// <c>PdfGenerationJob</c> does), the stored document's existing snapshot is preserved, so an edit never
+    /// silently re-attributes a document to whoever opened it.
+    /// </summary>
+    public Guid? IssuingDoctorId { get; set; }
 }
 
 public class UpdateMedicalDocumentCommandHandler : IRequestHandler<UpdateMedicalDocumentCommand, Result<MedicalDocumentDto>>
@@ -140,14 +148,16 @@ public class UpdateMedicalDocumentCommandHandler : IRequestHandler<UpdateMedical
             if (user != null)
             {
                 // Re-apply the practitioner/clinic snapshot (the structured editor rebuilds ContentJson from
-                // its own fields and drops the reserved keys). Resolve from the caller's own doctor record —
-                // but a caller without one (a secretary/admin managing paperwork) would otherwise blank the
-                // cachet + CNOMDT ordre. Fall back per-field to the values already snapshotted on the stored
-                // document so an edit never strips the issuing practitioner's identity; client-supplied
-                // reserved keys are still stripped by ApplyTo (only these trusted server values are written).
-                var callerSnapshot = await PractitionerRenderSnapshot.ResolveAsync(
-                    userId, user.ClinicId, _doctorRepository, _clinicRepository, cancellationToken);
-                var effectiveSnapshot = callerSnapshot.OrElse(PractitionerRenderSnapshot.ReadFrom(document.ContentJson));
+                // its own fields and drops the reserved keys). Resolution order is the named practitioner, then
+                // the caller's own doctor record — so an edit by someone with no record of their own (reception,
+                // or an admin who is not a dentist) no longer blanks the cachet + CNOMDT ordre. Then fall back
+                // per-field to the values already snapshotted on the stored document, so an edit that names
+                // nobody still never strips the issuing practitioner's identity. Client-supplied reserved keys
+                // are stripped by ApplyTo regardless (only these trusted server values are written).
+                var resolvedSnapshot = await PractitionerRenderSnapshot.ResolveAsync(
+                    request.IssuingDoctorId, userId, user.ClinicId,
+                    _doctorRepository, _clinicRepository, cancellationToken);
+                var effectiveSnapshot = resolvedSnapshot.OrElse(PractitionerRenderSnapshot.ReadFrom(document.ContentJson));
                 contentJson = effectiveSnapshot.ApplyTo(request.ContentJson);
             }
 

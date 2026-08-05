@@ -20,6 +20,13 @@ namespace ClinicManagement.UnitTests.Api;
 /// mis-keyed record, and it is the class the repo already uses for reversing/altering a document another
 /// aggregate depends on (invoice cancel, devis amend, mark/un-mark an act).
 /// </para>
+/// <para>
+/// ⚠️ <b>These four attributes went from belt-and-braces to load-bearing.</b> When this class was written the
+/// controllers were <c>AdminOrDoctor</c> at class level too, so a missing method attribute changed nothing. The
+/// clinical record is now <c>AnyClinicRole</c> — reception reads and records the patient file — and « recording is
+/// open, erasing is not » is the whole line. Delete one of these attributes and a secretary can destroy a fiche,
+/// an ordonnance or a recorded allergy; nothing else in the solution would refuse it.
+/// </para>
 /// </summary>
 public class ClinicalRecordDeletionAuthorizationTests
 {
@@ -42,12 +49,33 @@ public class ClinicalRecordDeletionAuthorizationTests
             nameof(MedicalDocumentsController.DeleteDocument));
     }
 
+    // An antécédent is where an **allergy** is recorded. Removing one is the only edit on that controller whose
+    // consequence is a clinical decision taken later on information that is no longer there — so it is gated while
+    // create and update stay open. A typo is corrected by the PUT, which reception can reach.
+    [Fact]
+    public void Deleting_A_Medical_History_Entry_Requires_AdminOrDoctor()
+    {
+        AssertAdminOrDoctor(
+            typeof(PatientMedicalHistoryController),
+            nameof(PatientMedicalHistoryController.DeleteMedicalHistory));
+    }
+
+    [Fact]
+    public void Deleting_A_Family_History_Entry_Requires_AdminOrDoctor()
+    {
+        AssertAdminOrDoctor(
+            typeof(PatientFamilyHistoryController),
+            nameof(PatientFamilyHistoryController.DeleteFamilyHistory));
+    }
+
     // The class-level gate still has to be there: the method policy authorizes the *role*, and without an
     // authenticated principal there is no role to read. In Local mode the fail-closed FallbackPolicy would
     // cover an omission; Cloud's fallback is null, so this is the only thing keeping Cloud honest.
     [Theory]
     [InlineData(typeof(DentalRecordsController))]
     [InlineData(typeof(MedicalDocumentsController))]
+    [InlineData(typeof(PatientMedicalHistoryController))]
+    [InlineData(typeof(PatientFamilyHistoryController))]
     public void Controller_Requires_Authentication_At_Class_Level(Type controller) // [AC-P2.22]
     {
         Assert.NotNull(controller.GetCustomAttribute<AuthorizeAttribute>());

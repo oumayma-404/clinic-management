@@ -960,6 +960,42 @@ and procedure-type repositories too, and `ReadAsync` on all four dashboard reade
 parameter. Both over-matches were caught by the compiler, but they are why the per-site fixes in this session are
 enumerated by file and line rather than applied by regex.
 
+
+### ✅ Both DB gates have now been run (added after session 4, on a live dev database)
+The two verbs recorded above as « NOT RUN — no PostgreSQL » were run against an **isolated dev database** (Docker,
+republished on **5433** so it could not be confused with the installed deployment's bundled PostgreSQL on
+127.0.0.1:5432 — on this machine `localhost:5432` resolves to one or the other depending on IPv4/IPv6 order).
+All four pending migrations were applied with `dotnet ef database update --connection …` (explicit, because
+`ApplicationDbContextFactory` reads **only** appsettings and ignores environment variables, so a plain invocation
+would have targeted `localhost:5432`).
+
+| | before | after |
+|---|---|---|
+| `verify-schema` | **13 checks found drift** — the three new checks correctly read « not applicable » rather than a misleading 0 | **1 check** — `overlapping-appointment-pairs` (2 pairs), which was **already** drifting before: pre-existing dev data, unrelated |
+| `backup-schedule-backfill` | not applicable | **0 clinics** with a non-positive retention/staleness — session 1's defaults landed, i.e. EF's `defaultValue: 0` did not ship |
+| `cheque-details-only-on-cheques` | not applicable | **0** — L8's invariant holds across both ledgers |
+| `practitioner-attribution-backfill` | not applicable | **0** rows unattributed while their appointment names a practitioner — **the L9 backfill reached what it should** |
+| `reconcile-money` | no drift; 2026-07 = 7 000,000 · 2026-08 = 320,000 · Σ = 7 320,000 DT | **identical**, no drift |
+
+The money being byte-identical is the point: L8 slice B adds a `GROUP BY` beside an existing SUM and L9 adds a
+dimension, so **no figure should move** — and none did.
+
+⚠️ **One hazard found while doing it, recorded rather than fixed.** `20260804112446_AddPractitionerAttribution`
+sorts *before* `20260804120000_AddChequeDetailsToPayments`, yet its paired Designer snapshot describes a model that
+already contains the cheque **and** CNAM columns (it was generated after both). Applying forward is unaffected —
+each `Up()` is explicit — and the **last** migration's snapshot is complete, so the next `migrations add` diffs
+correctly. Only a rollback *to that specific point* would target a model state that never existed. Renumbering it
+now would orphan the `__EFMigrationsHistory` row on any database that has already applied it, so it is left as is.
+This is the same class of hazard as DEV-17.
+
+⚠️ **The L4f pre-migration backup gate does block a Local-mode dev run**, which is worth knowing before an upgrade:
+with migrations pending it calls `IBackupService`, and the committed `appsettings` ship `Backup:PgDumpPath: ""`, so
+the gate aborts startup. Pointing it at a real `pg_dump` then failed one step later, on the backup folder's
+**permission hardening** (`icacls` cannot strip inherited ACEs without elevation). Neither was worked around in
+product code — the migrations were applied with the EF tool instead, after which the gate sees 0 pending and the app
+starts. **Not filed as a defect**: on a real install the installer sets `PgDumpPath` and the destination is a
+hardened `{app}pi\Backups`, which is exactly the configuration the gate was written for.
+
 ## Eye pass still owed (session 4)
 - **La caisse at 320 / 390 / 820 px** — the « dont » chip row wraps (four chips × label + amount); confirm the chips
   do not overhang each other on a coarse pointer, and that the « Mode » filter chip + its caveat sentence sit above

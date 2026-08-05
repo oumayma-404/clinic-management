@@ -43,6 +43,15 @@ public class MedicalDocumentPdfData
     public string DoctorName { get; set; } = string.Empty;
     public string DoctorSpecialty { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Which practitioner's cachet + n° d'ordre to resolve — the editor's explicit choice, the id behind
+    /// <see cref="DoctorName"/>. <b>Unlike the four snapshot fields below it, this one is NOT stripped from the
+    /// client payload</b>, and the distinction is the whole security argument: this is a <em>selector</em>, checked
+    /// against the caller's own clinic roster, whereas <see cref="DoctorCachetKey"/> is a storage key the
+    /// unauthenticated PDF job dereferences and must therefore only ever come from the server.
+    /// </summary>
+    public Guid? IssuingDoctorId { get; set; }
+
     // Snapshotted practitioner/clinic fields (Part C, FR-3.3 / FR-6.1). Populated by both producers — the
     // create command snapshots them into ContentJson so the unauthenticated background PDF job can render
     // the cachet + city without a live doctor/clinic lookup.

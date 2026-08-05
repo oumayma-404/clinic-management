@@ -514,6 +514,11 @@ export default function PatientDetailsPage() {
   const [seededPlanOpen, setSeededPlanOpen] = useState(false)
   // Both delete endpoints are AdminOrDoctor (A-12). Offer the action only to those roles so a secretary is
   // never sent into a guaranteed 403 — the same rationale procedure-types-table.tsx documents for its writes.
+  //
+  // ⚠️ This is now the **only** role gate on this page, and that is deliberate rather than an oversight: the five
+  // clinical controllers behind these tabs moved to `AnyClinicRole` (reading and recording the patient's file is
+  // reception's job in a Tunisian cabinet), while deleting from it stayed `AdminOrDoctor`. So « Modifier »,
+  // « Dossier médical », the odontogramme and the antécédents are open on purpose — only destruction is not.
   const { user: sessionUser } = useSession()
   const canDeleteClinicalRecords = sessionUser?.role === "admin" || sessionUser?.role === "doctor"
 
@@ -839,27 +844,27 @@ export default function PatientDetailsPage() {
         })),
     )
 
-  // The appointment the record documents, so its booked procedure can be PROPOSED in the record modal and
-  // its plan step pre-selected (AC-9). Two sources, in order: the post-visit deep-link
-  // (`?addRecord=1&appointmentId=…`), then — when the modal was opened straight from this page — today's
-  // live appointment for this patient. A record being edited is never re-proposed.
-  const recordAppointment: AppointmentDto | null = editingRecord
-    ? null
-    : (reviewAppointmentId
-        ? appointments.find((a) => a.id === reviewAppointmentId)
-        : appointments.find((a) => {
-            // Useful if it names a procedure to propose OR a plan step to pre-select — an appointment booked
-            // from a devis often carries only the latter, and that is exactly the case AC-9 is about.
-            if (!a.procedureTypeId && !a.treatmentPlanItemId) return false
-            if (a.status === "Cancelled" || a.status === "NoShow") return false
-            const when = new Date(a.appointmentDateTime)
-            const today = new Date()
-            return (
-              when.getFullYear() === today.getFullYear() &&
-              when.getMonth() === today.getMonth() &&
-              when.getDate() === today.getDate()
-            )
-          })) ?? null
+  /**
+   * The appointment the record documents, so its booked procedure can be PROPOSED in the record modal and its
+   * plan step pre-selected (AC-9). **One source: the visit the modal was opened from** — « Enregistrer la fiche »
+   * on an appointment row, or the `?addRecord=1&appointmentId=…` post-visit deep-link. A record being edited is
+   * never re-proposed.
+   *
+   * ⚠️ There used to be a second source, and it invented data. When the modal was opened from « Ajouter une
+   * fiche » (which sets no `reviewAppointmentId`), it fell back to « today's live appointment » — the FIRST of
+   * this patient's appointments today carrying an act. The list arrives ordered by `appointmentDateTime`, so
+   * that was the *earliest* one of the day, not the visit being recorded: booking a RDV with no act and then
+   * adding a fiche proposed some other visit's procedure, and the dentist had to notice and undo it. The
+   * fiche was never even linked to the guessed visit — `appointmentId` below stays null on that path — so the
+   * guess shaped the content of a record that would never reference it.
+   *
+   * A visit that wants its act proposed has a button that says so on its own row; guessing which of the day's
+   * visits a fiche is for is not something this page can know.
+   */
+  const recordAppointment: AppointmentDto | null =
+    editingRecord || !reviewAppointmentId
+      ? null
+      : (appointments.find((a) => a.id === reviewAppointmentId) ?? null)
 
   // Compute current files based on folder selection
   // When in a folder, all loaded files belong to that folder
@@ -1757,28 +1762,32 @@ export default function PatientDetailsPage() {
                       title={(doc) => documentTypeLabel(doc.documentType)}
                       onSelect={(doc) => openMedicalDocument(doc)}
                       fields={(doc) => [{ label: "Date", value: formatDate(doc.documentDate) }]}
-                      actions={(doc) =>
-                        canDeleteClinicalRecords ? (
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon" aria-label="Actions du document">
-                                <MoreHorizontal className="h-4 w-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem onSelect={() => openMedicalDocument(doc)}>
-                                Ouvrir le document
-                              </DropdownMenuItem>
+                      // ⚠️ The role gate is on the **delete item**, not on the menu. It used to wrap the whole
+                      // `DropdownMenu`, so a secretary lost « Ouvrir le document » along with it — on the phone
+                      // tree only; the table below gates just its delete button (§ 0: no capability removed by a
+                      // layout decision, and here one tree quietly removed one the other kept).
+                      actions={(doc) => (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" aria-label="Actions du document">
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onSelect={() => openMedicalDocument(doc)}>
+                              Ouvrir le document
+                            </DropdownMenuItem>
+                            {canDeleteClinicalRecords && (
                               <DropdownMenuItem
                                 className="text-destructive focus:text-destructive"
                                 onSelect={() => setDocumentToDelete(doc)}
                               >
                                 Supprimer le document
                               </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        ) : null
-                      }
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
                     />
                     <Table containerClassName={TABLE_ONLY}>
                       <TableHeader>

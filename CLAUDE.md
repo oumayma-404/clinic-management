@@ -97,6 +97,19 @@ Frontend talks to the API via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
   The `PUT /api/appointments/{id}` partial-update wipe is closed by generalizing the tri-state pattern to
   `ProcedureTypeId`/`DoctorId`/`Notes`/`DoctorName`; `UpdatePatientCommand`'s contact fields use the same
   mechanism, so a field can finally be **cleared** rather than only overwritten.
+  **And a patient can no longer be created twice by accident**: `CreatePatientCommandHandler` runs
+  `Features/Patients/PatientDuplicateIndex` (name+DOB · name when no DOB was supplied · phone through
+  `PhoneNumber.ToE164`, names folded through `SearchTerm.Normalize`) before it builds anything, refusing with
+  **`patient_duplicate`** so the client can offer « Créer quand même » (`AllowDuplicate`) — advisory, because two
+  people genuinely share names and the « Nouveau patient » form is also where a walk-in is registered with nothing
+  but one. ⚠️ **The matching was not new — its reach was.** It had lived as a private nested class of
+  `PatientImportPlanner`, so the CSV import (the least-used door) checked while the patient form and the appointment
+  dialog's inline « Nouveau patient » did not; it was **moved**, not copied, so « what counts as the same person » has
+  one answer. This is the `fixes-dont-propagate` shape again. On the client the load-bearing half is separate and
+  worse: `create-appointment-dialog`'s `performCreate` **re-ran `patientsApi.create` on every retry**, and it is
+  retried by design (slot-taken, out-of-hours and past-time all re-submit) — so one « créer quand même » on a taken
+  slot created the patient a second time. It now remembers the created id in a ref and reuses it, and the new-patient
+  fields go read-only once that patient is committed, since the record exists and the form can no longer reach it.
 - **`reconcile-money` (Local-mode console verb)**: `dotnet run -- reconcile-money` prints a per-clinic
   reconciliation — the two payment ledgers against their stored denormalizations, per-plan échéancier sums,
   monthly collected computed the **old and the new way** (the line that proves the ledger migration moved no
@@ -276,6 +289,36 @@ Frontend talks to the API via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
   money: yes. Clinic-wide money: no. So `POST /api/invoices/{id}/payments` and
   `GET /api/patients/{id}/billing-summary` stay **deliberately open**, while `billing/caisse`, `/caisse/ledger`,
   `billing/receivables`, `invoices/revenue` and the whole dashboard are `AdminOrDoctor`.
+  ⚠️ **The second distinction was added later, and it reverses one of I1's own decisions: the clinical record is
+  `AnyClinicRole` to read and record, `AdminOrDoctor` to delete from.** I1 put fiches de soins, the odontogramme,
+  the antécédents and the medical documents wholly behind `AdminOrDoctor` under the heading « clinical authorship
+  and clinical free text » — including the `GET`s, which it forked on explicitly and decided the strict way. The
+  result was that a secretary opening a patient hit « Vous n'avez pas les droits » on « Dossiers médicaux » and
+  « Documents » before touching anything, and a practising dentist's account is that the assistant(e) is who fills
+  much of the record in. **The old line was also never true of the code around it**: `PUT /api/patients/{id}` is
+  `AnyClinicRole` and writes `Allergies`, `MedicalHistory`, `Notes` and `ImportantNotes`, and `POST /api/patients`
+  inserts `PatientMedicalHistory` rows outright — so reception could always type a patient's medical history
+  through « Modifier » while being refused a *read* of the same text one tab over. The boundary did not protect
+  the data; it chose which door reception had to use. **Record yes, erase no** is the replacement, and the four
+  deletes (fiche · document + blob · antécédent médical · antécédent familial) are now the *only* thing gating
+  it — `ClinicalRecordAccessTests` states the charter as data and fails on an unclassified new action.
+  ⚠️ **Widening the write surface was only safe because two other things already existed**: `AuditSaveChangesInterceptor`
+  attributes every mutation (so a secretary-recorded fiche is answerable at `GET /api/audit`), and
+  `PractitionerAttribution` puts the caller **last**, so clinical *credit* goes to the visit's dentist or is left
+  honestly `null` — never to whoever typed it.
+  ⚠️ **And opening document authorship needed a real fix, not a policy edit.** `PractitionerRenderSnapshot` resolved
+  the cachet + n° d'ordre CNOMDT from the **caller's** `Doctor` record, so a document authored by anyone without one
+  — reception, or an admin who is not a dentist — rendered with *no* practitioner identity, silently, on the class of
+  document whose entire purpose is to carry it. `ResolveAsync` now takes an **`IssuingDoctorId`** and resolves
+  chosen practitioner → caller → none, tenant-checking the chosen id against the clinic roster (a foreign or stale
+  one *falls through*, exactly like `PractitionerAttribution.Resolve`); the editor sends the practitioner the user
+  already picked, and the `doctors[0]` fall-back it kept for the four free-form types is gone, since with reception
+  authoring it had become the *normal* path rather than a near-unreachable one. **No schema change**: the resolved
+  snapshot has always been persisted into the document's `ContentJson`, so the missing piece was a selector on the
+  request, not the persisted `DoctorId` the code's own note said it would need. `IssuingDoctorId` is therefore
+  deliberately **not** stripped from the render payload the way the four reserved values are — it is a selector
+  checked against the caller's own roster, while `doctorCachetKey` is a storage key the unauthenticated
+  `PdfGenerationJob` later dereferences.
   ⚠️ **`AnyClinicRole` includes `admin`, and that is why it exists** rather than the spec's `DoctorOrSecretary`:
   `CreateClinicCommand` makes a clinic's creator an **admin** and links the single dentist's `Doctor` record to that
   same account, so in the common Tunisian practice the owner-dentist's role is `admin` — and a literal
@@ -351,8 +394,7 @@ Frontend talks to the API via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
   cheque with no due date is counted as its own group rather than dropped. Client side: `components/factures/cheque-fields.tsx`
   is the single conditional sub-form and `chequePaymentFields()` the single payload builder — it clears the fields
   when the method is not `Cheque`, which is what makes "the server refuses details on a cash payment" unreachable
-  rather than merely unlikely. *(Slice B — the per-method caisse breakdown, the ledger `method` filter and the
-  cheques-due screen — is **not built**; see `features/adoption-qa-l-residual-blockers/progress.md`.)*
+  rather than merely unlikely.
 - **Data comes back in as CSV, and the dry run is the product (`adoption-qa-l` L5, import half)**: a dentist arriving
   with 3 000 patients in a spreadsheet used to type them in by hand — the spec names that as the single thing that
   stops most switchers. `POST /api/patients/import/preview` → mapping → `POST /api/patients/import`, both
@@ -395,6 +437,72 @@ Frontend talks to the API via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
   level would be a second authority on what is on screen. ⚠️ One deliberate superset: the agenda's CSV covers the
   whole window and every statut, since « Terminés »/« Annulés » *reveal* rather than narrow — honouring them would
   make the ordinary export of a past week omit almost every appointment in it, and `Statut` is a column in the file.
+- **La caisse says *how* the money came in, and a cheque has somewhere to be chased (`adoption-qa-l` L8 slice B)**:
+  `CaisseSummaryDto.CashInByMethod` splits « Encaissé » per `PaymentMethod`, the « extrait » takes a `method` filter,
+  and **`GET /api/billing/cheques`** (`AdminOrDoctor`, `/cheques`) lists every cheque the clinic holds across *both*
+  payment ledgers, soonest-due first. Before it, four scalars summed across every method meant the owner closing the
+  drawer could not tell the notes in it from a post-dated cheque nobody has banked — the one distinction a cash count
+  is made against.
+  ⚠️ **The breakdown is a `GROUP BY` sibling of the very SUMs that produce `CashIn`**, predicate for predicate — *not*
+  a grouping of the statement's rows, which carry voided payments and would make the lines silently disagree with the
+  total above them. All four methods are always present in enum order, zeros included: « Espèces 0,000 » on a day of
+  cheques is a true statement about the drawer, and an absent row is not a statement at all. ⚠️ The `method` filter is
+  applied **after** the running balance, beside the search term and for the identical reason. ⚠️ The cheques list
+  applies the **bridged-plan de-dup**, and there it is load-bearing rather than consistency theatre: the devis→facture
+  bridge carries a cheque onto the invoice, so without it one physical cheque is listed twice and the duplicate is
+  indistinguishable from a second genuine cheque of the same amount from the same bank. ⚠️ **A cheque leaves that list
+  only by being voided** — the product records a cheque's *receipt*, never its clearing at the bank — which is why the
+  four bucket counts (en retard / bientôt / plus tard / **sans date**) are the headline and the screen says so out
+  loud. On the client, the per-method figures **are** the filter's control (`cash-in-by-method.tsx`), the same
+  figure-links-to-its-records rule the dashboard follows.
+- **A reimbursement estimate now knows what is left (`adoption-qa-l` L10)**: `Domain/Services/CnamPlafond` is the
+  single authority on the CNAM **annual ceiling** — the dependants barème, the dedicated soins-dentaires allowance,
+  and which act categories are *hors plafond* (prothèse) — and `GET /api/patients/{id}/cnam-ceiling` reports the
+  ceiling, what this clinic has consumed of it in the **clinic** year, and what remains. There were zero repo hits for
+  `plafond`/`ceiling` before it, so « Remboursement indicatif » told a patient who had exhausted their ceiling in
+  March exactly what it told one who had never claimed.
+  ⚠️ **Every figure is an estimate for two independent reasons, and both are DTO fields rather than each screen's own
+  wording**: `ceilingIsDefault` (the 2024 amounts are two agreeing Tunisian outlets with no official CNAM page
+  retrieved, so they are a *default* that `CnamInfo.AnnualCeilingOverride` always beats) and `seesThisClinicOnly`
+  (the clinic counts only its own acts, so « reste » is an **upper bound**). ⚠️ Consumption is measured from **issued
+  invoices**, because nothing records a BS1 submission with an amount — so the figure lags a bulletin the caisse has
+  not paid and leads one it refused. ⚠️ `ComputeCeilingConsumptionAsync` is a member on the existing
+  `ICnamBillingCalculator`, not a second calculator, and it applies **no cap**: clamping to what the clinic charged
+  would under-report consumption on a discounted invoice and so over-state the ceiling left.
+- **An arrêt de travail is printed on the caisse's own form (`adoption-qa-l` L11)**: `CnamArretTravailRenderer` is the
+  **second overlay renderer**, on `CnamBs1BulletinRenderer`'s pattern, stamping `DocumentTypes.ArretTravail` onto the
+  genuine CNAM **P 061** (`Assets/P61.pdf`). « arrêt de travail » previously appeared *once* in the whole repository —
+  as a description string on the generic certificat tile — so a dentist either hand-wrote it or printed a free-text
+  certificat the caisse does not accept.
+  ⚠️ **`Assets/P61.pdf` is a normalised copy** of the bundled scan with the rotation baked into the content stream as
+  A4 landscape, so every coordinate in the renderer matches what a ruler on the printout measures. ⚠️ **Which of the
+  three bundled PDFs is current was settled by reading them** (`P61_2024.pdf`; `CMIATMP.pdf` is the AT/MP form, which
+  P 061's own header excludes) but **not** by an official publication — recalibration is expected if a caisse uses
+  another revision, and **printing onto real paper is still owed**. ⚠️ `ArretTravailValidation` applies the K-series
+  lessons from the start (mandatory duration/date, a **chosen** practitioner never `doctors[0]`, one of code
+  conventionnel / n° d'ordre), and the **motif is deliberately never printed**: P 061's front carries no diagnosis
+  field and is what the patient hands their employer. In the editor **`isOfficialForm`** now names what this document
+  and the BS1 share — an iframe PDF preview (so Print goes through the iframe), no practitioner fall-back, a pre-Save
+  gate, and **no Word export**, since a `.docx` of a pre-printed form is the letterhead alone.
+- **Money and clinical work know who earned them (`adoption-qa-l` L9)**: `Invoice`, `TreatmentPlan` and `DentalRecord`
+  gained a nullable **`DoctorId`** with a real FK, `WaitingListEntry.PreferredDoctorId` became one, and
+  `Application/Common/PractitionerAttribution` is the single precedence rule that fills them — explicit → the visit's
+  practitioner → the caller's own `Doctor` record, each checked against the clinic's roster. `DoctorId` had existed on
+  exactly three entities, none of them carrying money, and `Features/Dashboard/` contained **zero** occurrences of
+  `Doctor`. A practitioner filter now narrows `/factures` and the dashboard's **Argent** section.
+  ⚠️ **The caller is the *last* resort, not the first**: a secretary recording a dentist's work must not credit
+  themselves — and in the common single-dentist practice the owner *is* the caller, which is exactly where that
+  fall-back is right. ⚠️ **The attribution travels with the money and is never re-derived**: the fiche→facture and
+  devis→facture bridges copy the source's practitioner verbatim, because they bill work that already happened and
+  re-resolving would credit the *biller*. ⚠️ **Nullable means nullable** — historical rows and visits booked with no
+  practitioner have none, so an unattributed row is *excluded* under a filter rather than silently included (two
+  dentists' filtered totals must not exceed the clinic's). ⚠️ **The dashboard filter narrows two figures of five, and
+  the DTO says so** (`ClinicWideOutgoings`, `CollectedInvoicesOnly`): an expense has no practitioner, so a narrowed
+  « Net » would be one dentist's income minus everybody's costs. ⚠️ The migration **nulls orphaned
+  `PreferredDoctorId` values before adding its FK** — the column was unconstrained for the product's whole life, and
+  `AddForeignKey` over such a row aborts the upgrade after the schema is half-applied. This is **attribution, not
+  authorization**: per-practitioner data scoping is deliberately out of scope. `verify-schema` gained
+  `practitioner-attribution-backfill`, because a backfill is the one thing invisible to every other layer.
 - **Multi-tenancy**: every request is scoped to a clinic. The **authoritative** check is per-request in the handlers — the clinic is resolved from the DB user record (`ICurrentClinicResolver`/`IClinicContext` → DB lookup of the `sub`, not purely from the JWT claim) and each loaded aggregate's `ClinicId` is re-verified. Since `cloud-security-and-tenant-isolation` (PR #11) there is **also** a defense-in-depth backstop: EF Core **global query filters** on ~15 clinic-owned aggregate roots, fed the JWT `clinic_id` via `ICurrentClinicProvider` (fail-open — inactive when no clinic is in scope, so jobs/CLI/auth flows still work). See `Infrastructure/Persistence/ApplicationDbContext.cs`. Tenant-isolation is pinned by `*TenantIsolationTests` in the test project.
 - **Pluggable auth (`Auth:Mode` = `Cloud` | `Local`)**: Cloud is the original Auth0 path; **Local** (for offline Windows/LAN installs) issues its own HS256 JWTs against local email+password accounts. Backend seam: `ILocalAuthService`/`LocalAuthService` (+ per-install signing key via `LocalAuthConfig`), a mode-branched JWT setup in `Program.cs`, and `AuthController` (`login`/`setup`/`register`/`mode`/`change-password`). `CreateClinicCommand`/`JoinClinicCommand` branch to a Local path when a `Password` is present. Frontend seam: a single `useSession()` context (`web/lib/auth/session.tsx`) backed by either `CloudSessionProvider` (Auth0) or `LocalSessionProvider` (HttpOnly cookie), gated on `AUTH_MODE`. All Local behavior is additive; the Cloud path is unchanged. Offline admin lockout recovery is a console command (`dotnet run -- reset-admin-password`), not a web endpoint. *All 5 phases of the offline-Windows repackaging are complete — see `features/windows-desktop-app/`.*
 - **Local-disk file storage (Phase 2)**: the single `IFileStorage` seam is mode-branched — `LocalDiskFileStorage` (Local, blobs under `FileStorage:BasePath`) vs `MinioFileStorage` (Cloud). Additive; Cloud unchanged.

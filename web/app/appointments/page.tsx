@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect, useRef } from "react"
 import { AppShell } from "@/components/app-shell"
 import { Button } from "@/components/ui/button"
-import { Plus, RefreshCw, Calendar, Unlink } from "lucide-react"
+import { Plus } from "lucide-react"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -29,22 +29,9 @@ import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { useDoctors } from "@/lib/hooks/use-doctors"
 import { useSession } from "@/lib/auth/session"
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select"
 import { ActiveFilterChip } from "@/components/ui/list-toolbar"
 import { useMediaQuery } from "@/lib/hooks/use-media-query"
 import { cn } from "@/lib/utils"
-
-/**
- * The three agenda views, in one place.
- *
- * <p>Named rather than inlined because the phone's own segmented control (`AgendaPhoneHeader`) renders the same
- * three, and a second hand-written list is how the two drift into disagreeing about what « Semaine » is called.</p>
- */
-const AGENDA_VIEWS = [
-  { value: "day" as const, label: "Jour" },
-  { value: "week" as const, label: "Semaine" },
-  { value: "month" as const, label: "Mois" },
-]
 
 export default function AppointmentsPage() {
   // Week is the default: it is the span staff actually plan against, and a single day of a specialist practice's
@@ -367,129 +354,47 @@ export default function AppointmentsPage() {
         */}
         <div className="flex flex-1 flex-col min-h-0">
           {/*
-            AC-31 — two rows, not one wrapping row.
-            The view switch and « Nouveau rendez-vous » share a fixed first row, so the primary action has the
-            same home at 320 px as at 1440 px; everything secondary (the admin Google controls, the praticien
-            filter, the active-filter chips) wraps freely underneath. Previously all of it shared one
-            `flex-wrap` row, which stacked to about five rows at 390 px and pushed the calendar off screen.
+            What is left at page level: the **active-filter chips**, and nothing else.
+
+            The view switch, « Nouveau rendez-vous », the praticien filter and the Google controls used to live
+            here in two rows above the calendar's own two — four rows of chrome before the grid, with the *date*
+            two rows away from the *view switch* and an administrative Google row between them. They are now props
+            on `<AppointmentCalendar>` (`onViewChange`, `onNewAppointment`, `doctorFilter`, `googleControls`) and
+            render inside the one agenda bar the calendar owns, which is the component that also owns the window,
+            the appointment index and the date arithmetic that bar is made of.
+
+            The chips stay here deliberately. They are a statement about the page's own URL state — two of the
+            fifteen entries in `lib/dashboard-links.ts` arrive with `?status=` and flip these on — and § 13
+            requires an unrequested filter to be visible and removable *at every width*, so they must not be
+            folded into the popover that holds the switches themselves.
           */}
           <div className="mb-3 flex flex-shrink-0 flex-col gap-2">
-            {/* Below `md:` this row is replaced by the agenda's own segmented control + the labelled floating
-                action (AgendaPhoneHeader / the FAB at the end of this file). Rendering both would put two view
-                switchers on one phone screen. */}
-            <div className="hidden items-center justify-between gap-2 md:flex">
-              {/* Same paint as the `TabsList` it replaces — a `bg-muted` track with a `bg-background` pill on
-                  the active view — so nothing about the desktop toolbar changes visually. */}
-              <div
-                role="group"
-                aria-label="Vue de l'agenda"
-                className="inline-flex h-9 w-fit items-center justify-start rounded-lg bg-muted p-[3px] text-muted-foreground"
-              >
-                {AGENDA_VIEWS.map(({ value, label }) => {
-                  const selected = view === value
-                  return (
-                    <button
-                      key={value}
-                      type="button"
-                      aria-pressed={selected}
-                      onClick={() => selectView(value)}
-                      className={cn(
-                        "inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 rounded-md border border-transparent px-2.5 py-1 text-sm font-medium whitespace-nowrap transition-[color,background-color,box-shadow] duration-150 ease-snap",
-                        "focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-1",
-                        selected
-                          ? "bg-background font-semibold text-primary shadow-sm dark:bg-input/40"
-                          : "hover:text-foreground",
-                      )}
-                    >
-                      {label}
-                    </button>
-                  )
-                })}
-              </div>
-              <Button onClick={() => setDialogOpen(true)} className="shrink-0 gap-2" size="sm">
-                <Plus className="h-4 w-4" />
-                {/* The label shortens rather than disappearing — an icon-only primary action on the busiest
-                    screen in the app is exactly the unlabelled-ghost-icon problem P3 spent a part removing. */}
-                <span className="hidden sm:inline">Nouveau rendez-vous</span>
-                <span className="sm:hidden">Nouveau</span>
-              </Button>
-            </div>
             {/*
-              Desktop/tablet only. Below `md:` the agenda shows the appointments and nothing else: the Google
-              Calendar connect/sync controls and the praticien filter are administrative, not things a dentist
-              reaches for while looking at today on a phone — and at 390 px this row is what crowded the view.
-              Both stay fully available from `md:` up, and neither is duplicated on the phone header.
+              AC-29 — a filter the user did not choose has to be visible and removable.
+
+              Two of the fifteen entries in `lib/dashboard-links.ts` arrive here with `?status=`, which flips
+              these toggles on. Without a chip the calendar simply shows more than usual with nothing on
+              screen saying why, and « Taux d'absence » lands on a list the user cannot un-filter without
+              hunting for a switch inside the calendar's own toolbar.
+
+              ⚠️ No `hidden md:flex` on this row any more. It used to be desktop-only, which was safe only
+              because `AgendaPhoneHeader` renders its own copy of the chips below `md:`; the row now holds
+              nothing else, so leaving it hidden would mean an empty flex container on a phone and two rules to
+              keep in step instead of one. The phone header's copies still render — a phone shows the chips
+              inside its own header band, which is where its other controls are.
             */}
             <div className="hidden flex-wrap items-center gap-2 md:flex">
-              {isAdmin && (!isGoogleCalendarAuthorized ? (
-                <Button
-                  onClick={handleAuthorizeGoogleCalendar}
-                  variant="outline"
-                  className="gap-2"
-                  size="sm"
-                  disabled={!internetReachable}
-                  title={!internetReachable ? "Connexion internet requise" : undefined}
-                >
-                  <Calendar className="h-4 w-4" />
-                  Synchroniser avec Google Calendar
-                </Button>
-              ) : (
-                <>
-                  <Button
-                    onClick={handleSyncFromGoogle}
-                    variant="outline"
-                    className="gap-2"
-                    size="sm"
-                    disabled={isSyncing || !internetReachable}
-                    title={!internetReachable ? "Connexion internet requise" : undefined}
-                  >
-                    <RefreshCw className={`h-4 w-4 ${isSyncing ? "animate-spin" : ""}`} />
-                    {isSyncing ? "Synchronisation…" : "Importer depuis Google"}
-                  </Button>
-                  {/* AC-P2.34 — beside « Importer depuis Google », behind an AlertDialog. Deliberately NOT
-                      gated on internetReachable: clearing our own stored token is a local DB write, and it
-                      is exactly what an admin needs when the connected account is wrong or unreachable. */}
-                  <Button
-                    onClick={() => setDisconnectOpen(true)}
-                    variant="outline"
-                    className="gap-2 text-destructive hover:text-destructive"
-                    size="sm"
-                    disabled={isDisconnecting}
-                  >
-                    <Unlink className="h-4 w-4" />
-                    Déconnecter Google
-                  </Button>
-                </>
-              ))}
-              {isAdmin && !internetReachable && (
-                <span className="text-xs text-warning-ink">Connexion requise</span>
-              )}
-              <Select value={selectedDoctorId} onValueChange={setSelectedDoctorId}>
-                <SelectTrigger className="h-9 w-[180px]">
-                  <SelectValue placeholder="Praticien" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Tous les praticiens</SelectItem>
-                  {doctors.filter((doc) => doc.id).map((doc) => (
-                    <SelectItem key={doc.id} value={doc.id!}>
-                      {doc.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {/*
-                AC-29 — a filter the user did not choose has to be visible and removable.
-
-                Two of the fifteen entries in `lib/dashboard-links.ts` arrive here with `?status=`, which flips
-                these toggles on. Without a chip the calendar simply shows more than usual with nothing on
-                screen saying why, and « Taux d'absence » lands on a list the user cannot un-filter without
-                hunting for a switch inside the calendar's own toolbar.
-              */}
               {showCancelled && (
                 <ActiveFilterChip label="Annulés affichés" onRemove={() => setShowCancelled(false)} />
               )}
               {showCompleted && (
                 <ActiveFilterChip label="Terminés affichés" onRemove={() => setShowCompleted(false)} />
+              )}
+              {doctorFilterId && (
+                <ActiveFilterChip
+                  label={`Praticien : ${doctors.find((doc) => doc.id === doctorFilterId)?.name ?? "sélectionné"}`}
+                  onRemove={() => setSelectedDoctorId("all")}
+                />
               )}
             </div>
           </div>
@@ -539,6 +444,27 @@ export default function AppointmentsPage() {
               onChanged={handleAppointmentUpdated}
               onViewChange={selectView}
               doctorId={doctorFilterId}
+              onNewAppointment={() => setDialogOpen(true)}
+              doctorFilter={{ doctors, value: selectedDoctorId, onChange: setSelectedDoctorId }}
+              /*
+               * Admins only, and that is the gate rather than a disabled state: every Google endpoint behind
+               * these three actions is `AdminOnly`, so offering them to a secretary buys a 403 and a generic
+               * « Échec » toast (finding #9). `undefined` leaves the calendar's « ⋯ » menu holding Exporter alone.
+               */
+              googleControls={
+                isAdmin
+                  ? {
+                      authorized: isGoogleCalendarAuthorized,
+                      syncing: isSyncing,
+                      onConnect: handleAuthorizeGoogleCalendar,
+                      onImport: handleSyncFromGoogle,
+                      // AC-P2.34 — behind an AlertDialog, and deliberately NOT gated on internetReachable:
+                      // clearing our own stored token is a local DB write, and it is exactly what an admin needs
+                      // when the connected account is wrong or unreachable.
+                      onDisconnect: () => setDisconnectOpen(true),
+                    }
+                  : undefined
+              }
             />
           </div>
         </div>

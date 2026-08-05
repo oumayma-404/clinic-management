@@ -15,11 +15,31 @@ namespace ClinicManagement.Application.Common.Authorization;
 /// exemption list if every policy here is genuinely used — so an unapplied policy is deleted rather than
 /// parked. A policy nobody applies is not a capability, it is a comment that compiles.</para>
 ///
-/// <para><b>The one distinction that carries the feature</b> is <see cref="AdminOrDoctor"/> vs
-/// <see cref="AnyClinicRole"/>: a secretary must be able to take a payment and read <em>one patient's</em>
-/// balance — that is reception's job — but must not read clinic-wide aggregates (la caisse, les créances, le
-/// chiffre d'affaires, le tableau de bord) or clinical free text. Per-patient money: yes. Clinic-wide money:
-/// no.</para>
+/// <para><b>The two distinctions that carry the vocabulary</b> are both <see cref="AdminOrDoctor"/> vs
+/// <see cref="AnyClinicRole"/>:</para>
+/// <list type="bullet">
+///   <item><b>Money — per-patient yes, clinic-wide no.</b> A secretary must be able to take a payment and read
+///   <em>one patient's</em> balance; that is reception's job. They must not read the clinic's aggregates — la
+///   caisse et son extrait, les créances, le chiffre d'affaires, le tableau de bord — nor perform the corrective
+///   operations (annuler une note, annuler un paiement, émettre un avoir).</item>
+///   <item><b>The clinical record — write yes, erase no.</b> Reception reads and records the patient file
+///   (fiches de soins, odontogramme, antécédents, documents médicaux) and cannot delete from it.</item>
+/// </list>
+///
+/// <para>⚠️ <b>The second one is a reversal, and it is worth knowing why.</b> The clinical record used to sit
+/// entirely behind <see cref="AdminOrDoctor"/> under the heading « clinical authorship and clinical free text ».
+/// That description was never true of the code around it: <c>PUT /api/patients/{id}</c> is
+/// <see cref="AnyClinicRole"/> and writes <c>Allergies</c>, <c>MedicalHistory</c>, <c>Notes</c> and
+/// <c>ImportantNotes</c>, and <c>POST /api/patients</c> inserts <c>PatientMedicalHistory</c> rows outright — so a
+/// secretary could always type a patient's medical history through « Modifier » while being refused a <em>read</em>
+/// of the same text one tab over. The boundary did not protect the data; it only chose which door reception had to
+/// use, and it made « Dossiers médicaux » a wall of « Vous n'avez pas les droits » on the screen reception spends
+/// its day in. Practice decided it: in a Tunisian cabinet the assistant(e) fills much of the record in.</para>
+///
+/// <para>Two things make the wider write surface accountable rather than merely wider. Every mutation is
+/// attributed — <c>AuditSaveChangesInterceptor</c> stamps the actor on each mutated aggregate root, readable at
+/// <c>GET /api/audit</c> — and <em>clinical credit</em> is resolved by <c>PractitionerAttribution</c>, which puts
+/// the caller <b>last</b>, so a secretary recording a dentist's work never credits themselves.</para>
 /// </summary>
 public static class AuthorizationPolicies
 {
@@ -36,9 +56,9 @@ public static class AuthorizationPolicies
     public const string Authenticated = "Authenticated";
 
     /// <summary>
-    /// Any member of the clinic — admin, doctor or secretary. Reception's job, per-patient money, and the
-    /// shared reads every role needs (the notification bell, « Mon profil », the catalog lookups the pickers
-    /// read).
+    /// Any member of the clinic — admin, doctor or secretary. Reception's job, per-patient money, <b>the patient's
+    /// clinical record (read and record, never delete)</b>, and the shared reads every role needs (the
+    /// notification bell, « Mon profil », the catalog lookups the pickers read).
     ///
     /// <para><b>It includes <c>admin</c> deliberately, and that is the whole reason it exists</b> rather than
     /// the old <c>DoctorOrSecretary</c>. <c>CreateClinicCommand</c> makes a clinic's creator an <b>admin</b> and,
@@ -51,10 +71,21 @@ public static class AuthorizationPolicies
     public const string AnyClinicRole = "AnyClinicRole";
 
     /// <summary>
-    /// Admin or doctor — everything a secretary must not see or do: clinic-wide money (le tableau de bord, la
-    /// caisse et son extrait, les créances, le chiffre d'affaires), clinical authorship and clinical free text
-    /// (fiches de soins, odontogramme, antécédents, documents médicaux), and the corrective money operations
-    /// (annuler une note, annuler un paiement, émettre un avoir).
+    /// Admin or doctor — clinic-wide money and irreversible clinical loss:
+    /// <list type="bullet">
+    ///   <item><b>Clinic-wide money</b>: le tableau de bord, la caisse et son extrait, les créances, le chiffre
+    ///   d'affaires, les chèques détenus, and every money CSV export.</item>
+    ///   <item><b>The corrective money operations</b>: annuler une note, annuler un paiement, émettre un avoir,
+    ///   amender un devis accepté.</item>
+    ///   <item><b>Deleting from the clinical record</b>: a fiche de soins, an antécédent (this is where an
+    ///   <em>allergy</em> lives), a medical document and its blob, a patient file. Recording is
+    ///   <see cref="AnyClinicRole"/>; erasing is here.</item>
+    ///   <item><b>Bulk and lifecycle operations on patients</b>: the CSV import, archiver / désarchiver.</item>
+    /// </list>
+    ///
+    /// <para>⚠️ It no longer means « clinical authorship and clinical free text » — see the reversal recorded on
+    /// the class. If you are reaching for this policy on a clinical <em>write</em>, that is the charter you are
+    /// arguing with, and <c>ClinicalRecordAccessTests</c> will fail.</para>
     /// </summary>
     public const string AdminOrDoctor = "AdminOrDoctor";
 
@@ -78,12 +109,12 @@ public static class AuthorizationPolicies
         // Onboarding: authenticated but deliberately role-less (see the constant's remarks).
         options.AddPolicy(Authenticated, policy => policy.RequireAuthenticatedUser());
 
-        // Reception's job + per-patient money + the reads every role shares.
+        // Reception's job + per-patient money + the clinical record + the reads every role shares.
         options.AddPolicy(AnyClinicRole, policy =>
             policy.Requirements.Add(new RoleRequirement(
                 User.RoleAdmin, User.RoleDoctor, User.RoleSecretary)));
 
-        // Clinic-wide money, clinical authorship, and the corrective money operations.
+        // Clinic-wide money, the corrective money operations, and deleting from the clinical record.
         options.AddPolicy(AdminOrDoctor, policy =>
             policy.Requirements.Add(new RoleRequirement(User.RoleAdmin, User.RoleDoctor)));
 
