@@ -6,6 +6,22 @@ packaging/tests/offline/feature-workflow), plus a direct read of `features/multi
 verification greps. Every claim below carries a path, and most carry a line.
 **Consumed by:** `blueprint.md` (the challenged architecture decision) and `spec.md` (this feature).
 
+> ⚠️ **Two entries below were re-verified by `/challenge-spec` (2026-08-05) and are wrong. `spec.md` is authoritative.**
+>
+> - **Gap #3 says three `#toolbar=0&navpanes=0` iframes.** There are **two** (`patients/[id]/page.tsx:2715`,
+>   `patient-files-manager.tsx:742`). The third, `document-editor-content.tsx:3491`, passes a bare `bs1PreviewUrl`
+>   with **no fragment** — it is the `isOfficialForm` (BS1 / arrêt de travail) preview, it **is** the print path
+>   (`contentWindow.print()`), and it is the alignment check made before a sheet of genuine CNAM paper is used. It
+>   must not be swept up with the other two.
+> - **Gap #7's fix is smaller than it looks, and the § 2 note "the BFF is not on a native client's critical path"
+>   understates one thing.** `bff/auth/token/route.ts` re-sets **no cookie** on the exchange, so rotating on the
+>   server alone changes nothing a user feels — the client half is required work in `web/`.
+>
+> The rest of the sweep held up on re-verification, including the icon, download, print, `PENDING_PARTS`, file-input
+> and `RefreshTokenCommand` findings. Three further problems it did **not** surface are recorded in `spec.md`: Google
+> refuses OAuth in an embedded webview; the inactivity limit destroys the session on resume; and the connectivity
+> probe's gate is `AUTH_MODE`, not the deployment profile.
+
 ---
 
 ## 1. What already exists — the expensive half of "mobile" shipped

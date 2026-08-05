@@ -1,8 +1,57 @@
 # Implementation Blueprint: Native mobile shells (Android + iOS)
 
-**Status:** BLUEPRINT — not a spec. ⚠️ Write `spec.md` with numbered ACs before implementing anything past
-Phase 0; `features/multi-tenant-cloud/plan.md`'s **R-3** is the standing lesson (no spec ⇒ nothing to verify
-against).
+**Status:** BLUEPRINT — not a spec, and now **superseded by `spec.md` (challenged 2026-08-05)** wherever the two
+disagree. It is kept for its architecture reasoning and its file-level inventory, which remain useful.
+⚠️ `features/multi-tenant-cloud/plan.md`'s **R-3** is the standing lesson (no spec ⇒ nothing to verify against).
+
+> ### ⚠️ Nine claims below were corrected by `/challenge-spec`. Read `spec.md`, not these.
+>
+> Listed because each is *plausible and load-bearing*, so a plan written from this document would reproduce them.
+>
+> 1. **"A rotated token invalidates its predecessor, so a response lost in flight logs the user out."** False — the
+>    refresh credential is a **stateless** HS256 JWT with no `jti` and no server-side record, so a superseded one
+>    stays valid until its own expiry. This is **sliding expiry, not revoking rotation**, and the blueprint's own
+>    "do not instead extend the lifetime" distinction collapses with it. `spec.md` FR-9 states the real property; the
+>    single-flight mitigation is unnecessary; EC-4 is a non-event. Per-token revocation would need a third table and
+>    is explicitly out of scope.
+> 2. **"Both DTO fields are already read by the BFF, so rotation is contained."** True of **login** only.
+>    `web/app/bff/auth/token/route.ts` returns `{ accessToken, expiresAt }` and **re-sets no cookie**, so a
+>    backend-only change rotates a credential nobody stores and the user is still signed out on the original clock.
+>    The BFF change is required work in `web/`.
+> 3. **Biometric unlock as a purely native concern.** The inactivity limit is owned by the **web app** and it
+>    *destroys* the session (clears the cookie, navigates to `/login`) — on **`visibilitychange`**, i.e. exactly on
+>    resume. There is no session left for a native sheet to re-authorise. `spec.md` FR-12 defers the logout to a
+>    bridge-provided gate, which is a change in `web/`.
+> 4. **"Three bridge messages", as an invariant.** The count is a Phase-1 fact, not a contract: the biometric gate
+>    and the native viewer need more. FR-6 enumerates the set **per phase**; the invariant is feature detection.
+> 5. **"Three `blob:`-src `<iframe>` PDF previews using `#toolbar=0&navpanes=0`."** Only **two** carry the fragment.
+>    The third (`document-editor-content.tsx:3491`) is the **official-form** preview: no fragment, and it **is** the
+>    print path (`contentWindow.print()`) and the alignment check before genuine CNAM paper is consumed. It keeps its
+>    frame and gets its own criterion.
+> 6. **The connectivity inversion, as diagnosed.** The web provider gates on **`AUTH_MODE`**, not the deployment —
+>    and `HostedMultiTenant` uses local accounts, so it **does** poll, gets the probe's **404**, and reads it as
+>    `internetReachable: false` **permanently**, disabling AI chat and the Google controls behind a false French
+>    warning that names the *local network*. Worse than the phone-believes-it-is-online case described here.
+> 7. **Nothing about Google OAuth.** Google **refuses OAuth in an embedded webview**, and
+>    « Connecter Google Agenda » is a plain `window.location.href` to `accounts.google.com` — so it dead-ends and
+>    strands the webview. `spec.md` FR-5 requires off-origin navigations to leave the webview.
+> 8. **`SupportsOsPush` as one boolean.** FCM and APNs are configured separately; the half-configured install is the
+>    likely one, and one boolean silently queues iPhones for ever. The capability takes the **platform**.
+> 9. **Refresh rotation as a Phase 4 item.** It depends on nothing Phase 3 depends on and is what makes the shells
+>    worth installing — it is **Phase 2b** in `spec.md`, ahead of push.
+>
+> 10. **"Phase 3 requires US-1 + US-2" (`:118`, `:288`) — half of that dependency is now closed.** Verified in code
+>     2026-08-05: **US-1 has landed** (`Infrastructure/Deployment/DeploymentProfile.cs`, 13 capabilities, both guards
+>     live; `IsLocalMode(` confined to its definition, `Resolve` and one test), so `SupportsOsPush` is a **14th
+>     capability on a real file** and Phase 3's only remaining blocker is **US-2** (`ITenantScope`, still absent).
+>     ⚠️ US-1 also re-gated the connectivity probe onto `ExposesTrustEndpoints` — **✗ for `HostedMultiTenant`** — so
+>     this document's "connectivity inversion" section (`:196`) now describes a **live** defect on the target
+>     topology, with its API half already correct and only the web half outstanding.
+>
+> Also settled in `spec.md`: the push **audience** (the in-app feed's, minus the actor) and a **quiet-hours floor**;
+> token **rebinding** on a shared device (never a 409); the bridge **size limit** (25 MB); the deep-link target (the
+> appointment, for all five categories); and the version floor's real mechanism (the shell asks **natively at
+> launch** — a webview cannot observe its own `fetch` responses, so it could never have surfaced the 426 itself).
 **Created:** 2026-08-05
 **Approach:** Option 2 — two thin native shells over the server's own origin, the mobile analogue of `desktop/`
 **Target topology:** **`HostedMultiTenant`** (`features/multi-tenant-cloud/plan.md`)
