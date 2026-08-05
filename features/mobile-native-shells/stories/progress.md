@@ -13,7 +13,7 @@ The unit of progress is the **part**, not the story. Each part boundary is a com
 |------|-------|------|--------|--------|
 | 1 | Phase 0 | The web fixes a webview makes load-bearing | **implemented** — gate green; on-device verification owed | see § Session 1 |
 | 2 | Phase 2b | The session lasts the working day | **implemented** — gate green; the felt behaviour (AC-37) owed | see § Session 2 |
-| 3 | Phase 2 | A stale app says so | **implemented** — gate green; the on-device half (a real shell below the floor) is owed | see § Session 3 |
+| 3 | Phase 2 | A stale app says so | **implemented** — gate green; the on-device half (a real shell below the floor) is owed | `8f42b5d` (⚠️ the `Program.cs` registration travelled in `65a72e6` — § Session 3) |
 | 4 | Phase 1 | The Android shell | not-started (R-12 tooling check owed) | — |
 | 5 | Phase 1 | The iOS shell | **blocked** — macOS + Xcode + Apple Developer Program | — |
 | 6 | Phase 3 | A backgrounded phone still knows | **UNBLOCKED as of session 2** — `multi-tenant-cloud` US-2 has landed (`Application/Common/Interfaces/ITenantScope.cs` + `UnitTests/Common/SystemWideCallerCoverageTests.cs` both exist, suite green). Read `ITenantScope` before executing (plan R-3) | — |
