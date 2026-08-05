@@ -34,9 +34,9 @@ each part is a vertical increment and each boundary is a commit point:
 graph TD
     P1["Part 1 · Phase 0<br/>web fixes<br/>✅ EXECUTABLE"] --> P2["Part 2 · Phase 2b<br/>session continuity<br/>✅ EXECUTABLE"]
     P2 --> P3["Part 3 · Phase 2<br/>client version floor<br/>✅ EXECUTABLE"]
-    P3 --> P4["Part 4 · Phase 1<br/>Android shell<br/>⚠️ needs JDK+SDK (R-12)"]
+    P3 --> P4["Part 4 · Phase 1<br/>Android shell<br/>🔒 no JDK/SDK here (R-12)"]
     P4 --> P5["Part 5 · Phase 1<br/>iOS shell<br/>🔒 macOS + Apple"]
-    P4 --> P6["Part 6 · Phase 3<br/>OS push<br/>🔒 multi-tenant US-2"]
+    P4 -.-> P6["Part 6 · Phase 3<br/>OS push<br/>✅ EXECUTABLE"]
     P5 --> P7["Part 7 · Phase 4<br/>native capability<br/>⚠️ PARTLY BLOCKED"]
     P6 --> P7
     P7 --> P8["Part 8 · Phase 5<br/>store submission<br/>🔒 accounts + decisions"]
@@ -44,9 +44,9 @@ graph TD
     style P1 fill:#dcfce7,stroke:#16a34a
     style P2 fill:#dcfce7,stroke:#16a34a
     style P3 fill:#dcfce7,stroke:#16a34a
-    style P4 fill:#fef9c3,stroke:#ca8a04
+    style P4 fill:#fee2e2,stroke:#dc2626
     style P5 fill:#fee2e2,stroke:#dc2626
-    style P6 fill:#fee2e2,stroke:#dc2626
+    style P6 fill:#dcfce7,stroke:#16a34a
     style P7 fill:#fef9c3,stroke:#ca8a04
     style P8 fill:#fee2e2,stroke:#dc2626
 ```
@@ -55,6 +55,12 @@ graph TD
 `GET /api/meta/client-requirements` natively at launch, so Part 3's endpoint must exist first.
 **Part 7 needs both** Part 5 (its iOS halves) and Part 6 (a notification to tap for the deep-link criterion), which
 is why it sits downstream of the two blocked parts even though its web and Android halves are executable.
+
+⚠️ **Part 4 → Part 6 is drawn dotted because it is not a build dependency.** Push needs a shell to *register a
+device token*, so the two must meet before AC-40 can be demonstrated end to end — but Part 6's whole backend half
+(the `PushDevice` aggregate, registration, `PushDispatchJob`, quiet hours, the tenant declaration, `verify-schema`)
+compiles and is testable with no shell in existence. With Part 4 blocked on tooling as of 2026-08-05, **Part 6 is
+the next executable part**, and the token-registration criteria are what it leaves owed.
 
 ## Status Tracker
 
@@ -73,7 +79,7 @@ convention `/next` defines for a single `Layer: Full` story delivered part-by-pa
 | 1 | Phase 0 | The web fixes a webview makes load-bearing | ✅ yes | AC-1…AC-12, AC-69 | **implemented** (gate green; on-device checks owed — `progress.md`) |
 | 2 | Phase 2b | The session lasts the working day | ✅ yes | AC-35…AC-39 | **implemented** (gate green; the felt behaviour + desktop shell owed — `progress.md`) |
 | 3 | Phase 2 | A stale app says so | ✅ yes | AC-28…AC-34, AC-70, AC-71 | **implemented** (gate green; AC-33's launch half is Part 4's code — `progress.md`) |
-| 4 | Phase 1 | The Android shell | ⚠️ pending a JDK/Android-SDK check (R-12) | AC-13…AC-27, AC-74, AC-76 | not-started |
+| 4 | Phase 1 | The Android shell | 🔒 **no — the R-12 check ran and failed** (2026-08-05) | AC-13…AC-27, AC-74, AC-76 | blocked on tooling |
 | 5 | Phase 1 | The iOS shell | 🔒 **BLOCKED** — macOS + Apple Developer Program | AC-13…AC-27 (iOS half) | blocked |
 | 6 | Phase 3 | A backgrounded phone still knows | ✅ **now yes** — US-2 landed, verified 2026-08-05 (session 2) | AC-40…AC-55, AC-70…AC-73, AC-75 | not-started |
 | 7 | Phase 4 | The phone becomes an instrument | ⚠️ web + Android halves only | AC-8, AC-56…AC-64, AC-77 | not-started |
@@ -103,7 +109,7 @@ deliver nothing, blank PDF previews, printing the sidebar, a dead mic button on 
 
 | Part | Blocked on | Who can unblock it |
 |------|-----------|--------------------|
-| 4 | A JDK + Android SDK on the build machine | Verifiable in the first step of Part 4 — check, don't assume |
+| 4 | A JDK + Android SDK on the build machine | ✅ **Checked 2026-08-05 (session 3) — absent.** No `java` on `PATH`, `JAVA_HOME` unset, `ANDROID_HOME`/`ANDROID_SDK_ROOT` unset, nothing at `%LOCALAPPDATA%\Android\Sdk`, no `gradle`. **Anyone with the build machine can unblock this** by installing JDK 17+ and the Android SDK (cmdline-tools + platform + build-tools) — unlike Part 5, no purchase and no other OS is involved |
 | 5 | macOS + Xcode (or Xcode Cloud / Codemagic) **and** an Apple Developer Program membership | Not solvable in this repo: win32, no CI, and the project **has never had an iOS device** |
 | ~~6~~ | ~~`features/multi-tenant-cloud` **US-2** (`ITenantScope`) merged~~ | ✅ **UNBLOCKED, verified 2026-08-05 (session 2)** — `Application/Common/Interfaces/ITenantScope.cs` and `UnitTests/Common/SystemWideCallerCoverageTests.cs` both exist and the suite is green. Part 6's `PushDispatchJob` must declare `UseSystemWide(...)` or that guard fails the build |
 | 8 | Store accounts + a public domain a reviewer can reach + the four deferred decisions (hosted domain · bundle ids and display name · demo-tenant data policy · store-account ownership) | Business/ops. ⚠️ A bundle identifier **cannot be changed after first submission** |
