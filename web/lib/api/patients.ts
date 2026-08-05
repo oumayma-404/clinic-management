@@ -91,6 +91,15 @@ export const patientsApi = {
     importantNotes?: string;
     isFlagged?: boolean;
     flagNotes?: string;
+    /**
+     * « Créer quand même » — the user has been shown that this person appears to be on file already and confirmed
+     * they are somebody else.
+     *
+     * Omit it on the first attempt. The server answers a match with `ApiErrorCode.PatientDuplicate` and a message
+     * naming who was matched; the caller shows that, and only then retries with this set. **Never send it
+     * unconditionally** — that reinstates the defect the guard exists for, silently and everywhere at once.
+     */
+    allowDuplicate?: boolean;
   }): Promise<PatientDto> => {
     return apiPost<PatientDto>('/patients', data);
   },

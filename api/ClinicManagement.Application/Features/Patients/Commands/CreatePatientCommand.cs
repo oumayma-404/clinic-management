@@ -44,6 +44,18 @@ public class CreatePatientCommand : IRequest<Result<PatientDto>>
     // "Signaler ce patient" toggle + note at creation (feeds the "Urgents" KPI / flagged filter).
     public bool? IsFlagged { get; set; }
     public string? FlagNotes { get; set; }
+
+    /// <summary>
+    /// « Créer quand même » — the caller has been shown that this person appears to be on file already and has
+    /// confirmed they are a different patient.
+    ///
+    /// <para><b>Absent means "check first"</b>, which is why this is an opt-<i>in</i> override and not an
+    /// opt-out guard: every existing caller keeps the safe behaviour without being edited, and a new one has to
+    /// say out loud that it means to create a second record. See <see cref="PatientDuplicateIndex"/> for why the
+    /// answer cannot simply be to refuse — two patients really can share a name, and this product's own
+    /// « Nouveau patient » form is where an emergency walk-in is registered with nothing but a name.</para>
+    /// </summary>
+    public bool? AllowDuplicate { get; set; }
 }
 
 public class MedicalHistoryEntryDto
@@ -98,6 +110,46 @@ public class CreatePatientCommandHandler : IRequestHandler<CreatePatientCommand,
             }
 
             var clinicId = user.ClinicId;
+
+            /*
+             * « Ce patient existe déjà » — the duplicate guard, run before anything is built or written.
+             *
+             * Until this existed, the CSV import was the *only* door that checked: the hand-typed form and the
+             * appointment dialog's « Nouveau patient » switch both created a second file for a patient already on
+             * record without a word, and a duplicate is the one mistake this product cannot undo (no merge, no soft
+             * delete — and `DeletePatientCommand` refuses as soon as anything is attached). The concrete report was
+             * a receptionist booking an appointment with the inline new-patient form and finding the person listed
+             * twice on /patients afterwards.
+             *
+             * ⚠️ Advisory, not a prohibition. Two different people can share a name, and this form is also how a
+             * walk-in with nothing but a name gets registered — so a match is refused with
+             * `PatientDuplicateIndex.RefusalCode`, and the client offers « Créer quand même », which comes back as
+             * `AllowDuplicate`. Same contract as the appointment collision.
+             *
+             * ⚠️ It reads the clinic's whole identity projection (five columns) rather than issuing a targeted
+             * query. That is deliberate: matching folds names through `SearchTerm.Normalize` and phones through
+             * `PhoneNumber.ToE164`, so a SQL predicate would be a *second* definition of "the same person" and would
+             * be the one that drifts. Creating a patient is an occasional action, not a per-keystroke one.
+             */
+            if (request.AllowDuplicate != true)
+            {
+                var identities = await _patientRepository.GetIdentitiesAsync(clinicId, cancellationToken);
+                var match = PatientDuplicateIndex.Build(identities).Match(
+                    request.LastName,
+                    request.FirstName,
+                    // The RAW date of birth: `default` means "not supplied", and PatientFromRequest below is about to
+                    // replace it with « 30 years ago ». Passing the substituted value would match every patient whose
+                    // stored date happens to be that day.
+                    request.DateOfBirth,
+                    request.PhoneNumber);
+
+                if (match.Found)
+                {
+                    return Result<PatientDto>.Failure(
+                        PatientDuplicateIndex.Refusal(match),
+                        PatientDuplicateIndex.RefusalCode);
+                }
+            }
 
             // Every validation and every field of a new patient — the phone rule, the blank-means-blank contact
             // handling, the all-four-parts address, the dentition fallback, the flag. It lives in

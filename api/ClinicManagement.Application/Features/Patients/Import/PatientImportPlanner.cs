@@ -1,28 +1,8 @@
-using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Csv;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Domain.Repositories;
-using ClinicManagement.Domain.ValueObjects;
 
 namespace ClinicManagement.Application.Features.Patients.Import;
-
-/// <summary>How a row matched something that already exists — or an earlier row of the same file.</summary>
-public enum PatientDuplicateKind
-{
-    None,
-
-    /// <summary>Same name and same date of birth. The strongest signal short of an identity document.</summary>
-    NameAndBirthDate,
-
-    /// <summary>
-    /// Same name, and the arriving row supplied no date of birth to disagree with. Weaker, and deliberately still
-    /// flagged — see <see cref="PatientImportPlanner"/>.
-    /// </summary>
-    Name,
-
-    /// <summary>Same phone number, normalised to <c>+216</c> E.164 on both sides.</summary>
-    Phone,
-}
 
 /// <summary>One row, read and matched.</summary>
 public sealed record PlannedImportRow(
@@ -54,16 +34,14 @@ public sealed record PatientImportPlan(
 /// class is pure: bytes, a mapping and the clinic's existing identities in, decisions out. No repository, no
 /// <c>DbContext</c>, no clock beyond <c>ClinicClock</c>.</para>
 ///
-/// <para><b>Duplicate matching is deliberately eager, and that asymmetry is the design.</b> A false positive costs
-/// the operator one checkbox (« Créer quand même »); a false negative creates a permanent second file for one
-/// person — this product has <b>no merge and no soft delete</b>, so their appointments, their money and their
-/// allergies are split across two records for ever, and the only remedy is deleting one, which is refused as soon
-/// as anything is attached to it. Hence <see cref="PatientDuplicateKind.Name"/>: two different people really can
-/// share a name, but when the arriving row carries no date of birth there is nothing to tell them apart, and asking
-/// is cheaper than being wrong.</para>
+/// <para><b>Duplicate matching itself is not here</b> — it is <see cref="PatientDuplicateIndex"/>, shared with the
+/// hand-typed create path, which is where the eagerness and the three signals are explained. It used to be a private
+/// nested class of this one, which meant an imported row was checked while a receptionist typing the same person into
+/// the patient form was not.</para>
 ///
-/// <para>Rows are also matched against <b>each other</b>. A spreadsheet listing the same patient twice is at least
-/// as common as one re-listing a patient the clinic already has, and no per-row database query could see it.</para>
+/// <para>What stays here is that rows are also matched against <b>each other</b>. A spreadsheet listing the same
+/// patient twice is at least as common as one re-listing a patient the clinic already has, and no per-row database
+/// query could see it.</para>
 /// </summary>
 public static class PatientImportPlanner
 {
@@ -91,7 +69,7 @@ public static class PatientImportPlanner
         }
 
         var mapping = mappingResult.Value!;
-        var index = ExistingIndex.Build(existingPatients);
+        var index = PatientDuplicateIndex.Build(existingPatients);
         var rows = new List<PlannedImportRow>(document.Rows.Count);
 
         foreach (var row in document.Rows)
@@ -206,116 +184,5 @@ public static class PatientImportPlanner
 
         return name.Length > 0 ? name : $"(ligne {row.LineNumber})";
     }
-
-    /// <summary>
-    /// The clinic's existing patients keyed for matching, plus whatever the current file has already planned.
-    ///
-    /// <para>Names are folded through <see cref="SearchTerm.Normalize"/> — the solution's existing
-    /// case-and-accent authority — so « BEN SALAH » and « Ben Salah » are one person, and the import cannot
-    /// disagree with the patient search about that. Phones are folded through <see cref="PhoneNumber.ToE164"/>,
-    /// which is what makes matching possible at all: the hand-typed write path stores the number as typed, so the
-    /// same patient exists in the database as « 20 123 456 » and arrives in the file as « +216 20 12 34 56 ».</para>
-    /// </summary>
-    private sealed class ExistingIndex
-    {
-        private readonly record struct Entry(Guid? PatientId, string Label, DateTime DateOfBirth);
-
-        private readonly Dictionary<string, List<Entry>> _byName = new();
-        private readonly Dictionary<string, Entry> _byPhone = new();
-
-        public static ExistingIndex Build(IReadOnlyList<PatientIdentity> patients)
-        {
-            var index = new ExistingIndex();
-            foreach (var p in patients)
-            {
-                index.Add(
-                    p.LastName,
-                    p.FirstName,
-                    p.DateOfBirth,
-                    p.PhoneNumber,
-                    p.Id,
-                    $"{p.FirstName} {p.LastName}".Trim());
-            }
-
-            return index;
-        }
-
-        public void Add(
-            string lastName,
-            string firstName,
-            DateTime dateOfBirth,
-            string? phoneNumber,
-            Guid? patientId,
-            string label)
-        {
-            var entry = new Entry(patientId, label, dateOfBirth.Date);
-
-            var nameKey = NameKey(lastName, firstName);
-            if (nameKey.Length > 0)
-            {
-                if (!_byName.TryGetValue(nameKey, out var list))
-                {
-                    list = new List<Entry>();
-                    _byName[nameKey] = list;
-                }
-
-                list.Add(entry);
-            }
-
-            var phoneKey = PhoneNumber.ToE164(phoneNumber);
-            if (phoneKey != null)
-            {
-                // First writer wins: with two existing records already sharing a number, naming either of them is
-                // an equally true answer to « this row matches somebody you have ».
-                _byPhone.TryAdd(phoneKey, entry);
-            }
-        }
-
-        public (PatientDuplicateKind Kind, Guid? PatientId, string? Label) Match(
-            string lastName,
-            string firstName,
-            DateTime dateOfBirth,
-            string? phoneNumber)
-        {
-            var nameKey = NameKey(lastName, firstName);
-            if (nameKey.Length > 0 && _byName.TryGetValue(nameKey, out var namesakes))
-            {
-                // `default` is what the row reader passes for « no date of birth supplied », and it must never be
-                // compared as a real date: the command replaces it with « 30 years ago », so comparing it would
-                // match anyone whose stored date happens to be that day.
-                var suppliedDob = dateOfBirth != default;
-
-                if (suppliedDob)
-                {
-                    var sameDay = namesakes.FirstOrDefault(e => e.DateOfBirth == dateOfBirth.Date);
-                    if (sameDay != default)
-                    {
-                        return (PatientDuplicateKind.NameAndBirthDate, sameDay.PatientId, Describe(sameDay, "même nom et date de naissance"));
-                    }
-                }
-                else
-                {
-                    var first = namesakes[0];
-                    return (PatientDuplicateKind.Name, first.PatientId, Describe(first, "même nom, aucune date de naissance pour distinguer"));
-                }
-            }
-
-            var phoneKey = PhoneNumber.ToE164(phoneNumber);
-            if (phoneKey != null && _byPhone.TryGetValue(phoneKey, out var samePhone))
-            {
-                return (PatientDuplicateKind.Phone, samePhone.PatientId, Describe(samePhone, "même téléphone"));
-            }
-
-            return (PatientDuplicateKind.None, null, null);
-        }
-
-        private static string Describe(Entry entry, string reason) => $"{entry.Label} ({reason})";
-
-        private static string NameKey(string lastName, string firstName)
-        {
-            var last = SearchTerm.Normalize(lastName);
-            var first = SearchTerm.Normalize(firstName);
-            return last.Length == 0 && first.Length == 0 ? string.Empty : $"{last}|{first}";
-        }
-    }
 }
+

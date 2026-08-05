@@ -50,6 +50,12 @@ public class PatientContactOptionalTests
             .ReturnsAsync((Patient p, CancellationToken _) => p);
         _patients.Setup(r => r.UpdateAsync(It.IsAny<Patient>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
+        // The create handler now runs the duplicate guard first (see PatientDuplicateGuardTests). Left unstubbed,
+        // Moq returns null for a Task<IReadOnlyList<T>> — the guard NREs, the handler's catch-all swallows it, and
+        // every create test here fails on a generic « Error creating patient » that says nothing about contact
+        // details. An empty clinic is the right default for this file: it has no opinion about duplicates.
+        _patients.Setup(r => r.GetIdentitiesAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<PatientIdentity>());
     }
 
     private static Patient PatientWith(Email? email, PhoneNumber? phone, Guid? id = null) =>
@@ -163,8 +169,17 @@ public class PatientContactOptionalTests
 
     // ---------------------------------------------------------------- reads
 
-    // [AC-48] The single defect that hurt most: an unguarded p.PhoneNumber.Value inside an in-memory Where
-    // over the whole clinic, so ONE contact-less patient 500s the patient list and the header search.
+    // [AC-48] The single defect that hurt most: an unguarded p.PhoneNumber.Value inside an in-memory Where over the
+    // whole clinic, so ONE contact-less patient 500s the patient list and the header search.
+    //
+    // ⚠️ This asserts the *surviving* half of that AC. It used to assert the filtering too — that searching
+    // "20123456" returned only the patient holding it — and `list-pagination` moved every free-text filter into SQL
+    // (`IPatientRepository.GetByClinicIdAsync(searchTerm: …)`), because a filter applied after the page is cut
+    // answers a different question ("the matches among these 25"). With the repository mocked, its rows come back
+    // verbatim by definition, so the old `Assert.Single` had stopped testing the handler and started testing the
+    // mock — it asserted the very in-memory `Where` whose removal was the point. What a mocked-repository test can
+    // still prove is the two things that would actually reintroduce the 500: the term is handed to the database, and
+    // a phone-less row maps without dereferencing a null.
     [Fact]
     public async Task Search_Survives_A_Patient_With_No_Phone()
     {
@@ -178,8 +193,17 @@ public class PatientContactOptionalTests
         var result = await handler.Handle(new GetPatientsQuery { SearchTerm = "20123456" }, CancellationToken.None);
 
         Assert.True(result.IsSuccess);
-        var match = Assert.Single(result.Value!.Items);
-        Assert.Equal(withPhone.Id, match.Id);
+        Assert.Equal(2, result.Value!.Items.Count);
+        Assert.Contains(result.Value.Items, p => p.Id == withPhone.Id && p.PhoneNumber == "20123456");
+        Assert.Contains(result.Value.Items, p => p.Id == without.Id && p.PhoneNumber == null);
+
+        // The search is the database's question to answer, over every row of the clinic — not the handler's over
+        // one page of them.
+        _patients.Verify(
+            r => r.GetByClinicIdAsync(
+                ClinicId, It.IsAny<bool>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), "20123456",
+                It.IsAny<bool>(), It.IsAny<PageRequest?>(), It.IsAny<CancellationToken>()),
+            Times.Once);
     }
 
     // [AC-48] The DTO carries null, not "" and not a placeholder.

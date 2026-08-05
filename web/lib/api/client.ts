@@ -35,6 +35,15 @@ export const ApiErrorCode = {
    */
   SlotTaken: 'slot_taken',
   /**
+   * A patient matching the one being created is already on file (same name + date of birth, same name when no date
+   * of birth was supplied, or the same phone number). Advisory: resubmit with `allowDuplicate: true` to create the
+   * second record anyway.
+   *
+   * The message names who was matched and why, so a caller shows it verbatim rather than writing its own. Emitted by
+   * `PatientDuplicateIndex.RefusalCode`.
+   */
+  PatientDuplicate: 'patient_duplicate',
+  /**
    * The request never reached the server — DNS, TLS, a dropped Wi-Fi link, the API not running. Client-side
    * only: no backend emits it, because by definition nothing answered.
    *

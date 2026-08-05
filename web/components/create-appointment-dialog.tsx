@@ -65,6 +65,25 @@ export interface PresetPlanAct {
   label: string
 }
 
+/**
+ * The three refusals this dialog can talk the user through, and whether they have already said yes to each.
+ *
+ * <p>One object rather than three positional booleans on `performCreate`, because they compose: a booking can be
+ * double-booked *and* out of hours *and* for a patient who looks like somebody already on file, and each
+ * confirmation re-submits. Merging a partial grant into what was already given is what keeps the sequence from
+ * looping back to a question the user has answered.</p>
+ */
+type CreateOverrides = {
+  /** `allowOutsideWorkingHours` — the practitioner is closed then, and the user accepts the exception. */
+  hours: boolean
+  /** `allowOverlap` — the slot already holds a booking (a second chair, an emergency squeezed in). */
+  overlap: boolean
+  /** `allowDuplicate` on the patient create — a genuine namesake, not the patient already on file. */
+  duplicatePatient: boolean
+}
+
+const NO_OVERRIDES: CreateOverrides = { hours: false, overlap: false, duplicatePatient: false }
+
 interface CreateAppointmentDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -181,13 +200,44 @@ export function CreateAppointmentDialog({
   // Double-booking prompt — the collision is advisory, exactly like the out-of-hours one below.
   const [slotTakenPrompt, setSlotTakenPrompt] = useState<string | null>(null)
   /**
+   * « Ce patient existe déjà : … » — the server's own refusal while the confirm is open, or null. Same advisory
+   * shape as the two above: the message names who was matched and why, so the prompt shows it verbatim instead of
+   * inventing a vaguer sentence.
+   */
+  const [duplicatePatientPrompt, setDuplicatePatientPrompt] = useState<string | null>(null)
+  /**
    * Overrides the user has already granted in this submit sequence.
    *
    * <p>Needed because the server checks the collision BEFORE the working hours, so a booking that is both
    * double-booked and out-of-hours prompts twice. Without carrying the first grant forward, confirming the overlap
-   * and then confirming the hours would retry with `allowOverlap` lost and prompt for the overlap again — a loop.</p>
+   * and then confirming the hours would retry with `allowOverlap` lost and prompt for the overlap again — a loop.
+   * `performCreate` merges into this rather than replacing it, so each grant survives the next prompt; a fresh
+   * `handleSubmit` resets it, because a re-submit after editing the time deserves to be asked again.</p>
    */
-  const grantedOverridesRef = useRef({ hours: false, overlap: false })
+  const grantedOverridesRef = useRef<CreateOverrides>({ ...NO_OVERRIDES })
+
+  /**
+   * The patient this submit sequence has **already created**, if any.
+   *
+   * ⚠️ This is the fix for the reported defect: a new patient booked into a taken slot ended up on `/patients`
+   * twice. `performCreate` is re-entered by design — the slot-taken, out-of-hours and past-time confirmations all
+   * call it again — and it re-ran `patientsApi.create` every time, so confirming « créer quand même » created a
+   * second patient. The first one is already committed and cannot be taken back, so the retry has to *reuse* it.
+   *
+   * <p>A ref rather than state, because the retry reads it in the same tick the confirmation grants the override;
+   * a state update would not have landed yet. Cleared only when the dialog closes — it is a fact about the
+   * database, not about this submit — which is also why the fields below go read-only once it is set: the patient
+   * exists under the name that was typed, and letting the name drift afterwards would silently produce the very
+   * second record this ref prevents.</p>
+   */
+  const createdPatientIdRef = useRef<string | null>(null)
+  /**
+   * The created patient's name — and the **render signal** for the ref above, which a ref cannot be: a ref change
+   * does not re-render, so the read-only fields and their explanation would not appear until something else did.
+   * Set and cleared together with the ref, always.
+   */
+  const [createdPatientName, setCreatedPatientName] = useState<string | null>(null)
+  const patientAlreadyCreated = createdPatientName !== null
 
 
   // Load patients and procedure types when dialog opens
@@ -297,6 +347,14 @@ export function CreateAppointmentDialog({
       setError(null)
       setPatientPickerOpen(false)
       setShowPastTimeConfirm(false)
+      setSlotTakenPrompt(null)
+      setOutsideHoursPrompt(null)
+      setDuplicatePatientPrompt(null)
+      // The created-patient memory ends with the dialog: a new booking starts from a blank new-patient form, and
+      // reusing an id across two openings would attach an unrelated appointment to whoever was created last.
+      createdPatientIdRef.current = null
+      setCreatedPatientName(null)
+      grantedOverridesRef.current = { ...NO_OVERRIDES }
       // Reset date to defaultDate or new Date
       setDate(defaultDate || new Date())
     }
@@ -427,8 +485,11 @@ export function CreateAppointmentDialog({
 
   // Performs the actual create (patient creation + appointment). Called directly, or from either
   // confirmation dialog once the user confirms (past time, AC-2; out-of-hours, AC-P1.31).
-  const performCreate = async (allowOutsideWorkingHours = false, allowOverlap = false) => {
-    grantedOverridesRef.current = { hours: allowOutsideWorkingHours, overlap: allowOverlap }
+  const performCreate = async (overrides: Partial<CreateOverrides> = {}) => {
+    // Merge, never replace: a grant given to an earlier prompt in this same sequence must survive the next one.
+    const granted: CreateOverrides = { ...grantedOverridesRef.current, ...overrides }
+    grantedOverridesRef.current = granted
+    const { hours: allowOutsideWorkingHours, overlap: allowOverlap } = granted
     setError(null)
     setLoading(true)
 
@@ -439,21 +500,50 @@ export function CreateAppointmentDialog({
       if (!isBusySlot) {
         patientId = selectedPatientId
         if (isNewPatient) {
-          try {
-            const newPatient = await patientsApi.create({
-              firstName: newPatientFirstName.trim(),
-              lastName: newPatientLastName.trim(),
-              phoneNumber: newPatientPhone.trim() || null,
-            })
-            patientId = newPatient.id
-          } catch (err) {
-            if (err instanceof ApiError) {
-              setError(`Échec de la création du patient : ${err.message}`)
-            } else {
-              setError("Échec de la création du patient")
+          /*
+           * ⚠️ Reuse before create. This block runs again on every confirmation the server asks for — slot taken,
+           * out of hours, past time — and it used to call `patientsApi.create` each time, which is exactly how the
+           * reported duplicate happened: one « créer quand même » on a taken slot, two patients on /patients.
+           *
+           * The already-created patient is committed and cannot be withdrawn, so the retry books the appointment
+           * onto it. Nothing else in this function needs to know a retry is in progress.
+           */
+          if (createdPatientIdRef.current) {
+            patientId = createdPatientIdRef.current
+          } else {
+            try {
+              const newPatient = await patientsApi.create({
+                firstName: newPatientFirstName.trim(),
+                lastName: newPatientLastName.trim(),
+                phoneNumber: newPatientPhone.trim() || null,
+                // Absent on the first attempt: the server checks whether this person is already on file and
+                // refuses with `PatientDuplicate` if so. Only a confirmed prompt sets it.
+                allowDuplicate: granted.duplicatePatient || undefined,
+              })
+              patientId = newPatient.id
+              createdPatientIdRef.current = newPatient.id
+              setCreatedPatientName(`${newPatient.firstName} ${newPatient.lastName}`.trim())
+            } catch (err) {
+              // « Ce patient existe déjà » is a question, not a dead end — two people really can share a name, and
+              // this form is also where a walk-in with nothing but a name is registered. Guarded on the grant so a
+              // refusal that somehow persists surfaces as a real error instead of reopening the same prompt.
+              if (
+                err instanceof ApiError &&
+                err.code === ApiErrorCode.PatientDuplicate &&
+                !granted.duplicatePatient
+              ) {
+                setDuplicatePatientPrompt(err.message)
+                setLoading(false)
+                return
+              }
+              if (err instanceof ApiError) {
+                setError(`Échec de la création du patient : ${err.message}`)
+              } else {
+                setError("Échec de la création du patient")
+              }
+              setLoading(false)
+              return
             }
-            setLoading(false)
-            return
           }
         }
       }
@@ -524,6 +614,10 @@ export function CreateAppointmentDialog({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
+    // A fresh submit re-asks every question: the user may have changed the time, the practitioner or the patient
+    // since the last one, so a grant given about the previous attempt says nothing about this one. (The created
+    // patient is deliberately NOT reset — see `createdPatientIdRef`.)
+    grantedOverridesRef.current = { ...NO_OVERRIDES }
 
     if (!validateForm()) return
 
@@ -629,6 +723,9 @@ export function CreateAppointmentDialog({
                   <span className="text-sm text-muted-foreground">Nouveau patient</span>
                   <Switch
                     checked={isNewPatient}
+                    // Locked once the patient has actually been created: turning it off would clear the fields and
+                    // book onto whoever is picked instead, silently orphaning a real patient record.
+                    disabled={patientAlreadyCreated}
                     onCheckedChange={(checked) => {
                       setIsNewPatient(checked)
                       if (checked) {
@@ -644,6 +741,22 @@ export function CreateAppointmentDialog({
 
                 {isNewPatient ? (
                   <div className="space-y-3">
+                    {/*
+                      The patient is created but the appointment is not — the state you are left in when a booking is
+                      refused after the patient went in (a taken slot, closed hours). Saying so is what makes the
+                      read-only fields legible instead of looking broken, and it is the honest answer to « why can I
+                      not correct the name now? »: the record exists, and editing this form cannot reach it.
+                    */}
+                    {patientAlreadyCreated && (
+                      <p
+                        role="status"
+                        className="rounded-md border border-warning/40 bg-warning-wash px-3 py-2 text-xs text-warning-ink"
+                      >
+                        {createdPatientName ?? "Ce patient"} a été créé. Il reste à enregistrer le rendez-vous —
+                        corrigez l&apos;heure si besoin puis réessayez. Pour modifier son nom, ouvrez sa fiche depuis
+                        « Patients ».
+                      </p>
+                    )}
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <div className="space-y-2">
                         <Label htmlFor="firstName" className="text-sm">
@@ -655,6 +768,7 @@ export function CreateAppointmentDialog({
                           value={newPatientFirstName}
                           onChange={(e) => setNewPatientFirstName(e.target.value)}
                           className="h-10"
+                          disabled={patientAlreadyCreated}
                           required
                         />
                       </div>
@@ -668,6 +782,7 @@ export function CreateAppointmentDialog({
                           value={newPatientLastName}
                           onChange={(e) => setNewPatientLastName(e.target.value)}
                           className="h-10"
+                          disabled={patientAlreadyCreated}
                           required
                         />
                       </div>
@@ -683,6 +798,7 @@ export function CreateAppointmentDialog({
                         value={newPatientPhone}
                         onChange={(e) => setNewPatientPhone(e.target.value)}
                         className="h-10"
+                        disabled={patientAlreadyCreated}
                       />
                       <p className="text-xs text-muted-foreground">
                         {newPatientPhone.trim()
@@ -1088,7 +1204,7 @@ export function CreateAppointmentDialog({
               setSlotTakenPrompt(null)
               // `true` makes the server record it via Appointment.MarkBookedWithOverlap() rather than letting it
               // through unmarked — the flag is both the audit trail and the constraint exemption.
-              void performCreate(grantedOverridesRef.current.hours, true)
+              void performCreate({ overlap: true })
             }}
             disabled={loading}
           >
@@ -1125,11 +1241,61 @@ export function CreateAppointmentDialog({
               setOutsideHoursPrompt(null)
               // `true` makes the server record the booking as a deliberate out-of-hours exception
               // (Appointment.MarkBookedOutsideWorkingHours) rather than just letting it through unmarked.
-              void performCreate(true, grantedOverridesRef.current.overlap)
+              void performCreate({ hours: true })
             }}
             disabled={loading}
           >
             Continuer
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+
+    {/*
+      « Ce patient existe déjà » — the third advisory refusal, and the one this dialog needed most: its quick-add form
+      collects a name and a phone, so the patient it creates is exactly the kind that is hard to tell apart from
+      somebody already on file, and nothing here used to check.
+
+      ⚠️ The destructive-looking option is « Créer quand même », not « Annuler ». A duplicate cannot be merged or
+      deleted afterwards, so it is the irreversible choice and is styled as one — the ordinary answer is to close this,
+      turn « Nouveau patient » off and pick the existing patient from the list.
+    */}
+    <AlertDialog
+      open={duplicatePatientPrompt !== null}
+      onOpenChange={(o) => { if (!o) setDuplicatePatientPrompt(null) }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Ce patient existe peut-être déjà</AlertDialogTitle>
+          <AlertDialogDescription>
+            {duplicatePatientPrompt}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          {/* Named after what it does, and it does it: the safe answer is not « annuler the booking » but « this is
+              the patient you already have », so this switches the form back to the picker and clears what was typed
+              — the same thing the « Nouveau patient » switch does when turned off. Nothing was created, so there is
+              nothing to keep. */}
+          <AlertDialogCancel
+            disabled={loading}
+            onClick={() => {
+              setIsNewPatient(false)
+              setNewPatientFirstName("")
+              setNewPatientLastName("")
+              setNewPatientPhone("")
+            }}
+          >
+            Choisir un patient existant
+          </AlertDialogCancel>
+          <AlertDialogAction
+            variant="destructive"
+            onClick={() => {
+              setDuplicatePatientPrompt(null)
+              void performCreate({ duplicatePatient: true })
+            }}
+            disabled={loading}
+          >
+            Créer quand même
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

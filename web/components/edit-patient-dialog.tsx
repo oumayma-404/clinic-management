@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import {
   Dialog,
   DialogBody,
@@ -25,6 +25,7 @@ import { DiscardChangesDialog } from "@/components/ui/discard-changes-dialog"
 import { Badge } from "@/components/ui/badge"
 import {
   AlertDialog,
+  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
@@ -41,7 +42,7 @@ import { patientsApi } from "@/lib/api/patients"
 import { patientMedicalHistoryApi } from "@/lib/api/patient-medical-history"
 import { patientFamilyHistoryApi } from "@/lib/api/patient-family-history"
 import type { PatientDto, PatientMedicalHistoryDto, PatientFamilyHistoryDto } from "@/lib/api/types"
-import { ApiError } from "@/lib/api/client"
+import { ApiError, ApiErrorCode } from "@/lib/api/client"
 import { isDeliverablePhone, PHONE_ERROR_FR } from "@/lib/phone"
 import { formatAmount, formatDT, parseAmountInput, roundMillimes } from "@/lib/format"
 import { CNAM_DENTAL_ALLOWANCE, CNAM_PLAFOND_SUPPLEMENTS, cnamBaseCeiling, cnamDefaultCeiling } from "@/lib/cnam"
@@ -214,6 +215,20 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
   // that disappeared while the dialog sat there looking fine.
   const conflict = useConflict()
   const [errors, setErrors] = useState<Record<string, string>>({})
+
+  /**
+   * The server's « Ce patient existe déjà : … » while the confirmation is open, or null. Create mode only — an
+   * update cannot produce a duplicate.
+   */
+  const [duplicatePrompt, setDuplicatePrompt] = useState<string | null>(null)
+  /**
+   * Whether the user has confirmed « Créer quand même » for the submit in flight.
+   *
+   * <p>A ref, not state: the confirmation grants it and re-submits in the same tick, and a state update would not
+   * have landed by the time the payload is built. Reset by every fresh `handleSave`, so correcting the name and
+   * saving again asks the question afresh.</p>
+   */
+  const allowDuplicateRef = useRef(false)
 
   // Populate the form once per opening.
   //
@@ -556,7 +571,16 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault()
+    // A fresh submit re-asks: the user may have corrected the name or the birthdate since the last refusal, so a
+    // grant given about the previous attempt says nothing about this one.
+    allowDuplicateRef.current = false
+    await savePatient()
+  }
 
+  /**
+   * The save itself, callable without a form event — which is what the « Créer quand même » confirmation needs.
+   */
+  const savePatient = async () => {
     if (!validateForm()) {
       toast.error("Erreurs dans le formulaire", {
         description: "Veuillez vérifier que tous les champs requis sont correctement remplis",
@@ -764,6 +788,9 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
           familyHistoryEntries: familyHistoryEntriesToSend.length > 0 ? familyHistoryEntriesToSend : undefined,
           isFlagged: flagged,
           flagNotes: flagNotes.trim() || undefined,
+          // Absent on the first attempt, so the server checks whether this person is already on file. Only the
+          // « Créer quand même » confirmation sets it — see the AlertDialog at the bottom of this file.
+          allowDuplicate: allowDuplicateRef.current || undefined,
         })
 
         toast.success("Patient créé avec succès", {
@@ -776,6 +803,24 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
       onOpenChange(false)
     } catch (err) {
       console.error("Failed to save patient:", err)
+
+      /*
+       * « Ce patient existe déjà » — a question, not a failure, so it gets a confirmation rather than the error
+       * toast below. Two people can genuinely share a name and a birthday, but a duplicate file cannot be merged
+       * or deleted afterwards, so the answer has to come from the user rather than from either default.
+       *
+       * Guarded on the ref so a refusal that somehow survives the grant surfaces as a real error instead of
+       * reopening the same prompt for ever.
+       */
+      if (
+        err instanceof ApiError &&
+        err.code === ApiErrorCode.PatientDuplicate &&
+        !allowDuplicateRef.current
+      ) {
+        setDuplicatePrompt(err.message)
+        return
+      }
+
       const fallback = patient
         ? "Échec de la mise à jour des informations du patient"
         : "Échec de la création du patient"
@@ -1631,6 +1676,41 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
           >
             {removingHistory ? "Suppression…" : "Supprimer"}
           </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+
+    {/*
+      « Ce patient existe déjà » (create mode only).
+
+      ⚠️ The irreversible option here is « Créer quand même », not the cancel — which is why it is the destructive
+      one. A second file for the same person cannot be merged, cannot be deleted once anything is attached to it, and
+      splits that patient's appointments, money and allergies for good; closing this dialog costs nothing.
+    */}
+    <AlertDialog
+      open={duplicatePrompt !== null}
+      onOpenChange={(o) => { if (!o) setDuplicatePrompt(null) }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Ce patient existe peut-être déjà</AlertDialogTitle>
+          <AlertDialogDescription>{duplicatePrompt}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          {/* Leaves the form exactly as typed: the user goes to « Patients », finds the existing file and comes back
+              — or corrects a name they mistyped. Never discard their input on a question. */}
+          <AlertDialogCancel disabled={loading}>Revenir au formulaire</AlertDialogCancel>
+          <AlertDialogAction
+            variant="destructive"
+            onClick={() => {
+              setDuplicatePrompt(null)
+              allowDuplicateRef.current = true
+              void savePatient()
+            }}
+            disabled={loading}
+          >
+            Créer quand même
+          </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
