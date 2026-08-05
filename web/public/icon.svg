@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="32" height="32">
+  <style>
+    .mark { fill: #00736b; }
+    @media (prefers-color-scheme: dark) { .mark { fill: #f8fdfc; } }
+  </style>
+  <g transform="translate(-46.079999999999984 -46.079999999999984) scale(1.18)"><path class="mark" d="M256 128C196 128 152 162 152 214C152 252 160 286 168 322C174 350 180 380 190 392C200 404 214 400 218 382C226 344 234 316 244 300C248 292 264 292 268 300C278 316 286 344 294 382C298 400 312 404 322 392C332 380 338 350 344 322C352 286 360 252 360 214C360 162 316 128 256 128Z"/></g>
+</svg>

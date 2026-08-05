@@ -35,6 +35,21 @@ export const metadata: Metadata = {
     ],
     apple: "/apple-icon.png",
   },
+  /*
+   * Apple web-app metadata (AC-3). Safari reads none of the manifest for a home-screen install — it has its own
+   * `apple-mobile-web-app-*` tags — so without this an installed iOS app opens in a Safari view with its chrome,
+   * which is the same defect `display: "standalone"` fixes for Android.
+   *
+   * `statusBarStyle: "default"` deliberately, not `black-translucent`: translucent makes the web view draw UNDER
+   * the status bar, and the header would then sit behind the clock. `viewportFit: "cover"` plus the app's own
+   * `env(safe-area-inset-*)` handling already owns the notch; letting iOS keep the bar opaque means one owner of
+   * that strip instead of two.
+   */
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: PRODUCT_NAME,
+  },
 }
 
 /*
@@ -49,12 +64,19 @@ export const metadata: Metadata = {
  *
  * `maximumScale` / `userScalable` are deliberately NOT set: capping zoom is an accessibility regression, and a
  * clinician reading a chart at arm's length is a real user of it.
+ *
+ * ⚠️ `themeColor` belongs HERE and nowhere else (AC-3). Next 15 reads it off the `viewport` export; a `theme_color`
+ * in `manifest.ts` alone emits **no `<meta name="theme-color">` at all**, so the status bar kept the browser's
+ * default while the manifest claimed otherwise. The manifest keeps its own copy because an installed app reads it
+ * from there — the two are different consumers of one decision, which is why the value's derivation is documented
+ * in `manifest.ts` rather than twice.
  */
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
   interactiveWidget: "resizes-content",
+  themeColor: "#f1f8fa",
 }
 
 export default function RootLayout({

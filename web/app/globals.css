@@ -605,3 +605,77 @@
     }
   }
 }
+
+/*
+ * ── Print ─────────────────────────────────────────────────────────────────────────────────────────────────
+ *
+ * Printing any screen used to print the app: the rail, the header, the bottom bar and the AI launcher, with the
+ * document content squeezed into whatever was left. There was **no `@media print` anywhere** in the repo — the only
+ * print CSS was a string injected into a `window.open` popup by the document editor, so every other surface
+ * (`/factures`, a patient record, a fiche) printed its chrome.
+ *
+ * ⚠️ **The chrome is hidden by `print:hidden` ON each element, not from here.** The rail, the header, the phone's
+ * bottom bar, the nav drawer and the assistant's launcher and panel each carry it. A selector here would have to be
+ * `aside` / `header` / `nav[aria-label="…"]` plus something for an unnamed `fixed` div — all of which stop matching
+ * *silently* under an ordinary markup change, and a print regression is invisible until someone reaches for paper.
+ * This block owns only the three things a utility on an element cannot express.
+ *
+ * Deliberately no `break-inside`/`break-after` rules: which card may be split is a per-surface judgement, and a
+ * blanket `break-inside: avoid` on every card turns a long table into one card per page.
+ */
+@media print {
+  /* 1. Release the viewport cage. `AppShell` is `h-dvh` with `overflow-hidden`, and `<main>` scrolls itself — so
+        without this the printout is exactly one screenful and the rest of the document is simply gone. Keyed on
+        `<main>`'s own id and on any ancestor holding it, so no class list is hardcoded. */
+  body *:has(#contenu-principal),
+  #contenu-principal {
+    height: auto;
+    max-height: none;
+    overflow: visible;
+  }
+
+  /* `animate-page-in` starts at `opacity: 0` with `both` fill. It has finished long before a user reaches for
+     Print — but a blank sheet is the one print failure worth insuring against outright. */
+  #contenu-principal {
+    animation: none;
+    opacity: 1;
+  }
+
+  /* 2. sonner renders in its own portal, so it is the one piece of chrome no element of ours can carry a class on. */
+  [data-sonner-toaster] {
+    display: none;
+  }
+
+  /*
+   * 3. Paper is white and ink is dark, whatever the screen theme was. In dark mode `--foreground` is near-white and
+   * `--card` is near-black, so a printed patient record was white text on white paper inside black slabs.
+   *
+   * ⚠️ These are **print** values, not a second copy of the light palette — there is deliberately nothing here to
+   * drift *from*. A copy was the alternative and it cannot work: `.dark` sits on `<html>`, the same element as
+   * `:root`, so there is no ancestor for `:root`'s light values to be inherited from and reuse would mean
+   * re-listing fifty tokens. Overriding the surface and ink tokens reaches every card, table and border, because
+   * the whole app draws from them (`components/CLAUDE.md`: "colour is expressed in tokens, never in literals").
+   */
+  .dark {
+    --background: #ffffff;
+    --card: #ffffff;
+    --popover: #ffffff;
+    --muted: #f4f4f5;
+    --sidebar: #ffffff;
+    --foreground: #18181b;
+    --card-foreground: #18181b;
+    --popover-foreground: #18181b;
+    --muted-foreground: #52525b;
+    --border: #d4d4d8;
+  }
+
+  /* The page's own ground, which is painted on `<body>` from `--background` and so is not covered above. */
+  html,
+  body {
+    background: #ffffff;
+  }
+
+  @page {
+    margin: 12mm;
+  }
+}

@@ -462,6 +462,16 @@ clinic data.
 - **A native application.** `COMPETITIVE_ANALYSIS.md:39` scores mobile-friendliness ❌ against two competitors with
   native apps. This feature closes that gap as **responsive web plus home-screen install**, not as a Capacitor or
   React Native shell. If one is wanted later, nothing here precludes it.
+  > **✏️ Amended 2026-08-05 — one is now wanted, and this non-goal is superseded rather than reversed**
+  > (`features/mobile-native-shells`, AC-69). Two thin native shells are being built: Kotlin/`WebView` and
+  > Swift/`WKWebView`, in a new top-level `mobile/`, each loading **this same web bundle** from the hosted origin.
+  > Neither is Capacitor nor React Native, so the sentence above stayed literally true — but the *intent* ("no
+  > native app") did not, and two specs disagreeing about that is worse than either answer.
+  >
+  > **Nothing in this feature is invalidated.** The shells add no second UI and no fork: every capability they
+  > expose is feature-detected off `window.__clinicShell`, and with that object absent — which is every browser —
+  > behaviour is byte-identical to what this spec describes. The responsive work is what makes the shells possible
+  > rather than being replaced by them; a `WebView` renders the phone layout this feature built.
 - **Arabic and RTL.** The app is French end to end — `<html lang="fr">` is hardcoded and there is no `dir`
   anywhere. RTL is a localisation feature, not a responsive one. AC-6 keeps this pass from making a future Arabic
   pass a second sweep of the same 24 files, which is the whole of what is owed here.

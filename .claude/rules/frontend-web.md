@@ -247,21 +247,38 @@ in `web/` can assert a layout.
 
 Adding a mechanical check: derive the surfaces (`card-fallback` derives its table list), never hand-maintain an
 expectation list, and **never add a per-file exemption** — an allow-list that grows is a check that has stopped
-working. A check for a part that has not landed goes in `PENDING_PARTS` so the gate is not red from birth.
+working. **Then prove it fails**: feed it a deliberate violation in a throwaway file and confirm a red run before
+you trust a green one. A too-tight check is noisy and you notice; a too-loose one is silent and indistinguishable
+from passing. Every check is enforced on arrival — see § 15 on why the old `PENDING_PARTS` staging is gone.
 
-## § 15 Do not cite what has not landed
+## § 15 What has landed, and what is genuinely still open
 
-`features/mobile-tablet-responsive` phases P1–P6 have landed. Still open, so do not write code that assumes
-them, and do not claim them in a report:
+`features/mobile-tablet-responsive` **P1–P8 have all landed**, and so has `mobile-native-shells` Part 1. This
+section used to list three things as missing; all three now exist, so **use them** rather than working around them:
 
-- **No `@media print` and no `print:` utility** anywhere except the string injected into `window.open` at
-  `document-editor-content.tsx`. Printing a screen still prints the sidebar and the AI button.
-- **No manifest and no real icons** — `web/public/` holds only the untouched `create-next-app` SVGs, and the
-  four icons `app/layout.tsx` declares do not exist.
-- **No LAN device-trust page** (P8).
+- **Printing is handled.** `globals.css` has a `@media print` block, and the shell elements carry `print:hidden`
+  (rail, drawer, header, bottom bar, assistant launcher + panel). Hide a new piece of chrome by putting
+  `print:hidden` **on the element** — the block in `globals.css` owns only what a class cannot reach (sonner's
+  portal, releasing the `dvh`/`overflow` cage, the paper palette, `@page`).
+- **The icons and the manifest are real.** All seven declared assets exist in `web/public/`, generated from
+  `web/branding/icon.svg` by `scripts/generate-icons.mjs`. **Never hand-edit a PNG in `public/`** — replace the SVG
+  master and re-run the script. `themeColor` lives on the **`viewport`** export in `layout.tsx`; a `theme_color` in
+  `manifest.ts` alone emits no `<meta>` at all.
+- **The LAN device-trust page exists** (P8, `TrustController` + `TrustPortGate` + the trust listener). Its AC-46
+  physical-iPhone verification is the one part still owed, and that is a *verification* gap, not a missing feature.
 
-`PENDING_PARTS` in `web/scripts/check-responsive.mjs` is the source of truth. Landing a part means deleting its
-id there — one deliberate, visible line of maintenance.
+**One way to deliver a file:** `lib/download.ts`. Never a hand-rolled `<a download>`, never `file-saver` — both are
+ignored by iOS Safari for a `blob:` URL, so the file silently never arrives. The `blob-delivery` check fails on it.
+
+Still open, so do not write code that assumes it and do not claim it in a report: everything in
+`features/mobile-native-shells` **Parts 2–8** — the client-version floor and its `X-Client-Version` header, the two
+native shells and `window.__clinicShell`'s `print()`/`onPushToken()`, OS push, biometric resume, and the native PDF
+viewer. `window.__clinicShell` is **always** feature-detected; with it absent, behaviour must be byte-identical to
+a plain browser.
+
+⚠️ **There is no `PENDING_PARTS` any more.** Every check in `web/scripts/check-responsive.mjs` is enforced. The set
+still held `P7`/`P8` long after no check declared either, which made it read as the source of truth for what was
+enforced while being inert — so a new check is either written to pass or the defect is fixed, never parked.
 
 ## § 16 Where each authority lives — read, don't re-derive
 

@@ -204,6 +204,8 @@ export function DashboardSidebar() {
           // `h-dvh` tracks the page shell's own height (`AppShell`); the two MUST agree or the rail overflows
           // the shell and the document grows a second scrollbar — which is the whole reason for the note above.
           "hidden md:flex h-dvh flex-col overflow-hidden border-r border-border bg-card transition-all duration-300 relative",
+          // Not on paper (AC-9). On the element, not in a globals.css selector that a markup change orphans.
+          "print:hidden",
           isCollapsed ? "w-16" : "w-64"
         )}
       >
@@ -234,7 +236,8 @@ export function DashboardSidebar() {
       <Sheet open={isMobileOpen} onOpenChange={setMobileOpen}>
         {/* No `aria-label` here: it would override `SheetTitle` as the dialog's accessible name AND repeat the
             name of the <nav> inside it, so the drawer and its own contents announced identically. */}
-        <SheetContent side="left" className="w-72 max-w-[85vw] p-0 md:hidden">
+        {/* `print:hidden`: the drawer is the rail's phone form, so AC-9 covers it too. */}
+        <SheetContent side="left" className="w-72 max-w-[85vw] p-0 md:hidden print:hidden">
           {/* Radix requires a title/description for the dialog's accessible name; the rail shows its own
               brand header, so these are screen-reader only. */}
           <SheetTitle className="sr-only">Navigation</SheetTitle>

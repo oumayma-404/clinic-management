@@ -40,6 +40,7 @@ import { invoicesApi } from "@/lib/api/invoices"
 import { ApiError } from "@/lib/api/client"
 import type { InvoiceDto } from "@/lib/api/types"
 import { formatAmount, formatDT, formatDateFr, parseAmountInput, todayLocalIso } from "@/lib/format"
+import { downloadBlob } from "@/lib/download"
 import { ZONES, zoneChipClass } from "@/lib/zones"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
@@ -255,14 +256,9 @@ export function InvoicesTable({
     setBusyId(invoice.id)
     try {
       const blob = await invoicesApi.downloadPdf(invoice.id)
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement("a")
-      a.href = url
-      a.download = `note-honoraires-${invoice.number ?? invoice.id}.pdf`
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      URL.revokeObjectURL(url)
+      // AC-4. The `<a download>` this replaced never delivered on iOS Safari, so a dentist on an iPhone could not
+      // get a note d'honoraires out of the app at all.
+      await downloadBlob(blob, `note-honoraires-${invoice.number ?? invoice.id}.pdf`)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Échec du téléchargement du PDF.")
     } finally {
@@ -299,15 +295,8 @@ export function InvoicesTable({
     setBusyId(invoice.id)
     try {
       const blob = await invoicesApi.downloadEInvoiceArtifact(invoice.id, artifact)
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement("a")
-      a.href = url
       const suffix = artifact === "xml" ? "teif" : "recu-ttn"
-      a.download = `${suffix}-${invoice.number ?? invoice.id}.xml`
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      URL.revokeObjectURL(url)
+      await downloadBlob(blob, `${suffix}-${invoice.number ?? invoice.id}.xml`)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Échec du téléchargement.")
     } finally {

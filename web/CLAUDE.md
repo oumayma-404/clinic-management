@@ -18,7 +18,8 @@ From `web/` (scripts in `package.json`):
 - `npm run dev` — dev server (Next.js)
 - `npm run build` — production build (`output: 'standalone'`, ESLint disabled during build in `next.config.ts`)
 - `npm start` — serve production build
-- `npm run check:responsive` — **the device gate** (`scripts/check-responsive.mjs`): one grep per class of layout defect that no type can catch and no eye sees at the width you happen to be developing at. Run it with `npx tsc --noEmit` + `npm run build` on any frontend change.
+- `npm run check:responsive` — **the device gate** (`scripts/check-responsive.mjs`): **13 checks**, one grep per class of layout defect that no type can catch and no eye sees at the width you happen to be developing at. Run it with `npx tsc --noEmit` + `npm run build` on any frontend change. ⚠️ **Every check is enforced** — the old `PENDING_PARTS` staging set is gone; it still listed `P7`/`P8` long after no check declared either, so it read as the source of truth for what was enforced while being inert.
+- `node scripts/generate-icons.mjs` — regenerates the **seven** icon assets in `public/` from the single master `branding/icon.svg` (via `sharp`, already a Next dependency; PIL was not an option — it cannot read SVG). **Never hand-edit a PNG in `public/`**: replace the master and re-run. Output is byte-identical across runs, so an unrelated re-run does not churn the diff. All seven used to **404** while `app/layout.tsx` and `app/manifest.ts` declared them, so an installed app got a blank tile.
 - `npm run lint` — ⚠️ **cannot run**: `eslint` is named in the script but is **not in `devDependencies`**, and `next.config.ts` sets `eslint.ignoreDuringBuilds`. With no test runner and no CI either, `check:responsive` + `tsc` + `build` + an eye pass at 320/390/820/1180/1440 px *is* the whole gate.
 
 Dockerized via `web/Dockerfile`.

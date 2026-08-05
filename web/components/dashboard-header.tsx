@@ -235,7 +235,8 @@ export function DashboardHeader() {
         ⚠️ The hamburger that used to sit here is gone (AC-7). It was the drawer's only trigger — the wording of
         AC-P3.12 — and « Plus » in the bottom bar supersedes it: same `isMobileOpen` state, same drawer, but a
         thumb can reach it. Two openers for one drawer would just be two things to keep in step. */}
-    <header className="flex h-16 items-center justify-between gap-2 border-b border-border bg-card px-4 md:px-6">
+    {/* `print:hidden`: AC-9 says "no NAVIGATION", and search + the bell + the user menu are exactly that. */}
+    <header className="flex h-16 items-center justify-between gap-2 border-b border-border bg-card px-4 md:px-6 print:hidden">
       <div className="flex min-w-0 flex-1 items-center gap-2 md:gap-4">
         {/*
           In-app « Retour » (AC-37).

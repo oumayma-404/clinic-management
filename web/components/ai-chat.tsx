@@ -693,7 +693,8 @@ export function AIChat({ className }: AIChatProps) {
     return (
       // Clears the bottom bar (AC-8). `--bottom-inset` is the bar plus the home indicator; above `md:` there
       // is no bar and the original `bottom-4` stands.
-      <div className={cn("fixed bottom-[calc(1rem+var(--bottom-inset))] right-4 z-50 md:bottom-4", className)}>
+      // `print:hidden` (AC-9): being `fixed`, on paper it prints OVER the document rather than beside it.
+      <div className={cn("fixed bottom-[calc(1rem+var(--bottom-inset))] right-4 z-50 md:bottom-4 print:hidden", className)}>
         <Button
           onClick={handleExpand}
           className="rounded-full h-14 w-14 shadow-lg bg-primary hover:bg-primary/90"
@@ -719,6 +720,9 @@ export function AIChat({ className }: AIChatProps) {
       className={cn(
         "fixed bottom-[calc(1rem+var(--bottom-inset))] left-4 right-4 flex h-[70dvh] max-h-[calc(100dvh-2rem-var(--bottom-inset))] flex-col shadow-2xl z-50",
         "md:bottom-4 md:left-auto md:h-[600px] md:max-h-none md:w-96",
+        // The expanded panel too, not just the launcher (AC-9) — printing with the assistant open is the likelier
+        // case, since that is when someone is reading something they then want on paper.
+        "print:hidden",
         className
       )}
     >

@@ -43,6 +43,8 @@ import { cn } from "@/lib/utils"
 import { patientFilesApi } from "@/lib/api/patient-files"
 import { formatDate, formatFileSize } from "@/lib/format"
 import { getErrorMessage } from "@/lib/errors"
+import { downloadBlob } from "@/lib/download"
+import { PatientFilePdfPreview } from "@/components/patient-file-pdf-preview"
 import { Label } from "@/components/ui/label"
 import type { PatientFileDto, PatientFolderDto } from "@/lib/api/types"
 import { toast } from "sonner"
@@ -249,14 +251,9 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
   const handleDownloadFile = async (file: PatientFileDto) => {
     try {
       const blob = await patientFilesApi.downloadFile(patientId, file.id)
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement("a")
-      a.href = url
-      a.download = file.fileName
-      document.body.appendChild(a)
-      a.click()
-      window.URL.revokeObjectURL(url)
-      document.body.removeChild(a)
+      // One way to deliver a file (AC-4). The hand-rolled `<a download>` this replaced is **ignored** by iOS
+      // Safari for a `blob:` URL, so on an iPhone this button silently delivered nothing at all.
+      await downloadBlob(blob, file.fileName)
       toast.success("Téléchargement démarré", {
         description: `Le fichier "${file.fileName}" est en cours de téléchargement`,
         duration: 2000,
@@ -729,27 +726,11 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
                         />
                       </div>
                     ) : isPdfFile(previewFile) ? (
-                      <div className="w-full flex items-start justify-center min-h-full">
-                        {/* ⚠️ The `calc(100vw - 8rem)` gutter is now `md:`-only. It is a DESKTOP allowance, and
-                            applying it unconditionally clamped a 342px phone viewport to 262px — 23% of the
-                            screen discarded on the one surface (a panoramique, a bilan) that wants every pixel.
-                            Below `md:` the dialog is already a full-screen sheet with its own padding. */}
-                        <div
-                          className="w-full overflow-hidden rounded-lg bg-white shadow-2xl md:max-w-[calc(100vw-8rem)] dark:bg-slate-800"
-                          style={{ aspectRatio: '210 / 297' }}
-                        >
-                          <iframe
-                            src={`${previewUrl}#toolbar=0&navpanes=0&scrollbar=1`}
-                            className="w-full h-full"
-                            style={{ 
-                              border: 'none',
-                              display: 'block',
-                              aspectRatio: '210 / 297'
-                            }}
-                            title={previewFile.fileName}
-                          />
-                        </div>
-                      </div>
+                      <PatientFilePdfPreview
+                        previewUrl={previewUrl}
+                        fileName={previewFile.fileName}
+                        onDeliver={() => handleDownloadFile(previewFile)}
+                      />
                     ) : (
                       <div className="flex flex-col items-center gap-3 p-8">
                         <File className="h-16 w-16 text-muted-foreground" />

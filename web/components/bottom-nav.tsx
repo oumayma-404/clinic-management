@@ -74,6 +74,8 @@ export function BottomNav() {
       aria-label="Navigation rapide"
       className={cn(
         "flex shrink-0 items-stretch border-t border-border bg-card md:hidden",
+        // Not on paper (AC-9).
+        "print:hidden",
         // The home indicator sits inside the browser's viewport on iOS, so the bar pads itself rather than
         // letting the OS draw over its last row of pixels.
         "pb-[env(safe-area-inset-bottom,0px)]",

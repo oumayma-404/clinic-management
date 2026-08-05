@@ -12,14 +12,16 @@
  * Each check below is a class of defect that is invisible to the eye at the width you happen to be developing
  * at. They are greps with a stated intent, not style opinions.
  *
- * STAGED ENABLEMENT
- * Every check is tagged with the part of `features/mobile-tablet-responsive/plan.md` that fixes it. A check
- * whose part has not landed yet reports as PENDING and does not fail the run — otherwise the gate would be red
- * from the moment it is written and would simply be ignored, which is how a check dies.
+ * EVERY CHECK IS ENFORCED
+ * There used to be a `PENDING_PARTS` set here so a check written ahead of its fix reported as PENDING instead of
+ * failing — the gate must not be red from birth or it gets ignored. It is **gone**: `mobile-tablet-responsive`
+ * P1–P6 have all landed, and the set still held `P7`/`P8`, which **no check declares** — i.e. it had been inert
+ * for some time while still reading as the source of truth for what is enforced. A staging mechanism that
+ * outlives its staging is worse than none, because it invites the next check to be parked rather than fixed.
  *
- * As each part lands, delete its id from PENDING_PARTS below. That is one deliberate, visible line of
- * maintenance per part, and when the set is empty every check is enforced. Do NOT add per-file exemptions —
- * an allow-list that grows is a check that has stopped working.
+ * The `part` tag on each check stays, as provenance for which slice of work introduced the rule.
+ *
+ * Do NOT add per-file exemptions — an allow-list that grows is a check that has stopped working.
  */
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -28,9 +30,6 @@ import { fileURLToPath } from "node:url";
 
 const WEB_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SCAN_DIRS = ["app", "components", "lib", "contexts", "hooks"];
-
-/** Parts not yet landed. Remove an id when that part is committed. */
-const PENDING_PARTS = new Set(["P7", "P8"]);
 
 // ── file walking ────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -435,13 +434,57 @@ check(
   }
 );
 
+/** `lib/download.ts` is the shared helper — the one place these mechanisms legitimately live. */
+const DELIVERY_HELPER = "lib/download.ts";
+
+check(
+  "blob-delivery",
+  "N1",
+  "A file is delivered through `lib/download.ts`, never a hand-rolled anchor or `saveAs`",
+  "`<a download>` on a `blob:` URL is **ignored by iOS Safari** — the file never arrives and nothing raises an " +
+    "error, so on an iPhone the button simply does nothing. Five call sites had each hand-rolled it (a patient " +
+    "file, an invoice PDF, an e-invoice XML, a document PDF) and a sixth used `file-saver` as a third mechanism, " +
+    "so the shared helper's device-aware share/open path reached none of them. In a WebView it is worse: there is " +
+    "no `blob:` download and no `navigator.share`, so every one of those paths delivers nothing at all.",
+  () =>
+    scanLines(
+      /*
+       * DERIVED from the three mechanisms, not from a list of files — a sixth call site written next month fails
+       * on the day it is written.
+       *
+       *   `.download =`            the anchor download attribute, whatever the variable is called
+       *   `saveAs(`                file-saver
+       *   `createElement("a")`     the anchor itself, which is what makes this precise
+       *
+       * ⚠️ Deliberately NOT a grep for `.click()`. Two legitimate call sites open a FILE PICKER that way
+       * (`fileInputRef.current?.click()` in `import-patients-dialog` and `doctor-document-identity-dialog`), so a
+       * bare `.click()` rule would report real code as a defect and get switched off. Anchoring on
+       * `createElement("a")` catches the same mechanism at its root with nothing to exempt.
+       */
+      ALL_FILES.filter((f) => /^(app|components|lib)[\\/]/.test(relative(WEB_ROOT, f)) && rel(f) !== DELIVERY_HELPER),
+      /\.download\s*=|\bsaveAs\s*\(|createElement\(\s*["']a["']\s*\)/,
+    ),
+);
+
+check(
+  "pdf-viewer-params",
+  "N1",
+  "No viewer-specific PDF URL fragment (`#toolbar=0`, `#navpanes=0`, …)",
+  "Those are **Adobe/Chromium-only** parameters. Android WebView ignores them and renders the frame BLANK — a " +
+    "white A4 rectangle with no error, which a dentist reads as a corrupted radiograph rather than as an " +
+    "unsupported viewer. Two of the three `<iframe>` previews carried them. A PDF preview on a coarse pointer " +
+    "delivers the file instead (`components/patient-file-pdf-preview.tsx`); nothing needs to ask a viewer to hide " +
+    "its own toolbar.",
+  // Only parameter names no app query string would ever legitimately use. `page=` is deliberately absent: it is a
+  // real pagination parameter in this app, and a check that fires on `?page=2` would be turned off within a week.
+  () => scanLines(tsx(), /\b(?:toolbar|navpanes|scrollbar|statusbar|pagemode)=/),
+);
+
 // ── run ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
 const only = process.argv.find((a) => a.startsWith("--only="))?.slice("--only=".length);
-const strict = process.argv.includes("--strict"); // enforce every check regardless of PENDING_PARTS
 
 let failed = 0;
-let pending = 0;
 
 console.log("");
 console.log("  check-responsive — mobile & tablet mechanical gate (AC-50)");
@@ -450,17 +493,9 @@ console.log("  " + "─".repeat(90));
 for (const c of checks) {
   if (only && c.id !== only) continue;
   const hits = c.run();
-  const enforced = strict || !PENDING_PARTS.has(c.part);
 
   if (hits.length === 0) {
     console.log(`  ✓ ${c.id.padEnd(18)} ${c.part}  ${c.title}`);
-    continue;
-  }
-
-  if (!enforced) {
-    pending++;
-    console.log(`  ○ ${c.id.padEnd(18)} ${c.part}  ${c.title}`);
-    console.log(`      ${hits.length} hit(s) — PENDING, ${c.part} has not landed yet`);
     continue;
   }
 
@@ -479,10 +514,10 @@ for (const c of checks) {
 
 console.log("  " + "─".repeat(90));
 if (failed > 0) {
-  console.log(`  ${failed} check(s) failed, ${pending} pending.`);
+  console.log(`  ${failed} of ${checks.length} check(s) failed.`);
   console.log("");
   process.exit(1);
 }
-console.log(`  All enforced checks passed${pending ? `, ${pending} pending (later parts).` : "."}`);
+console.log(`  All ${checks.length} checks passed.`);
 console.log("");
 process.exit(0);

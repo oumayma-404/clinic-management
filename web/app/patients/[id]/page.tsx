@@ -101,6 +101,7 @@ import {
 } from "@/components/appointment-labels"
 import { showErrorToast } from "@/lib/errors"
 import { downloadBlob } from "@/lib/download"
+import { PatientFilePdfPreview } from "@/components/patient-file-pdf-preview"
 
 const calculateAge = (dob: string | undefined) => {
   if (!dob) return null
@@ -2702,27 +2703,11 @@ export default function PatientDetailsPage() {
                         />
                       </div>
                     ) : isPdfFile(previewFile) ? (
-                      <div className="w-full flex items-start justify-center min-h-full">
-                        {/* ⚠️ The `calc(100vw - 8rem)` gutter is `md:`-only. It is a DESKTOP allowance, and
-                            applying it unconditionally clamped a 342px phone viewport to 262px — 23% of the
-                            screen discarded on the one surface (a panoramique, a bilan long cône) that wants
-                            every pixel. Kept in sync with the same dialog in `patient-files-manager.tsx`. */}
-                        <div
-                          className="w-full overflow-hidden rounded-lg bg-white shadow-2xl md:max-w-[calc(100vw-8rem)] dark:bg-slate-800"
-                          style={{ aspectRatio: '210 / 297' }}
-                        >
-                          <iframe
-                            src={`${previewUrl}#toolbar=0&navpanes=0&scrollbar=1`}
-                            className="w-full h-full"
-                            style={{ 
-                              border: 'none',
-                              display: 'block',
-                              aspectRatio: '210 / 297'
-                            }}
-                            title={previewFile.fileName}
-                          />
-                        </div>
-                      </div>
+                      <PatientFilePdfPreview
+                        previewUrl={previewUrl}
+                        fileName={previewFile.fileName}
+                        onDeliver={() => handleDownloadFile(previewFile)}
+                      />
                     ) : (
                       <div className="flex flex-col items-center gap-3 p-8">
                         <FileText className="h-16 w-16 text-muted-foreground" />

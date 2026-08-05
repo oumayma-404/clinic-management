@@ -60,7 +60,7 @@ import { ARRET_MAX_DAYS, TRAUMA_CAUSES, TRAUMA_CAUSE_LABELS_FR, type TraumaCause
 import { format, parseISO } from "date-fns"
 import { fr } from "date-fns/locale"
 import { toast } from "sonner"
-import { saveAs } from "file-saver"
+import { downloadBlob } from "@/lib/download"
 import { Document, Packer, Paragraph, HeadingLevel, AlignmentType } from "docx"
 
 // Certificat médical (FR-2). The ordre label (FR-2.4) and the mandatory deontological mention (FR-2.3) —
@@ -1787,7 +1787,9 @@ export function DocumentEditorContent() {
 
       const blob = await Packer.toBlob(doc);
       const fileName = `${documentTypeName.toLowerCase().replace(/\s+/g, '-')}-${patientName.toLowerCase().replace(/\s+/g, '-')}.docx`;
-      saveAs(blob, fileName);
+      // AC-4. `file-saver`'s `saveAs` was a THIRD delivery mechanism in this app, and it is an `<a download>`
+      // underneath — so like the other two it delivered nothing on iOS Safari.
+      await downloadBlob(blob, fileName);
       toast.success("Document Word téléchargé avec succès", {
         description: `Le fichier "${fileName}" est en cours de téléchargement`,
         duration: 3000,
@@ -1837,14 +1839,7 @@ export function DocumentEditorContent() {
       const patientName = `${patientData.firstName}-${patientData.lastName}`.toLowerCase();
       const fileName = `${documentTypeName.toLowerCase().replace(/\s+/g, '-')}-${patientName}.pdf`;
       
-      const url = window.URL.createObjectURL(pdfBlob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = fileName;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
+      await downloadBlob(pdfBlob, fileName);
 
       toast.dismiss(loadingToast);
       toast.success("PDF téléchargé avec succès", {

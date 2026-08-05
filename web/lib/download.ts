@@ -1,3 +1,6 @@
+import { formatFileSize } from "@/lib/format";
+import { showErrorToast } from "@/lib/errors";
+
 /**
  * How long a `blob:` URL stays alive after we hand it to the browser (AC-41).
  *
@@ -17,29 +20,102 @@
  */
 const REVOKE_DELAY_MS = 60_000;
 
+/**
+ * The default ceiling on a file crossing the shell bridge — 25 MB (AC-20).
+ *
+ * ⚠️ **A fallback, not the policy.** The shell states its own limit in `window.__clinicShell.maxFileBytes`,
+ * because the constraint belongs to that platform's JS bridge and not to the web app: base64 inflates a file by
+ * ~1.33×, so 25 MB arrives as a ~33 MB Java `String` in one allocation, and what a low-memory Android device
+ * survives is a per-device fact only the shell can measure. This constant is what the web bundle uses when the
+ * bridge does not say — never "unlimited", which would be an unbounded marshalling attempt on the one path that
+ * cannot afford it.
+ */
+const SHELL_MAX_FILE_BYTES = 25 * 1024 * 1024;
+
 /** A finger, not a mouse — the same rule the rest of the app uses for touch behaviour. */
 function isCoarsePointer(): boolean {
   return typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
 }
 
 /**
- * Deliver an in-memory blob to the device (AC-41).
+ * The native shell's bridge, or `undefined` in every browser.
  *
- * Three paths, because « télécharger » means three different things:
+ * `typeof window` is guarded because this module is importable server-side — Next renders client components on
+ * the server, and an unguarded `window` here would throw during SSR before any of it ran (LEARNINGS: "Guard
+ * browser globals in any module importable server-side").
+ */
+function shellBridge(): ClinicShell | undefined {
+  return typeof window !== "undefined" ? window.__clinicShell : undefined;
+}
+
+/** Base64 for the bridge — no `data:` prefix, which is what `bridge.md` specifies. */
+async function toBase64(blob: Blob): Promise<string> {
+  const buffer = await blob.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  // Chunked, not `String.fromCharCode(...bytes)`: spreading megabytes into an argument list blows the call stack,
+  // and it does so as a crash rather than as the refusal above — the exact "silent nothing" AC-20 removes.
+  const CHUNK = 0x8000;
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
+}
+
+/**
+ * Deliver an in-memory blob to the device (AC-41, AC-19, AC-20).
  *
- * 1. **Coarse pointer + Web Share that accepts files** → the OS share sheet. On iOS this is the only route
+ * Four paths, because « télécharger » means four different things:
+ *
+ * 1. **A native shell** → hand it to the OS through the bridge, which writes it and offers to open or share it.
+ *    First, and unconditionally first: inside a `WebView` a `blob:` download has nowhere to go and
+ *    `navigator.share` does not exist, so every path below it silently delivers nothing there.
+ * 2. **Coarse pointer + Web Share that accepts files** → the OS share sheet. On iOS this is the only route
  *    that reliably lands a file somewhere the user chose (Fichiers, Mail, WhatsApp), and « Partager » is what
  *    a dentist handing a receipt to a patient actually wants.
- * 2. **Coarse pointer without file sharing** → open the blob in a new tab. ⚠️ `<a download>` is **ignored**
+ * 3. **Coarse pointer without file sharing** → open the blob in a new tab. ⚠️ `<a download>` is **ignored**
  *    for `blob:` URLs by iOS Safari, so the anchor route below silently does nothing there — the document
  *    never arrives and no error is raised. Opening it at least puts it on screen with the OS viewer's own
  *    save/share affordances.
- * 3. **Fine pointer** → the classic hidden anchor. Unchanged behaviour.
+ * 4. **Fine pointer** → the classic hidden anchor. Unchanged behaviour.
+ *
+ * ⚠️ **The size refusal applies to the shell path only.** A browser has no base64 marshalling to run out of
+ * memory on — it streams the blob to disk — so imposing a limit there would refuse a 40 MB panoramique that
+ * downloads perfectly well today. That is a capability removed by a defensive check, which § 0 forbids.
  *
  * Returns a promise so a caller *may* await the share sheet, but nothing has to: every path is safe to
  * fire-and-forget, which is how all existing call sites use it.
  */
 export async function downloadBlob(blob: Blob, filename: string): Promise<void> {
+  const shell = shellBridge();
+  if (shell) {
+    const limit = shell.maxFileBytes ?? SHELL_MAX_FILE_BYTES;
+    // `blob.size` BEFORE the bytes are read (AC-20): `arrayBuffer()` + the base64 encode are where the memory is
+    // actually spent, so a refusal after them is a refusal the device has already crashed past.
+    if (blob.size > limit) {
+      showErrorToast(null, {
+        title: "Fichier trop volumineux",
+        fallback:
+          `Ce fichier fait ${formatFileSize(blob.size)} et l'application mobile est limitée à ` +
+          `${formatFileSize(limit)}. Ouvrez-le depuis un ordinateur ou un navigateur pour le télécharger.`,
+      });
+      return;
+    }
+
+    try {
+      await shell.saveFile(await toBase64(blob), filename, blob.type || "application/octet-stream");
+      return;
+    } catch {
+      // Say so rather than falling through: inside a WebView the paths below cannot deliver either, so a
+      // fall-through would turn a reported failure back into a silent one.
+      showErrorToast(null, {
+        title: "Échec du téléchargement",
+        fallback: "Le fichier n'a pas pu être enregistré sur cet appareil. Réessayez.",
+      });
+      return;
+    }
+  }
+
   if (isCoarsePointer() && typeof navigator !== "undefined" && "canShare" in navigator) {
     const file = new File([blob], filename, { type: blob.type || "application/octet-stream" });
     // ⚠️ `canShare({ files })`, not merely the presence of `navigator.share` — Android Chrome exposes `share`

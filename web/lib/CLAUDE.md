@@ -99,7 +99,18 @@ Each exports a `<name>Api` object of async methods over `client.ts` (endpoints r
 - `specialties.ts` — `DOCTOR_SPECIALTIES` (the seven **English** storage keys, shared by clinic-settings / setup-wizard / join-wizard — previously three byte-identical copies), `SPECIALTY_LABELS_FR`, and `specialtyLabel(value)`. **Display-time map, not a migration**: the keys are what `Doctor.Specialty` already holds and what every `MedicalDocument.DoctorSpecialty` snapshot was taken from, so renaming them would orphan every existing row. Unknown values pass through verbatim (a clinic's custom specialty, and older snapshots already stored in French). Same shape as `tunisia.ts`.
 - **`dashboard-links.ts`** — the single authority mapping a dashboard KPI to the **filtered** view of the records it counted (the `refunds` KPI added with the caisse statement points at `/caisse`, whose « extrait » is the only screen listing refunds as movements in their own right) (`dashboardLink(key, period)`). An exhaustive `Record<DashboardKpiKey, (period) => string>`, deliberately: a KPI added without a destination is a `tsc` error rather than a card that goes nowhere. Same reasoning as `appointment-labels.ts` — the mapping is a contract with nine other screens, and a link that drifts from what the card counted quietly asserts a number the destination contradicts. Two links carry a subtlety worth knowing: « Devis acceptés » uses `acceptedFrom`/`acceptedTo` (**not** `from`/`to`, which bound creation), and « Taux d'absence » sends `status=NoShow,Cancelled` because that pair *is* the rate's numerator.
 - `brand.ts` — `PRODUCT_NAME = "Gestion Clinique"` (fallback name when a clinic's own name is unknown).
-- `download.ts` — `downloadBlob(blob, filename)` (browser save-as for PDFs/receipts).
+- `download.ts` — **`downloadBlob(blob, filename)`, the one way a file leaves this app.** Four paths, tried in order:
+  the **native shell bridge** (`window.__clinicShell.saveFile`), then a coarse pointer's `navigator.share({ files })`,
+  then a new tab, then the desktop `<a download>`. ⚠️ The shell path is first because inside a `WebView` a `blob:`
+  download has nowhere to go and `navigator.share` does not exist — every later path delivers *nothing* there. Five
+  call sites used to hand-roll an `<a download>` (and a sixth used `file-saver`), which **iOS Safari ignores for a
+  `blob:` URL**, so on an iPhone a patient file, an invoice PDF, an e-invoice XML, a document PDF and the Word export
+  each silently delivered nothing and raised no error. The `blob-delivery` check in `scripts/check-responsive.mjs`
+  now fails on a seventh — derived from the three mechanisms (`.download =`, `saveAs(`, `createElement("a")`), with
+  no exemption list. ⚠️ The **25 MB refusal is shell-only** and is checked against `blob.size` *before* the bytes are
+  read: base64 across a JS bridge costs ~1.33×, and a browser has no such marshalling to run out of memory on, so
+  imposing the cap there would refuse a 40 MB panoramique that downloads fine today. The shell states its own
+  ceiling in `__clinicShell.maxFileBytes`; the constant is the fallback, never "unlimited".
 - `utils.ts` — `cn(...)` (clsx + tailwind-merge); `parseDurationToMinutes(timeSpan)`.
 
 ## Conventions
