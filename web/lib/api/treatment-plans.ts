@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiPut, apiDelete, getAccessToken } from './client';
+import { apiGet, apiPost, apiPut, apiDelete, apiHeaders, getAccessToken } from './client';
 import type { TreatmentPlanDto } from './types';
 import { unwrapPaged, type PagedResponse, type PageParams } from './paging';
 
@@ -186,8 +186,7 @@ export const treatmentPlansApi = {
   // The devis PDF is a binary blob — drop to raw fetch and attach the bearer token ourselves.
   downloadDevisPdf: async (id: string): Promise<Blob> => {
     const token = await getAccessToken();
-    const headers: HeadersInit = {};
-    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const headers = apiHeaders(token, 'none');
 
     const base = typeof window !== 'undefined' ? window.location.origin : undefined;
     const url = new URL(`${API_BASE_URL}/treatment-plans/${id}/devis-pdf`, base);
@@ -228,8 +227,7 @@ export const treatmentPlansApi = {
    */
   downloadInstallmentReceipt: async (id: string, installmentId: string, paymentId: string): Promise<Blob> => {
     const token = await getAccessToken();
-    const headers: HeadersInit = {};
-    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const headers = apiHeaders(token, 'none');
 
     const base = typeof window !== 'undefined' ? window.location.origin : undefined;
     const url = new URL(

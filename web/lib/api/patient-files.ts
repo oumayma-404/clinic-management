@@ -1,4 +1,4 @@
-import { apiGet, apiDelete, getAccessToken } from './client';
+import { apiGet, apiDelete, apiHeaders, getAccessToken } from './client';
 import type { PatientFileDto, PatientFolderDto } from './types';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
@@ -21,9 +21,7 @@ export const patientFilesApi = {
     const token = await getAccessToken();
     const response = await fetch(`${API_BASE_URL}/patients/${patientId}/files/folders/initialize-defaults`, {
       method: 'POST',
-      headers: {
-        'Authorization': token ? `Bearer ${token}` : '',
-      },
+      headers: apiHeaders(token, 'none'),
       credentials: 'include',
     });
 
@@ -40,10 +38,7 @@ export const patientFilesApi = {
     const token = await getAccessToken();
     const response = await fetch(`${API_BASE_URL}/patients/${patientId}/files/folders`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': token ? `Bearer ${token}` : '',
-      },
+      headers: apiHeaders(token),
       credentials: 'include',
       body: JSON.stringify({ name, parentFolderId }),
     });
@@ -75,10 +70,7 @@ export const patientFilesApi = {
 
     const response = await fetch(`${API_BASE_URL}/patients/${patientId}/files/upload`, {
       method: 'POST',
-      headers: {
-        'Authorization': token ? `Bearer ${token}` : '',
-        // Don't set Content-Type header - let browser set it with boundary for multipart/form-data
-      },
+      headers: apiHeaders(token, 'none'),
       credentials: 'include',
       body: formData,
     });
@@ -96,9 +88,7 @@ export const patientFilesApi = {
     const token = await getAccessToken();
     const response = await fetch(`${API_BASE_URL}/patients/${patientId}/files/${fileId}/download`, {
       method: 'GET',
-      headers: {
-        'Authorization': token ? `Bearer ${token}` : '',
-      },
+      headers: apiHeaders(token, 'none'),
       credentials: 'include',
     });
 

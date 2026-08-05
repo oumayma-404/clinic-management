@@ -13,7 +13,7 @@ The unit of progress is the **part**, not the story. Each part boundary is a com
 |------|-------|------|--------|--------|
 | 1 | Phase 0 | The web fixes a webview makes load-bearing | **implemented** — gate green; on-device verification owed | see § Session 1 |
 | 2 | Phase 2b | The session lasts the working day | **implemented** — gate green; the felt behaviour (AC-37) owed | see § Session 2 |
-| 3 | Phase 2 | A stale app says so | not-started | — |
+| 3 | Phase 2 | A stale app says so | **implemented** — gate green; the on-device half (a real shell below the floor) is owed | see § Session 3 |
 | 4 | Phase 1 | The Android shell | not-started (R-12 tooling check owed) | — |
 | 5 | Phase 1 | The iOS shell | **blocked** — macOS + Xcode + Apple Developer Program | — |
 | 6 | Phase 3 | A backgrounded phone still knows | **UNBLOCKED as of session 2** — `multi-tenant-cloud` US-2 has landed (`Application/Common/Interfaces/ITenantScope.cs` + `UnitTests/Common/SystemWideCallerCoverageTests.cs` both exist, suite green). Read `ITenantScope` before executing (plan R-3) | — |
@@ -382,3 +382,181 @@ honest. Part 7's biometric-resume work touches the same cookie and now has one w
       acceptance of that `Set-Cookie` is not.
 - [ ] **AC-38** — the **desktop WebView2 shell** still signs in and stays signed in. It renders the same bundle
       through the same BFF, so nothing shell-specific is expected, but it is a named criterion and was not run.
+
+---
+
+### Session 3 — 2026-08-05 · Part 3 (Phase 2, AC-28…AC-34, AC-70, AC-71)
+
+**Scope chosen by the user:** Part 3 only. Same branch (`feature/audit-sections-3-to-10`); the branch deviation
+recorded in Session 1 still stands and was not re-opened.
+
+#### Working tree note (start of session)
+
+The parallel `multi-tenant-cloud` **US-3** work that arrived mid-session-2 is still in the tree and **grew during
+this session** — its author was editing `api/ClinicManagement.API/CLAUDE.md`, `Application/CLAUDE.md`,
+`web/CLAUDE.md` and `web/lib/CLAUDE.md` while this part ran. **None of it is Part 3's and none of it was staged.**
+
+⚠️ **`Program.cs` ended up in *their* commit, and the lesson is that the hazard runs both ways.** US-3 added the
+`provision-clinic` verb dispatch near the top of the file; Part 3 registers `ClientVersionMiddleware` in the
+pipeline ~500 lines below — two disjoint hunks in one file. The plan here was to stage only the middleware hunk with
+`git apply --cached` (`git add -p` is unavailable in this environment). Before that could happen the parallel session
+**committed** as `65a72e6`, staging `Program.cs` wholesale and carrying my registration in with it: the commit's
+diff for that file shows both hunks.
+
+Nothing is broken — the line is in the file, the middleware is registered, and the suite is green — so their commit
+was **not** rewritten to unpick it; that would be a worse trade than a misattributed five-line hunk. But the
+standing rule (`check-file-is-clean-before-staging`) has only ever been written from the perspective of *not
+swallowing someone else's work*. The mirror case is real: **on a shared tree, a file you have edited can be
+committed out from under you at any moment.** The practical consequence is that « stage only my hunk » is not a plan
+you can hold across a long session — either land the shared-file edit early and small, or accept that it may travel
+in someone else's commit.
+
+⚠️ **A second wave of parallel work arrived during this session** and is *also* excluded: `deploy/Caddyfile`,
+`deploy/.env.hosted.example`, `deploy/docker-compose.hosted.yml`, the four `API/Maintenance/*Command.cs` files,
+the new `API/Maintenance/MaintenanceDatabase.cs` and `Infrastructure/Security/LocalDataProtection.cs`. Every file
+in this part's commit was staged **explicitly by path** after `git diff --numstat`, and the four `CLAUDE.md`s both
+authors touch were diffed individually first to confirm they carried only this part's lines.
+
+#### Pre-change baseline
+
+| Gate | Result |
+|------|--------|
+| `npm run check:responsive` | **13/13 pass** |
+| `npx tsc --noEmit` | **0 errors** |
+| `dotnet build` (UnitTests, `--no-incremental`, scratch `OutDir`) | **0 errors, 57 warnings** — identical to Session 2's recorded baseline |
+
+#### What changed
+
+| File | Change |
+|---|---|
+| `API/Models/ClientRequirements.cs` | **New.** The DTO `GET /api/meta/client-requirements` returns **and** the object the middleware measures against (`IsBelowFloor`). One type for both halves so the floor a client is *told* about is the floor it was refused by |
+| `API/Controllers/MetaController.cs` | **New.** `[AllowAnonymous]` action on a class-policy controller (ConnectivityController's shape). Owns `ClientRequirementsPath`, the const the middleware exempts |
+| `API/Middleware/ClientVersionMiddleware.cs` | **New.** 426 + `{ error, code: "client_too_old" }` below the floor; `/api`-scoped; meta route exempt; unreadable ⇒ pass |
+| `API/Program.cs` | Registered after `ExceptionMiddleware`, **before** `UseAuthentication` (plan R-11) |
+| `API/appsettings.json` | `Clients:{MinimumShellVersion,CurrentShellVersion,StoreUrls:{Android,Ios}}`, all empty = no floor |
+| `packaging/server/clinic-server.iss` | The same block in the **operator-owned** `appsettings.Production.json` template (AC-34), ASCII-only to match the file |
+| `UnitTests/Api/ClientVersionMiddlewareTests.cs` | **New**, 9 tests |
+| `UnitTests/Api/ControllerAuthorizationCoverageTests.cs` | `Meta.ClientRequirements` added to `ExpectedAnonymous` (equal in both directions, so mandatory) |
+| `web/lib/api/client.ts` | `createHeaders`/`formDataHeaders` → one exported **`apiHeaders(token, contentType)`** adding `X-Client-Version`; `ApiErrorCode.ClientTooOld`; a French 426 fallback; the `onClientTooOld`/`isClientRefusedAsTooOld` hook |
+| 8 modules, **14 sites** (`billing`, `clinics`, `doctors`, `export`, `invoices`, `medical-documents`, `patient-files` ×4, `treatment-plans` ×2) | Hand-written headers → `apiHeaders(...)`. **Headers only** — no response path touched (R-5) |
+| `web/lib/realtime/clinic-hub.ts` | The version on the hub's HTTP legs (AC-31), with its reach stated honestly |
+| `web/lib/api/meta.ts` · `web/components/client-version-gate.tsx` · `web/app/layout.tsx` | **New** + mounted outside the session provider |
+| `web/scripts/check-responsive.mjs` | The `api-headers` derived check — **14 checks** now |
+
+#### Post-change gate
+
+| Gate | Result | vs. baseline |
+|------|--------|--------------|
+| `dotnet build` (UnitTests, `--no-incremental`) | **0 errors**; the full warning list was grepped for all four new/changed `.cs` filenames — **0 hits**, so 0 new warnings | pre-existing baseline only |
+| `dotnet vstest` — **whole suite** | **1987 passed, 0 failed, 0 skipped** | +66 vs. session 2 (9 mine, the rest US-3's) |
+| `npm run check:responsive` | **14/14 passed** | +1 check (`api-headers`), 0 failures |
+| `npx tsc --noEmit` | **0 errors** | identical |
+| `npm run build` | **exit 0, 1 warning** — the same `@auth0/nextjs-auth0` Edge-Runtime warning in `node_modules`, same text, same import trace. Run on a **cleared `.next`**, with **no `next dev` alive** (checked: no process, no listener on 3000–3020 — the parallel session's server had already exited, so nothing had to be stopped this time) | identical |
+
+**Everything new was proved to fail.** Three separate probes on the backend, each reverted and re-verified:
+`reported < floor` → `<=` reddened `A_client_at_or_above_the_floor_passes("1.2.0")`; dropping the meta exemption
+reddened `The_meta_route_is_exempt_from_the_floor_it_publishes`; making `Applies` return `false` reddened both 426
+tests. On the frontend, three throwaway probe files (`components/`, `lib/api/`, and — the one that matters —
+`app/__probe/nested/route.ts`) confirmed `api-headers` catches the two browser-side ones and **correctly ignores the
+route handler**, i.e. the exclusion is a boundary and not a hole. All probes deleted in the same command.
+
+#### Device verification (eye pass)
+
+⚠️ No `agent-browser` on this machine and the app was not running, so the Session-1 method was used instead: the
+**compiled stylesheet** (`.next/static/css/*.css`) driving a harness that reproduces the gate's real markup, in
+headless Chrome, with a coarse-pointer twin produced by rewriting `(pointer: coarse)` → `(min-width:1px)`.
+Measured at **320 (fine + coarse) · 390 · 844×390 landscape · 820 · 1180 · 1440**, plus two deliberately short
+viewports:
+
+| Measured | Result |
+|---|---|
+| `scrollWidth` vs `clientWidth`, every width | equal — **no horizontal overflow at 320 px** |
+| « Mettre à jour sur Google Play » | **h = 44** at every width — the `min-h-11` floor is real |
+| « Version requise » line | 12 px — above the 11 px floor |
+| card at 320 / 390 / 844×390 / 1440 | 338 / 318 / 298 / 298 px tall, centred, fits |
+
+**F-4 · A real defect the eye pass found — see below.** The mechanical checks, `tsc` and the build were all green
+across it.
+
+#### Findings that changed the work
+
+##### F-4 · `items-center` in an `overflow-y-auto` box is § 11's clipping trap, on the vertical axis
+
+The gate was first written `flex min-h-dvh items-center justify-center overflow-y-auto`. Measured at **320×260**
+that gives a **354 px card in a 260 px box with `scrollHeight` 323** — about 63 px of card, including the title and
+the icon, **unreachable by any means**. It is exactly the failure `.claude/rules/frontend-web.md` § 11 documents for
+`justify-center` horizontally (« the inline-start overflow is not in the scrollable region »), rotated 90°:
+`align-items: center` pushes overflow to *both* ends and the top end is outside the scroll range.
+
+Fixed by centring with **`my-auto` on the card** and leaving the scroller `items-start` — an auto margin resolves to
+0 when there is no free space, so it centres when it can and degrades to top-aligned when it cannot. Re-measured:
+`scrollHeight` **386** = 354 card + 32 padding, the whole card reachable, and centring unchanged at 320×720 and
+1440×900. `h-dvh` replaced `min-h-dvh` in the same edit: on a `fixed inset-0` box a *minimum* height can grow past
+the viewport, which would defeat the internal scroll it exists for. The rule file gained the vertical case.
+
+##### F-5 · AC-31's « and on the hub connection » cannot be fully honoured in a browser, and is not faked
+
+A browser cannot set headers on a **WebSocket upgrade**; SignalR's `headers` option reaches the negotiate request
+and the fallback transports only. The header is attached (it costs one option and is real on those legs) and the
+limit is stated in the code rather than papered over. It changes nothing operationally: `ClientVersionMiddleware`
+guards `/api`, and `/hub/*` is deliberately outside it — realtime is additive (`useClinicRealtime` treats every
+failure as invisible), so refusing a hub connection would cost a stale shell its live refresh without ever telling
+anyone why. The message the user must see comes from `/api`, which is refused on every route.
+
+## Deviations (Part 3)
+
+### DEV-7: `ClientVersionMiddleware` is scoped to `/api`, not to every path
+
+**Date:** 2026-08-05 · **Story:** 1, Part 3 · **Category:** Technical
+**Original plan:** step 2 — « below the floor ⇒ **426** … ; **exempt the meta route itself** ». No other exemption
+named; AC-30 says « on every API route but AC-29's ».
+**Actual implementation:** the middleware returns early for any path not under `/api`, so the meta route is one of
+**two** exemptions rather than the only one.
+**Justification:** in a self-hosted install Kestrel is the single browser-facing endpoint and YARP proxies the whole
+web app through it, so an unscoped middleware would 426 **the page itself** — and the page is what renders
+`<ClientVersionGate>`. A stale shell would see raw JSON where the French update state was supposed to be, i.e. the
+fix would destroy its own delivery mechanism. `/bff/auth/*` and `/hub/*` fall outside the prefix too, which is what
+AC-32 asks for independently. AC-30's own wording is « every **API** route ».
+**Impact:** none on later parts. Pinned by `Nothing_outside_the_api_prefix_is_refused` over `/`, `/login`,
+`/_next/*`, `/bff/auth/token` and `/hub/clinic`.
+**Approved:** reported here as an in-scope reading of AC-30 + AC-32, not a scope change.
+
+### DEV-8: An unset or unparseable floor refuses nothing — fail-open, stated as a decision
+
+**Date:** 2026-08-05 · **Story:** 1, Part 3 · **Category:** Technical
+**Original plan:** silent on what an absent or malformed `Clients:MinimumShellVersion` should do.
+**Actual implementation:** `IsBelowFloor` returns false unless **both** the floor and the reported version parse, so
+an empty, absent or typo'd floor refuses nothing — and that is the committed default in `appsettings.json` and in
+the installer template.
+**Justification:** this middleware runs in front of authentication in **every** profile, so the blast radius of a
+wrong « below » verdict is the whole API for every client. An operator-owned string that can take the product off
+the air on a typo is not an acceptable failure mode, and the symptom (426 on every route) reads as the server being
+down rather than as a config error. The opposite direction costs only that a floor nobody set enforces nothing —
+which is the correct behaviour for a product whose shells do not exist yet.
+**Impact:** Part 4 must set `Clients:MinimumShellVersion` deliberately; an unset floor is not a bug to find later.
+Pinned by `An_unset_or_unparseable_floor_refuses_nothing`.
+**Approved:** reported as an in-scope reading of AC-34 (« operator-owned configuration »).
+
+### Auto-approved deviations (trivial, Part 3)
+
+| Deviation | Classification | Reason |
+|-----------|----------------|--------|
+| The `kind` parameter is `'json' \| 'none'`, not `'json' \| 'multipart'` | Trivial | Internal naming. Ten of the fourteen sites are **GET blob downloads**, which have no body at all — `'multipart'` would have described none of them, and a parameter whose name is wrong at most call sites is how the next person passes the other one |
+| `patient-files.ts`'s four sites stop sending `Authorization: ''` when there is no token | Trivial | The old inline object wrote an **empty** header (`token ? … : ''`); `apiHeaders` omits it. Equivalent for this API, headers-only, no response path touched |
+| `web/lib/api/meta.ts` created rather than folding the call into an existing module | Trivial | New endpoint, new module — the per-resource convention. No API changed |
+| The stale anonymous-endpoint lists in `API/CLAUDE.md` and `UnitTests/CLAUDE.md` now point at the test | Trivial | Doc-only. Both re-listed four endpoints and had been wrong since the Trust routes and `Auth.Refresh` landed; one fact, one home |
+
+## Owed verification (Part 3)
+
+- [ ] **AC-33's launch half** — the shell reading `/api/meta/client-requirements` **natively** before loading the
+      webview. That is Part 4's code and cannot exist before it; only the mid-session half is implemented here.
+- [ ] **AC-30/AC-33 end-to-end against a real client** — set a floor, send a below-floor `X-Client-Version`, and see
+      « Mise à jour requise » with a working store link. The middleware, the exemption and the header are unit-tested
+      and the gate is measured, but nothing has yet sent that header from a real client, because no shell exists.
+- [ ] **The 426 → gate round trip in a running browser** — the hook and the component are exercised only by
+      construction. A `curl` with the header proves the server half; the client half needs the stack up.
+- [ ] **The eye pass on the *running* app.** What is recorded above is a measured harness over the real compiled
+      CSS, which is stronger than a claim and weaker than the app. Same tooling gap as Sessions 1 and 2.
+- [ ] **`packaging/server/clinic-server.iss` does not compile here** (no ISCC on this machine, R-1). The added block
+      is ASCII-only and uses `//` comments with no `{…}` path constant, so neither the encoding trap nor the
+      brace-comment trap applies — but the installer is operator-verified, not CI-verified, as it always was.

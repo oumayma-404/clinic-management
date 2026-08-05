@@ -431,6 +431,17 @@ begin
     '  // Mettre TrustPort a 0 desactive entierement la page d''installation du certificat.' + #13#10 +
     '  "Hosting": { "TrustPort": {#TrustPort} },' + #13#10 +
     '' + #13#10 +
+    '  // Version minimale des applications mobiles (Android / iOS) acceptee par ce serveur.' + #13#10 +
+    '  // VIDE = aucune limite : toutes les versions sont acceptees, y compris le navigateur.' + #13#10 +
+    '  // Renseignez MinimumShellVersion (ex. "1.2.0") pour refuser les applications trop anciennes :' + #13#10 +
+    '  // elles afficheront alors un ecran "Mise a jour requise" avec le lien du magasin ci-dessous.' + #13#10 +
+    '  // Prise en compte immediate, sans redemarrer le service.' + #13#10 +
+    '  "Clients": {' + #13#10 +
+    '    "MinimumShellVersion": "",' + #13#10 +
+    '    "CurrentShellVersion": "",' + #13#10 +
+    '    "StoreUrls": { "Android": "", "Ios": "" }' + #13#10 +
+    '  },' + #13#10 +
+    '' + #13#10 +
     '  // Rappels SMS / WhatsApp : les identifiants se saisissent dans l''application' + #13#10 +
     '  // (Rappels -> Configurer les canaux). Ces cles ne servent que de valeurs par defaut' + #13#10 +
     '  // pour toute l''installation.' + #13#10 +

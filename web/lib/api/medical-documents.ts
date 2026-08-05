@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiPut, apiDelete, apiPostFormData, apiPutFormData, getAccessToken } from './client';
+import { apiGet, apiPost, apiPut, apiDelete, apiPostFormData, apiPutFormData, apiHeaders, getAccessToken } from './client';
 import type { MedicalDocumentDto } from './types';
 
 export interface CreateMedicalDocumentRequest {
@@ -117,10 +117,7 @@ export const medicalDocumentsApi = {
     const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
     const token = await getAccessToken();
 
-    const headers: HeadersInit = { 'Content-Type': 'application/json' };
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
+    const headers = apiHeaders(token);
 
     const response = await fetch(`${API_BASE_URL}/medical-documents/generate-pdf-download`, {
       method: 'POST',

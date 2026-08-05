@@ -49,6 +49,12 @@ public class ControllerAuthorizationCoverageTests
                                      // lifetime-bound, and re-checked against live account state on every use.
                                      // Rate-limited like the other anonymous auth endpoints.
         "Connectivity.Get",          // non-sensitive online/offline poll (Local-only; 404s in Cloud)
+        "Meta.ClientRequirements",   // the client-version floor + both store URLs (mobile-native-shells AC-28).
+                                     // Anonymous by necessity: a shell below the floor must be able to ask
+                                     // BEFORE signing in, and the answer's whole purpose is to reach a client
+                                     // every other route is refusing with 426. Nothing served is a secret — a
+                                     // version number and two public store links. ClientVersionMiddleware
+                                     // exempts this one route from the floor for the same reason (AC-29).
         "GoogleCalendar.Callback",   // OAuth browser redirect back from Google — cannot carry a bearer
 
         // --- LAN device trust (P8, AC-44). Local-only; all four 404 in Cloud. ---

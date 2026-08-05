@@ -480,6 +480,39 @@ check(
   () => scanLines(tsx(), /\b(?:toolbar|navpanes|scrollbar|statusbar|pagemode)=/),
 );
 
+/** The one browser-side writer of clinic-API request headers. Everything else asks it. */
+const API_HEADER_BUILDER = "lib/api/client.ts";
+
+check(
+  "api-headers",
+  "N3",
+  "Only `lib/api/client.ts` builds an `Authorization: Bearer` header for the clinic API",
+  "The header a browser sends is now more than the token: `apiHeaders()` also attaches `X-Client-Version` from " +
+    "the native shell bridge, which is what lets the server refuse a build below its floor (AC-31). Fourteen raw " +
+    "`fetch` sites across eight modules used to hand-write the object themselves — every PDF, every CSV export, " +
+    "every patient-file upload — so a hand-rolled fifteenth would send the token and silently omit the version, " +
+    "and the floor would apply to some of the app and not the rest. That is not a failure anyone can see: the " +
+    "calls keep working, right up until the one release where they must not. Import `apiHeaders` instead.",
+  () =>
+    scanLines(
+      /*
+       * Two roles are outside this rule, and both are roles rather than filenames — an allow-list of files is a
+       * check that stops working:
+       *
+       *   lib/api/client.ts    the builder itself. Somebody has to write the header.
+       *   app/**\/route.ts      a Next ROUTE HANDLER. It runs on the server, so there is no `window` and no
+       *                        bridge to read a version from — and AC-32 states outright that a server-side BFF
+       *                        hop sends no version header and is accepted unchanged. Adding one there would be
+       *                        a header that describes nothing.
+       */
+      ALL_FILES.filter((f) => {
+        const r = rel(f);
+        return r !== API_HEADER_BUILDER && !/^app\/.*\/route\.ts$/.test(r);
+      }),
+      /Authorization.*Bearer/,
+    ),
+);
+
 // ── run ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
 const only = process.argv.find((a) => a.startsWith("--only="))?.slice("--only=".length);

@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiPostFormData, apiPut, apiPutFormData, getAccessToken } from './client';
+import { apiGet, apiPost, apiPostFormData, apiPut, apiPutFormData, apiHeaders, getAccessToken } from './client';
 import type { WorkingDay } from '@/lib/working-hours';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
@@ -263,10 +263,7 @@ export const clinicsApi = {
 
   getLogo: async (): Promise<Blob> => {
     const token = await getAccessToken();
-    const headers: HeadersInit = {};
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
+    const headers = apiHeaders(token, 'none');
 
     const response = await fetch(`${API_BASE_URL}/clinics/logo`, {
       method: 'GET',

@@ -72,7 +72,7 @@ convention `/next` defines for a single `Layer: Full` story delivered part-by-pa
 |------|-------|------|------------------|-----|--------|
 | 1 | Phase 0 | The web fixes a webview makes load-bearing | ✅ yes | AC-1…AC-12, AC-69 | **implemented** (gate green; on-device checks owed — `progress.md`) |
 | 2 | Phase 2b | The session lasts the working day | ✅ yes | AC-35…AC-39 | **implemented** (gate green; the felt behaviour + desktop shell owed — `progress.md`) |
-| 3 | Phase 2 | A stale app says so | ✅ yes | AC-28…AC-34, AC-70, AC-71 | not-started |
+| 3 | Phase 2 | A stale app says so | ✅ yes | AC-28…AC-34, AC-70, AC-71 | **implemented** (gate green; AC-33's launch half is Part 4's code — `progress.md`) |
 | 4 | Phase 1 | The Android shell | ⚠️ pending a JDK/Android-SDK check (R-12) | AC-13…AC-27, AC-74, AC-76 | not-started |
 | 5 | Phase 1 | The iOS shell | 🔒 **BLOCKED** — macOS + Apple Developer Program | AC-13…AC-27 (iOS half) | blocked |
 | 6 | Phase 3 | A backgrounded phone still knows | ✅ **now yes** — US-2 landed, verified 2026-08-05 (session 2) | AC-40…AC-55, AC-70…AC-73, AC-75 | not-started |

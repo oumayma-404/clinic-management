@@ -1,5 +1,5 @@
 import { HubConnection, HubConnectionBuilder, LogLevel } from "@microsoft/signalr"
-import { getAccessToken } from "@/lib/api/client"
+import { CLIENT_VERSION_HEADER, getAccessToken } from "@/lib/api/client"
 
 /**
  * Server → client event name (mirrors ClinicHub.EntityChanged on the API). Carries one argument: the
@@ -120,6 +120,21 @@ function resolveLogLevel(): LogLevel {
 }
 
 /**
+ * The shell's version on the hub's own HTTP legs (AC-31), read as a feature detection like every other bridge
+ * access — absent bridge ⇒ an empty object ⇒ byte-identical to before.
+ *
+ * ⚠️ **Honest about its reach.** A browser cannot set headers on the WebSocket upgrade, so this rides the
+ * negotiate request and the fallback transports and nothing else. That is enough because it is not a gate:
+ * `ClientVersionMiddleware` guards `/api`, and the hub is deliberately outside it — realtime is additive
+ * (`useClinicRealtime` treats every failure as invisible), so refusing it would cost a stale shell its live
+ * refresh without ever telling anyone why.
+ */
+function shellVersionHeader(): Record<string, string> {
+  const version = typeof window !== "undefined" ? window.__clinicShell?.version : undefined
+  return version ? { [CLIENT_VERSION_HEADER]: version } : {}
+}
+
+/**
  * Builds a clinic hub connection with automatic reconnection. Returns null off the browser.
  * `withAutomaticReconnect` resumes after a dropped connection (AC-4); the initial connect is retried
  * by the caller (see `useClinicRealtime`).
@@ -129,7 +144,7 @@ export function createClinicHubConnection(): HubConnection | null {
   if (!url) return null
 
   return new HubConnectionBuilder()
-    .withUrl(url, { accessTokenFactory: fetchAccessToken })
+    .withUrl(url, { accessTokenFactory: fetchAccessToken, headers: shellVersionHeader() })
     .withAutomaticReconnect()
     .configureLogging(resolveLogLevel())
     .build()

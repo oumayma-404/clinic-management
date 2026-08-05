@@ -46,12 +46,14 @@ _From spec (`../spec.md`) — all 77, grouped by the part that satisfies them:_
 
 *`[~]` = the code half is done; a running-stack half is recorded as owed in `progress.md`, not claimed.*
 
-**Part 3 — Phase 2, client version floor**
-- [ ] AC-28 · AC-29 — the floor is readable anonymously, and that route is exempt from the floor itself
-- [ ] AC-30 · AC-31 · AC-32 — 426 + `code` on every other route; the web client attaches the header from the bridge; absent/malformed accepted unchanged
-- [ ] AC-33 — a below-floor shell shows `UpdateRequired` and does **not** present itself as signed out, on both the launch and mid-session paths
-- [ ] AC-34 — the floor is operator-owned configuration, effective without a code change
-- [ ] AC-70 · AC-71 — no new mode check; every new action carries an explicit named policy
+**Part 3 — Phase 2, client version floor** — *implemented 2026-08-05*
+- [x] AC-28 · AC-29 — `GET /api/meta/client-requirements` is `[AllowAnonymous]` **and** the one `/api` route the middleware exempts. `Models/ClientRequirements` is both the DTO it returns and the object the refusal measures against, so the two cannot drift
+- [x] AC-30 · AC-31 · AC-32 — 426 + `code: "client_too_old"` on every other `/api` route (⚠️ `/api`-scoped — DEV-7); `apiHeaders()` attaches the header at **every** call site, including the 14 raw-`fetch` ones, enforced by the new `api-headers` check; absent/malformed/unset-floor all pass, pinned by six theories
+- [~] AC-33 — the **mid-session** half is done: a 426 raises `onClientTooOld` and `<ClientVersionGate>` takes the screen with the store link, and it is deliberately **not** a sign-out. **The launch half is Part 4's code** (a native read before the webview loads) and could not exist here — owed
+- [x] AC-34 — `Clients:*` in `appsettings.json` **and** the operator-owned installer template; read per request, so raising the floor needs no restart. ⚠️ Empty = no floor, deliberately (DEV-8)
+- [x] AC-70 · AC-71 — no `IsLocalMode(` written anywhere (the floor asks no deployment question at all); `MetaController` carries a class-level named policy with its one action `[AllowAnonymous]` and listed in the both-directions allow-list
+
+*`[~]` = the half that exists is done and gated; the half that needs Part 4 is recorded as owed in `progress.md`, not claimed.*
 
 **Parts 4 & 5 — Phase 1, the shells**
 - [ ] AC-13 … AC-27 — installable artifact · session survives a cold start · the five French states · « Réessayer » on an unchanged address · a persisted, changeable address · six file inputs + camera · every delivery path in-shell incl. the size refusal · OS print · safe-area insets · no remount on rotation/Split View · back and swipe-back · off-origin navigation leaves the webview · bridge absent ⇒ browser behaviour · the contract document agrees with the shell

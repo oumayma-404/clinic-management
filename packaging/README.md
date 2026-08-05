@@ -49,6 +49,8 @@ NEXT_PUBLIC_API_URL=/api AUTH_MODE=local API_INTERNAL_URL=http://localhost:5000/
 | `Hosting:HttpPort` (default `5000`) | HTTP; redirects to HTTPS. |
 | `Hosting:WebPort` (default `3000`) | localhost port the Next server listens on; the front door proxies non-`/api` routes here. |
 | `Https:CertPath` | Leave **empty** to self-generate a CA + server cert into `.local/` (FR-E2). If set, the file must exist or the server refuses to start (no silent HTTP downgrade). |
+| `Clients:MinimumShellVersion` | Oldest **mobile app** build this server still answers. Leave **empty** (the default) and nothing is refused. Set it (e.g. `1.2.0`) and an older app gets « Mise à jour requise » with the store link instead of screen-by-screen failures; it takes effect **without restarting the service**. Browsers and the desktop shell send no version at all and are never affected. |
+| `Clients:CurrentShellVersion` · `Clients:StoreUrls:Android` / `:Ios` | What a refused app is told to install, and where to get it. Published anonymously at `GET /api/meta/client-requirements` — the one route deliberately exempt from the floor, since it is what a refused app reads. |
 
 Secrets (signing key, cert password, Google refresh token) live in the gitignored per-install `.local/`
 folder, generated on the target machine — never committed (FR-F4). The exported CA is `.local/ca.crt`

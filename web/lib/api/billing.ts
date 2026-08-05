@@ -1,4 +1,4 @@
-import { apiGet, getAccessToken } from './client';
+import { apiGet, apiHeaders, getAccessToken } from './client';
 import type { ChequesDueDto, CnamCeilingDto, PatientBillingSummaryDto, ReceivableDto, ReceivablesPageDto } from './types';
 import { unwrapPaged, type PagedResponse, type PageParams } from './paging';
 
@@ -46,8 +46,7 @@ export const billingApi = {
   /** The receipt (reçu) PDF for a single invoice payment — a binary blob, so drop to raw fetch. */
   downloadPaymentReceipt: async (paymentId: string): Promise<Blob> => {
     const token = await getAccessToken();
-    const headers: HeadersInit = {};
-    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const headers = apiHeaders(token, 'none');
 
     const base = typeof window !== 'undefined' ? window.location.origin : undefined;
     const url = new URL(`${API_BASE_URL}/payments/${paymentId}/receipt-pdf`, base);

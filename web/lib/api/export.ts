@@ -1,4 +1,4 @@
-import { getAccessToken, ApiError } from './client';
+import { apiHeaders, getAccessToken, ApiError } from './client';
 
 // `client.ts` keeps its base URL private, and every module that drops to raw `fetch` for a blob repeats this
 // line. Kept identical to theirs rather than exported from `client.ts`, so this file adds no coupling the
@@ -23,8 +23,7 @@ export async function fetchExportCsv(
   params: Record<string, string | number | boolean | undefined | null> = {},
 ): Promise<{ blob: Blob; filename: string }> {
   const token = await getAccessToken();
-  const headers: HeadersInit = {};
-  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const headers = apiHeaders(token, 'none');
 
   // Resolved against the origin so a *relative* NEXT_PUBLIC_API_URL=/api (the Local same-origin front-door
   // build) parses — the same guard `client.ts` documents.

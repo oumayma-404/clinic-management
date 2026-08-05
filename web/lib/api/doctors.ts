@@ -1,4 +1,4 @@
-import { apiGet, apiPut, apiPutFormData, getAccessToken } from './client';
+import { apiGet, apiPut, apiPutFormData, apiHeaders, getAccessToken } from './client';
 import type { DoctorProfileDto } from './types';
 
 /** One day of a practitioner's working hours (same shape as the clinic-wide hours). */
@@ -59,8 +59,7 @@ export const doctorsApi = {
   // The cachet image is a binary blob behind the bearer token — drop to raw fetch and attach the token.
   fetchCachetBlob: async (doctorId: string): Promise<Blob> => {
     const token = await getAccessToken();
-    const headers: HeadersInit = {};
-    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const headers = apiHeaders(token, 'none');
 
     const base = typeof window !== 'undefined' ? window.location.origin : undefined;
     const url = new URL(`${API_BASE_URL}/doctors/${doctorId}/cachet`, base);

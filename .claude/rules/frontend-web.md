@@ -275,11 +275,25 @@ session cookie on every refresh exchange, so `local-login` is no longer the only
 `Secure` there would replace a stored cookie with one the browser drops, i.e. silently end the session. No route
 sets `local_session` or `local_must_change_password` by name; the two are written and cleared together.
 
+**One way to build a request header for the clinic API:** `apiHeaders(token, contentType)` in `lib/api/client.ts`
+(Part 3). It is not only the bearer any more — it also attaches **`X-Client-Version`** from
+`window.__clinicShell?.version`, which is what lets the server refuse a native build below its floor with **426**.
+Fourteen raw-`fetch` sites across eight modules used to hand-write the object, so a fifteenth would send the token
+and silently omit the version and the floor would cover part of the app only. The `api-headers` check fails on any
+`Authorization: … Bearer` outside that file; a Next **route handler** (`app/**/route.ts`) is outside the rule
+because it runs server-side, has no bridge to read, and is explicitly exempt from the floor. A 426 is surfaced
+through `onClientTooOld` and taken over by `<ClientVersionGate>` — it is **never** a sign-out.
+
 Still open, so do not write code that assumes it and do not claim it in a report: everything in
-`features/mobile-native-shells` **Parts 3–8** — the client-version floor and its `X-Client-Version` header, the two
-native shells and `window.__clinicShell`'s `print()`/`onPushToken()`, OS push, biometric resume, and the native PDF
-viewer. `window.__clinicShell` is **always** feature-detected; with it absent, behaviour must be byte-identical to
-a plain browser.
+`features/mobile-native-shells` **Parts 4–8** — the two native shells and `window.__clinicShell`'s
+`print()`/`onPushToken()`, OS push, biometric resume, and the native PDF viewer. `window.__clinicShell` is
+**always** feature-detected; with it absent, behaviour must be byte-identical to a plain browser.
+
+⚠️ **`items-center` inside an `overflow-y-auto` box is § 11's clipping trap on the vertical axis**, and it cost a
+real defect in Part 3: `align-items: center` pushes overflow to *both* ends and the **top** overflow is outside the
+scrollable region, so on a landscape phone the top of a centred card is unreachable by any means (measured: 354 px
+of card in a 260 px box, `scrollHeight` 323). Centre with **`my-auto` on the child** instead — an auto margin
+resolves to 0 when there is no free space, so it centres and then degrades to top-aligned.
 
 ⚠️ **There is no `PENDING_PARTS` any more.** Every check in `web/scripts/check-responsive.mjs` is enforced. The set
 still held `P7`/`P8` long after no check declared either, which made it read as the source of truth for what was

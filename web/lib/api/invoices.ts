@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiPut, apiDelete, getAccessToken } from './client';
+import { apiGet, apiPost, apiPut, apiDelete, apiHeaders, getAccessToken } from './client';
 import type { CreditNoteDto, InvoiceDto, InvoiceRevenueDto } from './types';
 import { unwrapPaged, type PagedResponse, type PageParams } from './paging';
 
@@ -43,8 +43,7 @@ export interface RecordPaymentRequest {
 /** Authenticated GET returning a Blob — the PDF/artifact routes can't go through `client.ts`. */
 async function downloadInvoiceBlob(path: string, failureLabel: string): Promise<Blob> {
   const token = await getAccessToken();
-  const headers: HeadersInit = {};
-  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const headers = apiHeaders(token, 'none');
 
   const base = typeof window !== 'undefined' ? window.location.origin : undefined;
   const url = new URL(`${API_BASE_URL}${path}`, base);
@@ -163,8 +162,7 @@ export const invoicesApi = {
   // e-invoicing artifacts are binary — drop to raw fetch and attach the bearer token ourselves.
   downloadEInvoiceArtifact: async (id: string, artifact: 'xml' | 'receipt'): Promise<Blob> => {
     const token = await getAccessToken();
-    const headers: HeadersInit = {};
-    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const headers = apiHeaders(token, 'none');
 
     const base = typeof window !== 'undefined' ? window.location.origin : undefined;
     const url = new URL(`${API_BASE_URL}/invoices/${id}/e-invoice/${artifact}`, base);
@@ -192,8 +190,7 @@ export const invoicesApi = {
   // PDF is a binary blob — drop to raw fetch and attach the bearer token ourselves.
   downloadPdf: async (id: string): Promise<Blob> => {
     const token = await getAccessToken();
-    const headers: HeadersInit = {};
-    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const headers = apiHeaders(token, 'none');
 
     const base = typeof window !== 'undefined' ? window.location.origin : undefined;
     const url = new URL(`${API_BASE_URL}/invoices/${id}/pdf`, base);

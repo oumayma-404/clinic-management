@@ -53,7 +53,43 @@ export const ApiErrorCode = {
    * faults rather than transport failures. See `isNetworkError` in `lib/errors.ts`.
    */
   Network: 'network',
+  /**
+   * This build of the native shell is older than the server's floor, so **every** route but
+   * `/api/meta/client-requirements` will refuse it with 426 until it is updated. Not advisory and not
+   * recoverable in-app: `<ClientVersionGate>` listens for it through {@link onClientTooOld} and takes the screen.
+   *
+   * ⚠️ It is deliberately **not** a session failure. A 401 signs the user out; this must not, because the
+   * account is fine and a login screen the app can never get past is the worse of the two states (AC-33).
+   * Emitted by `ClientVersionMiddleware.TooOldCode`.
+   */
+  ClientTooOld: 'client_too_old',
 } as const;
+
+/** Whether the server has refused this client as too old at any point this session. See {@link onClientTooOld}. */
+let clientRefusedAsTooOld = false;
+type ClientTooOldListener = () => void;
+const clientTooOldListeners = new Set<ClientTooOldListener>();
+
+/**
+ * Subscribe to « the server has refused this client as too old » (426). Returns an unsubscribe function.
+ *
+ * The listener fires for calls made through this module's helpers. The dozen raw-`fetch` blob/upload sites
+ * deliberately keep their own response handling (plan R-5, so no legacy caller's error message changes) and so
+ * do not notify — which costs nothing in practice: the floor refuses every route, so the next ordinary call
+ * surfaces it. {@link isClientRefusedAsTooOld} exists for the same reason in the other direction — a gate that
+ * mounts *after* the first refusal must still know.
+ */
+export function onClientTooOld(listener: ClientTooOldListener): () => void {
+  clientTooOldListeners.add(listener);
+  return () => {
+    clientTooOldListeners.delete(listener);
+  };
+}
+
+/** See {@link onClientTooOld}. */
+export function isClientRefusedAsTooOld(): boolean {
+  return clientRefusedAsTooOld;
+}
 
 /**
  * What the user is told when the request never reached the server (AC-43).
@@ -104,6 +140,9 @@ const STATUS_FALLBACK_FR: Record<number, string> = {
   404: "Élément introuvable.",
   409: "Cet enregistrement a été modifié par quelqu'un d'autre pendant votre saisie. "
     + "Rechargez pour voir la version à jour, puis appliquez à nouveau votre modification.",
+  // The client-version floor. `<ClientVersionGate>` normally takes the whole screen before this is ever read;
+  // it is here for the raw-fetch sites, which surface their own message and would otherwise say « HTTP 426 ».
+  426: "Cette version de l'application n'est plus prise en charge. Mettez-la à jour pour continuer.",
   500: "Une erreur est survenue lors du traitement de votre demande.",
   // The three the front-door proxy raises on its own — the API process is down, restarting, or too slow. They
   // are transport-shaped rather than a refusal, so they say « momentanément » : the same request is worth making
@@ -251,6 +290,12 @@ async function handleResponse<T>(response: Response): Promise<T> {
       errorMessage = statusMessageFr(response.status);
     }
 
+    // The one refusal no screen can act on: hand it to the gate before the error travels on as a toast.
+    if (response.status === 426) {
+      clientRefusedAsTooOld = true;
+      clientTooOldListeners.forEach((listener) => listener());
+    }
+
     throw new ApiError(response.status, errorMessage, undefined, errorCode);
   }
 
@@ -391,21 +436,44 @@ async function fetchAccessToken(): Promise<string | null> {
 }
 
 
-// Auth-only headers for multipart uploads: Content-Type must be left unset so the browser adds the boundary.
-function formDataHeaders(accessToken: string | null): HeadersInit {
-  return accessToken ? { Authorization: `Bearer ${accessToken}` } : {};
-}
+/**
+ * What the native shells identify themselves with, so the server can refuse a build below its floor
+ * (`ClientVersionMiddleware.HeaderName`). A browser sends it on no request at all, which is exactly what keeps
+ * the floor from ever applying to the web app.
+ */
+export const CLIENT_VERSION_HEADER = 'X-Client-Version';
 
-// Create headers with optional auth token
-function createHeaders(accessToken?: string | null): HeadersInit {
-  const headers: HeadersInit = {
-    'Content-Type': 'application/json',
-  };
-  
+/**
+ * Whether this request declares a JSON body — the only thing that ever differed between the two header shapes.
+ * `'none'` covers both callers that need it: a multipart upload (the browser must add its own boundary) and a
+ * GET that downloads a blob (no body to describe at all).
+ */
+export type ApiContentType = 'json' | 'none';
+
+/**
+ * **The one place this app writes request headers for the clinic API.** Folded out of the old
+ * `createHeaders`/`formDataHeaders` pair, and exported because fourteen raw-`fetch` sites across eight modules
+ * hand-wrote the same object — so `X-Client-Version` would have reached the routes that go through this file and
+ * silently missed every PDF, every CSV export and every upload. That is the shape of defect the `api-headers`
+ * check in `scripts/check-responsive.mjs` now fails on.
+ *
+ * The shell version is read as a **feature detection**: absent bridge ⇒ no header ⇒ byte-identical to before.
+ */
+export function apiHeaders(accessToken?: string | null, contentType: ApiContentType = 'json'): HeadersInit {
+  const headers: Record<string, string> = {};
+
+  if (contentType === 'json') {
+    headers['Content-Type'] = 'application/json';
+  }
   if (accessToken) {
     headers['Authorization'] = `Bearer ${accessToken}`;
   }
-  
+
+  const shellVersion = typeof window !== 'undefined' ? window.__clinicShell?.version : undefined;
+  if (shellVersion) {
+    headers[CLIENT_VERSION_HEADER] = shellVersion;
+  }
+
   return headers;
 }
 
@@ -427,7 +495,7 @@ export async function apiGet<T>(endpoint: string, params?: Record<string, any>, 
 
   return handleRequest<T>(accessToken, (token) => fetch(url.toString(), {
     method: 'GET',
-    headers: createHeaders(token),
+    headers: apiHeaders(token),
     credentials: 'include',
   }));
 }
@@ -435,7 +503,7 @@ export async function apiGet<T>(endpoint: string, params?: Record<string, any>, 
 export async function apiPost<T>(endpoint: string, data: any, accessToken?: string | null): Promise<T> {
   return handleRequest<T>(accessToken, (token) => fetch(`${API_BASE_URL}${endpoint}`, {
     method: 'POST',
-    headers: createHeaders(token),
+    headers: apiHeaders(token),
     body: JSON.stringify(data),
     credentials: 'include',
   }));
@@ -444,7 +512,7 @@ export async function apiPost<T>(endpoint: string, data: any, accessToken?: stri
 export async function apiPut<T>(endpoint: string, data: any, accessToken?: string | null): Promise<T> {
   return handleRequest<T>(accessToken, (token) => fetch(`${API_BASE_URL}${endpoint}`, {
     method: 'PUT',
-    headers: createHeaders(token),
+    headers: apiHeaders(token),
     body: JSON.stringify(data),
     credentials: 'include',
   }));
@@ -453,7 +521,7 @@ export async function apiPut<T>(endpoint: string, data: any, accessToken?: strin
 export async function apiDelete<T>(endpoint: string, accessToken?: string | null): Promise<T> {
   return handleRequest<T>(accessToken, (token) => fetch(`${API_BASE_URL}${endpoint}`, {
     method: 'DELETE',
-    headers: createHeaders(token),
+    headers: apiHeaders(token),
     credentials: 'include',
   }));
 }
@@ -464,7 +532,7 @@ export async function apiPostFormData<T>(endpoint: string, formData: FormData, a
   // most likely request to be the first one past the access token's expiry.
   return handleRequest<T>(accessToken, (token) => fetch(`${API_BASE_URL}${endpoint}`, {
     method: 'POST',
-    headers: formDataHeaders(token),
+    headers: apiHeaders(token, 'none'),
     body: formData,
     credentials: 'include',
   }));
@@ -473,7 +541,7 @@ export async function apiPostFormData<T>(endpoint: string, formData: FormData, a
 export async function apiPutFormData<T>(endpoint: string, formData: FormData, accessToken?: string | null): Promise<T> {
   return handleRequest<T>(accessToken, (token) => fetch(`${API_BASE_URL}${endpoint}`, {
     method: 'PUT',
-    headers: formDataHeaders(token),
+    headers: apiHeaders(token, 'none'),
     body: formData,
     credentials: 'include',
   }));

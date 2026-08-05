@@ -7,6 +7,7 @@ import { CloudSessionProvider, LocalSessionProvider } from "@/lib/auth/session"
 import { ConnectivityProvider } from "@/lib/connectivity/connectivity"
 import { SidebarProvider } from "@/contexts/sidebar-context"
 import { AppToaster } from "@/components/app-toaster"
+import { ClientVersionGate } from "@/components/client-version-gate"
 import { ThemeProvider } from "@/components/theme-provider"
 import { AIChat } from "@/components/ai-chat"
 import { PRODUCT_NAME } from "@/lib/brand"
@@ -111,6 +112,10 @@ export default function RootLayout({
           {/* Anchors bottom-centre and caps at 3 on a coarse pointer, clearing the bottom bar (AC-9). The
               rationale, and the toast duration, live in the component. */}
           <AppToaster />
+          {/* Outside the session provider: a shell below the server's version floor is refused on the token
+              exchange too, so the update state has to survive a session that cannot load. Renders null in a
+              browser, which sends no version header and can never be refused. */}
+          <ClientVersionGate />
         </ThemeProvider>
         <Analytics />
       </body>
