@@ -10,10 +10,16 @@ using Xunit;
 namespace ClinicManagement.UnitTests.Features.CnamNomenclature;
 
 /// <summary>
-/// CNAM nomenclature query handler. The read moved from the in-code provider to the DB-backed
-/// <see cref="ICnamCatalogRepository"/> (FR-5.1); these tests re-assert the filter logic (q / category /
-/// lettre-clé, case-insensitive, blank = no filter) against a mocked repository. The handler is still NOT
-/// clinic-scoped — its only dependencies are the (global) repository and a logger.
+/// CNAM nomenclature query handler. Since `list-pagination` it is a **pass-through**: the free-text term, the
+/// category, the page and <c>IncludeInactive</c> go to <see cref="ICnamCatalogRepository"/> and the returned page
+/// is mapped — so that is what these cases hold.
+///
+/// <para>⚠️ **The matching is SQL and outside this project's reach** (no database here): case-insensitivity,
+/// accent folding, and matching a term against code acte / désignation / lettre clé all live in the repository.
+/// Seven cases used to assert them by handing the mock the whole catalogue and checking the handler narrowed it,
+/// which stopped meaning anything once the filter moved — a mocked repository applies no predicate, so they were
+/// testing a capability the handler had correctly lost, and the one thing they *could* still catch (an argument
+/// silently dropped on the way to the repository) they did not check at all.</para>
 /// </summary>
 public class GetCnamNomenclatureQueryHandlerTests
 {
@@ -59,60 +65,47 @@ public class GetCnamNomenclatureQueryHandlerTests
         Assert.Equal(4, ToList(result).Count);
     }
 
-    [Fact]
-    public async Task Handle_Filters_By_Category_Case_Insensitively() // [FR-5.1]
-    {
-        var result = await Handler().Handle(
-            new GetCnamNomenclatureQuery { Category = "radiologie" }, CancellationToken.None);
-        var entries = ToList(result);
-        Assert.Single(entries);
-        Assert.Equal("PANO", entries[0].CodeActe);
-    }
-
-    [Fact]
-    public async Task Handle_Unknown_Category_Returns_Empty_Not_Error() // [FR-5.1]
-    {
-        var result = await Handler().Handle(
-            new GetCnamNomenclatureQuery { Category = "Prothèse" }, CancellationToken.None);
-        Assert.Empty(ToList(result));
-    }
-
+    // [FR-5.1] The two filters reach the repository verbatim and **independently** — the category is not folded
+    // into the free-text term, and neither is trimmed here (normalisation is `SearchTerm`'s job, inside the
+    // repository, so a handler that trimmed would be a second authority on what the user typed).
     [Theory]
-    [InlineData("detart", "DETART")]     // matches code acte
-    [InlineData("panoramique", "PANO")]  // matches French designation
-    public async Task Handle_Filters_By_Free_Text_On_Code_Or_Designation(string q, string expectedCode) // [FR-5.1]
+    [InlineData("detart", null)]                            // code acte
+    [InlineData("panoramique", null)]                       // French designation
+    [InlineData("rd", null)]                                // lettre clé
+    [InlineData("  detart  ", null)]                        // untrimmed, forwarded as typed
+    [InlineData(null, "radiologie")]                        // category alone
+    [InlineData(null, "Prothèse")]                          // a category with no rows is still just an argument
+    [InlineData("extraction", "Chirurgie/Extraction")]      // both at once
+    public async Task Handle_Forwards_Query_And_Category_To_The_Repository(string? q, string? category)
     {
-        var result = await Handler().Handle(new GetCnamNomenclatureQuery { Q = q }, CancellationToken.None);
-        var entries = ToList(result);
-        Assert.Single(entries);
-        Assert.Equal(expectedCode, entries[0].CodeActe);
+        var handler = Handler();
+
+        await handler.Handle(new GetCnamNomenclatureQuery { Q = q, Category = category }, CancellationToken.None);
+
+        _repository.Verify(r => r.GetAllAsync(It.IsAny<bool>(), category, q, It.IsAny<PageRequest?>(),
+            It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
-    public async Task Handle_Free_Text_Matches_Lettre_Cle() // [FR-5.1]
+    public async Task Handle_Forwards_The_Requested_Page() // [FR-5.1]
     {
-        var result = await Handler().Handle(new GetCnamNomenclatureQuery { Q = "rd" }, CancellationToken.None);
-        var entries = ToList(result);
-        Assert.Single(entries);
-        Assert.Equal("PANO", entries[0].CodeActe);
+        var handler = Handler();
+
+        await handler.Handle(new GetCnamNomenclatureQuery { Page = 2, PageSize = 50 }, CancellationToken.None);
+
+        _repository.Verify(r => r.GetAllAsync(It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<string?>(),
+            It.Is<PageRequest?>(p => p != null && p.Value.Page == 2 && p.Value.PageSize == 50),
+            It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
-    public async Task Handle_Combines_Query_And_Category() // [FR-5.1]
+    public async Task Handle_Maps_The_Returned_Page() // [FR-5.1]
     {
-        var result = await Handler().Handle(
-            new GetCnamNomenclatureQuery { Q = "extraction", Category = "Chirurgie/Extraction" },
-            CancellationToken.None);
-        var entries = ToList(result);
-        Assert.Single(entries);
-        Assert.Equal("EXT-SIMPLE", entries[0].CodeActe);
-    }
+        var result = await Handler().Handle(new GetCnamNomenclatureQuery(), CancellationToken.None);
 
-    [Fact]
-    public async Task Handle_Trims_Query_Before_Matching() // [FR-5.1]
-    {
-        var result = await Handler().Handle(new GetCnamNomenclatureQuery { Q = "  detart  " }, CancellationToken.None);
-        Assert.Single(ToList(result));
+        var pano = Assert.Single(ToList(result), e => e.CodeActe == "PANO");
+        Assert.Equal("Radiographie panoramique", pano.DesignationFr);
+        Assert.Equal("RD", pano.LettreCle);
     }
 
     [Fact]

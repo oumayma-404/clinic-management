@@ -33,8 +33,19 @@ public class GetStockItemsQueryHandlerTests
 
     // The query reads the clinic's approaching-expiry lead time (AC-P4.6). Unstubbed, GetByIdAsync returns
     // null and the handler falls back to Clinic.DefaultStockExpiryLeadDays — which is the intended behaviour
-    // for a clinic row that cannot be loaded, so these tests need no extra setup.
-    private GetStockItemsQueryHandler Handler() => new(_stock.Object, _clinics.Object, _clinicResolver.Object);
+    // for a clinic row that cannot be loaded, so that one needs no setup.
+    //
+    // ⚠️ The three clinic-wide chips do: the query grew `CountLowStockAsync`, `CountExpiringSoonAsync` and
+    // `GetDistinctCategoriesAsync`, and an unstubbed `GetDistinctCategoriesAsync` hands back a **null**
+    // IEnumerable, which the handler's `.ToList()` dereferences — so every case here failed on
+    // `Assert.True(result.IsSuccess)` with a NullReferenceException swallowed into a French Result.Failure,
+    // which reads nothing like "the fixture is missing a stub".
+    private GetStockItemsQueryHandler Handler()
+    {
+        _stock.Setup(r => r.GetDistinctCategoriesAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<string>());
+        return new GetStockItemsQueryHandler(_stock.Object, _clinics.Object, _clinicResolver.Object);
+    }
 
     private void Authenticated() =>
         _clinicResolver.Setup(r => r.GetClinicIdAsync(It.IsAny<CancellationToken>()))

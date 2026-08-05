@@ -159,9 +159,13 @@ public class InvoiceTenantIsolationTests
                 It.IsAny<InvoiceStatus?>(), It.IsAny<string?>(), It.IsAny<PageRequest?>(),
                 It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((Array.Empty<Invoice>()).AsPage());
-        _patients.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<bool>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<PageRequest?>(),
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync((Array.Empty<Patient>()).AsPage());
+        // The list resolves patient names over the **page** now (list-pagination) rather than loading the whole
+        // clinic. Unstubbed, `GetByIdsAsync` returns a null dictionary, the handler enumerates it, and the
+        // swallowed NullReferenceException arrives as a French Result.Failure — i.e. a red assertion on
+        // `IsSuccess` that says nothing about the stub that is missing.
+        _patients.Setup(r => r.GetByIdsAsync(
+                It.IsAny<Guid>(), It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<Guid, Patient>());
 
         // L9 — the practitioner-roster read, mocked empty. That reproduces this test's ORIGINAL behaviour exactly:
         // with no roster, no `DoctorName` resolves and each DTO carries null, which is what it carried before the

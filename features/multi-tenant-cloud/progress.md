@@ -314,9 +314,24 @@ The other **24 belong to earlier features**, in six areas, with two root causes:
 | 3 | `LiaisonRenderContentTests` | a section heading was reworded « Motif » → « Motif de la liaison » |
 
 None is a production defect; all are the « stale fixture, not a defect » pattern `UnitTests/CLAUDE.md` already
-names three times. **Left for a decision** rather than fixed here: it is six unrelated feature areas and would
-swamp Part B's review. ⚠️ But it must not be left long — a 24-red baseline means the next session cannot tell new
-breakage from old, which is exactly how this went unnoticed.
+names three times.
+
+**Decision: fixed in this session, in a separate commit after Part B's** — because a 24-red baseline means Parts
+C–F could not tell new breakage from old, which is exactly how this went unnoticed for two sessions. The suite is
+now **1 914 passed / 0 failed**. What the fixes actually were, since the first diagnosis was only half right:
+
+| Area | Real root cause | Fix |
+|---|---|---|
+| Stock (2) · `CreditNoteReadTests` (3) · `InvoiceTenantIsolationTests` list (1) | **Not** filter drift — an **unstubbed dependency**. The handlers grew reads returning *collections* (`GetDistinctCategoriesAsync`, `IPatientRepository.GetByIdsAsync`, `GetTreatmentPlanLinksAsync`); Moq's default for those is **null**, the handler dereferences it, and the swallowed `NullReferenceException` surfaces as a French `Result.Failure`. Every one failed on `Assert.True(result.IsSuccess)` — which points nowhere near a missing stub | added the three stubs |
+| CNAM (7) · Medications (7) | genuine drift: the handlers are now **pass-throughs**, so a mocked repository applies no predicate and the old « hand it the whole catalogue, assert it narrows » cases tested a capability the handler had correctly lost | rewritten to assert each argument reaches the repository **verbatim** (including untrimmed — normalisation is `SearchTerm`'s job *inside* the repository) plus the mapping. The matching itself is SQL and is stated to be outside this project's reach |
+| `ProcedureTypeTenantIsolationTests` list (1) | same drift, on an *isolation* test whose premise (« the repository might hand back a foreign row ») was retired twice over: `list-pagination` put the clinic predicate in SQL, and US-2 stopped the filter failing open | asserts the read is **issued with the caller's clinic id** and never with another's — the shape `InvoiceTenantIsolationTests` already used |
+| `LiaisonRenderContentTests` (3) | two are a reworded heading (« Motif » → « Motif de la liaison »). ⚠️ The third looked like a **regression** — Part E's rule that free-text `content` was a legacy fallback suppressed when guided fields exist had been deleted — but the frontend's `liaisonSections()` states the new rule in as many words (« a first-class unlabelled section, NOT a legacy fallback ») in the same order with the same headings, so both sides were changed deliberately | headings updated; the precedence case rewritten as `Free_Text_Prose_Coexists_With_Guided_Sections` |
+
+⚠️ **Finding, not fixed:** `LiaisonContent` (server, renders the PDF) and `document-editor-content.tsx`'s
+`liaisonSections()` (preview + Word export) carry the **same ten headings in the same order in two places**, with
+only a comment asking future editors to keep them identical. That is the shape `CnamClosedSetContractTests` and
+`RealtimeResourceResolverTests` exist to prevent, and it is what let the heading rename go unnoticed here. A
+parse-the-frontend contract test would close it; out of scope for this story.
 
 ## Learnings
 
@@ -333,6 +348,16 @@ breakage from old, which is exactly how this went unnoticed.
   a fact rather than a claim.
 - **A doc that describes the inverted contract is worse than no doc.** Three `CLAUDE.md` files asserted the filter
   was fail-open « deliberately ». Left one part longer, the next session would have read them and believed them.
+- **`Assert.True(result.IsSuccess)` is where a missing Moq stub goes to hide.** Six of the 24 looked like filter
+  drift and were not: a handler that grew a read returning a *collection* gets **null** from an unstubbed mock,
+  dereferences it, and the repo-wide `catch → Result.Failure` convention converts the `NullReferenceException` into
+  a French business error. The test then fails on the success assertion, pointing at nothing. Rule of thumb: a
+  handler test failing on `IsSuccess` rather than on a value is almost always a fixture that has not kept up with
+  the handler's dependencies — check what the handler calls before theorising about behaviour.
+- **When filtering moves from a handler into SQL, its handler tests do not become wrong — they become vacuous, and
+  they must be rewritten rather than deleted.** What is still worth asserting is that every argument arrives at the
+  repository *verbatim*: a silently dropped `category` or a term the handler "helpfully" trims is a real defect that
+  nothing else in this project can see, and the old cases did not check it.
 
 ## Next
 

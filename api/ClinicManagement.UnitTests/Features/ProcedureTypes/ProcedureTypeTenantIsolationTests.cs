@@ -116,17 +116,23 @@ public class ProcedureTypeTenantIsolationTests
         Assert.True(result.IsFailure);
     }
 
-    // [AC-1 / Finding 2] The list read explicitly scopes to the caller's clinic: another clinic's rows
-    // are excluded even if the repository (i.e. the fail-open filter) hands them back.
+    // [AC-1 / Finding 2] The list read is issued **with the caller's own clinic id** — which is what scopes it.
+    //
+    // ⚠️ This used to hand the mock a foreign row and assert the handler dropped it, on the premise that the
+    // repository (behind a fail-open filter) might return one. Two things retired that premise: `list-pagination`
+    // moved the clinic predicate into `GetFilteredAsync`'s SQL, so re-filtering the returned page in C# would be a
+    // second copy of the rule — and filtering an already-cut page shrinks it unpredictably, which is why it was
+    // removed; and `multi-tenant-cloud` US-2 made the global query filter refuse an unset scope instead of
+    // switching off, so "the repository hands back another clinic's row" is no longer a state the product has.
+    // What is still worth holding, and is held here, is that the handler cannot ask for anyone else's rows.
     [Fact]
-    public async Task List_Should_Only_Return_Own_Clinic()
+    public async Task List_Is_Read_With_The_Callers_Own_Clinic_Id()
     {
         Authenticated();
         var own = ProcedureType(ClinicId);
-        var foreign = ProcedureType(OtherClinicId);
         _procedures.Setup(r => r.GetFilteredAsync(It.IsAny<Guid>(), It.IsAny<bool>(), It.IsAny<string?>(),
             It.IsAny<string?>(), It.IsAny<PageRequest?>(),
-            It.IsAny<CancellationToken>())).ReturnsAsync(new[] { own, foreign }.AsPage());
+            It.IsAny<CancellationToken>())).ReturnsAsync(new[] { own }.AsPage());
 
         var handler = new GetProcedureTypesQueryHandler(
             _procedures.Object, _clinicResolver.Object, NullLogger<GetProcedureTypesQueryHandler>.Instance);
@@ -134,7 +140,10 @@ public class ProcedureTypeTenantIsolationTests
         var result = await handler.Handle(new GetProcedureTypesQuery(), CancellationToken.None);
 
         Assert.True(result.IsSuccess);
-        var dto = Assert.Single(result.Value!.Items);
-        Assert.Equal(own.Id, dto.Id);
+        Assert.Equal(own.Id, Assert.Single(result.Value!.Items).Id);
+        _procedures.Verify(r => r.GetFilteredAsync(ClinicId, It.IsAny<bool>(), It.IsAny<string?>(),
+            It.IsAny<string?>(), It.IsAny<PageRequest?>(), It.IsAny<CancellationToken>()), Times.Once);
+        _procedures.Verify(r => r.GetFilteredAsync(OtherClinicId, It.IsAny<bool>(), It.IsAny<string?>(),
+            It.IsAny<string?>(), It.IsAny<PageRequest?>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 }

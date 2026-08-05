@@ -53,6 +53,17 @@ public class CreditNoteReadTests
         _patients.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<bool>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<PageRequest?>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync((Array.Empty<Patient>()).AsPage());
+        // ⚠️ Two reads the list and revenue handlers grew after this file was written, both returning a
+        // collection — so unstubbed they hand back **null**, the handler dereferences it, and the swallowed
+        // NullReferenceException surfaces as a French Result.Failure. Every case here then failed on
+        // `Assert.True(result.IsSuccess)`, which says nothing about the missing stub.
+        // `GetByIdsAsync` replaced the whole-clinic patient load (list-pagination: names are resolved over the
+        // page now); `GetTreatmentPlanLinksAsync` feeds PlanBillingRules' billed-plan de-dup.
+        _patients.Setup(r => r.GetByIdsAsync(
+                It.IsAny<Guid>(), It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<Guid, Patient>());
+        _invoices.Setup(r => r.GetTreatmentPlanLinksAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<(Guid, Guid, string?, InvoiceStatus)>());
         _creditNotes.Setup(r => r.GetTotalsForInvoicesAsync(
                 It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Dictionary<Guid, decimal>());
