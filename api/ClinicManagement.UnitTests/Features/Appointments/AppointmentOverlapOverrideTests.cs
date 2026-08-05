@@ -86,14 +86,14 @@ public class AppointmentOverlapOverrideTests
             Guid.NewGuid(), ClinicId, PatientId, DoctorId, at, TimeSpan.FromMinutes(30));
         _appointments
             .Setup(r => r.GetByClinicIdAsync(
-                ClinicId, It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
+                ClinicId, It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<Guid?>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new[] { existing });
     }
 
     private void NoExistingBookings() =>
         _appointments
             .Setup(r => r.GetByClinicIdAsync(
-                ClinicId, It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
+                ClinicId, It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<Guid?>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<Appointment>());
 
     private static CreateAppointmentCommand Command(bool allowOverlap = false) => new()

@@ -215,7 +215,7 @@ public class CreateRecurringSeriesCommandHandler : IRequestHandler<CreateRecurri
                 var windowStart = occurrences[0] - AppointmentScheduling.MaxCredibleAppointmentLength;
                 var windowEnd = occurrences[^1] + duration;
                 existing = (await _appointmentRepository.GetByClinicIdAsync(
-                    clinicId, windowStart, windowEnd, doctorId: null, cancellationToken)).ToList();
+                    clinicId, windowStart, windowEnd, doctorId: null, cancellationToken: cancellationToken)).ToList();
             }
 
             var now = DateTime.UtcNow;

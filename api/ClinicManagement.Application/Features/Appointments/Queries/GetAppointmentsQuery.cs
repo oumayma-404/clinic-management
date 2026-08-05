@@ -14,6 +14,13 @@ public class GetAppointmentsQuery : IRequest<Result<IEnumerable<AppointmentDto>>
     public DateTime? EndDate { get; set; }
     /// <summary>Optional per-practitioner filter — only appointments assigned to this doctor.</summary>
     public Guid? DoctorId { get; set; }
+
+    /// <summary>
+    /// Optional per-patient filter — the patient page's own agenda. Cut in SQL, not in the browser: the client
+    /// had been sending <c>?patientId=</c> since the page was written and nothing bound it, so the patient's
+    /// « À compléter » section listed every undocumented visit in the clinic.
+    /// </summary>
+    public Guid? PatientId { get; set; }
 }
 
 public class GetAppointmentsQueryHandler : IRequestHandler<GetAppointmentsQuery, Result<IEnumerable<AppointmentDto>>>
@@ -60,6 +67,7 @@ public class GetAppointmentsQueryHandler : IRequestHandler<GetAppointmentsQuery,
                 request.StartDate,
                 request.EndDate,
                 request.DoctorId,
+                request.PatientId,
                 cancellationToken);
 
             // Which of these visits are already billed (AC-P6.13). One batched read for the whole window, not

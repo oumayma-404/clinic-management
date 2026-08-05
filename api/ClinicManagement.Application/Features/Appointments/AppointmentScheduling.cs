@@ -117,7 +117,7 @@ public static class AppointmentScheduling
         // repository can only filter on equality. The window is the narrow one either way, so this reads a
         // handful of rows, not a schedule.
         var candidates = await appointments.GetByClinicIdAsync(
-            clinicId, windowStart, windowEnd, doctorId: null, cancellationToken);
+            clinicId, windowStart, windowEnd, doctorId: null, cancellationToken: cancellationToken);
 
         return candidates.FirstOrDefault(existing =>
             existing.Id != excludeAppointmentId

@@ -58,13 +58,15 @@ public class AppointmentsController : ApiControllerBase
     public async Task<ActionResult<IEnumerable<AppointmentDto>>> GetAppointments(
         [FromQuery] DateTime? startDate,
         [FromQuery] DateTime? endDate,
-        [FromQuery] Guid? doctorId)
+        [FromQuery] Guid? doctorId,
+        [FromQuery] Guid? patientId)
     {
         var query = new GetAppointmentsQuery
         {
             StartDate = startDate,
             EndDate = endDate,
-            DoctorId = doctorId
+            DoctorId = doctorId,
+            PatientId = patientId
         };
         var result = await _mediator.Send(query);
 

@@ -38,6 +38,7 @@ public class AppointmentRepository : IAppointmentRepository
         DateTime? startDate = null,
         DateTime? endDate = null,
         Guid? doctorId = null,
+        Guid? patientId = null,
         CancellationToken cancellationToken = default)
     {
         var query = _context.Appointments
@@ -59,6 +60,11 @@ public class AppointmentRepository : IAppointmentRepository
         if (doctorId.HasValue)
         {
             query = query.Where(a => a.DoctorId == doctorId.Value);
+        }
+
+        if (patientId.HasValue)
+        {
+            query = query.Where(a => a.PatientId == patientId.Value);
         }
 
         return await query
