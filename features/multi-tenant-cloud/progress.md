@@ -13,7 +13,7 @@ unit ( « 18 steps and ~35 files will not fit one session » ). This table is th
 |------|------|-------|--------|---------|
 | A | US-1 | 1–4 | **implemented** (code gate) | 2026-08-05 |
 | B | US-2 | 5–10 | **implemented** (code gate) | 2026-08-05 |
-| C | US-3 | 11–13 | not-started | — |
+| C | US-3 | 11–13 | **implemented** (code gate) | 2026-08-05 |
 | D | US-4 | 14 | not-started | — |
 | E | US-5 | 15 | not-started | — |
 | F | US-6 | 16–18 | not-started | — |
@@ -359,8 +359,182 @@ parse-the-frontend contract test would close it; out of scope for this story.
   repository *verbatim*: a silently dropped `category` or a term the handler "helpfully" trims is a real defect that
   nothing else in this project can see, and the old cases did not check it.
 
+---
+
+# Part C — provisioning and onboarding over the internet (steps 11–13)
+
+**Session:** 2026-08-05 · **Branch:** unchanged (`feature/audit-sections-3-to-10`). The first part that touches
+`web/`.
+
+## Working tree note (start of session)
+
+⚠️ **A second session was editing this same working tree, on this branch, throughout.** It committed
+`web/CLAUDE.md`, `api/…/Application/CLAUDE.md` and `.claude/rules/frontend-web.md` mid-session and left these
+dirty, **none of which is staged here**:
+
+| Theirs | |
+|---|---|
+| modified | `api/ClinicManagement.API/appsettings.json` · `UnitTests/Api/ControllerAuthorizationCoverageTests.cs` · `web/lib/realtime/clinic-hub.ts` · nine `web/lib/api/*.ts` · `web/scripts/check-responsive.mjs` |
+| untracked | `API/Controllers/MetaController.cs` · `API/Middleware/ClientVersionMiddleware.cs` · `API/Models/ClientRequirements.cs` · `UnitTests/Api/ClientVersionMiddlewareTests.cs` |
+
+Every `git add` named paths explicitly. **`web/lib/api/users.ts` is in both sets** — it was diffed before staging
+and contains only this part's two additions.
+
+Two consequences for the numbers below, stated rather than glossed: the full-suite and full-rebuild figures
+**include their code**, so they are joint results; and one `tsc` error seen mid-session
+(`clinic-hub.ts` — `shellVersionHeader` undefined) was their in-flight edit and had cleared by the final run.
+
+## What landed
+
+| Step | Deliverable |
+|---|---|
+| 11 | `Application/Features/Clinics/LocalClinicProvisioning.cs` (+ `LocalClinicRequest`/`ProvisionedClinic`) — **moved** out of `CreateClinicCommandHandler`; `API/Maintenance/ProvisionClinicCommand.cs` + its `Program.cs` registration |
+| 12 | 13th capability `AllowsSelfRegistration`; `AuthController.Register` re-gated on it; `GET auth/mode` gains `selfRegistrationEnabled`; `Features/Users/Commands/CreateClinicUserCommand.cs` + `CreatedClinicUserDto` + `POST /api/users` |
+| 13 | `web/components/join-unavailable.tsx`, `app/join/page.tsx`, `join-wizard.tsx`, `lib/api/auth.ts`, `lib/api/users.ts`, `components/user-management.tsx` |
+
+Plus the five `CLAUDE.md` files this part falsifies (API, Application, Infrastructure, `web/`, `web/lib/`,
+`web/components/`).
+
+## Deviations
+
+Four asked, all confirmed. The first is the one that matters: **the plan's step 11 could not be implemented as
+written.**
+
+### DEV-9: `provision-clinic` cannot wrap `CreateClinicCommand` + `ResetUserPasswordCommand`
+**Category:** Technical · **Approved:** Yes (asked)
+**Plan:** « a new `API/Maintenance/ProvisionClinicCommand.cs`, wrapping `CreateClinicCommand` +
+`ResetUserPasswordCommand` ».
+**Why neither works.** `ResetUserPasswordCommand` begins at `IClinicContext.GetUserId()` and needs an *existing*
+target — in a console verb there is no HTTP context, so it returns « Session invalide ». And
+`CreateClinicCommand`'s Local branch refuses outright once **any** user exists (`AnyUserExistsAsync`, AC-1.2a),
+so it can create an install's first clinic and never its second — which is the entire purpose of the verb. The
+verb's container is also `AddInfrastructure` alone: no mediator.
+**Actual:** the clinic + admin construction was **moved** into `Application/Features/Clinics/LocalClinicProvisioning`
+and both callers use it — the `PatientFromRequest.Build` precedent, and the repo's own answer to
+`fixes-dont-propagate`. Setup keeps the two rules that are genuinely *its* (the bootstrap gate, the password-length
+policy); the helper does construction only.
+**Impact:** `CreateLocalFirstRunAsync` is 73 lines shorter and gained a duplicate-email check it did not have
+(the partial unique index used to surface as a `DbUpdateException`). The clinic id is now minted by the *caller*
+so the verb can declare `UseClinic(id)` **before** the writes it covers — a scope declared afterwards covers
+nothing.
+
+### DEV-10: a 13th capability, `AllowsSelfRegistration`
+**Category:** Technical · **Approved:** Yes (asked)
+**Plan:** « `AuthController.Register` → 404 in `HostedMultiTenant` », with no capability named.
+**Actual:** a new capability rather than a `Kind == HostedMultiTenant` test at the call site — the exact shape
+Part A spent 30 occurrences removing. **R-2 holds**: `SelfHostedLan` ✓, `CloudBrowser` ✗, both exactly as
+`UsesLocalAccounts` answered before.
+**Impact:** `DeploymentProfileTests`' derived drift guard failed until the matrix row was added, which is the
+guard doing its job.
+
+### DEV-11: `GET /api/auth/mode` reports `selfRegistrationEnabled`
+**Category:** Technical (API surface) · **Approved:** Yes (asked)
+**Plan:** silent on how the browser learns this.
+**Why it was needed:** `useSession().mode` comes from the Next server's `AUTH_MODE`, which reads `local` in
+**both** account-owning profiles — so `/join` could not distinguish a LAN install from a hosted one. The endpoint
+had **zero** frontend callers before this.
+**Rejected alternatives:** a sixth `NEXT_PUBLIC_*` deploy key (R-6: fails quietly if omitted, and a second source
+of truth the server never checks) and interpreting the 404 after the user has typed an account (§ 0).
+`SelfRegistrationGateTests.Self_registration_is_not_derivable_from_the_reported_mode` pins the reason.
+
+### DEV-12: the « Créer un compte » dialog ships with the command
+**Category:** Scope · **Approved:** Yes (asked)
+**Plan/story:** the frontend surface is « two files (`join-wizard.tsx`, `app/join/page.tsx`) ».
+**Actual:** plus `lib/api/auth.ts`, `lib/api/users.ts`, `components/join-unavailable.tsx` and
+`components/user-management.tsx`.
+**Justification:** with self-registration closed and no create-user UI, a hosted clinic has **no way at all** to
+add a colleague — the endpoint would ship with zero callers, the dead-capability shape this repo has flagged
+repeatedly (`SetMaterials`, per-doctor working hours, `RecallController`).
+
+### Auto-approved (trivial)
+
+| Deviation | Classification | Reason |
+|---|---|---|
+| `provision-clinic` requires `--admin-name` | Trivial | `User.CreateLocalUser` throws without a full name, and it is printed on documents — deriving « owner » from `owner@cabinet.tn` would put a fabricated identity on a clinical record |
+| Gated on `UsesLocalAccounts` **only**, not `HasLocalDbTooling` | Trivial | That capability is about `pg_dump`/`pg_restore` and is **false** in `HostedMultiTenant`, the one profile this verb exists for. Pinned by a test so the sibling verbs' gate is not copied here later |
+| The clinic-code card re-captions itself when self-registration is closed | Trivial | Presentation only. Left alone it instructs an admin to hand out a code that creates nothing — a control that lies |
+| `coarse:h-11` on three buttons | Trivial | The device pass measured them at 40/36 px; see the finding below |
+| `CreatedClinicUserDto` is its own shape, not `ClinicUserDto` + a field | Trivial | The password is returned once; putting it on the list's type leaves a future `GET` one property away from serving it |
+
+## Quality gate — Part C
+
+| Gate | Result |
+|---|---|
+| Backend build (`--no-incremental`, scratch `BaseOutputPath`) | **0 errors, 57 warnings** — identical to Part B's post-change baseline |
+| New warnings in changed files | **0.** The only warning in a file this part touched is `Program.cs` CS0618 (Hangfire obsolete overload), pre-existing — Part A recorded it at line 316, it is now 326 because the verb block pushed it down |
+| Full unit suite | **1 963 passed / 0 failed** (Part B left it at 1 914; +49 here and the parallel session's own) |
+| Part C's own classes | **49/49 green** — `LocalClinicProvisioningTests` (12) · `CreateClinicUserCommandHandlerTests` (14) · `ProvisionClinicCommandTests` (7) · `SelfRegistrationGateTests` (8) · `DeploymentProfileTests` (+ the new matrix row, 8) |
+| Frontend `npx tsc --noEmit` | **clean** |
+| Frontend `npm run check:responsive` | **14/14** — including the parallel session's new `api-headers` check |
+| Frontend `npm run build` | **succeeds** |
+| Device eye pass | **done, measured** — see below |
+| `verify-schema` / `reconcile-money` | **Not applicable** — Part C adds no migration. Both verbs confirmed to **exist** (`API/Maintenance/{VerifySchema,ReconcileMoney}Command.cs`); neither was edited here |
+
+### The device pass was measured, not eyeballed — and `--window-size` lies on Windows
+
+Widths driven: **320 · 390 · 820 · 1180 · 1440**, plus a **844 × 380 landscape phone**, on both surfaces
+(`/join`'s closed card and the « Créer un compte » dialog). No `agent-browser` on this machine, so it was done
+over **CDP** (`Emulation.setDeviceMetricsOverride` + `Page.captureScreenshot`) from a throwaway Node script,
+against `next dev --turbopack` on port 3010 with `AUTH_MODE=local` and a stub `/api/auth/mode` returning
+`selfRegistrationEnabled: false`.
+
+⚠️ **Chrome's `--headless --window-size=320,720` does not give a 320 px viewport on Windows** — the window is
+clamped to its ~500 px minimum and the screenshot is *cropped* to 320. Every element then appears cut off at the
+right edge with a ~26 px left offset, which reads exactly like a real horizontal-overflow defect. Two rounds were
+spent on that phantom before `Emulation.setDeviceMetricsOverride` (which sets the real layout viewport) showed
+`scrollWidth === innerWidth` at every width. **If a screenshot suggests overflow, measure it before believing it.**
+
+The same run asserted numbers rather than impressions: page `scrollWidth` vs `innerWidth`, every element whose
+right edge exceeds the viewport, every control under 44 px, whether the dialog fits, and `<label>`s with no
+`for`. Results: **no horizontal overflow at any width**, the dialog fits the viewport at all of them
+(320 → full-bleed 320, ≥ 640 → 512 px centred), and **0 labels without `for`**.
+
+**It found one real defect in this part's own code:** « Aller à la connexion » measured **40 px** on a coarse
+pointer — `Button size="lg"` is `h-10`. Fixed with `coarse:h-11` (grown rather than `.touch-target`: it is the
+page's only control and already full-width, so there is nothing for an invisible overlay to avoid disturbing).
+The dialog's two footer buttons were **36 px** (`size="default"` is `h-9`) and got the same treatment. Re-measured
+after: 44 px on every coarse viewport, and still 36/40 px at 1180/1440 with a mouse — density preserved, which is
+the whole point of gating on the pointer.
+
+**And `check:responsive` caught one before the browser did**: `failed-read-as-empty` flagged
+`authApi.getMode().catch(() => {})` in `user-management.tsx`. The check was right — an empty catch is a silent
+swallow — so the *code* was fixed (a real body that logs and leaves the caption at its pre-US-3 wording), not the
+check.
+
+## Findings recorded, not fixed (out of Part C's scope)
+
+1. **`Button` is under the 44 px coarse floor app-wide**: `default` = `h-9` (36 px), `lg` = `h-10` (40 px), and
+   `globals.css`'s coarse floor covers only `input`/`textarea`/`select`/`[data-slot="select-trigger"]` — not
+   buttons. Every `size="lg"` submit in the product (login, setup wizard, join) and every dialog footer is
+   therefore 36–40 px on a tablet. Fixing it in `ui/button.tsx` is one line and would shift layout on 24 pages
+   with no way to eye-check them here, so this part fixed **only its own three controls** and records the rest.
+2. **`DialogContent`'s built-in « Fermer » ✕ measures 16 px** on every dialog in the app — a shadcn primitive,
+   present long before this part.
+3. **`reset-admin-password` refuses in `HostedMultiTenant`**: it gates on `UsesLocalAccounts && HasLocalDbTooling`,
+   and the second is false there. Part F's step 17 (amendment M3) is exactly this fix; noted so it is not
+   forgotten, since the hosted profile now has clinics whose admin could get locked out.
+4. **`POST /api/clinics/join` was left alone.** The plan names only `auth/register`. In `HostedMultiTenant` the
+   Cloud join path is unreachable anyway (no Auth0, and an account already has a clinic), so closing it would be
+   speculative — but it is the one adjacent door nobody has audited.
+
+## Learnings
+
+- **« Wrap command X » is unimplementable whenever X's guard is the thing you need to skip.** Part B's lesson was
+  « set the scope from X » failing because X is behind the filter; this is its sibling. Both were found by reading
+  the call site before writing code, and both would have been discovered by the first compile *only* in the sense
+  that the code would have compiled and silently refused at runtime.
+- **A screenshot is not a measurement.** The Windows minimum-window-width clamp produced a picture of a defect
+  that did not exist, twice. `scrollWidth === innerWidth` settled it in one run. Any future device pass on this
+  machine should use `Emulation.setDeviceMetricsOverride`, never `--window-size`.
+- **A derived guard earns its keep at the moment it is inconvenient.** `DeploymentProfileTests`'
+  `Every_capability_is_covered_by_the_matrix` went red the instant a 13th capability was added with no row — which
+  is precisely the case a hand-written `[InlineData]` table cannot fail on.
+- **Sharing a working tree with another session changes what a green suite means.** 1 963 passing includes their
+  code; the honest claim is « nothing here broke » (diffed by name against Part B's 1 914), not « my change is the
+  reason it is green ».
+
 ## Next
 
-`/review-story` for Part B, then Part C (steps 11–13 — `provision-clinic`, self-registration closed, the `/join`
-explanation; the first part that touches `web/`). ⚠️ Part F's step 17 (`DataProtection:KeyRingPath` required) still
-must land **before** Part D.
+`/review-story` for Part C, then Part D — ⚠️ **but Part F's step 17 (`DataProtection:KeyRingPath` required) must
+land first**, per the story's ordering: a PFX password protected by Data Protection makes e-invoice signing depend
+on the key ring. Finding #3 above belongs to that same step.

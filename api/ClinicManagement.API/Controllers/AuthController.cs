@@ -41,16 +41,23 @@ public class AuthController : ApiControllerBase
     /// Public: reports whether this deployment owns its accounts, so the frontend renders the right login UI.
     ///
     /// <para>⚠️ The only read here that is a <b>value</b> and not a guard: it must keep answering in every
-    /// profile, or the frontend's mode probe has nothing to branch on. The wire values are unchanged.</para>
+    /// profile, or the frontend's mode probe has nothing to branch on. The <c>mode</c> wire value is unchanged.</para>
+    ///
+    /// <para><b>US-3 added <c>selfRegistrationEnabled</c>, and it cannot be derived from <c>mode</c>.</b> The
+    /// browser learns the mode from the Next server's own <c>AUTH_MODE</c>, which reads <c>local</c> in
+    /// <i>both</i> account-owning profiles — so <c>/join</c> had no way to tell a LAN install (where the clinic
+    /// code is a real gate) from a hosted one (where it is a password everybody has). Answering it here keeps the
+    /// server the single authority: the page cannot offer a form the <c>register</c> endpoint below will 404.</para>
     /// </summary>
     [AllowAnonymous]
     [HttpGet("mode")]
     public IActionResult GetMode()
     {
-        var mode = Deployment.UsesLocalAccounts
+        var deployment = Deployment;
+        var mode = deployment.UsesLocalAccounts
             ? LocalAuthConfig.LocalMode
             : LocalAuthConfig.CloudMode;
-        return Ok(new { mode });
+        return Ok(new { mode, selfRegistrationEnabled = deployment.AllowsSelfRegistration });
     }
 
     /// <summary>
@@ -155,16 +162,21 @@ public class AuthController : ApiControllerBase
     }
 
     /// <summary>
-    /// Local-mode staff self-registration: join a clinic by code with email+password.
-    /// Reachable from any LAN client (the clinic code is the gate — not localhost). Does not
-    /// exist in Cloud mode. Admin is never self-assignable (enforced in the handler).
+    /// Staff self-registration: join a clinic by code with email+password. Reachable from any LAN client (the
+    /// clinic code is the gate — not localhost). Admin is never self-assignable (enforced in the handler), and
+    /// since I5 the account is created <b>pending an admin's activation</b>.
+    ///
+    /// <para>⚠️ Gated on <c>AllowsSelfRegistration</c> since US-3, <b>not</b> on <c>UsesLocalAccounts</c> — which
+    /// is true in the hosted profile too, so the old guard would have exposed a six-character clinic code as the
+    /// only barrier between the internet and an account that reads every patient record. Unchanged in both shipped
+    /// profiles: <c>SelfHostedLan</c> still allows it, <c>CloudBrowser</c> still 404s.</para>
     /// </summary>
     [AllowAnonymous]
     [EnableRateLimiting(RateLimiting.AnonymousAuthPolicy)]
     [HttpPost("register")]
     public async Task<IActionResult> Register([FromBody] RegisterRequest request)
     {
-        if (!Deployment.UsesLocalAccounts)
+        if (!Deployment.AllowsSelfRegistration)
         {
             return NotFound();
         }

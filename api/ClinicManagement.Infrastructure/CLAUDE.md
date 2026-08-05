@@ -12,7 +12,10 @@ self-generated HTTPS trust material, and per-clinic reference-catalog seeding. A
 > Behavior is gated by the resolved **deployment profile**, not by an auth-mode boolean:
 > `Deployment/DeploymentProfile.Resolve(config)` → `SelfHostedLan` (offline LAN, self-issued JWT, local-disk
 > storage) | `HostedMultiTenant` | `CloudBrowser` (Auth0, MinIO), each exposing **a capability per question**
-> (`UsesLocalAccounts`, `UsesDiskStorage`, `RunsAsWindowsService`, `SelfSignsCertificate`, …). `Deployment:Profile`
+> (`UsesLocalAccounts`, `UsesDiskStorage`, `RunsAsWindowsService`, `SelfSignsCertificate`,
+> **`AllowsSelfRegistration`**, …). ⚠️ That last one (US-3) is the only capability where `HostedMultiTenant`
+> parts company with `SelfHostedLan` while sharing its login provider — which is precisely why joining by clinic
+> code could not stay gated on `UsesLocalAccounts`. `Deployment:Profile`
 > names it; **absent, it derives from `Auth:Mode`** exactly as the old boolean did (`Local` → `SelfHostedLan`, else
 > `CloudBrowser`), so existing installs need no config edit. ⚠️ `LocalAuthConfig.IsLocalMode` survives only as that
 > derivation — a branch anywhere else asking it fails `DeploymentProfileCoverageTests`.

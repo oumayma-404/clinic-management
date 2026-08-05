@@ -1,7 +1,7 @@
 # Story 1: Full — Hosted multi-tenant profile (desktop clients, hosted data)
 
 **Status:** APPROVED
-**Story Status:** in-progress — **Parts A and B implemented** (code gate; 2026-08-05). Parts C–F not started.
+**Story Status:** in-progress — **Parts A, B and C implemented** (code gate; 2026-08-05). Parts D–F not started.
 See [../progress.md](../progress.md) for the part table, eight deviations and the gate results. ⚠️ Part B's session
 found a **pre-existing 24-test red baseline** from earlier features, invisible until then because Part A's runner
 was blocked; proven unchanged by Part B and awaiting a decision (see progress.md § Part B).
@@ -73,11 +73,22 @@ _Story-specific:_
       resolves its document's clinic through one `IgnoreQueryFilters` projection (DEV-6), and `AddInfrastructure`
       gained a provider floor without which the console verbs' declarations would be decoration (DEV-8)
 
-**Part C — provisioning**
-- [ ] `provision-clinic --name … --admin-email …` creates a clinic + its first admin and prints a one-time
-      password; `setup`'s loopback gate is unchanged in `SelfHostedLan`
-- [ ] `register` returns 404 in `HostedMultiTenant`, and `/join` explains **what to do instead** rather than 404ing
-- [ ] An admin can create a staff account (`CreateClinicUserCommand`, `AdminOnly`) → temp password → forced change
+**Part C — provisioning** — all three met, all run.
+- [x] `provision-clinic --name … --admin-email … --admin-name …` creates a clinic + its first admin and prints a
+      one-time password; `setup`'s loopback gate and its one-time bootstrap are unchanged in `SelfHostedLan`.
+      ⚠️ **The plan's « wrapping `CreateClinicCommand` + `ResetUserPasswordCommand` » was impossible** — the
+      reset command needs an HTTP caller and an existing target, and `CreateClinicCommand`'s Local branch refuses
+      once *any* user exists, i.e. exactly when clinic #2 is provisioned. The construction was **moved** into
+      `LocalClinicProvisioning`, shared with `setup` (DEV-9, approved). ⚠️ A third flag, `--admin-name`, is
+      required: `User.CreateLocalUser` throws without one and it is printed on documents
+- [x] `register` returns 404 in `HostedMultiTenant`, and `/join` explains **what to do instead** rather than
+      404ing. ⚠️ Two additions the plan did not name: a **13th capability** `AllowsSelfRegistration`, because the
+      old `UsesLocalAccounts` guard is true in hosted too (DEV-10), and **`selfRegistrationEnabled` on
+      `GET /api/auth/mode`**, because `AUTH_MODE` reads `local` in both profiles so the browser could not tell
+      them apart (DEV-11). R-2 holds — both shipped profiles behave exactly as before
+- [x] An admin can create a staff account (`CreateClinicUserCommand`, `AdminOnly`) → temp password → forced
+      change. ⚠️ Shipped **with its UI** (DEV-12): with self-registration closed and no « Créer un compte »
+      dialog, a hosted clinic would have had no way to add a colleague at all
 
 **Part D — secrets** · **Part E — storage** · **Part F — operations**
 - [ ] `DataProtection:KeyRingPath` is **required** in `HostedMultiTenant` and fails startup loud when unset

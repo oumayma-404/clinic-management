@@ -31,7 +31,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Users, KeyRound, UserX, UserCheck, RefreshCw, Copy, Check, MoreHorizontal } from "lucide-react"
+import { Users, KeyRound, UserX, UserCheck, UserPlus, RefreshCw, Copy, Check, MoreHorizontal } from "lucide-react"
 import { ZONES, zoneChipClass } from "@/lib/zones"
 import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
 import {
@@ -49,6 +49,7 @@ import {
   type UserRole,
 } from "@/lib/api/users"
 import { clinicsApi } from "@/lib/api/clinics"
+import { authApi } from "@/lib/api/auth"
 import { ApiError } from "@/lib/api/client"
 import { useSession } from "@/lib/auth/session"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
@@ -72,6 +73,20 @@ export function UserManagement() {
    * guaranteed dead end: Cloud identities are managed in Auth0.
    */
   const canResetPasswords = mode === "local"
+  /**
+   * US-3: same underlying question as `canResetPasswords` — does this product own its accounts — asked
+   * separately because the two are genuinely independent of the *third* one below. `POST /api/users` 404s in
+   * Cloud (Auth0 owns identities) but stays open in both local-account profiles, since it is precisely what a
+   * deployment with self-registration closed uses instead.
+   */
+  const canCreateAccounts = mode === "local"
+  /**
+   * Whether staff can still mint their own account with the clinic code. False on the hosted profile, where the
+   * six-character code is a password everyone who ever worked at the practice knows. Asked of the server because
+   * `mode` cannot answer it (US-3). Optimistic default: the LAN install is the common case, and a probe that
+   * failed must not make « Code de la clinique » claim the code is dead when it is not.
+   */
+  const [selfRegistrationEnabled, setSelfRegistrationEnabled] = useState(true)
   const [userPage, setUserPage] = useState<ClinicUsersPageDto>(() => ({
     ...emptyPage<ClinicUserDto>(),
     pendingActivationCount: 0,
@@ -94,9 +109,18 @@ export function UserManagement() {
   const [pending, setPending] = useState<PendingAction | null>(null)
   const [working, setWorking] = useState(false)
 
-  // Temp password shown once after a reset (AC-5.2).
+  // Temp password shown once after a reset (AC-5.2) or after creating an account (US-3) — the same dialog,
+  // because it is the same fact with the same handling rules.
   const [tempPassword, setTempPassword] = useState<{ email?: string; password: string } | null>(null)
   const [copied, setCopied] = useState(false)
+
+  // « Créer un compte » (US-3).
+  const [createOpen, setCreateOpen] = useState(false)
+  const [createEmail, setCreateEmail] = useState("")
+  const [createFullName, setCreateFullName] = useState("")
+  const [createRole, setCreateRole] = useState<UserRole>("secretary")
+  const [createError, setCreateError] = useState<string | null>(null)
+  const [creating, setCreating] = useState(false)
 
   // Guards against setState after unmount (the admin can navigate away mid-load or mid-refresh).
   const mountedRef = useRef(true)
@@ -141,6 +165,21 @@ export function UserManagement() {
     loadData()
   }, [loadData])
 
+  // A deployment fact, so read once rather than on every page change.
+  useEffect(() => {
+    authApi
+      .getMode()
+      .then(({ selfRegistrationEnabled: enabled }) => {
+        if (mountedRef.current) setSelfRegistrationEnabled(enabled)
+      })
+      .catch((err) => {
+        // Deliberately no user-facing failure state, and this is not the `.catch(() => [])` shape: nothing is
+        // emptied. The only consumer is the clinic-code caption, so an unread probe leaves it at the wording it
+        // has always had — a claim the screen was already making — rather than inventing a new one either way.
+        console.error("Could not read the deployment's auth capabilities:", err)
+      })
+  }, [])
+
   // Real-time: refetch the users table + clinic code when any client of this clinic changes a user
   // (reset password / activate / deactivate) or registers.
   useClinicRealtime(RealtimeResource.Users, loadData)
@@ -183,6 +222,30 @@ export function UserManagement() {
       toast.error(message)
     } finally {
       setWorking(false)
+    }
+  }
+
+  const submitCreate = async () => {
+    setCreating(true)
+    setCreateError(null)
+    try {
+      const created = await usersApi.create({
+        email: createEmail.trim(),
+        fullName: createFullName.trim(),
+        role: createRole,
+      })
+      setCreateOpen(false)
+      setCreateEmail("")
+      setCreateFullName("")
+      setCreateRole("secretary")
+      setTempPassword({ email: created.email, password: created.temporaryPassword })
+      toast.success("Compte créé. Communiquez le mot de passe temporaire à la personne concernée.")
+      await loadData()
+    } catch (err) {
+      // § 13: the dialog stays open with every field as typed — a duplicate email is corrected here, not retyped.
+      setCreateError(err instanceof ApiError ? err.message : "La création du compte a échoué. Veuillez réessayer.")
+    } finally {
+      setCreating(false)
     }
   }
 
@@ -243,9 +306,23 @@ export function UserManagement() {
             </CardTitle>
           </CardHeader>
           <CardContent>
+            {/* US-3 — the caption used to instruct an admin to hand out a code that, on a hosted deployment, no
+                longer creates anything. Left alone it would be a control that lies, which is worse than a
+                missing one; the card stays (the code is still the clinic's) and says what changed instead. */}
+            {!selfRegistrationEnabled && (
+              <p className="mb-4 rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                L&apos;inscription avec le code du cabinet est désactivée sur cette installation : sur Internet, ce
+                code est connu de toute personne ayant travaillé au cabinet. Créez les comptes du personnel avec
+                « Créer un compte » ci-dessous.
+              </p>
+            )}
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <Label className="text-xs text-muted-foreground">À communiquer au personnel pour créer un compte</Label>
+                <Label className="text-xs text-muted-foreground">
+                  {selfRegistrationEnabled
+                    ? "À communiquer au personnel pour créer un compte"
+                    : "Identifiant du cabinet — il ne permet plus de créer un compte"}
+                </Label>
                 <div className="mt-1.5">
                   {clinicCode ? (
                     <Badge
@@ -282,6 +359,19 @@ export function UserManagement() {
               </span>
               Utilisateurs
               <Badge variant="secondary">{userPage.totalCount}</Badge>
+              {canCreateAccounts && (
+                <Button
+                  size="sm"
+                  className="ms-auto gap-2"
+                  onClick={() => {
+                    setCreateError(null)
+                    setCreateOpen(true)
+                  }}
+                >
+                  <UserPlus className="size-4" aria-hidden="true" />
+                  Créer un compte
+                </Button>
+              )}
               {/* `active` is the tone that asks for attention — see `ui/status-tone.ts`; there is no
                   separate "warning" tone and inventing a seventh colour is how the four private palettes
                   it replaced came about. */}
@@ -642,6 +732,87 @@ export function UserManagement() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/*
+        « Créer un compte » (US-3). No password field, deliberately: the server mints one, so an admin cannot
+        set a weak shared secret, and the account is forced to replace it at first login. Not a `Sheet` below
+        `md:` — three short fields is a light surface, not a data-entry one (§ 5).
+      */}
+      <Dialog open={createOpen} onOpenChange={(open) => !creating && setCreateOpen(open)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Créer un compte</DialogTitle>
+            <DialogDescription>
+              Le mot de passe est généré et affiché une seule fois. La personne devra le changer à sa première
+              connexion.
+            </DialogDescription>
+          </DialogHeader>
+          <FormErrorBanner message={createError} />
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="create-user-fullname">Nom complet</Label>
+              <Input
+                id="create-user-fullname"
+                value={createFullName}
+                onChange={(e) => setCreateFullName(e.target.value)}
+                autoComplete="off"
+                disabled={creating}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="create-user-email">Email</Label>
+              <Input
+                id="create-user-email"
+                type="email"
+                value={createEmail}
+                onChange={(e) => setCreateEmail(e.target.value)}
+                autoComplete="off"
+                disabled={creating}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="create-user-role">Rôle</Label>
+              <Select
+                value={createRole}
+                onValueChange={(value) => setCreateRole(value as UserRole)}
+                disabled={creating}
+              >
+                <SelectTrigger id="create-user-role">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {USER_ROLES.map((role) => (
+                    <SelectItem key={role} value={role}>
+                      {USER_ROLE_LABELS_FR[role]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Le compte donne accès aux dossiers des patients. Le rôle décide de ce qu&apos;il peut consulter.
+              </p>
+            </div>
+          </div>
+          {/* `coarse:h-11` — the default Button is `h-9` (36 px), under the § 2 floor on a finger. */}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              className="coarse:h-11"
+              onClick={() => setCreateOpen(false)}
+              disabled={creating}
+            >
+              Annuler
+            </Button>
+            <Button
+              className="coarse:h-11"
+              onClick={submitCreate}
+              disabled={creating || !createEmail.trim() || !createFullName.trim()}
+            >
+              {creating ? "Création…" : "Créer le compte"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Temp password display (AC-5.2) — shown once for the admin to relay */}
       <Dialog open={tempPassword !== null} onOpenChange={(open) => !open && setTempPassword(null)}>

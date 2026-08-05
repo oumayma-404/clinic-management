@@ -55,7 +55,8 @@ public sealed class DeploymentProfile
         bool runsStartupBackfills,
         bool exposesTrustEndpoints,
         bool hasLocalDbTooling,
-        bool exposesMetaOnboarding)
+        bool exposesMetaOnboarding,
+        bool allowsSelfRegistration)
     {
         Kind = kind;
         UsesLocalAccounts = usesLocalAccounts;
@@ -70,6 +71,7 @@ public sealed class DeploymentProfile
         ExposesTrustEndpoints = exposesTrustEndpoints;
         HasLocalDbTooling = hasLocalDbTooling;
         ExposesMetaOnboarding = exposesMetaOnboarding;
+        AllowsSelfRegistration = allowsSelfRegistration;
     }
 
     /// <summary>Which topology this install is.</summary>
@@ -110,6 +112,18 @@ public sealed class DeploymentProfile
 
     /// <summary>Meta's WhatsApp Embedded Signup is reachable, so a clinic can connect its own WhatsApp Business account.</summary>
     public bool ExposesMetaOnboarding { get; }
+
+    /// <summary>
+    /// Staff may mint their own account by typing the clinic's join code (<c>POST /api/auth/register</c>).
+    ///
+    /// <para>⚠️ Deliberately <b>not</b> <see cref="UsesLocalAccounts"/>, which is what gated it before US-3 and is
+    /// true in both account-owning profiles. The clinic code is <b>six characters</b> over a 36-symbol alphabet,
+    /// shown on a settings screen and known to everyone who ever worked at the practice. On a LAN that is a gate,
+    /// because reaching the endpoint at all means being inside the surgery; over the internet it is a password
+    /// everybody has. Where this is false, an admin creates the account instead
+    /// (<c>CreateClinicUserCommand</c>) and hands over a one-time password.</para>
+    /// </summary>
+    public bool AllowsSelfRegistration { get; }
 
     /// <summary>
     /// Resolves the profile from configuration.
@@ -166,7 +180,8 @@ public sealed class DeploymentProfile
             runsStartupBackfills: false,
             exposesTrustEndpoints: true,
             hasLocalDbTooling: true,
-            exposesMetaOnboarding: false),
+            exposesMetaOnboarding: false,
+            allowsSelfRegistration: true),
 
         DeploymentKind.HostedMultiTenant => new DeploymentProfile(
             kind,
@@ -182,7 +197,10 @@ public sealed class DeploymentProfile
             runsStartupBackfills: true,
             exposesTrustEndpoints: false,
             hasLocalDbTooling: false,
-            exposesMetaOnboarding: true),
+            exposesMetaOnboarding: true,
+            // The only capability where HostedMultiTenant differs from SelfHostedLan while sharing its login
+            // provider: an operator provisions the clinic and its admin creates the staff (US-3).
+            allowsSelfRegistration: false),
 
         DeploymentKind.CloudBrowser => new DeploymentProfile(
             kind,
@@ -197,7 +215,8 @@ public sealed class DeploymentProfile
             runsStartupBackfills: true,
             exposesTrustEndpoints: false,
             hasLocalDbTooling: false,
-            exposesMetaOnboarding: true),
+            exposesMetaOnboarding: true,
+            allowsSelfRegistration: false),
 
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unhandled deployment kind.")
     };

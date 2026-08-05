@@ -25,6 +25,16 @@ if (args.Length > 0 && string.Equals(args[0], AdminPasswordResetCommand.CommandN
     return await AdminPasswordResetCommand.RunAsync(args);
 }
 
+// Create clinic #N and its first administrator, printing a one-time password (multi-tenant-cloud US-3). The HTTP
+// equivalent, POST /api/auth/setup, is loopback-gated (right for a clinic's own PC, impossible over the internet)
+// AND a one-time bootstrap, so it can create an install's first clinic and never its second. Usage:
+//   ClinicManagement.API.exe provision-clinic --name <nom> --admin-email <email> --admin-name <nom complet>
+// Hosted: docker exec clinic-api-prod dotnet ClinicManagement.API.dll provision-clinic …
+if (args.Length > 0 && string.Equals(args[0], ProvisionClinicCommand.CommandName, StringComparison.OrdinalIgnoreCase))
+{
+    return await ProvisionClinicCommand.RunAsync(args);
+}
+
 // Idempotent HTTPS-cert provisioning (Server Installer Reliability): a one-shot console command that
 // generates (or reuses) the CA + server cert into .local/ and exits, without starting the web server or
 // touching the DB. The installer runs this BEFORE starting the API service so the service's first boot
@@ -543,7 +553,13 @@ try
     app.UseRateLimiter();
 
     app.UseMiddleware<ExceptionMiddleware>();
-    
+
+    // A shell below the operator's floor is refused here, BEFORE authentication, so its login 426s rather than
+    // 401ing — the client reads 401 as « signed out », and AC-33 requires « mettez à jour » instead. Emits the
+    // canonical { error } body so ExceptionMiddleware's contract is not shadowed. Every profile: a client too
+    // old for the server is too old everywhere.
+    app.UseMiddleware<ClinicManagement.API.Middleware.ClientVersionMiddleware>();
+
     app.UseAuthentication();
     app.UseAuthorization();
 

@@ -11,8 +11,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Building2, ChevronRight, CheckCircle2 } from "lucide-react"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { clinicsApi, type JoinClinicRequest } from "@/lib/api/clinics"
+import { ApiError } from "@/lib/api/client"
 import { useSession } from "@/lib/auth/session"
 import { getErrorMessage } from "@/lib/errors"
+import JoinUnavailable from "@/components/join-unavailable"
 
 import { DOCTOR_SPECIALTIES, specialtyLabel } from "@/lib/specialties"
 
@@ -35,6 +37,10 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
    * what happened and what has to happen next.
    */
   const [registered, setRegistered] = useState(false)
+
+  // US-3: this deployment has no self-registration at all. Distinct from `error` — nothing the person typed is
+  // wrong, so a banner above a form they should retry would be the wrong shape.
+  const [selfRegistrationClosed, setSelfRegistrationClosed] = useState(false)
 
   // Local (offline) self-registration account fields.
   const [regFullName, setRegFullName] = useState("")
@@ -111,6 +117,14 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
       // Redirect to app after successful join
       window.location.href = "/"
     } catch (err) {
+      // US-3: `register` 404s where self-registration is closed. The page probes for that and normally never
+      // renders this wizard there — this is the backstop for the one case it cannot cover, a probe that failed
+      // on a deployment that really has closed it. An « introuvable » toast would blame the clinic code.
+      if (isLocalMode && err instanceof ApiError && err.status === 404) {
+        setSelfRegistrationClosed(true)
+        setIsLoading(false)
+        return
+      }
       // Single formatting point (lib/errors) — same reason as the setup wizard.
       setError(getErrorMessage(err, "Échec de l'adhésion à la clinique. Veuillez réessayer."))
       console.error("Error joining clinic:", err)
@@ -134,6 +148,10 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
    * one fact that would explain it — an admin has to let them in — is never stated. Nothing here is actionable
    * by them, which is exactly what it has to say.
    */
+  if (selfRegistrationClosed) {
+    return <JoinUnavailable />
+  }
+
   if (registered) {
     return (
       <div className="min-h-dvh bg-background flex items-center justify-center p-6">

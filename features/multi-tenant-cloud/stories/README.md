@@ -82,7 +82,7 @@ graph TD
 
 | Story | Layer | Name | Status | Depends On |
 |-------|-------|------|--------|------------|
-| 1 | Full | [Hosted multi-tenant profile](story-1-full-hosted-multi-tenant.md) | in-progress — **Parts A + B implemented** | — |
+| 1 | Full | [Hosted multi-tenant profile](story-1-full-hosted-multi-tenant.md) | in-progress — **Parts A + B + C implemented** | — |
 
 ### Internal parts (the resumable unit)
 

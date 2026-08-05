@@ -5,7 +5,9 @@ using ClinicManagement.Application.Features.Users.Queries;
 using ClinicManagement.Application.Features.Users.Commands;
 using ClinicManagement.Application.Common.Authorization;
 using ClinicManagement.API.Models;
+using ClinicManagement.Infrastructure.Deployment;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.Extensions.Configuration;
 
 using ClinicManagement.Domain.Common;
 
@@ -17,10 +19,12 @@ namespace ClinicManagement.API.Controllers;
 public class UsersController : ApiControllerBase
 {
     private readonly IMediator _mediator;
+    private readonly IConfiguration _configuration;
 
-    public UsersController(IMediator mediator)
+    public UsersController(IMediator mediator, IConfiguration configuration)
     {
         _mediator = mediator;
+        _configuration = configuration;
     }
 
     /// <summary>
@@ -40,6 +44,39 @@ public class UsersController : ApiControllerBase
     {
         var query = new ListUsersQuery { Page = page, PageSize = pageSize, SearchTerm = search };
         var result = await _mediator.Send(query);
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+
+        return Ok(result.Value);
+    }
+
+    /// <summary>
+    /// Create a colleague's account and return a one-time password to relay (<c>multi-tenant-cloud</c> US-3).
+    ///
+    /// <para>404s where the deployment does not own its accounts: an Auth0 install creates users in Auth0, and a
+    /// password-backed row minted here would be an account nobody could log into. Gated on
+    /// <c>UsesLocalAccounts</c> and <b>not</b> on <c>AllowsSelfRegistration</c> — those are opposite questions.
+    /// This action is what a profile with self-registration closed uses <i>instead</i>, so it must stay reachable
+    /// in both account-owning profiles.</para>
+    /// </summary>
+    [HttpPost]
+    public async Task<ActionResult<CreatedClinicUserDto>> CreateUser([FromBody] CreateClinicUserRequest request)
+    {
+        if (!DeploymentProfile.Resolve(_configuration).UsesLocalAccounts)
+        {
+            return NotFound();
+        }
+
+        var command = new CreateClinicUserCommand
+        {
+            Email = request.Email,
+            FullName = request.FullName,
+            Role = request.Role
+        };
+        var result = await _mediator.Send(command);
 
         if (result.IsFailure)
         {

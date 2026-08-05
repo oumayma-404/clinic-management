@@ -46,7 +46,11 @@ public class DeploymentProfileTests
             [nameof(DeploymentProfile.RunsStartupBackfills)] = (false, true, true),
             [nameof(DeploymentProfile.ExposesTrustEndpoints)] = (true, false, false),
             [nameof(DeploymentProfile.HasLocalDbTooling)] = (true, false, false),
-            [nameof(DeploymentProfile.ExposesMetaOnboarding)] = (false, true, true)
+            [nameof(DeploymentProfile.ExposesMetaOnboarding)] = (false, true, true),
+            // US-3. ⚠️ The one capability where HostedMultiTenant parts company with SelfHostedLan while sharing
+            // its login provider — so it is also the one the old `UsesLocalAccounts` guard on `register` got
+            // wrong. R-2 still holds: the two shipped kinds answer exactly as IsLocalMode did.
+            [nameof(DeploymentProfile.AllowsSelfRegistration)] = (true, false, false)
         };
 
     private static IEnumerable<PropertyInfo> Capabilities() =>

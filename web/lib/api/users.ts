@@ -51,6 +51,19 @@ export interface ResetPasswordResultDto {
   temporaryPassword: string;
 }
 
+/**
+ * Mirrors the backend `CreatedClinicUserDto` (US-3) — an admin-created account plus the one-time password.
+ * Deliberately not `ClinicUserDto & { temporaryPassword }`: the password is returned exactly once and must not
+ * travel on the type the users list is built from.
+ */
+export interface CreatedClinicUserDto {
+  userId: string;
+  email?: string;
+  fullName?: string;
+  role: string;
+  temporaryPassword: string;
+}
+
 export const usersApi = {
   // AC-5.1: list the clinic's users with account status (admin-only endpoint).
   list: async (): Promise<ClinicUserDto[]> => {
@@ -63,6 +76,17 @@ export const usersApi = {
    */
   listPaged: async (params: PageParams): Promise<ClinicUsersPageDto> =>
     apiGet<ClinicUsersPageDto>('/users', params),
+
+  /**
+   * US-3: create a colleague's account. The server mints the password — there is no field for one, so an admin
+   * cannot choose a weak shared one, and the account is forced to replace it at first login.
+   *
+   * The clinic comes from the caller's own record, never the request: an admin creates staff for their own
+   * practice and nowhere else. 404s in Cloud, where Auth0 owns identities.
+   */
+  create: async (data: { email: string; fullName: string; role: UserRole }): Promise<CreatedClinicUserDto> => {
+    return apiPost<CreatedClinicUserDto>('/users', data);
+  },
 
   // AC-5.2: reset a user's password → temporary password returned once for the admin to relay.
   resetPassword: async (id: string): Promise<ResetPasswordResultDto> => {

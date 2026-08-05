@@ -293,87 +293,43 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
                 + "Connectez-vous, ou rejoignez le cabinet avec son code.");
         }
 
-        if (string.IsNullOrWhiteSpace(request.Name))
-        {
-            return Result<ClinicDto>.Failure("Le nom du cabinet est requis.");
-        }
-        if (string.IsNullOrWhiteSpace(request.Email))
-        {
-            return Result<ClinicDto>.Failure("L'email est requis.");
-        }
-        if (string.IsNullOrWhiteSpace(request.FullName))
-        {
-            return Result<ClinicDto>.Failure("Le nom complet est requis.");
-        }
-        // FR-B2: password policy — minimum length (enforced at the API).
+        // FR-B2: password policy — minimum length (enforced at the API). Stays here rather than in the shared
+        // provisioning helper: it applies to a password a human typed, and `provision-clinic` generates one.
         if (request.Password!.Length < PasswordPolicy.MinLength)
         {
             return Result<ClinicDto>.Failure($"Le mot de passe doit contenir au moins {PasswordPolicy.MinLength} caractères.");
         }
 
-        // Single-dentist cabinet: when DoctorInfo is supplied the admin is also the practitioner, so a full
-        // name is required (mirrors the Cloud CreateClinic + JoinClinic doctor paths) — never persist a
-        // nameless Doctor. Absent DoctorInfo → an admin-only account, no practitioner validation.
-        if (request.DoctorInfo != null && !string.IsNullOrWhiteSpace(request.DoctorInfo.Specialty)
-            && (string.IsNullOrWhiteSpace(request.DoctorInfo.FirstName) || string.IsNullOrWhiteSpace(request.DoctorInfo.LastName)))
-        {
-            return Result<ClinicDto>.Failure("Le prénom et le nom du praticien sont requis.");
-        }
-
-        // Generate a unique clinic code for later staff self-registration.
-        var code = ClinicCodeGenerator.Generate();
-        while (await _clinicRepository.CodeExistsAsync(code, cancellationToken))
-        {
-            code = ClinicCodeGenerator.Generate();
-        }
-
-        var clinic = new Clinic(
-            Guid.NewGuid(),
-            request.Name,
-            request.Address,
-            request.Phone,
-            request.Email,
-            code,
-            request.City);
-
-        // Persist the onboarding wizard's working hours (finding #16), normalized like UpdateClinicCommand.
-        var normalizedWorkingHours = WorkingHoursSerializer.Normalize(request.WorkingHoursJson);
-        if (normalizedWorkingHours != null)
-        {
-            clinic.SetWorkingHours(normalizedWorkingHours);
-        }
-
-        await _clinicRepository.AddAsync(clinic, cancellationToken);
-
-        var passwordHash = _localAuthService.HashPassword(request.Password);
-        var admin = User.CreateLocalUser(clinic.Id, "admin", request.Email, passwordHash, request.FullName);
-        await _userRepository.AddAsync(admin, cancellationToken);
-
-        // Single-dentist cabinet: when the first admin is also the practitioner, create + link a Doctor so
-        // their document identity (cachet, CNOMDT ordre) and "Mon profil" work. The admin keeps the "admin"
-        // role; the linked Doctor is what the practitioner pages resolve by user id. Absent DoctorInfo → an
-        // admin-only account (e.g. a non-clinical office manager), unchanged.
-        if (request.DoctorInfo != null && !string.IsNullOrWhiteSpace(request.DoctorInfo.Specialty))
-        {
-            var doctor = new Doctor(
+        // US-3: the clinic + admin + linked practitioner + seeds are built by LocalClinicProvisioning, shared with
+        // the `provision-clinic` console verb. Every remaining rule of this branch (the bootstrap gate above, the
+        // password policy) is the part that is genuinely setup's and must NOT apply to the verb.
+        var provisioned = await LocalClinicProvisioning.ProvisionAsync(
+            new LocalClinicRequest(
                 Guid.NewGuid(),
-                clinic.Id,
-                request.DoctorInfo.FirstName,
-                request.DoctorInfo.LastName,
-                request.DoctorInfo.Specialty,
-                request.DoctorInfo.Phone,
-                request.Email);
-            doctor.LinkToUser(admin.Id);
-            await _doctorRepository.AddAsync(doctor, cancellationToken);
+                request.Name,
+                request.Email,
+                _localAuthService.HashPassword(request.Password),
+                request.FullName,
+                MustChangePassword: false,
+                request.Address,
+                request.Phone,
+                request.City,
+                request.DoctorInfo,
+                request.WorkingHoursJson),
+            _clinicRepository,
+            _userRepository,
+            _doctorRepository,
+            _procedureTypeRepository,
+            _unitOfWork,
+            _clinicCatalogSeeder,
+            cancellationToken);
+
+        if (provisioned.IsFailure)
+        {
+            return Result<ClinicDto>.Failure(provisioned.Error ?? ErrorMessages.Generic);
         }
 
-        // Seed the clinic's procedure menu with the common Tunisian dental procedures (all editable).
-        await SeedDefaultProcedureTypesAsync(clinic.Id, cancellationToken);
-
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-        // Seed the clinic's reference catalogs (CNAM / medications / dental acts) with the shared default (#5).
-        await SeedClinicCatalogsAsync(clinic.Id, cancellationToken);
+        var clinic = provisioned.Value!.Clinic;
 
         return Result<ClinicDto>.Success(new ClinicDto
         {

@@ -142,7 +142,7 @@ All app pages are client components (`"use client"`) that render `DashboardSideb
 | `/users` | `app/users/page.tsx` | **Local, admin-only**: user management + clinic-code regenerate (`UserManagement`) |
 | `/login` | `app/login/page.tsx` | Mode-aware: Auth0 sign-in landing (cloud) **or** a local email+password form (local) |
 | `/setup` | `app/setup/page.tsx` | First-run wizard: create a clinic (`SetupWizard`); local mode also collects the admin account |
-| `/join` | `app/join/page.tsx` | Join existing clinic via code (`JoinWizard`); local mode skips the session gate (self-registration) |
+| `/join` | `app/join/page.tsx` | Join existing clinic via code (`JoinWizard`); local mode skips the session gate (self-registration). Since US-3 it first asks `authApi.getMode()` whether this deployment still *has* self-registration and, when it does not, renders **`join-unavailable.tsx`** — never a 404 (§ 0: name the alternative). A failed probe falls through to the form on purpose (on a LAN this page is the normal way in, and refusing on a network hiccup is the worse error); `JoinWizard` turns the register endpoint's own 404 into the same explanation as the backstop |
 | `/change-password` | `app/change-password/page.tsx` | **Local**: forced/voluntary password change (`ChangePasswordForm`) |
 
 ## Conventions

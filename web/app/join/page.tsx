@@ -9,8 +9,10 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Building2, ArrowRight, AlertCircle } from "lucide-react"
 import { clinicsApi } from "@/lib/api/clinics"
+import { authApi } from "@/lib/api/auth"
 import { useAuthToken } from "@/lib/hooks/use-auth-token"
 import JoinWizard from "@/components/join-wizard"
+import JoinUnavailable from "@/components/join-unavailable"
 
 export default function JoinClinicPage() {
   const router = useRouter()
@@ -21,13 +23,26 @@ export default function JoinClinicPage() {
   const [error, setError] = useState<string | null>(null)
   const [isChecking, setIsChecking] = useState(true)
   const [showWizard, setShowWizard] = useState(false)
+  const [selfRegistrationClosed, setSelfRegistrationClosed] = useState(false)
 
   useEffect(() => {
     let cancelled = false
 
     const checkUserStatus = async () => {
-      // Local self-registration is open (no session yet) — the clinic code is the gate.
+      // Local self-registration needs no session — the clinic code is the gate. But whether that gate exists at
+      // all is a deployment capability, and `mode` cannot answer it: AUTH_MODE reads `local` both on a clinic's
+      // own PC and on the hosted backend (US-3). Ask the server.
       if (mode === "local") {
+        try {
+          const { selfRegistrationEnabled } = await authApi.getMode()
+          if (cancelled) return
+          setSelfRegistrationClosed(!selfRegistrationEnabled)
+        } catch (err) {
+          // The probe failing is not evidence that registration is closed, and on a LAN — where this page is
+          // the normal way in — refusing on a network hiccup would be the worse error. Fall through to the form;
+          // JoinWizard turns the register endpoint's own 404 into the same explanation if it really is closed.
+          console.error("Could not read the deployment's auth capabilities:", err)
+        }
         if (!cancelled) setIsChecking(false)
         return
       }
@@ -101,6 +116,12 @@ export default function JoinClinicPage() {
         </div>
       </div>
     )
+  }
+
+  // Self-registration is closed on this deployment — say what to do instead rather than offering a form the
+  // server will refuse (§ 0: never remove a capability silently).
+  if (selfRegistrationClosed) {
+    return <JoinUnavailable />
   }
 
   // Show wizard if code is entered and validated
