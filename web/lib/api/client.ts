@@ -391,6 +391,12 @@ async function handleRequest<T>(
       if (err instanceof TypeError && err.message.includes('fetch')) {
         throw new ApiError(0, NETWORK_ERROR_MESSAGE, err, ApiErrorCode.Network);
       }
+      // A fired deadline is the same event as an unreachable server, one layer down: the transport stopped
+      // answering. Reported identically so the user gets the retryable French state rather than a raw
+      // DOMException — and, crucially, so the caller's promise SETTLES and the submit button releases.
+      if (err instanceof DOMException && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
+        throw new ApiError(0, NETWORK_ERROR_MESSAGE, err, ApiErrorCode.Network);
+      }
       if (err instanceof ApiError) {
         throw err;
       }
@@ -455,6 +461,8 @@ async function fetchAccessToken(): Promise<string | null> {
   try {
     const response = await fetch('/bff/auth/token', {
       credentials: 'include', // Include cookies for session
+      // A hung token exchange blocks EVERY call behind it, so this deadline is the one that matters most.
+      signal: deadline(REQUEST_TIMEOUT_MS),
     });
     if (response.ok) {
       const data = await response.json();
@@ -508,6 +516,34 @@ export type ApiContentType = 'json' | 'none';
  *
  * The shell version is read as a **feature detection**: absent bridge ⇒ no header ⇒ byte-identical to before.
  */
+/**
+ * Every request gets a deadline, because on a phone a connection does not fail — it hangs.
+ *
+ * ⚠️ **Found on a physical device: the « Enregistrer » button froze permanently.** With no timeout, a `fetch`
+ * whose transport dies mid-flight never settles: the promise stays pending, so the caller's `finally` never
+ * runs, the button stays disabled, no toast appears and no retry is possible. The user's only way out is to
+ * kill the app — and on a form that is a patient's record typed twice. A browser on a LAN almost never shows
+ * this; a phone changing cell, losing Wi-Fi or crossing a dead spot shows it routinely, which is exactly the
+ * device this product is being taken onto.
+ *
+ * A timeout that fires is reported as the **network** error, not a new kind: it is indistinguishable to the
+ * user from the server being unreachable, it is retryable, and `errors.ts` already words that case.
+ */
+const REQUEST_TIMEOUT_MS = 20_000
+
+/**
+ * Uploads get much longer. A panoramique over a slow uplink legitimately takes minutes, and killing a transfer
+ * that is still making progress would be a worse failure than the one this guards against.
+ */
+const UPLOAD_TIMEOUT_MS = 180_000
+
+/** `undefined` where the runtime lacks it, so an old renderer loses the deadline rather than every request. */
+function deadline(ms: number): AbortSignal | undefined {
+  return typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+    ? AbortSignal.timeout(ms)
+    : undefined
+}
+
 export function apiHeaders(accessToken?: string | null, contentType: ApiContentType = 'json'): HeadersInit {
   const headers: Record<string, string> = {};
 
@@ -546,6 +582,7 @@ export async function apiGet<T>(endpoint: string, params?: Record<string, any>, 
     method: 'GET',
     headers: apiHeaders(token),
     credentials: 'include',
+    signal: deadline(REQUEST_TIMEOUT_MS),
   }));
 }
 
@@ -555,6 +592,7 @@ export async function apiPost<T>(endpoint: string, data: any, accessToken?: stri
     headers: apiHeaders(token),
     body: JSON.stringify(data),
     credentials: 'include',
+    signal: deadline(REQUEST_TIMEOUT_MS),
   }));
 }
 
@@ -564,6 +602,7 @@ export async function apiPut<T>(endpoint: string, data: any, accessToken?: strin
     headers: apiHeaders(token),
     body: JSON.stringify(data),
     credentials: 'include',
+    signal: deadline(REQUEST_TIMEOUT_MS),
   }));
 }
 
@@ -572,6 +611,7 @@ export async function apiDelete<T>(endpoint: string, accessToken?: string | null
     method: 'DELETE',
     headers: apiHeaders(token),
     credentials: 'include',
+    signal: deadline(REQUEST_TIMEOUT_MS),
   }));
 }
 
@@ -584,6 +624,7 @@ export async function apiPostFormData<T>(endpoint: string, formData: FormData, a
     headers: apiHeaders(token, 'none'),
     body: formData,
     credentials: 'include',
+    signal: deadline(UPLOAD_TIMEOUT_MS),
   }));
 }
 
@@ -593,6 +634,7 @@ export async function apiPutFormData<T>(endpoint: string, formData: FormData, ac
     headers: apiHeaders(token, 'none'),
     body: formData,
     credentials: 'include',
+    signal: deadline(UPLOAD_TIMEOUT_MS),
   }));
 }
 
