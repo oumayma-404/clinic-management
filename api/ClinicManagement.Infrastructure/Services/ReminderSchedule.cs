@@ -106,6 +106,34 @@ public static class ReminderSchedule
     /// </summary>
     private static readonly TimeSpan JustBeforeQuietHours = TimeSpan.FromMinutes(1);
 
+    /// <summary>
+    /// Moves a send inside the quiet window forward to the moment it closes, and leaves anything outside alone
+    /// (spec AC-46).
+    ///
+    /// <para><b>Later only — deliberately the opposite of <see cref="ApplyQuietHours"/>, which prefers earlier.</b>
+    /// That one places a reminder about a <i>future</i> visit, so pulling back to 21:00 the previous evening still
+    /// reaches the patient in time. An OS push announces something that has <i>just happened</i>, so there is no
+    /// earlier to move to: the only choices are 08:00 or a banner at 03:00.</para>
+    ///
+    /// <para>Shares this file's window arithmetic rather than recomputing it, because the wrapping window
+    /// (21:00 → 08:00 crosses midnight) is where the mistakes are — and a second copy would have to rediscover
+    /// that the start hour is itself quiet.</para>
+    /// </summary>
+    public static DateTime DeferPastQuietHours(DateTime candidateUtc, (int StartHour, int EndHour) quietHoursLocal)
+    {
+        // Equal bounds mean "no quiet hours" — the only way to switch the floor off, and it must not silently
+        // become a 24-hour window.
+        if (quietHoursLocal.StartHour == quietHoursLocal.EndHour)
+        {
+            return candidateUtc;
+        }
+
+        var local = ClinicClock.ToClinicLocal(candidateUtc);
+        return IsQuiet(local, quietHoursLocal)
+            ? ClinicClock.ToUtc(NextQuietEnd(local, quietHoursLocal))
+            : candidateUtc;
+    }
+
     private static DateTime? ApplyQuietHours(
         DateTime candidateUtc,
         DateTime appointmentUtc,

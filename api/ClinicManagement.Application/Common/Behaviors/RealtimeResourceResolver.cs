@@ -22,9 +22,14 @@ public static class RealtimeResourceResolver
     // would tell every colleague's browser to refetch theirs. Per-user UI state is not clinic data, and the
     // clinic-wide bus is the wrong channel for it at any volume. (The dashboard *reads* still subscribe to the
     // nine data keys their figures depend on; that is unaffected — this excludes emitting, not listening.)
+    //
+    // "PushDevices" is the Dashboard case one step further out: its commands record which PHONE one user is
+    // signed in on. A colleague registering their handset changes nothing on anybody's screen, so a broadcast
+    // would tell every browser in the clinic to refetch over a fact none of them render — and would additionally
+    // announce, clinic-wide, that somebody just signed in on a device.
     private static readonly HashSet<string> ExcludedAreas = new(StringComparer.OrdinalIgnoreCase)
     {
-        "Auth", "AI", "Backup", "Connectivity", "Dashboard"
+        "Auth", "AI", "Backup", "Connectivity", "Dashboard", "PushDevices"
     };
 
     public static string? Resolve(Type requestType)

@@ -24,6 +24,11 @@ public static class Extensions
         // Resolved once: every branch below asks a named capability of it rather than re-reading Auth:Mode.
         var profile = DeploymentProfile.Resolve(configuration);
 
+        // Registered so a service can ask a capability at request time. It is immutable and derived from
+        // configuration read at startup, so a singleton is the honest lifetime — and the alternative (each
+        // consumer calling Resolve again) would re-parse the key and could throw from inside a request.
+        services.AddSingleton(profile);
+
         // Database
         var connectionString = configuration.GetConnectionString("DefaultConnection");
 
@@ -100,6 +105,9 @@ public static class Extensions
         services.AddScoped<IWaitingListRepository, WaitingListRepository>();
         services.AddScoped<ILabWorkOrderRepository, LabWorkOrderRepository>();
         services.AddScoped<IRecurringAppointmentRepository, RecurringAppointmentRepository>();
+        // Part 6 — the OS-push registry and its outbox.
+        services.AddScoped<IDeviceRegistrationRepository, DeviceRegistrationRepository>();
+        services.AddScoped<IPushDeliveryRepository, PushDeliveryRepository>();
 
         // HttpClient for Auth0 Management API
         services.AddHttpClient();
@@ -227,6 +235,34 @@ public static class Extensions
         services.AddScoped<IReminderScheduler, ReminderScheduler>();
         services.AddScoped<IReminderChannelSender, HttpSmsSender>();
         services.AddScoped<IReminderChannelSender, WhatsAppSender>();
+
+        // OS push (mobile-native-shells Part 6).
+        //   - IOsPushAvailability is the single « can this installation push to this platform? » — the AND of the
+        //     profile's Kind-derived PermitsOsPush and the per-install credentials. Asked by the registration
+        //     endpoint, the fan-out, the dispatcher and the settings surface, so all four agree.
+        //   - The senders are a set, routed by platform, exactly as the reminder channels are by channel.
+        //   - The fan-out DECORATES INotificationGenerator, which AddApplication registered before this method
+        //     ran: one hook reaches every notification category rather than twelve edited call sites. The inner
+        //     instance is built explicitly because there is no decoration helper in this solution (no Scrutor),
+        //     and an explicit factory is clearer here than adding a package for one registration.
+        services.AddSingleton<IOsPushAvailability, OsPushAvailability>();
+        services.AddScoped<IPushSender, FcmPushSender>();
+        services.AddScoped<IPushSender, ApnsPushSender>();
+        services.AddScoped<INotificationGenerator>(provider => new PushNotificationGeneratorDecorator(
+            new NotificationGenerator(
+                provider.GetRequiredService<IStaffNotificationRepository>(),
+                provider.GetRequiredService<IDoctorRepository>(),
+                provider.GetRequiredService<IUnitOfWork>(),
+                provider.GetRequiredService<IRealtimeNotifier>(),
+                provider.GetRequiredService<ILogger<NotificationGenerator>>()),
+            provider.GetRequiredService<IUserRepository>(),
+            provider.GetRequiredService<IDoctorRepository>(),
+            provider.GetRequiredService<IDeviceRegistrationRepository>(),
+            provider.GetRequiredService<IPushDeliveryRepository>(),
+            provider.GetRequiredService<IUnitOfWork>(),
+            provider.GetRequiredService<IOsPushAvailability>(),
+            configuration,
+            provider.GetRequiredService<ILogger<PushNotificationGeneratorDecorator>>()));
 
         // Outbound document emails — the SMTP sender for the document-email outbox (DocumentEmailJob). It reads
         // its host/credentials/from-identity from the same IReminderSettingsProvider the two message channels

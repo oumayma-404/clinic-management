@@ -172,4 +172,18 @@ public sealed record DataMigrationCounts(
     /// appointment, or one booked with no practitioner, is legitimately unattributed and is not drift.
     /// </para>
     /// </summary>
-    int? RowsAttributableFromAppointmentButUnattributed);
+    int? RowsAttributableFromAppointmentButUnattributed,
+    /// <summary>
+    /// Queued OS pushes whose <c>ClinicId</c> disagrees with the clinic of the device they are addressed to
+    /// (<c>mobile-native-shells</c> Part 6).
+    /// <para>
+    /// The only part of that migration worth a hand-written line, and the reason is the same shape as the cheque
+    /// invariant above: the two tables, their eight indexes and their three foreign keys are diffed against the
+    /// catalog for free by reading the EF model, but « a push belongs to the clinic of the device it goes to » is a
+    /// relationship <b>between</b> two independent FKs that no constraint expresses. A non-zero count is a
+    /// cross-clinic delivery waiting to happen: the dispatcher compares the two and fails the row, but a
+    /// disagreement means some write path produced one, and on a lock screen there is no request-time check left to
+    /// catch it. Null before the tables exist.
+    /// </para>
+    /// </summary>
+    int? PushDeliveriesWithMismatchedClinic);

@@ -205,6 +205,8 @@ Concrete EF Core impls of Domain repo interfaces. Pattern: ctor-inject `Applicat
 | `IWaitingListRepository` | `WaitingListRepository` (salle d'attente) |
 | `ILabWorkOrderRepository` | `LabWorkOrderRepository` (dental-lab) |
 | `IRecurringAppointmentRepository` | `RecurringAppointmentRepository` |
+| `IDeviceRegistrationRepository` | `DeviceRegistrationRepository` (P6). Its `GetByTokenAcrossClinicsAsync` is the only deliberately `IgnoreQueryFilters()` read here besides the seeder's — see the Domain guide for why that is *required* rather than lax |
+| `IPushDeliveryRepository` | `PushDeliveryRepository` (P6). The due scan mirrors `NotificationRepository`'s per-clinic fairness bound predicate for predicate |
 
 ## External Services (`Services/`, `Storage/`, `Security/`, `Auth/`)
 
@@ -236,6 +238,38 @@ Concrete EF Core impls of Domain repo interfaces. Pattern: ctor-inject `Applicat
   `search_patient`, `view_patient`, `list_appointments`, `cancel_appointment`. Scoped to the caller's clinic via
   `IClinicContext` + `IUserRepository`.
 - *(The Gemini `GoogleAIService` and the placeholder `PatientSummaryService` were removed as dead code.)*
+
+### OS push notifications (`mobile-native-shells` P6)
+- **`OsPushAvailability`** (`IOsPushAvailability`, **Singleton**) — the one « can this install push to this
+  platform? »: `DeploymentProfile.PermitsOsPush(platform)` (kind only) **AND** `PushConfig`'s credentials. It also
+  owns the French *reason* a platform is unavailable, so the registration refusal, the parked row's message and the
+  settings sentence are one wording rather than three.
+- **`PushConfig`** + **`ResolvedPushCredentials`** — static accessors over the `Push` section, on
+  `RemindersConfig`/`TtnConfig`'s pattern. **Per install, not per clinic**: one mobile app means one Firebase
+  project and one Apple team. Secrets expected from env (`Push__Fcm__ServiceAccountKey`,
+  `Push__Apns__PrivateKey`); `IsConfigured` is the single sendability predicate every layer reads.
+- **`IPushSender`** + `FcmPushSender`/`ApnsPushSender` over a shared **`HttpPushSender`** (15 s-bounded, never
+  throws). Four outcomes, and **`TokenInvalid` is load-bearing**: FCM's `UNREGISTERED` / APNs' `410 Gone` is
+  terminal *per device*, so the dispatcher fails the row **and** deactivates the registration — as a transient
+  failure it would burn every future notification's retry budget for an app that no longer exists. Recognising it
+  is the one genuinely per-platform thing, hence the abstract `IsTokenInvalid` hook. APNs carries its topic and
+  priority as **headers**, which is why the base takes an extra-headers argument.
+- **`PushNotificationGeneratorDecorator`** (`INotificationGenerator`) — queues push alongside the in-app feed by
+  **decorating** the generator: one hook reaches every category the feed has or will have, so a notification added
+  later cannot be the one that silently never pushes (`fixes-dont-propagate`). The inner generator is awaited
+  **first** and the fan-out runs inside a swallow-and-log — the whole chain is a post-commit side effect of an
+  operation that already committed, so a push failure must cost neither the operation nor the feed row (AC-55).
+  ⚠️ It lives **here rather than beside `NotificationGenerator`** because it reads the operator's quiet-hours
+  window from configuration — the same reason `ReminderScheduler`, the other post-commit best-effort writer
+  implementing an Application interface, is here. ⚠️ Its audience is the feed's rule (actor excluded, a targeted row
+  only its target, else the clinic) with **one deliberate departure**: inactive accounts are dropped. The feed's SQL
+  does not test `IsActive` because it does not need to — a deactivated account is refused on every request and can
+  never read the feed — but its *device* stays registered, because somebody who was switched off does not sign out,
+  and a banner on a former employee's phone is the difference that would be visible.
+- **`ReminderSchedule.DeferPastQuietHours`** — the push floor, sharing this file's wrapping-window arithmetic.
+  ⚠️ **Later only, the opposite of `ApplyQuietHours` beside it**, which prefers earlier: that one places a reminder
+  about a *future* visit, so 21:00 the previous evening still reaches the patient; a push announces something that
+  has *just happened*, so the only choices are 08:00 or a banner at 03:00.
 
 ### Connectivity (Local-mode offline UX)
 - **`InternetProbe`** (`IInternetProbe`, **Singleton**) — judges the **server's** internet egress (LAN clients

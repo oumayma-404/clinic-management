@@ -55,6 +55,21 @@ Infrastructure/ → service/repo/persistence tests: renderers, senders, e-invoic
 - **`Api/HealthCheckTests.cs`** — the grading, which is the whole substance: storage down is **`Degraded`** (still 200) and the database is `Unhealthy` (503). Also that storage which cannot even be **resolved** degrades rather than 500s — where MinIO is unconfigured `AddInfrastructure` deliberately registers a factory that throws, so a constructor-injected `IFileStorage` would throw while the framework was *building* the check.
 - **`Api/SecurityHeadersMiddlewareTests.cs`** — `Security:EnforceCsp` flips only the header **name**, report-only is the default in **every** profile, and a policy an upstream component already set is never overwritten (two CSP headers make the browser enforce their intersection). ⚠️ It installs a fake `IHttpResponseFeature` that keeps the `OnStarting` callbacks: `DefaultHttpContext.Response.StartAsync()` never invokes them — that is Kestrel's job — so without it the middleware looks like it writes no headers at all.
 - **`Api/Maintenance/MaintenanceDatabaseTests.cs`** — the console verbs' gate is « is a connection string configured? » and **answers the same in all three profiles** (amendment M3). Its sibling cases in `{VerifySchema,ReconcileMoney}CommandTests` were rewritten here for the same reason and are worth reading as a pair: they used to assert the refusal named `CloudBrowser`, which was the defect rather than the contract.
+- **`Features/Notifications/PushFanOutTests.cs`** + **`Api/PushDispatchJobTests.cs`** +
+  **`Features/PushDevices/DeviceRegistrationTenantIsolationTests.cs`** (`mobile-native-shells` P6). The
+  load-bearing case is `PushFanOutTests.The_Push_Label_Is_The_Feed_Rows_Own_Title`: the **real**
+  `NotificationGenerator` runs inside the **real** decorator over mocked repositories, so the `StaffNotification`
+  and the `PushDelivery` produced by one call are compared *with each other* — AC-47's « a fixed French label » and
+  AC-45's « the audience equals the feed's » are asserted against the feed rather than a retyped table, because a
+  constant in the test would be a second authority and the drift it allowed would be a lock screen saying something
+  the app does not. ⚠️ `A_Reminder_Falling_In_Quiet_Hours_Is_Deferred_While_The_Feed_Row_Is_Not` exists because the
+  obvious assertion hid a real distinction: the feed has **no** quiet-hours floor (an in-app row at 02:00 wakes
+  nobody) while the push does. Its fixtures pin the hour (13:00 / 01:00 UTC) — a `UtcNow.AddDays(5)` fixture passes
+  or fails depending on when the suite runs, which is how the first version failed. `PushDispatchJobTests` is mostly
+  about the checks that run **at send time**, since a push has no request behind it: a rebound token, a deactivated
+  account and a cancelled appointment are all things no request-time guard can still catch. The isolation class
+  states the deliberate **asymmetry** — registration crosses clinics (the token is globally unique, so a scoped
+  lookup makes a rebind a 500) while deregistration must not.
 - **`Hubs/ClinicHubTenantScopeTests.cs`** — asserts on the hub's **constructor**, because the defect it guards
   against cannot be caught behaviourally: HTTP middleware does not run per hub invocation, so a hub method reading
   a clinic-filtered entity returns an **empty result and reports success**.

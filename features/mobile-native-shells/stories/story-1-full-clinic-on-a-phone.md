@@ -60,10 +60,14 @@ _From spec (`../spec.md`) — all 77, grouped by the part that satisfies them:_
 - [ ] AC-74 — a newer shell against an older server degrades like a browser
 - [ ] AC-76 — the forced-password-change path is completable inside the shell
 
-**Part 6 — Phase 3, OS push**
-- [ ] AC-40 … AC-55 — registration incl. **rebind** on a shared device and per-platform refusal · push for the five time-critical categories only · actor excluded · audience equals the feed's · quiet hours · no identifying payload · deep-link tap · invalid token deactivates · a `Blocked` row leaves the scan · per-platform availability stated · tenant isolation · survives a restore · never fails the causing operation
-- [ ] AC-70 … AC-73 — no mode check · named policies · the job declares its cross-clinic read · `verify-schema` diffed and `reconcile-money` **empty**
-- [ ] AC-75 — permission declined or revoked leaves the app fully working, with no false claim that push is active
+**Part 6 — Phase 3, OS push** — *implemented 2026-08-05/06*
+- [x] AC-41 · AC-42 · AC-45 · AC-46 · AC-47 · AC-49 · AC-50 · AC-51 · AC-52 · AC-53 · AC-55 — rebind is one write and never a 409 · an unsupported platform is refused in French with no row created · audience equals the feed's minus the actor, asserted **against the feed** · quiet hours defer to 08:00 (and the feed row deliberately does not) · the payload is a category, a fixed label and a routing id · `TokenInvalid` deactivates the device · `Blocked` leaves the scan and returns · availability stated **per platform** in « Paramètres » · registration crosses clinics only to *move* a token, deregistration never does · a push failure neither throws nor costs the feed row
+- [~] AC-40 · AC-43 · AC-48 · AC-54 — the backend half is complete and unit-tested; **each needs a shell to register a device token** (Part 4) — owed
+- [x] AC-70 · AC-71 · AC-72 — no `IsLocalMode(`; the deployment question is `DeploymentProfile.PermitsOsPush` ANDed with credentials in `IOsPushAvailability` (DEV-9) · `PushDevicesController` carries a class-level `AnyClinicRole` · `PushDispatchJob` declares `UseSystemWide`, **proved** by reddening `SystemWideCallerCoverageTests`
+- [ ] AC-73 — **`verify-schema`/`reconcile-money` could not run and the migration is not applied**: Smart App Control turned mid-session and blocks every console verb. Owed
+- [~] AC-75 — the availability endpoint exists so a shell never prompts where push is impossible, and the settings card states it; **the OS-permission path itself is shell code** (Part 4) — owed
+
+*`[~]` = the half that exists is done and gated; the half that needs Part 4 is recorded as owed in `progress.md`, not claimed.*
 
 **Part 7 — Phase 4, native capability**
 - [ ] AC-8 — the official forms (BS1, arrêt de travail) keep a working preview and Print, or say why in French

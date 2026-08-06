@@ -102,6 +102,11 @@ public class ApplicationDbContext : DbContext
     // already rely on.
     public DbSet<BackupRun> BackupRuns { get; set; }
 
+    // OS push (mobile-native-shells Part 6). Both clinic-scoped and filtered; PushDispatchJob declares
+    // UseSystemWide to drain every clinic's queue, exactly as the reminder dispatcher does.
+    public DbSet<DeviceRegistration> DeviceRegistrations { get; set; }
+    public DbSet<PushDelivery> PushDeliveries { get; set; }
+
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
         // The clinic-scoping query filters are applied to the directly-clinic-owned AGGREGATE ROOTS — 19 of
@@ -205,6 +210,12 @@ public class ApplicationDbContext : DbContext
         // L4d — the backup ledger is clinic-owned with a NON-nullable ClinicId, so unlike AuditEntries it is
         // filtered like the rest. The hourly BackupJob declares UseSystemWide to iterate every clinic.
         modelBuilder.Entity<BackupRun>().HasQueryFilter(b => IsSystemWide || b.ClinicId == ScopedClinicId);
+        // Part 6 — the push registry and its outbox, both clinic-owned with non-nullable ClinicIds (AC-53).
+        // ⚠️ One read deliberately escapes this filter: IDeviceRegistrationRepository.GetByTokenAcrossClinicsAsync,
+        // because the token is globally unique and a clinic-scoped lookup would miss another clinic's row and turn
+        // the rebind into a unique-index violation. Its own doc comment carries why that is not a leak.
+        modelBuilder.Entity<DeviceRegistration>().HasQueryFilter(d => IsSystemWide || d.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<PushDelivery>().HasQueryFilter(p => IsSystemWide || p.ClinicId == ScopedClinicId);
 
         // Optimistic concurrency for every entity, with no schema change: map Entity<T>.Version onto
         // PostgreSQL's xmin system column. EF then appends it to the WHERE of each UPDATE/DELETE, so a row a

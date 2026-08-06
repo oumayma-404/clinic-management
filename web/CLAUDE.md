@@ -139,7 +139,7 @@ All app pages are client components (`"use client"`) that render `DashboardSideb
 | `/dental-acts` | `app/dental-acts/page.tsx` | **admin-only**: CNAM dental act codes (`DentalActsTable`) |
 | `/medications` | `app/medications/page.tsx` | **admin-only**: medication catalog for ordonnances (`MedicationCatalogTable`) |
 | `/mon-profil` | `app/mon-profil/page.tsx` | "Mon profil": practitioner info + cachet/signature (`MonProfilContent`) |
-| `/settings` | `app/settings/page.tsx` | Clinic settings (`ClinicSettings` — billing, reminders, backup, etc.) |
+| `/settings` | `app/settings/page.tsx` | Clinic settings (`ClinicSettings` — billing, reminders, backup, **OS notifications**). The last is `push-availability-card.tsx` (admin): what this installation can push, **per platform**, over `GET /api/push-devices/availability` — see `components/CLAUDE.md` |
 | `/users` | `app/users/page.tsx` | **Local, admin-only**: user management + clinic-code regenerate (`UserManagement`) |
 | `/login` | `app/login/page.tsx` | Mode-aware: Auth0 sign-in landing (cloud) **or** a local email+password form (local) |
 | `/setup` | `app/setup/page.tsx` | First-run wizard: create a clinic (`SetupWizard`); local mode also collects the admin account |

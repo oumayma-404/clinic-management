@@ -36,6 +36,7 @@ import { clinicsApi, type ClinicDto } from "@/lib/api/clinics"
 import { useAuthToken } from "@/lib/hooks/use-auth-token"
 import { useSession } from "@/lib/auth/session"
 import { BackupSettings } from "@/components/backup-settings"
+import { PushAvailabilityCard } from "@/components/push-availability-card"
 import Link from "next/link"
 import { DoctorDocumentIdentityDialog } from "@/components/doctor-document-identity-dialog"
 import { DoctorWorkingHoursCard } from "@/components/doctor-working-hours-card"
@@ -1408,6 +1409,11 @@ export default function ClinicSettings() {
 
         {/* Admin-only backup card — Local mode only (US-8 / FR-G). */}
         {mode === "local" && user?.role === "admin" && <BackupSettings />}
+
+        {/* OS notifications, per platform (Part 6, AC-51/AC-52). Not mode-gated: the card's whole job is to say
+            whether this installation can push, and hiding it where it cannot would leave the owner of a
+            self-hosted install with no explanation for why the phone app is silent. */}
+        {user?.role === "admin" && <PushAvailabilityCard />}
 
         {/* `bg-accent/20` — the same tinted-info-panel pairing as the clinic-code block at the top of this
             page. The class here was `bg-accent/50/20`, a double opacity modifier Tailwind does not parse. */}

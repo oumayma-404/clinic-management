@@ -709,6 +709,26 @@ try
         job => job.RunScheduledBackups(),
         Cron.Hourly);
 
+    // OS push dispatcher (mobile-native-shells Part 6) — minutely, connectivity-gated, and registered ONLY where
+    // the deployment can actually push (AC-51). Unlike its three siblings above, which are safe to register
+    // unconditionally because they no-op until configured, this one is registered conditionally on purpose: a
+    // recurring job on a clinic's own PC would appear in the Hangfire dashboard for ever, running every minute to
+    // discover again that this topology has no store-distributed app to deliver to.
+    var pushAvailability = app.Services.GetRequiredService<IOsPushAvailability>();
+    if (pushAvailability.IsAvailableAtAll)
+    {
+        RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.PushDispatchJob>(
+            "dispatch-os-push",
+            job => job.DispatchQueuedPushes(),
+            Cron.Minutely);
+    }
+    else
+    {
+        // Defensively drop it: an install that had credentials and lost them (or was reprofiled) would otherwise
+        // keep a registration in Hangfire storage pointing at work it must no longer do.
+        RecurringJob.RemoveIfExists("dispatch-os-push");
+    }
+
     // Google→App calendar sync never runs on a schedule: the recurring job and its GoogleCalendarSyncJob
     // class were removed as dead scaffolding. App→Google sync runs inline on appointment create/update, and
     // Google→App stays manual-only (GoogleCalendarController). Defensively drop any stale recurring

@@ -16,7 +16,7 @@ The unit of progress is the **part**, not the story. Each part boundary is a com
 | 3 | Phase 2 | A stale app says so | **implemented** — gate green; the on-device half (a real shell below the floor) is owed | `8f42b5d` (⚠️ the `Program.cs` registration travelled in `65a72e6` — § Session 3) |
 | 4 | Phase 1 | The Android shell | **blocked — R-12 tooling check RAN and failed** (2026-08-05, session 3): no `java` on `PATH`, `JAVA_HOME` unset, `ANDROID_HOME`/`ANDROID_SDK_ROOT` unset, nothing at `%LOCALAPPDATA%\Android\Sdk`, no `gradle`. Per the story's own step 1 this stops Part 4 rather than half-building it. **Unlike Part 5 this is recoverable here** — a JDK 17+ and the Android SDK on the build machine is all it needs | — |
 | 5 | Phase 1 | The iOS shell | **blocked** — macOS + Xcode + Apple Developer Program | — |
-| 6 | Phase 3 | A backgrounded phone still knows | **UNBLOCKED as of session 2** — `multi-tenant-cloud` US-2 has landed (`Application/Common/Interfaces/ITenantScope.cs` + `UnitTests/Common/SystemWideCallerCoverageTests.cs` both exist, suite green). Read `ITenantScope` before executing (plan R-3) | — |
+| 6 | Phase 3 | A backgrounded phone still knows | **implemented** (2026-08-05/06, session 4) — backend + availability endpoint + settings statement. Web gate green; the **backend suite and both console verbs could not be re-run** (Smart App Control turned mid-session — § Session 4) | see § Session 4 |
 | 7 | Phase 4 | The phone becomes an instrument | not-started (web + Android halves only) | — |
 | 8 | Phase 5 | Two store listings | **blocked** — store accounts + 4 deferred business decisions | — |
 
@@ -560,3 +560,275 @@ Pinned by `An_unset_or_unparseable_floor_refuses_nothing`.
 - [ ] **`packaging/server/clinic-server.iss` does not compile here** (no ISCC on this machine, R-1). The added block
       is ASCII-only and uses `//` comments with no `{…}` path constant, so neither the encoding trap nor the
       brace-comment trap applies — but the installer is operator-verified, not CI-verified, as it always was.
+
+---
+
+### Session 4 — 2026-08-05/06 · Part 6 (Phase 3, AC-40…AC-55, AC-70…AC-73, AC-75)
+
+**Scope chosen by the user:** Part 6 only. Same branch (`feature/audit-sections-3-to-10`); the Session-1 branch
+deviation still stands and was not re-opened.
+
+#### Working tree note (start of session)
+
+The parallel `multi-tenant-cloud` **Part F** work is still in the tree and **grew again** during this session
+(`OutboxController`, `Startup/HealthChecks.cs`, `Startup/MigrationLock.cs`, `Startup/RateLimiting.cs`,
+`Application/Features/Outbox/`, `DTOs/OutboxDepthDto.cs`, the four `Maintenance/*Command.cs`, three repo
+interfaces + impls, `IFileStorage`, both storage backends, `LocalDataProtection`, `deploy/*`, and edits to five
+`CLAUDE.md` files). **None of it is Part 6's and none of it was staged** — every file in this part's commit was
+staged explicitly by path after `git diff HEAD --numstat`.
+
+⚠️ **The tree did not compile when the session started, and the fix arrived from the other author mid-question.**
+`Startup/MigrationLock.cs` had `internal const string AcquireSql = $"SELECT pg_advisory_lock({LockKey})"` — a
+constant interpolated string requires every hole to be a constant **string**, and `LockKey` is a `long`, so it was
+two `CS0133`s. The user was asked how to handle it (fix-and-leave-unstaged / fix-and-stage / stop) and chose
+fix-and-leave-unstaged; by the time the answer came back **its own author had already changed it to
+`static readonly`**. Nothing of mine touched the file. This is the Session-2 collision a third time, and the
+practical lesson is now well evidenced: *on a shared tree, a red you did not cause is often not yours to fix and
+may be fixed under you within the minute.*
+
+#### Pre-change baseline
+
+| Gate | Result |
+|------|--------|
+| `dotnet build` (solution, `--no-incremental`, scratch `BaseOutputPath`) | **0 errors, 57 warnings** — identical to Sessions 2 and 3 |
+| `npm run check:responsive` | **14/14 pass** |
+| `npx tsc --noEmit` | **0 errors** |
+| `npm run build` | **exit 0, 1 warning** (the `@auth0/nextjs-auth0` Edge-Runtime warning, in `node_modules`) |
+
+#### What changed
+
+**Domain** — `Enums/DevicePlatform.cs`, `Enums/PushDeliveryStatus.cs` (four-state, non-terminal `Blocked`),
+`Entities/DeviceRegistration.cs`, `Entities/PushDelivery.cs`, `Repositories/IDeviceRegistrationRepository.cs`,
+`Repositories/IPushDeliveryRepository.cs`.
+
+**Application** — `Common/Interfaces/IOsPushAvailability.cs` (the one « can this install push to this platform? »),
+`Common/Services/StaffNotificationRules.cs` (the reminder lead time, the doctor→user resolution, the five/four
+category split, the fixed labels), `Features/PushDevices/{Commands,Queries}` (register/rebind · deregister ·
+availability), `DTOs/PushDeviceDtos.cs`. `Common/Services/NotificationGenerator.cs` now *delegates* its lead time
+and its target resolution to the shared rules instead of holding private copies.
+
+**Infrastructure** — `Services/PushConfig.cs` (+ `ResolvedPushCredentials`), `Services/OsPushAvailability.cs`,
+`Services/IPushSender.cs`, `Services/HttpPushSender.cs`, `Services/FcmPushSender.cs`, `Services/ApnsPushSender.cs`,
+`Services/PushNotificationGeneratorDecorator.cs`, the two EF configurations, the two repositories,
+`Deployment/DeploymentProfile.PermitsOsPush`, `Services/ReminderSchedule.DeferPastQuietHours`, the `DbSet`s and the
+two query filters, and the DI block in `Extensions.cs` (including `AddSingleton(profile)`, which did not exist).
+
+**API** — `Controllers/PushDevicesController.cs`, `BackgroundJobs/PushDispatchJob.cs`, the conditional recurring
+registration in `Program.cs`, the `Push:*` block in `appsettings.json`.
+
+**verify-schema** — one new check, `push-delivery-clinic-matches-device`
+(`ISchemaVerificationReader.PushDeliveriesWithMismatchedClinic` + the reader's JOIN + the service's finding).
+
+**Migration** — `20260805214704_AddOsPushDeviceRegistrations` (scaffolded, see below).
+
+**Web** — `lib/api/push-devices.ts`, `components/push-availability-card.tsx`, mounted in `clinic-settings.tsx`.
+
+**Tests** — `Features/Notifications/PushFanOutTests.cs` (14), `Api/PushDispatchJobTests.cs` (15),
+`Features/PushDevices/DeviceRegistrationTenantIsolationTests.cs` (9), plus `DeploymentProfileTests` (+2),
+`SchemaVerificationServiceTests` (+2 and a 13th positional argument at 13 sites).
+
+#### The migration — scaffolded, and reviewed for the two silent hazards
+
+`dotnet ef migrations add` needs an in-tree build, which failed on `MSB3021`/`MSB3027`: the user's
+`ClinicManagement.API` (**PID 9364**) held the DLLs. That is a **file lock, not a compile error** — the error names
+the process. The user chose « stop the API, scaffold, restarting is yours », so it was killed and the scaffold ran.
+⚠️ **It has not been restarted, and on the current binaries it cannot be** — see the SAC note below.
+
+The generated migration was reviewed against both hazards and is clean on both: **two `CreateTable`s and nothing
+else** (no `DropColumn`, no narrowing `AlterColumn`, no backfill, so no destructive statement can precede one), and
+**no scaffolded `defaultValue:`** anywhere (every column is in a new table, so there are no pre-existing rows for a
+`0` to mean the wrong thing to — the trap `backup-schedule-backfill` exists for). `DeviceRegistrations` is created
+before the `PushDeliveries` that references it, and `Down` drops in reverse. The differ also emitted **nothing
+unrelated**, which confirms the committed model snapshot was current.
+
+#### Post-change gate
+
+| Gate | Result | vs. baseline |
+|------|--------|--------------|
+| `dotnet build` (solution, `--no-incremental`) | **0 errors, 57 warnings**; the full warning list was grepped for all thirteen new type names — **0 hits**, so 0 new warnings | identical |
+| `npm run check:responsive` | **14/14 passed** | identical |
+| `npx tsc --noEmit` | **0 errors** | identical |
+| `npm run build` | **exit 0, 1 warning** — same `@auth0/nextjs-auth0` text, on a cleared `.next`, with **no `next dev` alive** (checked via `Win32_Process`) | identical |
+| New/changed test classes (filtered) | **99/99 passed** | — |
+| Whole backend suite | **2116 passed, 4 failed** — then 3 of the 4 were identified as **stale probe artifacts** and the 4th was fixed; the confirming re-run is **owed** (SAC — below) | see below |
+
+⚠️ **`verify-schema` and `reconcile-money` did NOT run**, and the migration is **not applied** to any database.
+
+#### The gate that could not be closed: Smart App Control turned mid-session
+
+`dotnet vstest` and every `dotnet run -- <verb>` now fail with
+`Could not load … ClinicManagement.Application.dll. An Application Control policy has blocked this file.
+(0x800711C7)` — **Smart App Control**, which this repo already documents as time-varying. It is not a code defect:
+`dotnet build` is green with 0 errors, and the same binaries ran fine **earlier in this same session**.
+
+Everything documented was tried: `dotnet build-server shutdown`, deleting `bin`/`obj`, four different output
+directories (`api/.testrun`, `.testrun2`, `.testrun3`, in-tree `bin/Debug`), and three repeat attempts. The block
+follows the freshly-compiled `ClinicManagement.Application.dll` to every path, so the in-repo-`OutDir` rule the
+`UnitTests` guide records is **no longer sufficient on its own**.
+
+**What that leaves as evidence, stated exactly:**
+- The **99/99** filtered run covers every class this part adds or changes, on a clean pre-probe build.
+- The **whole-suite** run (2116/4) was against this part's source with **one line different**: the
+  `RealtimeResourceResolver` exclusion below. Of its 4 failures, **3 were stale probe artifacts** — the probe DLL
+  had not been rebuilt after the probes were reverted, which is why `SystemWideCallerCoverageTests` (which reads
+  *source*, not the DLL) passed in the same run while the three DLL-driven ones failed. The 4th was real and is
+  fixed.
+- **Not directly observed green:** `RealtimeResourceResolverTests.Every_Emitted_Key_Is_Declared_By_The_Frontend`
+  after its one-line fix. Its failure text named exactly `pushdevices`, the fix removes that key from the emitted
+  set, and `clinic-hub.ts` was not touched — high confidence, but a run is owed and is not being claimed.
+
+⚠️ **Operationally the more important consequence: the API cannot be started from the current build on this
+machine until SAC clears the new binaries.** The instance that was running (PID 9364) was one SAC had already
+cleared, and stopping it — at the user's direction, to scaffold the migration — is not reversible from here.
+
+#### Everything new was proved able to fail
+
+Three probes applied together, all three reverted and re-verified:
+1. `StaffNotificationRules.PushLabel` for `AppointmentCreated` → `"PROBE Nouveau rendez-vous"` reddened
+   `The_Push_Label_Is_The_Feed_Rows_Own_Title`.
+2. Dropping the actor filter in `AudienceAsync` reddened `The_Actor_Gets_No_Push_For_Their_Own_Action`.
+3. Replacing the job's `UseSystemWide(...)` reddened `The_Job_Declares_Its_Cross_Clinic_Read` **and**
+   `SystemWideCallerCoverageTests.Every_Path_Without_An_Http_Context_Declares_Its_Tenant_Scope` — the best result of
+   the three: US-2's derived guard covered a job written after it, with no edit to the guard.
+
+#### Device verification (eye pass)
+
+⚠️ No `agent-browser` on this machine and the app is not running (see SAC), so **no eye pass on the running
+application was performed and none is claimed**. One web file was added (`push-availability-card.tsx`) and it is
+built to the contract rather than measured: no fixed widths, `flex-wrap` on both the platform row and the retry
+row, `min-w-0 flex-1` on the text column, `size-*` icons with `shrink-0`, `coarse:h-11` on the only button,
+`text-2xs` as the smallest type (the 11 px floor), tokens throughout (`bg-success-wash`/`text-success`,
+`bg-muted/40`, `border-border`) and no `dark:` twin, `role="status"` on the loading line, and the three empty
+kinds kept apart — loading, **failed-to-load with « Réessayer »**, and content — so a failed read never renders as
+« push is off ». `check:responsive` (14/14) is the mechanical half and it passed. **The widths owed are
+320 / 390 / 820 / 1180 / 1440 + landscape + keyboard.**
+
+## Findings that changed the work (Part 6)
+
+##### F-6 · `DeploymentProfile`'s own invariant would have been the first casualty of the plan's wording
+
+The plan asked for `SupportsOsPush(DevicePlatform)` on `DeploymentProfile`, resolved as « Kind permits **and**
+credentials present ». But that file's own doc comment states that *every* capability is derived from `Kind` and
+nothing else — and `DeploymentProfileTests` enforces it by reflecting over every `bool` property and asserting it
+equals the old `IsLocalMode` truth table. A config-derived capability there is precisely the `httpsConfigured`
+shape LEARNINGS `:45` records, which the plan itself flags as **R-4 (Med/High)**.
+
+Split instead, with the user's approval (DEV-9): `DeploymentProfile.PermitsOsPush(platform)` answers the **Kind**
+half only, and `IOsPushAvailability` ANDs in the credentials. Two consequences worth keeping: `SelfHostedLan` is ✗
+*whatever* an operator configures — asserted directly by
+`A_self_hosted_lan_install_permits_no_push_however_it_is_configured`, which resolves a profile with all four keys
+**present** — and the four things that need the answer (registration, fan-out, dispatcher, settings) ask **one**
+seam rather than three reaching for the profile.
+
+##### F-7 · The push and the feed row legitimately disagree about quiet hours, and the obvious test hid it
+
+`The_Reminder_Push_Waits_For_The_Same_Moment_The_Feed_Row_Does` failed on its first run — asserting
+`SendNotBefore == EffectiveFeedTime` for an appointment 24 h + ε out, where the due moment landed at 22:58
+clinic-local and the floor correctly deferred it to 08:00. **The production code was right and the test's
+assumption was too strong:** an in-app row appearing at 02:00 wakes nobody, so the feed has no quiet-hours floor at
+all, while a banner at 02:00 is the entire point of AC-46. Split into two tests — one pinned to 13:00 UTC so the
+due moment is inside working hours (a `UtcNow.AddDays(5)` fixture would have passed or failed depending on the hour
+the suite ran), and one that asserts the deferral *and* that the feed row stayed put.
+
+##### F-8 · The realtime contract test caught the new feature area, which is what it is for
+
+Adding `Features/PushDevices/Commands` made `RealtimeBroadcastBehavior` emit a `pushdevices` key that
+`clinic-hub.ts` does not declare, and `RealtimeResourceResolverTests` failed. The fix is the **exclusion**, not a
+new frontend key: a device registration records which *phone one user* is signed in on, so a colleague registering
+a handset changes nothing on anybody's screen — broadcasting it would make every browser in the clinic refetch over
+a fact none of them render, and would announce clinic-wide that somebody just signed in on a device. Same reasoning
+as the `Dashboard` exclusion beside it (per-user state on a clinic-wide bus).
+
+##### F-9 · AC-51/AC-52 had no owner in the plan, and no endpoint to read
+
+Both criteria require the **settings surface** to state push availability *per platform*, and the plan's Part 6
+inventory is backend-only (~18 created, 4 modified, zero `web/`) — while no later part covers it (Part 7 is native
+capability, Part 8 is stores). It also had no endpoint: nothing published the answer, so neither the settings screen
+nor a shell could ask. The user chose the full option (DEV-10): `GET /api/push-devices/availability` plus a card in
+« Paramètres ». The endpoint is needed by the shell regardless — a shell that prompts for notification permission
+on an installation with no credentials burns the single dialog the OS gives it (AC-75).
+
+## Deviations (Part 6)
+
+### DEV-9: `PermitsOsPush` is the Kind half only; the credentials half lives in `IOsPushAvailability`
+
+**Date:** 2026-08-05 · **Story:** 1, Part 6 · **Category:** Technical
+**Original plan:** step 1 — a 14th capability `SupportsOsPush(DevicePlatform)` on `DeploymentProfile`, « resolved
+as `Kind`-permits **and** credentials-present ».
+**Actual implementation:** `DeploymentProfile.PermitsOsPush(platform)` answers `Kind` alone; a new Application seam
+`IOsPushAvailability` (implemented in Infrastructure over the profile + `PushConfig`) is the AND.
+**Justification:** F-6 above. The plan's own R-4 is the risk that this capability touches configuration, and its
+mitigation (« keep the `Kind` half in the matrix ») is fully achieved by not putting the other half there at all.
+It also keeps `DeploymentProfileTests`' reflective bool-property matrix intact — a `bool` property would have been
+`false` for `SelfHostedLan` where `IsLocalMode` was `true`, breaking the R-2 truth-table test on arrival.
+**Impact:** Positive for Parts 7/8 — one seam to ask. `PermitsOsPush` is a **method**, so it is deliberately outside
+the reflective matrix and carries its own theory instead.
+**Approved:** Yes — user chose this over the literal wording.
+
+### DEV-10: an availability endpoint and a settings card, which the plan's Part 6 did not contain
+
+**Date:** 2026-08-05 · **Story:** 1, Part 6 · **Category:** Scope
+**Original plan:** Part 6 is backend-only; AC-51/AC-52's « the settings surface says so per platform » has no step
+and no file.
+**Actual implementation:** `GET /api/push-devices/availability` (+ `GetPushAvailabilityQuery`, two DTOs) and
+`web/components/push-availability-card.tsx` mounted in « Paramètres » for an admin.
+**Justification:** F-9 above.
+**Impact:** +1 endpoint, +2 web files, and the web gate now applies to Part 6. Part 4's shell reads the same route
+to decide whether asking for OS permission is meaningful.
+**Approved:** Yes — user chose this over « backend + endpoint only » and « backend exactly as planned ».
+
+### DEV-11: push credentials come from `PushConfig` over configuration, not through `IReminderSecretProtector`
+
+**Date:** 2026-08-05 · **Story:** 1, Part 6 · **Category:** Technical
+**Original plan:** step 4 — « Credentials via `IReminderSecretProtector`, never `IConfiguration` ».
+**Actual implementation:** `Infrastructure/Services/PushConfig.cs`, static accessors over a `Push:` section on the
+`RemindersConfig`/`TtnConfig` pattern; committed config holds empty strings + `// SECRET`, real values arrive as
+env vars.
+**Justification:** `IReminderSecretProtector` decrypts **per-clinic** secrets stored on `ClinicReminderSettings` —
+`ReminderSettingsProvider:146` is its only read in the solution. FCM/APNs credentials are **per install**: there is
+one mobile app, so one Firebase project and one Apple team, and there is no per-clinic row to decrypt. Every other
+per-install channel secret in this product already comes from configuration/env (`Reminders:Sms:ApiKey`,
+`Reminders:WhatsApp:AccessToken`, `Meta:AppSecret`, `TTN_API_SECRET`). The lesson the plan is reaching for — *a
+sender must not read `IConfiguration` itself* — is kept: the senders take a resolved `ResolvedPushCredentials`,
+whose single `IsConfigured` predicate is also what the availability seam and the dispatcher's block reason read.
+**Impact:** None on later parts. Part 8 sets `Push:Apns:BundleId`, the same value the bundle-identifier decision
+fixes.
+**Approved:** Yes — user chose this over the per-clinic and dual-key options.
+
+### DEV-12: the decorator lives in Infrastructure, not Application
+
+**Date:** 2026-08-05 · **Story:** 1, Part 6 · **Category:** Technical (structural)
+**Original plan:** `Application/Common/Services/PushNotificationGeneratorDecorator.cs`.
+**Actual implementation:** `Infrastructure/Services/PushNotificationGeneratorDecorator.cs`, registered by
+`AddInfrastructure` (which runs after `AddApplication`, so the wrap is straightforward).
+**Justification:** it reads the operator's **quiet-hours window** from configuration, which is Infrastructure's job
+in this codebase — and `ReminderScheduler`, the other post-commit best-effort writer implementing an Application
+interface, is already there for exactly that reason. Application would have needed `IConfiguration` plus a second
+copy of the wrapping-window arithmetic (`ReminderSchedule.DeferPastQuietHours` shares it instead).
+**Impact:** None on behaviour, no API change, nothing for later parts. **Not separately approved** — reported here
+as a project-convention reading of the plan's file path, on the same basis as DEV-9 and DEV-11, both of which the
+user resolved in favour of the convention.
+
+### Auto-approved deviations (trivial, Part 6)
+
+| Deviation | Classification | Reason |
+|-----------|----------------|--------|
+| `IPushSender` lives in `Infrastructure/Services`, not `Application/Common/Interfaces` as the plan's file table says | Trivial | Its sibling `IReminderChannelSender` is in `Infrastructure/Services`, and nothing in Application calls a sender — the decorator writes rows, the job (API) sends. Internal placement, no API change |
+| `AddSingleton(profile)` added to `AddInfrastructure` | Trivial | `DeploymentProfile` was resolved into a local and never registered, so nothing could inject it. Immutable, startup-derived value; the alternative (each consumer calling `Resolve` again) would re-parse the key and could throw from inside a request |
+| `NotificationGenerator`'s private `ReminderLeadTime` and `ResolveTargetUserIdAsync` now delegate to `StaffNotificationRules` | Trivial | A pure extraction with no behaviour change, made because the fan-out needs the same two answers — a second copy would mean a banner arriving at a different hour from the feed row it announces |
+| `SchemaVerificationServiceTests`' 13 positional `DataMigrationCounts` sites each gained one argument | Trivial | Forced by the record's new parameter. Applied as 13 individually-anchored `Edit`s, never a find/replace — the trailing `, 0)` fragment appears in unrelated code, and a scripted pass is what corrupted six files in an earlier feature |
+
+## Owed verification (Part 6)
+
+- [ ] **The backend suite re-run**, once Smart App Control clears the binaries. Everything except one
+      `RealtimeResourceResolverTests` assertion has been observed green; that one is reasoned, not run.
+- [ ] **`verify-schema` before/after the migration, diffed, and `reconcile-money` empty** (AC-73). Neither verb can
+      execute (SAC), and **the migration has not been applied to any database**. `reconcile-money` must be empty by
+      construction — Part 6 touches no money table — and that emptiness *is* the assertion.
+- [ ] **The eye pass at 320 / 390 / 820 / 1180 / 1440 + landscape + keyboard** on the new settings card. Blocked on
+      tooling *and* on the app being startable, not deferred by choice.
+- [ ] **AC-40, AC-43, AC-48, AC-54, AC-75 end to end** — every one needs a shell to register a device token, which
+      is Part 4 (blocked on Android tooling). The backend half is complete and unit-tested; a real banner, a real
+      tap, a real deep link and a real permission refusal are what remain.
+- [ ] **AC-46 on a real clock** — the quiet-hours deferral is pinned in a unit test against a fixed instant; that a
+      08:00 send genuinely arrives at 08:00 Tunis is not.

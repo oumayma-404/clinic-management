@@ -479,10 +479,22 @@ public class SchemaVerificationReader : ISchemaVerificationReader
                      WHERE r."DoctorId" IS NULL AND a."DoctorId" IS NOT NULL)
                 """);
 
+        // Part 6's invariant. A JOIN rather than a column comparison because the two clinic ids live in different
+        // tables — which is exactly why no constraint can state it, and why it needs a line here.
+        var pushClinicMismatch = await ScalarOrNullAsync(connection, cancellationToken,
+            requiredTable: "PushDeliveries",
+            requiredColumn: "DeviceRegistrationId",
+            sql: """
+                SELECT COUNT(*)
+                FROM "PushDeliveries" p
+                JOIN "DeviceRegistrations" d ON d."Id" = p."DeviceRegistrationId"
+                WHERE p."ClinicId" <> d."ClinicId"
+                """);
+
         return new DataMigrationCounts(
             typePrefix, overlaps, legacyExpiry, legacyExpiryWithoutBatch, stockWithoutBatch,
             missingNormalized, patientsTotal, actScalarWithoutRow, categoryStillInDescription,
-            unsetBackupSchedule, chequeDetailsOnNonCheque, attributableButUnattributed);
+            unsetBackupSchedule, chequeDetailsOnNonCheque, attributableButUnattributed, pushClinicMismatch);
     }
 
     /// <summary>

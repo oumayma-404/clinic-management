@@ -18,8 +18,10 @@ public class NotificationGenerator : INotificationGenerator
 {
     private const string RealtimeResourceKey = "notifications";
 
-    // A reminder fires ~24h before the appointment; nothing is scheduled inside this window.
-    private static readonly TimeSpan ReminderLeadTime = TimeSpan.FromHours(24);
+    // The lead time and the doctor→user resolution moved to StaffNotificationRules when the OS-push fan-out
+    // (Part 6) became a second writer needing the same answers. A private copy here would mean a banner arriving
+    // at a different hour from the feed row it announces.
+    private static readonly TimeSpan ReminderLeadTime = StaffNotificationRules.ReminderLeadTime;
 
     // The app is Tunisia-targeted; appointment date/times are stored UTC but read best in local time.
     // The conversion itself lives in ClinicClock (AC-P6.1) — this class used to carry its own private copy.
@@ -372,26 +374,10 @@ public class NotificationGenerator : INotificationGenerator
         }, cancellationToken);
     }
 
-    // Resolves the post-visit target: the appointment's DoctorId (a Doctor id when set) → its linked User.
-    // Any miss (no doctor id, unparsable, unknown doctor, or doctor with no linked user) → null = all staff.
-    // The doctor must belong to the appointment's own clinic: the feed/pending queries filter on this clinic
-    // AND the target user, so a foreign-clinic doctor's user would make the review invisible to everyone —
-    // degrade a cross-clinic (or missing) resolution to the all-staff fallback instead.
-    private async Task<string?> ResolveTargetUserIdAsync(Guid clinicId, Guid? doctorId, CancellationToken cancellationToken)
-    {
-        if (doctorId is null)
-        {
-            return null;
-        }
-
-        var doctor = await _doctors.GetByIdAsync(doctorId.Value, cancellationToken);
-        if (doctor == null || doctor.ClinicId != clinicId)
-        {
-            return null;
-        }
-
-        return doctor.UserId;
-    }
+    // Resolves the post-visit target: the appointment's DoctorId → its linked User; any miss → null = all staff.
+    // The rule itself lives in StaffNotificationRules, because the push fan-out must target the same person.
+    private Task<string?> ResolveTargetUserIdAsync(Guid clinicId, Guid? doctorId, CancellationToken cancellationToken) =>
+        StaffNotificationRules.ResolveDoctorUserIdAsync(_doctors, clinicId, doctorId, cancellationToken);
 
     // Runs the write and broadcasts the realtime key only when the write reports that something became
     // visible in the feed (returns true) — a future-dated reminder or a no-op schedule returns false, so

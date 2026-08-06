@@ -384,6 +384,17 @@ public class SchemaVerificationService
                   + "the L9 backfill did not reach them",
             n => n == 0);
 
+        // Part 6's push tables. Their shape is diffed against the catalog for free, so the only line here is the
+        // one relationship no constraint can state: a queued push and the device it is addressed to must belong to
+        // the same clinic. A mismatch is a cross-clinic notification, and a lock screen has no request-time check
+        // left to stop it — the dispatcher's own comparison is the last one, and this is how we learn it fired.
+        Add("push-delivery-clinic-matches-device", counts.PushDeliveriesWithMismatchedClinic,
+            n => n == 0
+                ? "0 queued push(es) disagree with their device's clinic"
+                : $"{n} queued push(es) name a different clinic from the device they are addressed to — "
+                  + "some write path produced a cross-clinic delivery",
+            n => n == 0);
+
         // Phase 1 (pre-migration): did every item with a legacy scalar expiry get an opening batch? Once the
         // migration drops StockItems.ExpiryDate this becomes unanswerable, which is why phase 2 exists.
         if (counts.StockItemsWithLegacyExpiryLackingBatch is { } uncovered)

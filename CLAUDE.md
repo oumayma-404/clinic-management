@@ -572,6 +572,31 @@ Frontend talks to the API via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
     would pass silently while `pg_restore --clean` drops tables under a live application.
 - **Pluggable auth (`Auth:Mode` = `Cloud` | `Local`)**: Cloud is the original Auth0 path; **Local** (for offline Windows/LAN installs) issues its own HS256 JWTs against local email+password accounts. Backend seam: `ILocalAuthService`/`LocalAuthService` (+ per-install signing key via `LocalAuthConfig`), a mode-branched JWT setup in `Program.cs`, and `AuthController` (`login`/`setup`/`register`/`mode`/`change-password`). `CreateClinicCommand`/`JoinClinicCommand` branch to a Local path when a `Password` is present. Frontend seam: a single `useSession()` context (`web/lib/auth/session.tsx`) backed by either `CloudSessionProvider` (Auth0) or `LocalSessionProvider` (HttpOnly cookie), gated on `AUTH_MODE`. All Local behavior is additive; the Cloud path is unchanged. Offline admin lockout recovery is a console command (`dotnet run -- reset-admin-password`), not a web endpoint. *All 5 phases of the offline-Windows repackaging are complete — see `features/windows-desktop-app/`.*
   ⚠️ **The Local session slides, and it takes two halves to do so (`mobile-native-shells` P2)**: `RefreshTokenCommandHandler` mints a **fresh** refresh credential on every exchange *and* `web/app/bff/auth/token` re-sets the HttpOnly cookie with it — a backend-only change would rotate a credential nobody stores and no user would feel. Before this, the cookie kept the token issued at login, so a staff member working through the day was asked for their password again twelve hours in. It is **sliding expiry, not revoking rotation**: the superseded credential stays valid until its own expiry (stateless, nothing stores it — two tabs exchanging at once must both keep working), and `User.TokenVersion` is still the only revocation. `web/lib/auth/session-cookie.ts` is now the **single writer** of both `local_session` and `local_must_change_password`; they are written together because a sliding session would otherwise outlive the forced-password-change flag, leaving an app that looks usable while `LocalAuthEnforcementMiddleware` 403s every call.
+- **A backgrounded phone still knows, and a lock screen learns nothing (`mobile-native-shells` P6)**: OS push, from
+  the registry to the dispatcher. `DeviceRegistration` is **unique on its token**, which is what makes **rebinding**
+  one deterministic write rather than a 409 — a shared reception tablet hands the app the *same* token to whoever
+  signs in, and a second row would mean the colleague who left keeps receiving notifications on a device somebody
+  else is holding. `PushDelivery` is the outbox, drained by the minutely `PushDispatchJob` on `NotificationJob`'s
+  template (connectivity-gated, bounded per tick **and per clinic**, with the non-terminal **`Blocked`** status L3
+  had to invent after the reminder queue starved — here from the start).
+  ⚠️ **A push carries no message.** The payload is a category, a *fixed* French phrase for it (« Nouveau
+  rendez-vous ») and opaque routing ids — no patient name, act, tooth, amount or free text; the rendered body stays
+  in `StaffNotification` behind the app's own authentication, and the push is the doorbell for it. « The label equals
+  the feed row's title » is held by comparing the two rows one call produces, not by a constant.
+  ⚠️ **Five of the nine categories reach a locked phone**, and the line is *time-critical to a person*, not
+  importance: booking, cancelling, rescheduling, the ~24 h reminder and the post-visit review. Low stock, expiring
+  stock, a stale backup and a failed reminder stay in-app — waking a dentist at home for a box of gloves is how the
+  OS permission gets revoked, and revoking it costs the five that matter. `StaffNotificationRules` **throws** on an
+  unclassified category rather than defaulting either way.
+  ⚠️ **The fan-out is a decorator over `INotificationGenerator`**, so one hook reaches every category the feed has
+  or will have — editing twelve call sites is the `fixes-dont-propagate` shape. The feed is always written first and
+  the push queued inside a swallow-and-log: the whole chain is a post-commit side effect of an operation that has
+  already committed (AC-55).
+  ⚠️ **Eligibility is re-checked at dispatch**, because a banner bypasses every request-time guard: the device may
+  have been deregistered, its token rebound to a colleague, or the appointment cancelled since. And **the capability
+  question is split on purpose** — `DeploymentProfile.PermitsOsPush` answers the deployment *kind* (so
+  `SelfHostedLan` is ✗ whatever an operator configures) while `IOsPushAvailability` ANDs in the per-install FCM/APNs
+  credentials, keeping `DeploymentProfile`'s « no operator setting can flip a capability » invariant intact.
 - **A stale app says so, once, instead of failing screen by screen (`mobile-native-shells` P3)**: a native shell sends
   **`X-Client-Version`**; `ClientVersionMiddleware` refuses a build below the operator's `Clients:MinimumShellVersion`
   with **426** and `code: "client_too_old"`, and `<ClientVersionGate>` turns that into one full-screen « Mise à jour

@@ -81,7 +81,7 @@ convention `/next` defines for a single `Layer: Full` story delivered part-by-pa
 | 3 | Phase 2 | A stale app says so | ✅ yes | AC-28…AC-34, AC-70, AC-71 | **implemented** (gate green; AC-33's launch half is Part 4's code — `progress.md`) |
 | 4 | Phase 1 | The Android shell | 🔒 **no — the R-12 check ran and failed** (2026-08-05) | AC-13…AC-27, AC-74, AC-76 | blocked on tooling |
 | 5 | Phase 1 | The iOS shell | 🔒 **BLOCKED** — macOS + Apple Developer Program | AC-13…AC-27 (iOS half) | blocked |
-| 6 | Phase 3 | A backgrounded phone still knows | ✅ **now yes** — US-2 landed, verified 2026-08-05 (session 2) | AC-40…AC-55, AC-70…AC-73, AC-75 | not-started |
+| 6 | Phase 3 | A backgrounded phone still knows | ✅ yes | AC-40…AC-55, AC-70…AC-73, AC-75 | **implemented** (web + backend gates green; the backend suite re-run, both console verbs and every device-token criterion owed — `progress.md`) |
 | 7 | Phase 4 | The phone becomes an instrument | ⚠️ web + Android halves only | AC-8, AC-56…AC-64, AC-77 | not-started |
 | 8 | Phase 5 | Two store listings | 🔒 **BLOCKED** — accounts + 4 deferred decisions | AC-65…AC-68 | blocked |
 

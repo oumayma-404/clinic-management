@@ -1,4 +1,5 @@
 using System.Reflection;
+using ClinicManagement.Domain.Enums;
 using ClinicManagement.Infrastructure.Auth;
 using ClinicManagement.Infrastructure.Deployment;
 using Microsoft.Extensions.Configuration;
@@ -50,7 +51,12 @@ public class DeploymentProfileTests
             // US-3. ⚠️ The one capability where HostedMultiTenant parts company with SelfHostedLan while sharing
             // its login provider — so it is also the one the old `UsesLocalAccounts` guard on `register` got
             // wrong. R-2 still holds: the two shipped kinds answer exactly as IsLocalMode did.
-            [nameof(DeploymentProfile.AllowsSelfRegistration)] = (true, false, false)
+            [nameof(DeploymentProfile.AllowsSelfRegistration)] = (true, false, false),
+            // US-4, added by the multi-tenant-cloud author in parallel with Part 6. The row is here because
+            // `DeploymentProfile.cs` could not be staged without their capability (their addition and Part 6's
+            // `PermitsOsPush` land in one diff hunk), and a capability with no row fails the drift guard below.
+            // The three values are read off `For(kind)` itself, not chosen here.
+            [nameof(DeploymentProfile.SharesInstallWideTtnIdentity)] = (true, false, false)
         };
 
     private static IEnumerable<PropertyInfo> Capabilities() =>
@@ -179,6 +185,53 @@ public class DeploymentProfileTests
         Assert.False(profile.SelfSignsCertificate);
         Assert.False(profile.RunsAsWindowsService);
         Assert.False(profile.UsesDiskStorage);
+    }
+
+    // ---- Per-platform OS push (mobile-native-shells Part 6) ---------------------------------------
+
+    /// <summary>
+    /// [FR-10] The Kind half of the push capability, per platform and per kind.
+    ///
+    /// <para>It is a <b>method</b> rather than a <c>bool</c> property, so it is deliberately outside
+    /// <see cref="ExpectedMatrix"/> and outside the R-2 truth-table test above — and it has to be: its answer is
+    /// <c>false</c> for <c>SelfHostedLan</c>, where <c>IsLocalMode</c> was <c>true</c>, so a property would have
+    /// broken that assertion on arrival. This theory is its matrix.</para>
+    /// </summary>
+    [Theory]
+    [InlineData(DeploymentKind.SelfHostedLan, DevicePlatform.Android, false)]
+    [InlineData(DeploymentKind.SelfHostedLan, DevicePlatform.Ios, false)]
+    [InlineData(DeploymentKind.HostedMultiTenant, DevicePlatform.Android, true)]
+    [InlineData(DeploymentKind.HostedMultiTenant, DevicePlatform.Ios, true)]
+    [InlineData(DeploymentKind.CloudBrowser, DevicePlatform.Android, true)]
+    [InlineData(DeploymentKind.CloudBrowser, DevicePlatform.Ios, true)]
+    public void Each_kind_answers_whether_it_permits_os_push_per_platform(
+        DeploymentKind kind, DevicePlatform platform, bool expected)
+    {
+        Assert.Equal(expected, DeploymentProfile.For(kind).PermitsOsPush(platform));
+    }
+
+    /// <summary>
+    /// [R-4] The boundary the whole split exists to protect: <c>SelfHostedLan</c> stays ✗ <b>whatever</b> an
+    /// operator configures.
+    ///
+    /// <para>This is <c>LEARNINGS :45</c>'s <c>httpsConfigured</c> trap — a value derived from configuration that
+    /// merely <i>correlated</i> with the mode, and so silently changed the other mode's behaviour once it was set.
+    /// Push credentials are the first thing this product configures that a capability could have been tempted to
+    /// read, so the credentials half lives in <c>IOsPushAvailability</c> and this method never sees it. Asserted by
+    /// resolving a profile with the keys <b>present</b> and checking the answer has not moved.</para>
+    /// </summary>
+    [Fact]
+    public void A_self_hosted_lan_install_permits_no_push_however_it_is_configured()
+    {
+        var profile = DeploymentProfile.Resolve(Configuration(
+            (DeploymentProfile.ProfileKey, nameof(DeploymentKind.SelfHostedLan)),
+            ("Push:Fcm:ProjectId", "clinic-push"),
+            ("Push:Fcm:ServiceAccountKey", "a-real-looking-key"),
+            ("Push:Apns:BundleId", "tn.cabinet.clinic"),
+            ("Push:Apns:PrivateKey", "a-real-looking-key")));
+
+        Assert.False(profile.PermitsOsPush(DevicePlatform.Android));
+        Assert.False(profile.PermitsOsPush(DevicePlatform.Ios));
     }
 
     /// <summary>
