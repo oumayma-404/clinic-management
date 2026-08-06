@@ -395,6 +395,17 @@ public class SchemaVerificationService
                   + "some write path produced a cross-clinic delivery",
             n => n == 0);
 
+        // US-4's per-clinic El Fatoora identity. Its four columns are diffed against the catalog for free, so the
+        // only line here is the invariant Clinic.SetTtnIdentity holds and no constraint does: the halves are
+        // useless apart. ⚠️ Nothing in the product writes these columns yet — an identity is installed by hand —
+        // so unlike its siblings this is not a backstop behind an application guard, it is the only one.
+        Add("ttn-identity-is-complete", counts.ClinicsWithPartialTtnIdentity,
+            n => n == 0
+                ? "0 clinic(s) hold half a TTN identity"
+                : $"{n} clinic(s) hold half a TTN identity — a secret with no username, or a certificate "
+                  + "password with no certificate; e-invoicing will refuse at dispatch",
+            n => n == 0);
+
         // Phase 1 (pre-migration): did every item with a legacy scalar expiry get an opening batch? Once the
         // migration drops StockItems.ExpiryDate this becomes unanswerable, which is why phase 2 exists.
         if (counts.StockItemsWithLegacyExpiryLackingBatch is { } uncovered)

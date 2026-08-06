@@ -14,7 +14,7 @@ unit ( « 18 steps and ~35 files will not fit one session » ). This table is th
 | A | US-1 | 1–4 | **implemented** (code gate) | 2026-08-05 |
 | B | US-2 | 5–10 | **implemented** (code gate) | 2026-08-05 |
 | C | US-3 | 11–13 | **implemented** (code gate) | 2026-08-05 |
-| D | US-4 | 14 | not-started | — |
+| D | US-4 | 14 | **implemented** (code gate) | 2026-08-06 |
 | E | US-5 | 15 | not-started | — |
 | F | US-6 | 16–18 | **implemented** (code gate) | 2026-08-05 |
 
@@ -717,3 +717,203 @@ runner** — which no prior session had isolated, because the two blockers look 
 `/review-story` for Part F, then **Part D** (US-4, per-clinic TTN e-invoicing identity — now unblocked: the key ring
 is required, so a PFX password protected by Data Protection is safe) and **Part E** (US-5, per-clinic storage key
 prefix). Both are additive; A–C + F are the story's whole security and operations thesis.
+
+---
+
+# Part D — per-clinic secrets, and the certificate that was one practice's for everybody (step 14)
+
+**Session:** 2026-08-06 · **Plan:** US-4 · **Status:** implemented (code gate)
+
+Part D landed **after** Part F, as the ordering required: `DataProtection:KeyRingPath` is required in
+`HostedMultiTenant` since US-6, so a PFX password protected by Data Protection can now depend on a key ring that
+survives a redeploy. Landing D first would have meant a rotated key silently breaking signing for every clinic.
+
+## Working tree note (start of session)
+
+The branch opened carrying **~30 files of another session's in-flight work** (`mobile-native-shells` Part 6, OS
+push): `Program.cs`, `Extensions.cs`, `ApplicationDbContext.cs`, `DeploymentProfile.cs`, the four
+schema-verification files and an unapplied migration. None was staged.
+
+⚠️ **Mid-session that session committed as `999b877`, and its commit contains one of Part D's changes.** My
+`DeploymentProfile.cs` edit (the 14th capability, `SharesInstallWideTtnIdentity`) was already in the working tree
+when they staged that file, and their addition (`PermitsOsPush`) and mine land in overlapping hunks — so they took
+both and added the matching `DeploymentProfileTests` row to keep their build green, saying so in a comment at the
+row. **Recorded rather than corrected**: the code is right, the test row is right, and unpicking one capability
+out of a landed commit to re-land it here would be churn with a chance of breaking their build. Part D's own
+commit therefore does **not** contain the capability it introduced — read `999b877` for it.
+
+The lesson generalises. Part F learned that hunk-level staging is needed when two sessions share a *file*. This
+part learned the other half: **when you share a file with a session that is about to commit, your uncommitted
+edit is theirs to sweep up, and the only defence is to notice and record it.**
+
+## What landed
+
+| Deliverable | Where |
+|---|---|
+| Four `Clinic` columns + `SetTtnIdentity` | `Domain/Entities/Clinic.cs`, `Persistence/Configurations/ClinicConfiguration.cs` |
+| The migration | `Migrations/20260806075521_AddPerClinicTtnIdentity` — four nullable columns, no backfill, no index |
+| The precedence rule, once | `Application/Common/Interfaces/ITtnIdentityProvider.cs` + `Infrastructure/Services/TtnIdentityProvider.cs` |
+| The resolved identity | `ResolvedTtnIdentity` + `TtnIdentitySource` in `Common/Models/EInvoiceModels.cs` |
+| Its own Data-Protection purpose | `ITtnSecretProtector` / `TtnSecretProtector` (`ClinicManagement.TtnSecrets.v1`) |
+| Signer takes the identity | `IEInvoiceSigner.Sign(xml, identity)`, `XadesEInvoiceSigner` (no longer reads config or disk) |
+| TTN client takes the identity | `ITtnClient.SubmitAsync(…, identity, …)`, `HttpTtnClient` authenticates as the clinic |
+| Resolved **once** per dispatch | `EInvoiceService.DispatchAsync` |
+| The 14th capability | `SharesInstallWideTtnIdentity` — ⚠️ landed in `999b877`, see above |
+| The schema gate | `verify-schema` → `ttn-identity-is-complete` |
+
+**The defect it closes was documented in the code long before it was fixed.** `XadesEInvoiceSigner`'s own
+docstring read: « KNOWN CONSTRAINT (single-cert-per-install): … in a multi-clinic install every clinic's
+e-invoices are signed with the same qualified identity … before Production multi-tenant use, key the
+cert/password lookup by clinic id ». A TEIF signature attests **who issued** the invoice and TTN validation is
+irreversible, so on a hosted backend that is a false legal declaration that cannot be withdrawn — not a
+configuration inconvenience.
+
+### Why a provider and not two `if`s
+
+The plan names `XadesEInvoiceSigner` + `TtnConfig`. Taken literally that is **two** copies of the precedence
+rule, because the identity has two consumers — the signer wants the certificate, the production client wants the
+credentials — and `fixes-dont-propagate` is this repository's dominant defect shape. One provider, and the two
+consumers are handed the **same** resolved object: signing with clinic A's certificate while submitting under
+clinic B's account is now not a state the code can reach.
+
+⚠️ **The certificate arrives as bytes, already fetched.** The I/O (a DB row, a blob download or a file read)
+belongs to the resolver, which must be async for the DB read anyway; signing stays a synchronous pure transform.
+That is also what made the signer's happy path testable for the first time — see the quality gate below.
+
+## Deviations
+
+### DEV-17: the two ciphertext columns carry the `Encrypted` suffix
+**Date:** 2026-08-06 · **Story:** 1, Part D · **Category:** Technical · **Approved:** Yes (asked)
+**Original Plan:** `TtnApiSecret`, `TtnCertificatePassword`.
+**Actual Implementation:** `TtnApiSecretEncrypted`, `TtnCertificatePasswordEncrypted`.
+**Justification:** all three existing Data-Protection columns are suffixed (`SmsApiKeyEncrypted`,
+`WhatsAppAccessTokenEncrypted`, `SmtpPasswordEncrypted`) and the suffix is load-bearing — it is what stops a later
+reader treating the column as plaintext. The plan's names would have made these the only two ciphertext columns
+in the schema whose names do not say so.
+**Impact:** naming only.
+
+### DEV-18: `ITtnIdentityProvider`, and two interfaces gain a parameter
+**Date:** 2026-08-06 · **Story:** 1, Part D · **Category:** Technical · **Approved:** self (forced by the plan's own goal)
+**Original Plan:** « `XadesEInvoiceSigner` + `TtnConfig` — take the clinic's cert ».
+**Actual Implementation:** a provider holding the rule; `IEInvoiceSigner.Sign` and `ITtnClient.SubmitAsync` take a
+`ResolvedTtnIdentity`. Neither interface carried a clinic at all, so the plan's sentence was not implementable
+without *some* signature change; the choice was where the rule lives, and two copies was the alternative.
+**Impact:** three implementations and four test classes updated. `TtnConfig` keeps its accessors as the
+*per-install* half and its docstring now says so.
+
+### DEV-19: `CloudBrowser` loses the per-install fall-back — a shipped profile changes behaviour
+**Date:** 2026-08-06 · **Story:** 1, Part D · **Category:** Scope · **Approved:** Yes (asked)
+**Original Plan:** « fall back to the per-install one **only** in `SelfHostedLan` » — silent on what that means
+for `CloudBrowser`, which is also multi-clinic and has been leaning on the per-install certificate all along.
+**Actual Implementation:** the literal reading. `SharesInstallWideTtnIdentity` is true for `SelfHostedLan` only.
+**Justification:** the fall-back is correct exactly where « per install » and « per clinic » name the same thing.
+Keeping it in `CloudBrowser` would perpetuate the defect Part D exists to close, in the profile most likely to
+hit it. ⚠️ **R-2 still holds** — the capability's truth table (`true, false, false`) is `IsLocalMode`'s, so
+`DeploymentProfileTests`' derived matrix passes untouched; what changes is that a *new* question is now asked
+where previously there was no branch.
+**Impact:** a `CloudBrowser` clinic with no certificate of its own is now refused. The refusal is **loud**: an
+`InvalidOperationException` with a French message naming what to provide, which `EInvoiceService`'s existing
+catch turns into a queued retry with the reason on the row and a visible backlog in `GET /api/outbox`. Nothing is
+signed with the wrong key, and nothing is silently dropped.
+
+### DEV-20: a second secret protector rather than reusing the reminder one
+**Date:** 2026-08-06 · **Story:** 1, Part D · **Category:** Technical · **Approved:** self
+`IReminderSecretProtector` would have worked mechanically, but a Data-Protection **purpose** exists precisely to
+stop ciphertext written for one subsystem being read by another; decrypting a signing-certificate password with
+the reminder purpose is the single misuse that model is designed to prevent. `TtnSecretProtector` is 20 lines and
+mirrors it exactly. The *rule* that must not be duplicated is the precedence rule, and it is not.
+
+### DEV-21: `verify-schema` gains `ttn-identity-is-complete`
+**Date:** 2026-08-06 · **Story:** 1, Part D · **Category:** Technical · **Approved:** self
+Not in the plan. Added because of what the write-path decision below leaves behind: `Clinic.SetTtnIdentity`
+refuses half an identity, but **nothing calls it yet**, so rows arrive by hand. Unlike its siblings on that list
+this check is not a backstop behind an application guard — it is the only guard there is. It follows
+`cheque-details-only-on-cheques` exactly: the columns' *shape* is diffed against the catalog for free, so only
+the model-inexpressible invariant is named.
+
+### Auto-approved (trivial)
+
+| Deviation | Classification | Reason |
+|---|---|---|
+| `Clinic.SetTtnIdentity` added with no production caller yet | Trivial | The entity's own API and the only place the half-identity rule can live; exercised by tests, and the write path's first caller. Same history as `ClearGoogleCalendarConnection` |
+| `TtnConfig` docstring rewritten | Trivial | Its four identity accessors are now a fall-back, not the answer; the endpoint/outbox accessors are unaffected |
+| `TtnIdentityProvider` registered plainly rather than via a factory | Trivial | It was written with an explicit factory to avoid depending on the parallel session's uncommitted `AddSingleton(profile)`; once `999b877` landed that line, the plain registration is what the file already does everywhere else |
+
+## The write path is deliberately absent, and this is the honest statement of it
+
+**Nothing in the product writes these four columns.** That was asked and confirmed: the plan scopes Part D to the
+columns plus the signer, the story's file list agrees, and a certificate *upload* is a storage-key concern that
+belongs with Part E. Until an admin surface exists an identity is installed by hand.
+
+That is the `Invoice.AppointmentId` shape — « a column nobody writes is a column nobody validates » — so it is
+mitigated rather than merely noted:
+
+- the **resolver validates everything it reads** (the blob must download, each secret must decrypt, a certificate
+  key with no blob behind it refuses) with a distinct French reason per failure, and
+- **`verify-schema` checks the invariant** (DEV-21), which is what catches a half-filled row *before* an invoice
+  is queued rather than hours later at dispatch.
+
+Owed follow-up: the admin surface (username + secret on the existing admin-only TTN settings, and a certificate
+upload). ⚠️ When it lands it must go through `Clinic.SetTtnIdentity` and `ITtnSecretProtector` — writing the
+columns directly would reintroduce exactly the plaintext-at-rest and half-identity states those two exist to
+prevent.
+
+## Quality gate — Part D
+
+| Gate | Result |
+|---|---|
+| Backend build (`--no-incremental`, scratch `BaseOutputPath`) | **0 errors.** 30 warning-bearing files; the only one Part D touches is `Clinic.cs`'s pre-existing `CS8618` on `Name`'s private EF ctor — same warning, line number shifted by the added properties. **0 new warnings** (all four new properties are nullable) |
+| Part D's own classes | **109/109 green** — `TtnIdentityProviderTests` (new) · `XadesEInvoiceSignerTests` (rewritten) · `ClinicEInvoiceSettingsTests` (+7) · `SchemaVerificationServiceTests` (+2) · `SandboxTtnClientTests` · `CancelledInvoiceIsNotDispatchedTests` · `DeploymentProfileTests` |
+| Full unit suite | **2 143 passed / 0 failed** (Part F left it at 2 078; the delta is Part D's own plus `999b877`'s Part 6 classes) |
+| `verify-schema` before/after, diffed | **Ran.** `ttn-identity-is-complete` flips *not applicable* → « 0 clinic(s) hold half a TTN identity », proving the columns landed and the check reads them. **The four columns produce no drift of their own** — plain nullable columns declare no index or FK, so the model↔catalog diff has nothing to report. Drift went 9 → 1; the 8 cleared are `999b877`'s push tables (its migration was unapplied on this dev DB), and the surviving one, `overlapping-appointment-pairs: 3`, is **byte-identical in the before snapshot** — pre-existing dev data |
+| `reconcile-money` before/after, diffed | **Ran. Empty diff**, which is the story's stated requirement: US-4 touches nothing financial |
+| Frontend gate | **Not applicable** — Part D changes no `web/` file (`git status -- web/` empty). Both scripts re-confirmed present in `web/package.json` |
+
+### The signer's happy path is covered for the first time
+
+`XadesEInvoiceSignerTests` used to say « the positive signing path needs a real qualified PFX
+(integration/manual) » and asserted only fail-fast. That was true *because* the signer read a configured path.
+Now that it takes bytes, a self-signed pair generated in-process exercises the whole signature — and the case
+US-4 actually rests on is assertable: **`Sign_Embeds_The_Certificate_It_Was_Given`** signs the same TEIF under two
+identities and compares the thumbprints embedded in the two `KeyInfo` blocks. A signer that quietly went on
+reading one configured path would pass every other test in the file and fail that one.
+
+⚠️ `TtnIdentityProviderTests` pins `Ttn:CertPath` to a path that cannot exist. Left at its default it resolves
+`.local/teif-signing.pfx` under the **test assembly's own directory**, so the fall-back cases would pass or fail
+depending on what happens to be on the machine.
+
+## Findings recorded, not fixed (out of Part D's scope)
+
+1. **`HttpTtnClient`'s endpoint is still per install, and that is correct** — TTN is one national platform, so
+   every clinic posts to the same URL. Only the *account* is per clinic. Worth knowing before someone "completes"
+   the per-clinic move by adding a URL column.
+2. **`TtnCertificateKey` is a flat storage key today.** Part E prefixes *new* keys with `clinics/{clinicId}/`;
+   since nothing writes this column yet, every certificate ever stored in it will already be prefixed, so it
+   needs no backfill consideration.
+3. **The e-invoice artifacts (`{clinicId}/e-invoices/…`) were already clinic-prefixed** by `EInvoiceService`, and
+   by a different convention from the one Part E introduces (no `clinics/` segment). Not touched here; noted so
+   Part E decides deliberately rather than discovering it.
+
+## Learnings
+
+- **A defect the code documents is still a defect.** The single-cert constraint had a precise, correct paragraph
+  in `XadesEInvoiceSigner`'s docstring naming the exact fix, and it survived every review for the life of the
+  feature. Writing down « this is wrong for multi-tenant » does not make it less wrong — it makes it *cheaper to
+  fix later*, which is only worth something if somebody does.
+- **« Take the clinic's cert » had no implementable literal form.** Neither `IEInvoiceSigner.Sign` nor
+  `ITtnClient.SubmitAsync` carried a clinic, so the plan's sentence forced a signature change no matter what; the
+  only real choice was whether the precedence rule lived in one place or two. Reading a plan step for what it
+  *cannot* mean is faster than discovering it at the first compile error.
+- **A capability whose truth table matches `IsLocalMode` can still change behaviour.** `SharesInstallWideTtnIdentity`
+  is `(true, false, false)` — the old boolean exactly — so R-2's derived matrix passes untouched. What changed is
+  that a *new question* is asked where there was previously no branch at all. R-2 constrains the answers, not the
+  number of questions, and it is worth being explicit about which of the two a part is doing.
+- **Sharing a tree with a session that is about to commit is different again.** Part F's lesson was hunk-level
+  staging for a shared file. The new one: an uncommitted edit of yours in a file *they* stage goes into *their*
+  commit, and there is no defence except checking `git log` when the diff you expected shrinks. `git diff` quietly
+  shrinking from 143 lines to 14 was the tell.
+
+## Next
+
+`/review-story` for Part D, then **Part E** (US-5, clinic-prefixed storage keys) — the last unbuilt part. Its
+`DoctorCachetKey` pitfall and finding 3 above are its two known traps.

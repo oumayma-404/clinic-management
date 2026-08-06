@@ -302,13 +302,18 @@ public static class Extensions
         services.AddScoped<IPdfGenerationService, PdfGenerationService>();
 
         // TTN « El Fatoora » electronic invoicing (feature facturation-einvoicing-ttn):
-        //   - TEIF XML generation + XAdES/XMLDSig signing (cert from .local/) + QR cachet rendering.
+        //   - TEIF XML generation + XAdES/XMLDSig signing + QR cachet rendering.
         //   - ITtnClient registered as a set (sandbox + production); EInvoiceService picks the one matching
         //     the clinic's configured environment (mirrors the reminder-sender pattern).
         //   - EInvoiceService orchestrates the whole dispatch; the outbox job + submit command call it.
+        //   - ITtnIdentityProvider (US-4) answers WHOSE certificate and TTN account a clinic's invoices use —
+        //     the clinic's own, or the per-install pair where the topology permits it. The signer no longer
+        //     reads configuration at all, so this is the only place that question is answered.
         services.AddScoped<ITeifXmlGenerator, TeifXmlGenerator>();
         services.AddScoped<IEInvoiceSigner, XadesEInvoiceSigner>();
         services.AddSingleton<IQrCodeGenerator, QrCodeGenerator>();
+        services.AddSingleton<ITtnSecretProtector, TtnSecretProtector>();
+        services.AddScoped<ITtnIdentityProvider, TtnIdentityProvider>();
         services.AddScoped<ITtnClient, SandboxTtnClient>();
         services.AddScoped<ITtnClient, HttpTtnClient>();
         services.AddScoped<IEInvoiceService, EInvoiceService>();

@@ -38,6 +38,7 @@ public class CancelledInvoiceIsNotDispatchedTests
     private readonly Mock<IPatientRepository> _patients = new();
     private readonly Mock<ITeifXmlGenerator> _teif = new();
     private readonly Mock<IEInvoiceSigner> _signer = new();
+    private readonly Mock<ITtnIdentityProvider> _identity = new();
     private readonly Mock<ITtnClient> _ttn = new();
     private readonly Mock<IFileStorage> _storage = new();
     private readonly Mock<IUnitOfWork> _uow = new();
@@ -53,7 +54,7 @@ public class CancelledInvoiceIsNotDispatchedTests
 
     private EInvoiceService Service() => new(
         _invoices.Object, _clinics.Object, _patients.Object, _teif.Object, _signer.Object,
-        new[] { _ttn.Object }, _storage.Object, _uow.Object,
+        _identity.Object, new[] { _ttn.Object }, _storage.Object, _uow.Object,
         new ConfigurationBuilder().Build(), NullLogger<EInvoiceService>.Instance);
 
     /// <summary>
@@ -87,7 +88,12 @@ public class CancelledInvoiceIsNotDispatchedTests
     {
         _teif.Verify(g => g.Generate(It.IsAny<TeifInvoiceInput>()), Times.Never);
         _ttn.Verify(c => c.SubmitAsync(
-            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ResolvedTtnIdentity>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+
+        // [US-4] The clinic's certificate is never even fetched: resolution sits inside DispatchAsync, past the
+        // guards, so a refused note costs no blob read — and a skip cannot be mistaken for a failed resolution.
+        _identity.Verify(p => p.ResolveAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     // [J4] The guard itself: a cancelled note found queued is skipped, and nothing reaches TTN.

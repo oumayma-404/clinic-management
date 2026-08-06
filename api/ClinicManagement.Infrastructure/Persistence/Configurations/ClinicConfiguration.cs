@@ -67,6 +67,22 @@ public class ClinicConfiguration : IEntityTypeConfiguration<Clinic>
             .HasMaxLength(20)
             .HasDefaultValue(Clinic.TtnEnvironmentSandbox);
 
+        // The clinic's own El Fatoora identity (multi-tenant-cloud US-4). All nullable, no default: « this
+        // clinic has not been issued a certificate » is a real state, not a value to invent.
+        builder.Property(c => c.TtnUsername)
+            .HasMaxLength(200);
+
+        // A storage key, never the PFX itself — the bytes live in file storage like every other blob.
+        builder.Property(c => c.TtnCertificateKey)
+            .HasMaxLength(500);
+
+        // Data-Protection ciphertext — opaque, variable length (matches the three reminder secret columns).
+        builder.Property(c => c.TtnApiSecretEncrypted)
+            .HasColumnType("text");
+
+        builder.Property(c => c.TtnCertificatePasswordEncrypted)
+            .HasColumnType("text");
+
         // Working hours JSON array (reliability-and-polish AC-7) — opaque, variable length.
         builder.Property(c => c.WorkingHoursJson)
             .HasColumnType("text");

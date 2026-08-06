@@ -491,10 +491,23 @@ public class SchemaVerificationReader : ISchemaVerificationReader
                 WHERE p."ClinicId" <> d."ClinicId"
                 """);
 
+        // US-4's invariant, and the only one here with no application write path behind it: until the admin
+        // surface lands, these columns are filled in by hand, so this query is the whole guard.
+        var partialTtnIdentity = await ScalarOrNullAsync(connection, cancellationToken,
+            requiredTable: "Clinics",
+            requiredColumn: "TtnCertificateKey",
+            sql: """
+                SELECT COUNT(*)
+                FROM "Clinics"
+                WHERE ("TtnApiSecretEncrypted" IS NOT NULL AND "TtnUsername" IS NULL)
+                   OR ("TtnCertificatePasswordEncrypted" IS NOT NULL AND "TtnCertificateKey" IS NULL)
+                """);
+
         return new DataMigrationCounts(
             typePrefix, overlaps, legacyExpiry, legacyExpiryWithoutBatch, stockWithoutBatch,
             missingNormalized, patientsTotal, actScalarWithoutRow, categoryStillInDescription,
-            unsetBackupSchedule, chequeDetailsOnNonCheque, attributableButUnattributed, pushClinicMismatch);
+            unsetBackupSchedule, chequeDetailsOnNonCheque, attributableButUnattributed, pushClinicMismatch,
+            partialTtnIdentity);
     }
 
     /// <summary>

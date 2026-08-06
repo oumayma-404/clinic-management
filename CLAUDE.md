@@ -570,6 +570,31 @@ Frontend talks to the API via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
     ⚠️ **`restore-backup` keeps its profile gate**, because its safety interlock (« refuse while the app is
     listening ») looks for a listener on *this* machine and in a container the API listens in a sibling — so the check
     would pass silently while `pg_restore --clean` drops tables under a live application.
+- **Each clinic signs its own e-invoices (`multi-tenant-cloud` US-4 / Part D)**: the TTN « El Fatoora » identity —
+  the qualified signing certificate and the account a declaration is filed under — moved from **per install** to
+  **per clinic**. `Clinic` gained `TtnUsername`, `TtnApiSecretEncrypted`, `TtnCertificateKey` (a storage key, not
+  the bytes) and `TtnCertificatePasswordEncrypted`; both secrets are Data-Protection ciphertext through the new
+  `ITtnSecretProtector`, on its own purpose so reminder ciphertext and TTN ciphertext cannot be interchanged.
+  ⚠️ **This was a documented defect, not a discovered one.** `XadesEInvoiceSigner`'s docstring had said for the
+  feature's whole life that one `.local/teif-signing.pfx` meant every clinic's invoices were signed with the same
+  qualified identity, « acceptable only for a single-tenant-per-install deployment ». A TEIF signature attests
+  *who issued* the invoice and TTN validation is irreversible, so on a hosted backend that is a false legal
+  declaration nobody can withdraw.
+  ⚠️ **The precedence rule lives in exactly one place**, `ITtnIdentityProvider`: the clinic's own identity, else
+  the per-install pair, and that fall-back exists **only** where `DeploymentProfile.SharesInstallWideTtnIdentity`
+  (the 14th capability) holds — `SelfHostedLan`, the one topology where « per install » and « per clinic » mean
+  the same thing. **`CloudBrowser` therefore loses it too**, which is the one place Part D changes a shipped
+  profile: it is multi-clinic and had been leaning on that certificate all along. The refusal is loud, not
+  silent — a French message names what to provide, the invoice stays `Queued`, and the backlog shows in
+  `GET /api/outbox`. It is a *provider* rather than a branch in the signer because the identity has **two**
+  consumers (the signer wants the certificate, `HttpTtnClient` wants the credentials); `EInvoiceService` resolves
+  it **once** per dispatch and hands the same object to both, so « signed as clinic A, filed under clinic B » is
+  not a state the code can reach. The signer now reads no configuration and touches no disk — it takes bytes, so
+  its happy path became unit-testable for the first time.
+  ⚠️ **Nothing writes those four columns yet.** The admin surface is deliberately out of Part D's scope (a
+  certificate *upload* belongs with Part E's storage keys), so an identity is installed by hand — which is why
+  `verify-schema` gained **`ttn-identity-is-complete`**: `Clinic.SetTtnIdentity` refuses half an identity, but
+  with no caller that guard is unreachable, making the schema check the only one there is.
 - **Pluggable auth (`Auth:Mode` = `Cloud` | `Local`)**: Cloud is the original Auth0 path; **Local** (for offline Windows/LAN installs) issues its own HS256 JWTs against local email+password accounts. Backend seam: `ILocalAuthService`/`LocalAuthService` (+ per-install signing key via `LocalAuthConfig`), a mode-branched JWT setup in `Program.cs`, and `AuthController` (`login`/`setup`/`register`/`mode`/`change-password`). `CreateClinicCommand`/`JoinClinicCommand` branch to a Local path when a `Password` is present. Frontend seam: a single `useSession()` context (`web/lib/auth/session.tsx`) backed by either `CloudSessionProvider` (Auth0) or `LocalSessionProvider` (HttpOnly cookie), gated on `AUTH_MODE`. All Local behavior is additive; the Cloud path is unchanged. Offline admin lockout recovery is a console command (`dotnet run -- reset-admin-password`), not a web endpoint. *All 5 phases of the offline-Windows repackaging are complete — see `features/windows-desktop-app/`.*
   ⚠️ **The Local session slides, and it takes two halves to do so (`mobile-native-shells` P2)**: `RefreshTokenCommandHandler` mints a **fresh** refresh credential on every exchange *and* `web/app/bff/auth/token` re-sets the HttpOnly cookie with it — a backend-only change would rotate a credential nobody stores and no user would feel. Before this, the cookie kept the token issued at login, so a staff member working through the day was asked for their password again twelve hours in. It is **sliding expiry, not revoking rotation**: the superseded credential stays valid until its own expiry (stateless, nothing stores it — two tabs exchanging at once must both keep working), and `User.TokenVersion` is still the only revocation. `web/lib/auth/session-cookie.ts` is now the **single writer** of both `local_session` and `local_must_change_password`; they are written together because a sliding session would otherwise outlive the forced-password-change flag, leaving an app that looks usable while `LocalAuthEnforcementMiddleware` 403s every call.
 - **A backgrounded phone still knows, and a lock screen learns nothing (`mobile-native-shells` P6)**: OS push, from

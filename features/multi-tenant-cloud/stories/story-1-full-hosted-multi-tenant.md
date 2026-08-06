@@ -1,10 +1,11 @@
 # Story 1: Full — Hosted multi-tenant profile (desktop clients, hosted data)
 
 **Status:** APPROVED
-**Story Status:** in-progress — **Parts A, B and C implemented** (code gate; 2026-08-05). Parts D–F not started.
-See [../progress.md](../progress.md) for the part table, eight deviations and the gate results. ⚠️ Part B's session
-found a **pre-existing 24-test red baseline** from earlier features, invisible until then because Part A's runner
-was blocked; proven unchanged by Part B and awaiting a decision (see progress.md § Part B).
+**Story Status:** in-progress — **Parts A, B, C, D and F implemented** (code gate; 2026-08-05/06). **Part E is the
+only one left.** See [../progress.md](../progress.md) for the part table, twenty-one deviations and the per-part
+gate results. ⚠️ Part B's session found a **pre-existing 24-test red baseline** from earlier features, invisible
+until then because Part A's runner was blocked; it was cleared in `23e56f5` and the suite has been green since
+(Part D left it at **2 143 passed / 0 failed**).
 **Layer:** Full — ⚠️ **a deliberate departure from the skill's BE/FE separation rule**, chosen because the plan is
 one coherent topology change: the third profile is « the second deployment's infrastructure with the first's
 authentication », and splitting it would produce a backend story that cannot be exercised (no login path) and a
@@ -90,9 +91,17 @@ _Story-specific:_
       change. ⚠️ Shipped **with its UI** (DEV-12): with self-registration closed and no « Créer un compte »
       dialog, a hosted clinic would have had no way to add a colleague at all
 
-**Part D — secrets** · **Part E — storage** · **Part F — operations**
-- [ ] `DataProtection:KeyRingPath` is **required** in `HostedMultiTenant` and fails startup loud when unset
-- [ ] TTN identity is per-clinic; the per-install cert is a fall-back **only** in `SelfHostedLan`
+**Part D — secrets** *(implemented)* · **Part E — storage** *(not started)* · **Part F — operations** *(implemented)*
+- [x] `DataProtection:KeyRingPath` is **required** in `HostedMultiTenant` and fails startup loud when unset
+- [x] TTN identity is per-clinic; the per-install cert is a fall-back **only** in `SelfHostedLan`.
+      ⚠️ **The plan's literal wording changes a shipped profile** — `CloudBrowser` is multi-clinic too, so it
+      loses the fall-back as well (DEV-19, asked and approved). The refusal is loud: a French message names what
+      to provide, the invoice stays `Queued`, and the backlog shows in `GET /api/outbox`. R-2 is untouched — the
+      new capability's truth table is `IsLocalMode`'s exactly. ⚠️ Two additions the plan did not name: the rule
+      lives in **`ITtnIdentityProvider`** rather than in the signer, because it has *two* consumers and a second
+      copy is the `fixes-dont-propagate` shape (DEV-18); and `verify-schema` gained
+      **`ttn-identity-is-complete`** (DEV-21), because there is no write path yet, so it is the only guard a
+      hand-populated row has. ⚠️ **No write path — deliberately**, per the plan's scope; see progress.md
 - [ ] New storage keys are `clinics/{clinicId}/…`; **old flat keys still resolve, with no backfill**
 - [ ] `verify-schema`, `reconcile-money` and `restore-backup` run in the hosted profile
 - [ ] `/hub/*` reaches the API, so realtime works

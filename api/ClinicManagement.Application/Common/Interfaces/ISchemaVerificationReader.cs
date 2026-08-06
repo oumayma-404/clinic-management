@@ -186,4 +186,18 @@ public sealed record DataMigrationCounts(
     /// catch it. Null before the tables exist.
     /// </para>
     /// </summary>
-    int? PushDeliveriesWithMismatchedClinic);
+    int? PushDeliveriesWithMismatchedClinic,
+    /// <summary>
+    /// Clinics holding <b>half</b> a TTN « El Fatoora » identity (<c>multi-tenant-cloud</c> US-4): a client
+    /// secret with no username, or a certificate password with no certificate.
+    /// <para>
+    /// Same shape as the cheque invariant above, and here the argument is stronger rather than weaker. The four
+    /// columns' shape is diffed against the catalog for free; what the model cannot express is « the halves are
+    /// useless apart », which lives in <c>Clinic.SetTtnIdentity</c> and deliberately not in a CHECK constraint.
+    /// ⚠️ And unlike every other invariant on this list, <b>nothing in the product writes these columns yet</b> —
+    /// an identity is provisioned by hand until the admin surface lands — so this is not a backstop behind an
+    /// application guard, it is the only guard there is. A half-filled row fails at dispatch with a French reason,
+    /// which is honest but hours late; this finds it before an invoice is queued. Null before the columns exist.
+    /// </para>
+    /// </summary>
+    int? ClinicsWithPartialTtnIdentity);

@@ -52,7 +52,7 @@ public class SchemaVerificationServiceTests
         'x',
         "EXCLUDE USING gist (\"DoctorId\" WITH =, slot WITH &&) WHERE (\"Status\" <> ALL (ARRAY[5, 6]))");
 
-    private static DataMigrationCounts CleanCounts => new(0, 0, 0, 0, 0, 0, 12, 0, 0, 0, 0, 0, 0);
+    private static DataMigrationCounts CleanCounts => new(0, 0, 0, 0, 0, 0, 12, 0, 0, 0, 0, 0, 0, 0);
 
     private static SchemaVerificationFinding Finding(SchemaVerificationReport report, string check) =>
         report.Findings.Single(f => f.Check == check);
@@ -360,7 +360,7 @@ public class SchemaVerificationServiceTests
     [Fact]
     public async Task Appointments_Naming_An_Act_With_No_Procedure_Row_Are_Drift()
     {
-        Arrange(counts: new DataMigrationCounts(0, 0, 0, 0, 0, 0, 12, 4, 0, 0, 0, 0, 0));
+        Arrange(counts: new DataMigrationCounts(0, 0, 0, 0, 0, 0, 12, 4, 0, 0, 0, 0, 0, 0));
 
         var report = await CreateService().RunAsync();
 
@@ -372,7 +372,7 @@ public class SchemaVerificationServiceTests
     [Fact]
     public async Task Appointment_Act_Rows_Reads_Not_Applicable_Before_The_Table_Exists()
     {
-        Arrange(counts: new DataMigrationCounts(0, 0, 0, 0, 0, 0, 12, null, 0, 0, 0, 0, 0));
+        Arrange(counts: new DataMigrationCounts(0, 0, 0, 0, 0, 0, 12, null, 0, 0, 0, 0, 0, 0));
 
         var report = await CreateService().RunAsync();
 
@@ -382,7 +382,7 @@ public class SchemaVerificationServiceTests
     [Fact]
     public async Task Appointment_Notes_Still_Carrying_A_Type_Prefix_Are_Drift()
     {
-        Arrange(counts: new DataMigrationCounts(3, 0, 0, 0, 0, 0, 12, 0, 0, 0, 0, 0, 0));
+        Arrange(counts: new DataMigrationCounts(3, 0, 0, 0, 0, 0, 12, 0, 0, 0, 0, 0, 0, 0));
 
         var report = await CreateService().RunAsync();
 
@@ -392,7 +392,7 @@ public class SchemaVerificationServiceTests
     [Fact]
     public async Task Pre_Existing_Overlapping_Pairs_Are_Drift()
     {
-        Arrange(counts: new DataMigrationCounts(0, 2, 0, 0, 0, 0, 12, 0, 0, 0, 0, 0, 0));
+        Arrange(counts: new DataMigrationCounts(0, 2, 0, 0, 0, 0, 12, 0, 0, 0, 0, 0, 0, 0));
 
         var report = await CreateService().RunAsync();
 
@@ -408,7 +408,7 @@ public class SchemaVerificationServiceTests
     [Fact]
     public async Task A_Legacy_Expiry_With_No_Opening_Batch_Is_Drift()
     {
-        Arrange(counts: new DataMigrationCounts(0, 0, 5, 5, 0, 0, 12, 0, 0, 0, 0, 0, 0));
+        Arrange(counts: new DataMigrationCounts(0, 0, 5, 5, 0, 0, 12, 0, 0, 0, 0, 0, 0, 0));
 
         var report = await CreateService().RunAsync();
 
@@ -420,7 +420,7 @@ public class SchemaVerificationServiceTests
     [Fact]
     public async Task Patients_Missing_A_Normalized_Name_Are_Drift()
     {
-        Arrange(counts: new DataMigrationCounts(0, 0, 0, 0, 0, 4, 12, 0, 0, 0, 0, 0, 0));
+        Arrange(counts: new DataMigrationCounts(0, 0, 0, 0, 0, 4, 12, 0, 0, 0, 0, 0, 0, 0));
 
         var report = await CreateService().RunAsync();
 
@@ -436,7 +436,7 @@ public class SchemaVerificationServiceTests
     [Fact]
     public async Task A_Count_Whose_Subject_Does_Not_Exist_Yet_Is_Not_Applicable_Rather_Than_Drift()
     {
-        Arrange(counts: new DataMigrationCounts(0, 0, null, null, null, null, null, null, null, 0, null, 0, null));
+        Arrange(counts: new DataMigrationCounts(0, 0, null, null, null, null, null, null, null, 0, null, 0, null, null));
 
         var report = await CreateService().RunAsync();
 
@@ -455,7 +455,7 @@ public class SchemaVerificationServiceTests
     [Fact]
     public async Task After_The_Migration_The_Backfill_Check_Says_It_Was_Superseded()
     {
-        Arrange(counts: new DataMigrationCounts(0, 0, null, null, 0, 0, 12, 0, 0, 0, 0, 0, 0));
+        Arrange(counts: new DataMigrationCounts(0, 0, null, null, 0, 0, 12, 0, 0, 0, 0, 0, 0, 0));
 
         var report = await CreateService().RunAsync();
 
@@ -471,7 +471,7 @@ public class SchemaVerificationServiceTests
     [Fact]
     public async Task An_Item_Holding_Stock_With_No_Lot_Is_Drift()
     {
-        Arrange(counts: new DataMigrationCounts(0, 0, null, null, 3, 0, 12, 0, 0, 0, 0, 0, 0));
+        Arrange(counts: new DataMigrationCounts(0, 0, null, null, 3, 0, 12, 0, 0, 0, 0, 0, 0, 0));
 
         var report = await CreateService().RunAsync();
 
@@ -486,7 +486,7 @@ public class SchemaVerificationServiceTests
     [Fact]
     public async Task HasDrift_Agrees_With_DriftCount()
     {
-        Arrange(counts: new DataMigrationCounts(1, 1, 0, 0, 0, 0, 12, 0, 0, 0, 0, 0, 0));
+        Arrange(counts: new DataMigrationCounts(1, 1, 0, 0, 0, 0, 12, 0, 0, 0, 0, 0, 0, 0));
 
         var report = await CreateService().RunAsync();
 
@@ -629,7 +629,7 @@ public class SchemaVerificationServiceTests
     [Fact]
     public async Task Clinics_Left_With_A_Zero_Backup_Retention_Are_Drift()
     {
-        Arrange(counts: new DataMigrationCounts(0, 0, 0, 0, 0, 0, 12, 0, 0, 3, 0, 0, 0));
+        Arrange(counts: new DataMigrationCounts(0, 0, 0, 0, 0, 0, 12, 0, 0, 3, 0, 0, 0, 0));
 
         var report = await CreateService().RunAsync();
 
@@ -641,7 +641,7 @@ public class SchemaVerificationServiceTests
     [Fact]
     public async Task Backup_Schedule_Backfill_Reads_Not_Applicable_Before_The_Columns_Exist()
     {
-        Arrange(counts: new DataMigrationCounts(0, 0, 0, 0, 0, 0, 12, 0, 0, null, 0, 0, 0));
+        Arrange(counts: new DataMigrationCounts(0, 0, 0, 0, 0, 0, 12, 0, 0, null, 0, 0, 0, 0));
 
         var report = await CreateService().RunAsync();
 
@@ -672,6 +672,33 @@ public class SchemaVerificationServiceTests
         var report = await CreateService().RunAsync();
 
         var finding = Finding(report, "push-delivery-clinic-matches-device");
+        Assert.False(IsDrift(finding));
+        Assert.Contains("not applicable", finding.Detail, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // ------------------------------------------------------------------ US-4: per-clinic TTN identity
+
+    // [US-4] Half an identity is drift. Clinic.SetTtnIdentity refuses it, but nothing in the product calls that
+    // method yet — an identity is installed by hand until the admin surface lands — so this check is not a
+    // backstop behind an application guard the way its siblings are. It is the only guard there is.
+    [Fact]
+    public async Task A_Clinic_Holding_Half_A_Ttn_Identity_Is_Drift()
+    {
+        Arrange(counts: CleanCounts with { ClinicsWithPartialTtnIdentity = 1 });
+
+        var report = await CreateService().RunAsync();
+
+        Assert.True(IsDrift(Finding(report, "ttn-identity-is-complete")));
+    }
+
+    [Fact]
+    public async Task Ttn_Identity_Reads_Not_Applicable_Before_The_Columns_Exist()
+    {
+        Arrange(counts: CleanCounts with { ClinicsWithPartialTtnIdentity = null });
+
+        var report = await CreateService().RunAsync();
+
+        var finding = Finding(report, "ttn-identity-is-complete");
         Assert.False(IsDrift(finding));
         Assert.Contains("not applicable", finding.Detail, StringComparison.OrdinalIgnoreCase);
     }

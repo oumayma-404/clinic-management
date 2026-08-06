@@ -26,6 +26,7 @@ public class EInvoiceService : IEInvoiceService
     private readonly IPatientRepository _patientRepository;
     private readonly ITeifXmlGenerator _teifXmlGenerator;
     private readonly IEInvoiceSigner _signer;
+    private readonly ITtnIdentityProvider _ttnIdentityProvider;
     private readonly IReadOnlyDictionary<string, ITtnClient> _ttnClients;
     private readonly IFileStorage _fileStorage;
     private readonly IUnitOfWork _unitOfWork;
@@ -38,6 +39,7 @@ public class EInvoiceService : IEInvoiceService
         IPatientRepository patientRepository,
         ITeifXmlGenerator teifXmlGenerator,
         IEInvoiceSigner signer,
+        ITtnIdentityProvider ttnIdentityProvider,
         IEnumerable<ITtnClient> ttnClients,
         IFileStorage fileStorage,
         IUnitOfWork unitOfWork,
@@ -49,6 +51,7 @@ public class EInvoiceService : IEInvoiceService
         _patientRepository = patientRepository;
         _teifXmlGenerator = teifXmlGenerator;
         _signer = signer;
+        _ttnIdentityProvider = ttnIdentityProvider;
         _ttnClients = ttnClients.ToDictionary(c => c.Environment, StringComparer.OrdinalIgnoreCase);
         _fileStorage = fileStorage;
         _unitOfWork = unitOfWork;
@@ -188,15 +191,21 @@ public class EInvoiceService : IEInvoiceService
 
     private async Task DispatchAsync(Invoice invoice, Clinic clinic, Patient? patient, int maxAttempts, CancellationToken cancellationToken)
     {
+        // Resolved ONCE and handed to both halves (US-4): signing with one clinic's certificate and submitting
+        // under another's account is the failure per-clinic identity exists to prevent, and TTN validation
+        // cannot be undone. A clinic with no usable identity throws InvalidOperationException here, which
+        // ProcessAsync's catch already turns into a queued retry with the operator's reason on the row.
+        var identity = await _ttnIdentityProvider.ResolveAsync(clinic.Id, cancellationToken);
+
         var input = BuildInput(invoice, clinic, patient);
         var teifXml = _teifXmlGenerator.Generate(input);
-        var signed = _signer.Sign(teifXml);
+        var signed = _signer.Sign(teifXml, identity);
 
         var signedKey = await StoreArtifactAsync(clinic.Id, invoice, "signed.xml", signed.SignedXml, cancellationToken);
         invoice.MarkEInvoiceSigned(signedKey);
 
         var client = ResolveClient(clinic.TtnEnvironment);
-        var result = await client.SubmitAsync(signed.SignedXml, input.InvoiceNumber, cancellationToken);
+        var result = await client.SubmitAsync(signed.SignedXml, input.InvoiceNumber, identity, cancellationToken);
 
         switch (result.Outcome)
         {

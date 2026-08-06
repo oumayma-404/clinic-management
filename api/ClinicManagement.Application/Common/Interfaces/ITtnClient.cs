@@ -13,5 +13,14 @@ public interface ITtnClient
     /// picks the client matching the clinic's configured environment.</summary>
     string Environment { get; }
 
-    Task<TtnSubmissionResult> SubmitAsync(string signedTeifXml, string invoiceNumber, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Submits a signed TEIF under <paramref name="identity"/>'s TTN account. That is the <b>same</b> identity
+    /// the document was signed with (multi-tenant-cloud US-4): the orchestrator resolves it once and hands it to
+    /// both, so filing one clinic's invoice under another's account is not a state this code can reach.
+    /// </summary>
+    Task<TtnSubmissionResult> SubmitAsync(
+        string signedTeifXml,
+        string invoiceNumber,
+        ResolvedTtnIdentity identity,
+        CancellationToken cancellationToken = default);
 }

@@ -310,9 +310,33 @@ Concrete EF Core impls of Domain repo interfaces. Pattern: ctor-inject `Applicat
   bounded transient retry with backoff). **Best-effort, self-committing, never throws** (safe from a command or
   the outbox job). Picks the `ITtnClient` by the clinic's environment, falling back to sandbox.
 - **`TeifXmlGenerator`** (`ITeifXmlGenerator`) — builds TEIF XML (version pinned in-code; exact XSD is an open
-  question). **`XadesEInvoiceSigner`** (`IEInvoiceSigner`) — enveloped XMLDSig (RSA-SHA256) with the signing cert
-  from the per-install `.local/` store (`TtnConfig`); **single cert per install** (not per clinic — noted as a
-  multi-tenant constraint). **`QrCodeGenerator`** (`IQrCodeGenerator`, **Singleton**) — visible cachet QR.
+  question). **`XadesEInvoiceSigner`** (`IEInvoiceSigner`) — enveloped XMLDSig (RSA-SHA256). It reads no
+  configuration and touches no disk: the certificate arrives as **bytes** on a `ResolvedTtnIdentity`, so signing is
+  a pure synchronous transform. **`QrCodeGenerator`** (`IQrCodeGenerator`, **Singleton**) — visible cachet QR.
+- **`TtnIdentityProvider`** (`ITtnIdentityProvider`, scoped, `multi-tenant-cloud` US-4) — **the single answer to
+  « whose certificate signs this clinic's invoices? »**: the clinic's own (`Clinic.TtnUsername` /
+  `TtnApiSecretEncrypted` / `TtnCertificateKey` / `TtnCertificatePasswordEncrypted`, the PFX fetched from
+  `IFileStorage`, the two secrets decrypted through `ITtnSecretProtector`), else the per-install pair — and that
+  fall-back exists **only** where `DeploymentProfile.SharesInstallWideTtnIdentity` holds, i.e. `SelfHostedLan`,
+  the one topology where « per install » and « per clinic » name the same thing.
+  It replaced the constraint this file used to record as a fact: one `.local/teif-signing.pfx` for the whole
+  install meant that in a multi-clinic deployment **every** clinic's e-invoices were signed with the same
+  qualified identity — and a TEIF signature attests *who issued* the invoice, so on a hosted backend that is a
+  false legal declaration, made irreversible by TTN validation.
+  ⚠️ **It is a provider rather than an `if` in the signer because the identity has two consumers** — the signer
+  wants the certificate, `HttpTtnClient` wants the credentials — and `EInvoiceService` resolves it **once** per
+  dispatch and hands the same object to both, which is what makes « signed as clinic A, filed under clinic B »
+  unreachable. ⚠️ **A clinic that HAS a certificate never silently falls back to the install's**, not even when
+  the blob is missing: substituting an identity for a clinic that was explicitly given one is the exact failure
+  being prevented. Every refusal is an `InvalidOperationException` with a French operator message —
+  `EInvoiceService`'s existing catch turns that into a queued retry with the reason on the row, so nothing is a
+  new error channel. ⚠️ **Nothing writes those four columns yet** (the admin surface is owed), so `verify-schema`'s
+  **`ttn-identity-is-complete`** is the only guard a hand-populated row has.
+- **`TtnSecretProtector`** (`ITtnSecretProtector`, **Singleton**) — `ReminderSecretProtector`'s twin on its own
+  purpose (`ClinicManagement.TtnSecrets.v1`). Deliberately not the reminder protector: a Data-Protection *purpose*
+  exists to stop one subsystem's ciphertext being read by another. Its key ring surviving a redeploy is what
+  `DataProtection:KeyRingPath` guarantees (required in `HostedMultiTenant` since US-6) — which is why that step
+  had to land **before** this one.
 - **`SandboxTtnClient`** (`ITtnClient`, env `Sandbox` — default) — validates any signed TEIF locally, returns a
   deterministic fake TTN id + receipt (whole pipeline exercisable offline). **`HttpTtnClient`** (`ITtnClient`,
   env `Production`) — best-effort OAuth2 + REST submit driven by `Ttn:*`; unconfigured/5xx ⇒ transient (invoice
@@ -320,6 +344,10 @@ Concrete EF Core impls of Domain repo interfaces. Pattern: ctor-inject `Applicat
 - **`TtnConfig`** — static accessors: cert path/password (`.local/teif-signing.pfx`, env `TTN_CERT_PASSWORD`),
   base/token URLs per environment, `Ttn:Username`/`ApiSecret` (env `TTN_API_SECRET`), `MaxAttempts` (5),
   `BackoffBaseSeconds` (60), `DispatchBatchSize` (20).
+  ⚠️ Since US-4 the four **identity** accessors describe the *per-install fall-back only* — read them anywhere but
+  `TtnIdentityProvider` and you have written a second, disagreeing answer to « whose certificate is this? ». The
+  endpoint and outbox accessors are unaffected: TTN is one national platform, so its URLs and the retry policy are
+  per install by nature.
 
 ### File Storage (`IFileStorage`, scoped, mode-branched)
 - **`Storage/MinioFileStorage`** (Cloud) — MinIO blob store; auto-creates bucket; key = custom path or
@@ -413,8 +441,8 @@ a call fails cleanly ("pg_dump introuvable").
   `DataProtection:KeyRingPath` if set, else framework default) + `IReminderSecretProtector` (**Singleton**).
 - **Reminders** — `IReminderSettingsProvider`, `IReminderScheduler` (scoped); `IReminderChannelSender` ×2
   (`HttpSmsSender`, `WhatsAppSender`, scoped); `IWhatsAppOnboardingService` (scoped).
-- **E-invoicing** — `ITeifXmlGenerator`, `IEInvoiceSigner`, `IEInvoiceService`, `ITtnClient` ×2 (Sandbox + Http)
-  scoped; `IQrCodeGenerator` **Singleton**.
+- **E-invoicing** — `ITeifXmlGenerator`, `IEInvoiceSigner`, `IEInvoiceService`, `ITtnIdentityProvider`,
+  `ITtnClient` ×2 (Sandbox + Http) scoped; `IQrCodeGenerator` + **`ITtnSecretProtector`** Singleton.
 - `IGoogleCalendarService`, `IGoogleCalendarSyncService`, `IPdfGenerationService`, `IHuggingFaceAIService`,
   `IAIActionService`, `IClinicCatalogSeeder`, `IBackupService` — all scoped.
 - **Not registered here:** `CertificateProvisioner` (constructed manually pre-Build in `Program.cs`);

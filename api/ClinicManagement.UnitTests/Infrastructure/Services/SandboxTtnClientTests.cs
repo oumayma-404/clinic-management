@@ -1,4 +1,4 @@
-using ClinicManagement.Application.Common.Models;
+﻿using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Infrastructure.Services;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -15,6 +15,10 @@ public class SandboxTtnClientTests
 {
     private static SandboxTtnClient Client() => new(NullLogger<SandboxTtnClient>.Instance);
 
+    // The sandbox authenticates nobody, so the identity is present only to satisfy the contract (US-4).
+    private static readonly ResolvedTtnIdentity Identity =
+        new(new byte[] { 1, 2, 3 }, null, "sandbox-user", "sandbox-secret", TtnIdentitySource.Clinic);
+
     private const string SignedTeif = "<TEIF version=\"1.8.8\"><InvoiceBody/><Signature>abc</Signature></TEIF>";
     private const string UnsignedTeif = "<TEIF version=\"1.8.8\"><InvoiceBody/></TEIF>";
 
@@ -29,7 +33,7 @@ public class SandboxTtnClientTests
     [Fact]
     public async Task SubmitAsync_Validates_Signed_Teif()
     {
-        var result = await Client().SubmitAsync(SignedTeif, "2026-0001");
+        var result = await Client().SubmitAsync(SignedTeif, "2026-0001", Identity);
 
         Assert.Equal(TtnSubmissionOutcome.Validated, result.Outcome);
         Assert.False(string.IsNullOrWhiteSpace(result.TtnIdentifier));
@@ -41,8 +45,8 @@ public class SandboxTtnClientTests
     [Fact]
     public async Task SubmitAsync_Is_Deterministic()
     {
-        var first = await Client().SubmitAsync(SignedTeif, "2026-0001");
-        var second = await Client().SubmitAsync(SignedTeif, "2026-0001");
+        var first = await Client().SubmitAsync(SignedTeif, "2026-0001", Identity);
+        var second = await Client().SubmitAsync(SignedTeif, "2026-0001", Identity);
 
         Assert.Equal(first.TtnIdentifier, second.TtnIdentifier);
     }
@@ -51,7 +55,7 @@ public class SandboxTtnClientTests
     [Fact]
     public async Task SubmitAsync_Rejects_Unsigned_Teif()
     {
-        var result = await Client().SubmitAsync(UnsignedTeif, "2026-0001");
+        var result = await Client().SubmitAsync(UnsignedTeif, "2026-0001", Identity);
 
         Assert.Equal(TtnSubmissionOutcome.Rejected, result.Outcome);
         Assert.False(string.IsNullOrWhiteSpace(result.Error));

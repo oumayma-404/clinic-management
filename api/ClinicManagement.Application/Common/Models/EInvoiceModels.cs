@@ -51,6 +51,40 @@ public class SignedEInvoiceResult
     public string SignedXml { get; set; } = string.Empty;
 }
 
+/// <summary>Where a resolved TTN identity came from — reported so a log line answers « whose certificate signed this? ».</summary>
+public enum TtnIdentitySource
+{
+    /// <summary>The clinic's own certificate and TTN account, read from its row.</summary>
+    Clinic = 0,
+    /// <summary>The per-install <c>.local/</c> certificate and <c>Ttn:*</c> credentials, legal only on a single-clinic install.</summary>
+    Install = 1
+}
+
+/// <summary>
+/// One clinic's usable El Fatoora identity: the qualified signing certificate plus the TTN account its
+/// invoices are filed under (multi-tenant-cloud US-4). Produced by <c>ITtnIdentityProvider</c>, consumed by
+/// the signer and the TTN client.
+///
+/// <para><b>Both halves travel together deliberately.</b> Resolving once per dispatch and handing the same
+/// object to both is what makes « signed with clinic A's certificate, submitted under clinic B's account »
+/// unrepresentable — two independent lookups could disagree, and TTN validation is irreversible.</para>
+///
+/// <para>The certificate arrives as <b>bytes</b>, already fetched, so signing stays a synchronous pure
+/// transform: the I/O (a DB row, a blob download or a file read) belongs to the resolver, which has to be
+/// async for the DB read regardless.</para>
+/// </summary>
+public sealed record ResolvedTtnIdentity(
+    byte[] CertificateBytes,
+    string? CertificatePassword,
+    string? Username,
+    string? ApiSecret,
+    TtnIdentitySource Source)
+{
+    /// <summary>True when both TTN account fields are present, i.e. a production submission can authenticate.</summary>
+    public bool HasApiCredentials =>
+        !string.IsNullOrWhiteSpace(Username) && !string.IsNullOrWhiteSpace(ApiSecret);
+}
+
 /// <summary>Outcome of a TTN « El Fatoora » submission attempt.</summary>
 public enum TtnSubmissionOutcome
 {
