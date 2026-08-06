@@ -5,6 +5,7 @@ import { Auth0Provider, useUser } from "@auth0/nextjs-auth0/client"
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
 import { clinicsApi } from "@/lib/api/clinics"
 import { clearCachedAccessToken, onMustChangePassword } from "@/lib/api/client"
+import { canConfirmIdentityInShell, SessionLockGate } from "@/components/session-lock-gate"
 
 export type AuthMode = "cloud" | "local"
 
@@ -201,10 +202,39 @@ export function LocalSessionProvider({ children }: { children: React.ReactNode }
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastActivityAtMs = useRef(Date.now())
 
+  /*
+   * In a native shell the limit **pauses** the session instead of ending it (AC-57): `<SessionLockGate>` covers
+   * the app, asks the OS to confirm the device owner, and on success re-arms the timer with the cookie, the page
+   * and the user's place all untouched. Three unsuccessful attempts — or a device that cannot ask — fall through
+   * to the ordinary logout below.
+   *
+   * ⚠️ `locked` is a **dependency of the effect**, not a flag read inside it. Tearing the listeners down is the
+   * point: while the gate is up, a tap on it must not count as activity (that would extend the very session the
+   * limit just paused) and the timer must not fire a second expiry behind it.
+   *
+   * ⚠️ Absent bridge ⇒ this is never entered and the path below is byte-identical to what it was (AC-58).
+   */
+  const [locked, setLocked] = useState(false)
+
+  const resumeFromLock = useCallback(() => {
+    lastActivityAtMs.current = Date.now()
+    setLocked(false)
+  }, [])
+
+  // Deliberately does **not** clear `locked`: `logout` clears the cookie and then navigates, and uncovering the
+  // app for those few frames would put the record back on screen at the one moment nobody has confirmed anything.
+  const abandonLock = useCallback(() => {
+    logout({ returnTo: window.location.pathname + window.location.search })
+  }, [logout])
+
   useEffect(() => {
-    if (!user) return
+    if (!user || locked) return
 
     const expireNow = () => {
+      if (canConfirmIdentityInShell()) {
+        setLocked(true)
+        return
+      }
       // The screen the user was on, so the timeout does not also cost them their place (AC-42).
       logout({ returnTo: window.location.pathname + window.location.search })
     }
@@ -246,8 +276,15 @@ export function LocalSessionProvider({ children }: { children: React.ReactNode }
       document.removeEventListener("visibilitychange", onVisibility)
       if (timerRef.current) clearTimeout(timerRef.current)
     }
-  }, [user, logout])
+  }, [user, locked, logout])
 
   const value: SessionState = { user, isLoading, mode: "local", logout }
-  return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>
+  return (
+    <SessionContext.Provider value={value}>
+      {children}
+      {/* Rendered over the still-mounted app, never instead of it — resuming to the fiche that was open is the
+          whole point, and unmounting `children` would reload the page the resume exists to preserve. */}
+      {locked && <SessionLockGate onConfirmed={resumeFromLock} onFallBackToPassword={abandonLock} />}
+    </SessionContext.Provider>
+  )
 }

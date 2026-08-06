@@ -22,16 +22,56 @@ One global, `window.__clinicShell`, installed **before the page's own scripts ru
 | `saveFile(base64, filename, mimeType)` | `void \| Promise<void>` | 1 | Write the file and offer to open or share it. Base64 **without** a `data:` prefix. |
 | `print()` | `void` | 1 | Print the current page through the OS print service. |
 | `onPushToken(listener)` | `void` | 1 | Register for the OS push token. Inert until Part 6 delivers one. |
+| `confirmIdentity()` | `Promise<IdentityOutcome>` | 4 | Ask the OS to confirm the device owner. Never rejects — the failure *is* an outcome. |
 
 ### The per-phase method set (FR-6)
 
 | Phase | Methods |
 |---|---|
 | **1** | `saveFile` · `print` · `onPushToken` |
-| 4 | the additional methods AC-57 (biometric gate) and AC-61 (native viewer) require, each named in that phase |
+| **4** | `confirmIdentity` (AC-57…AC-60). AC-61's native viewer needs **no new method** — it is reached through `saveFile`'s open path, which already hands the file to the platform's own viewer |
 
-Phase 4's methods are **not** declared here yet, deliberately. A method declared with no implementation is a
-capability the web bundle will feature-detect as present and then call into nothing.
+A method is declared here only once a shell implements it: a member the web bundle feature-detects as present
+and then calls into nothing is a French error on a screen nobody can explain.
+
+---
+
+## `confirmIdentity` — resuming past the inactivity limit
+
+```ts
+type IdentityOutcome = "confirmed" | "rejected" | "cancelled" | "unavailable"
+```
+
+The Local session ends after 30 minutes of inactivity. In a browser that means the cookie is cleared and the user
+lands on `/login` with their place remembered. In a shell the phone's own lock is already the barrier that
+matters, so the session is **paused** instead: `web/components/session-lock-gate.tsx` covers the app, calls this,
+and on `"confirmed"` re-arms the timer and uncovers it. **The session cookie is never cleared on that path** —
+that is AC-57, and it is what makes the resume worth having.
+
+| Outcome | What the shell means | What the web bundle does |
+|---|---|---|
+| `confirmed` | The OS verified the device owner. | Resume. Cookie untouched, page untouched, place kept. |
+| `rejected` | The OS refused — a failed check, or a lock-out after its own retries. | Counts as one of **three** attempts; the third falls back to the password screen. |
+| `cancelled` | The user dismissed the prompt. | Counts too. One rule, and it is the only bound on how long a live cookie may sit behind a client-side overlay. |
+| `unavailable` | No enrolled biometric, no device credential, or the platform cannot ask. | Fall back to the password screen **immediately** — no error, no dead control (AC-60). |
+
+⚠️ **No password, secret or token is stored on the device by any of this (AC-59).** The shell asks the OS a
+yes/no question about the person holding the phone; the session it resumes is the one already in the WebView's
+cookie store. There is nothing to persist and nothing new to steal.
+
+⚠️ **It never rejects and never throws.** A `Promise` rejection would have to be handled at the one call site
+that must not fail open, so every failure is a value instead. A shell that cannot answer returns `unavailable`.
+
+⚠️ **Android delivers the result through a separate global**, `window.__clinicShellDeliverIdentityResult`, for
+the same reason `onPushToken` does: an `@JavascriptInterface` method is synchronous and cannot return a
+`Promise`, so the native side resolves a pending request by id. Like the push seam it is deliberately **not** a
+member of `__clinicShell`, so deleting the bridge cannot leave a half-live resolver.
+
+⚠️ **Android asks only from API 28.** The framework `BiometricPrompt` arrives there; below it, `androidx.biometric`
+renders its own fingerprint dialog, which wants AppCompat theme attributes this shell's framework theme does not
+carry. An API 26–27 device therefore gets `unavailable` and the ordinary password screen — which is a first-class
+outcome here, not a degradation. Device credential (PIN / schéma / mot de passe) joins the biometric from API 30,
+where `setAllowedAuthenticators` can combine the two; on 28–29 the prompt is biometric-only with « Annuler ».
 
 ---
 
@@ -101,7 +141,7 @@ deliberately **not** a member of `__clinicShell`, so deleting the bridge cannot 
   `addDocumentStartJavaScript` scoped to the configured origin, and that every off-origin top-level navigation
   leaves the WebView entirely. Both halves are load-bearing.
 
-## Implemented sets, as of Part 4
+## Implemented sets, as of Part 7
 
 | | Android | iOS |
 |---|---|---|
@@ -109,7 +149,16 @@ deliberately **not** a member of `__clinicShell`, so deleting the bridge cannot 
 | `saveFile` | ✅ | not built |
 | `print` | ✅ | not built |
 | `onPushToken` | ✅ registered, inert | not built |
+| `confirmIdentity` | ✅ API 28+, else `unavailable` | not built |
 
-The Android native object is exposed as `__clinicShellNative` and carries **two** methods (`saveFile`, `print`);
-`onPushToken` lives entirely in the injected wrapper because it registers a JavaScript callback. The
-**JS-visible** set is the three the table above names, which is the set this contract and FR-6 both state.
+The Android native object is exposed as `__clinicShellNative` and carries **three** methods (`saveFile`, `print`,
+`confirmIdentity`); `onPushToken` lives entirely in the injected wrapper because it registers a JavaScript
+callback. The **JS-visible** set is the four the table above names, which is the set this contract and FR-6 both
+state.
+
+## Version history
+
+| Shell version | Change |
+|---|---|
+| `1.0.0` | Phase 1: `version` · `platform` · `maxFileBytes` · `saveFile` · `print` · `onPushToken`. |
+| `1.1.0` | Phase 4: `confirmIdentity` added. Nothing removed, so a server floor of `1.0.0` still admits it. |

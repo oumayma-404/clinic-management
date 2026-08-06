@@ -56,10 +56,12 @@ graph TD
 **Part 7 needs both** Part 5 (its iOS halves) and Part 6 (a notification to tap for the deep-link criterion), which
 is why it sits downstream of the two blocked parts even though its web and Android halves are executable.
 
-⚠️ **Part 4 landed on 2026-08-06.** With Parts 1, 2, 3, 4, 6 and Part 7's shell-free halves in, the next executable
-work is **Part 7's remaining steps** — `mobile/shared/bridge.md` now exists, so step 2's biometric contract can be
-*amended* rather than invented, and steps 1/3/4 each have their Android half's home. Parts 5 and 8 stay blocked on
-a Mac + Apple membership and on store accounts + the four deferred business decisions respectively.
+⚠️ **Part 4 landed on 2026-08-06, and Part 7 step 2 with it.** `mobile/shared/bridge.md` was *amended* rather than
+invented, and the shell is at **1.1.0**. What genuinely remains of Part 7 is **hardware-bound, not code-bound**:
+step 1's camera is `FileChooser`'s already-built `onShowFileChooser` needing a phone to prove, step 3's native
+viewer is `saveFile`'s open path needing the same, and step 4's destination was found already built (F-10) leaving
+only App Links registration, which is gated on the public domain that is one of Part 8's four deferred decisions.
+Parts 5 and 8 stay blocked on a Mac + Apple membership and on store accounts respectively.
 
 ⚠️ **Part 4 → Part 6 is drawn dotted because it is not a build dependency.** Push needs a shell to *register a
 device token*, so the two must meet before AC-40 can be demonstrated end to end — but Part 6's whole backend half
@@ -88,7 +90,7 @@ convention `/next` defines for a single `Layer: Full` story delivered part-by-pa
 | 4 | Phase 1 | The Android shell | ✅ yes | AC-13…AC-27, AC-74, AC-76 | **implemented** (Gradle build + lint green with `warningsAsErrors`, debug **and** minified release APKs; the hardware walk and the bundle id are owed — `progress.md`) |
 | 5 | Phase 1 | The iOS shell | 🔒 **BLOCKED** — macOS + Apple Developer Program | AC-13…AC-27 (iOS half) | blocked |
 | 6 | Phase 3 | A backgrounded phone still knows | ✅ yes | AC-40…AC-55, AC-70…AC-73, AC-75 | **implemented** (web + backend gates green; the backend suite re-run, both console verbs and every device-token criterion owed — `progress.md`) |
-| 7 | Phase 4 | The phone becomes an instrument | ⚠️ web + Android halves only | AC-8, AC-56…AC-64, AC-77 | **partly implemented** — the three shell-free halves landed 2026-08-06 (AC-62…64 · AC-8 · AC-77 + AC-56's web half); AC-57…AC-61 left unstarted with reasons in `progress.md` |
+| 7 | Phase 4 | The phone becomes an instrument | ⚠️ web + Android halves only | AC-8, AC-56…AC-64, AC-77 | **partly implemented** — the three shell-free halves landed 2026-08-06 (AC-62…64 · AC-8 · AC-77 + AC-56's web half), then **step 2, biometric resume (AC-57…AC-60), landed the same day** (bridge **1.1.0**, `BiometricGate` + `session-lock-gate.tsx`). AC-61 and AC-56's camera half stay unstarted with reasons in `progress.md` |
 | 8 | Phase 5 | Two store listings | 🔒 **BLOCKED** — accounts + 4 deferred decisions | AC-65…AC-68 | blocked |
 
 **Suggested first session: Part 1.** It depends on nothing — no hosted origin, no accounts, no Mac, none of the four

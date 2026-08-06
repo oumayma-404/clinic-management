@@ -45,6 +45,11 @@
     <string name="save_file_failed">Le fichier n\'a pas pu être enregistré sur cet appareil.</string>
     <string name="save_file_no_viewer">Aucune application de cet appareil ne peut ouvrir ce fichier.</string>
 
+    <!-- Bridge: confirming the device owner so a paused session can resume (AC-57) -->
+    <string name="identity_title">Reprendre la session</string>
+    <string name="identity_description">Confirmez votre identité pour revenir à votre travail sans ressaisir votre mot de passe.</string>
+    <string name="identity_cancel">Annuler</string>
+
     <!-- File chooser -->
     <string name="file_chooser_title">Choisir un fichier</string>
     <string name="file_chooser_camera_failed">L\'appareil photo n\'a pas pu être ouvert.</string>

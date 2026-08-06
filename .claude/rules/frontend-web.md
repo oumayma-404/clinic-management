@@ -306,6 +306,14 @@ second — `patient-file-pdf-preview.tsx` is the shape, and `document-editor-con
 Where that surface is also the **print** path, printing *through* the frame prints nothing: check the frame is really
 rendered (`offsetParent !== null`) and otherwise hand the file to the OS through `downloadBlob`, whose viewer prints.
 
+**In a shell the inactivity limit pauses the session; in a browser it still ends it** (Part 7, AC-57…AC-60).
+`LocalSessionProvider` branches on `canConfirmIdentityInShell()` and raises `components/session-lock-gate.tsx` —
+an **opaque** takeover over the still-mounted app — instead of calling `logout()`. Do not make it translucent and
+do not unmount `children`: the record must not be readable behind it, and resuming to the fiche that was open is
+the whole point. The cookie is **never** cleared on the success path; three unsuccessful attempts (a dismissal
+counts) fall back to the password screen, and `unavailable` falls back immediately with no error and no dead
+control.
+
 **The Android shell exists, and `mobile/shared/bridge.md` is now the bridge contract** (Part 4). `print()` and
 `onPushToken()` are implemented there, and `window.print()` inside the shell is a shim routing to the OS print
 service — so a print call site needs no shell branch of its own. Read `bridge.md` before adding a member to

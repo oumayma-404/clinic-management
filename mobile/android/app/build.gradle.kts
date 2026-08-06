@@ -14,13 +14,17 @@ android {
         applicationId = "com.clinicmanagement.shell"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
+        versionCode = 2
 
         // The single source of the shell's version. `BuildConfig.VERSION_NAME` is what reaches
         // `window.__clinicShell.version` and therefore `X-Client-Version`, so the build and the bridge cannot
         // report different builds (AC-27). `System.Version.TryParse` on the server must accept it: keep it
         // numeric and dotted.
-        versionName = "1.0.0"
+        //
+        // ⚠️ A change to the bridge's method set edits `mobile/shared/bridge.md` **and** bumps this — one without
+        // the other ships a build reporting a capability set it does not have. 1.1.0 added `confirmIdentity`
+        // (Part 7); its version history is the table at the foot of that file.
+        versionName = "1.1.0"
     }
 
     buildTypes {

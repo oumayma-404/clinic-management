@@ -1,10 +1,10 @@
 # Story 1: Full — The clinic works from a phone
 
 **Status:** APPROVED
-**Story Status:** in-progress — **Parts 1, 2, 3 and 6 implemented**; **Part 7's three shell-free halves**
-implemented (2026-08-06). **Part 4 is UNBLOCKED as of 2026-08-06** — the R-12 tooling check was re-run green after
-JDK 17 + Android Studio + the SDK were installed; a physical Android phone is still owed for its step 7. Parts 5
-and 8 remain blocked. Live part status and the per-part session log are in [`progress.md`](./progress.md).
+**Story Status:** in-progress — **Parts 1, 2, 3, 4 and 6 implemented**; **Part 7's three shell-free halves plus
+step 2 (biometric resume, AC-57…AC-60)** implemented (2026-08-06). Part 7's steps 1, 3 and 4 need a physical phone
+or are already built elsewhere. A physical Android phone is owed for Part 4's step 7 and for every on-device
+criterion listed in `progress.md`. Parts 5 and 8 remain blocked. Live part status and the per-part session log are in [`progress.md`](./progress.md).
 **Layer:** Full ⚠️ *(deliberate departure from the single-layer rule — see Notes)*
 **Depends On:** None
 **Blocks:** None
@@ -71,13 +71,13 @@ _From spec (`../spec.md`) — all 77, grouped by the part that satisfies them:_
 
 *`[~]` = the half that exists is done and gated; the half that needs Part 4 is recorded as owed in `progress.md`, not claimed.*
 
-**Part 7 — Phase 4, native capability** — *the three **shell-free** halves implemented 2026-08-06; the rest left unstarted with reasons in `progress.md`*
+**Part 7 — Phase 4, native capability** — *the three **shell-free** halves implemented 2026-08-06 (session 5); **step 2, biometric resume, implemented 2026-08-06 (session 7)**; the rest left unstarted with reasons in `progress.md`*
 - [x] AC-62 · AC-63 · AC-64 — the poll no longer asks `AUTH_MODE` and runs on **every** deployment (client→server axis); a **404 is an absent egress signal**, not "offline", so the AI chat and the Google controls stay **enabled** with no warning where no probe exists; **no message names the local network** — three strings carried it, including `client.ts`'s `NETWORK_ERROR_MESSAGE`, which every failed call in the app surfaces (F-12). Pinned by the new derived `local-network-wording` check, **proved to fail** on a probe
 - [~] AC-8 — the BS1 / arrêt-de-travail preview is two trees behind `coarse:` and « Imprimer » hands the PDF to the OS when the frame is not rendered, through the **existing** `saveFile` bridge — so a shell gets the platform viewer and its print service instead of a blank frame beside an inert button. **The on-device half needs Part 4** — owed
 - [~] AC-77 — the file input is **copied-then-cleared** before the upload runs, so a failure leaves the same file re-selectable; without it, re-picking it fired no `change` event and « réessayer » was a no-op. **The backgrounded-upload half needs a real phone** — owed
 - [~] AC-56 — the web half is done: the input declares the **server's own allow-list** (DEV-13). ⚠️ The plan's claim that it "already renders `accept="image/*"`" was **false** — it had no `accept` at all (F-11). **The camera itself is Part 4's `onShowFileChooser`** — owed
-- [ ] AC-57 … AC-60 — **not started, deliberately**: biometric resume needs a new bridge method and `mobile/shared/bridge.md` is created by Part 4, so writing it now would define that contract unilaterally. `session.tsx` untouched, so AC-58 holds trivially
-- [ ] AC-61 — **not started**: Android `PdfRenderer` / iOS `QLPreviewController` are shell code
+- [~] AC-57 … AC-60 — **implemented 2026-08-06 (session 7)**, both halves. `mobile/shared/bridge.md` declares `confirmIdentity` and the shell is bumped to **1.1.0**; `BiometricGate` asks the OS (framework `BiometricPrompt`, `BIOMETRIC_STRONG or DEVICE_CREDENTIAL` from API 30) and `session-lock-gate.tsx` covers the app while it does. The **cookie is never cleared on success** (AC-57), three unsuccessful attempts fall back — a dismissal counts (DEV-16) — `unavailable` falls back immediately with no error (AC-60), nothing is stored on the device (AC-59), and the branch is only entered when the bridge exists, so AC-58 still holds trivially. **Every one of the four needs a real phone to be *observed*** — owed, listed in `progress.md`
+- [ ] AC-61 — **not started**: Android `PdfRenderer` / iOS `QLPreviewController` are shell code. ⚠️ Session 7 settled that it needs **no new bridge method** — `saveFile`'s open path already hands the file to the platform's own viewer, which is what the plan's step 3 prescribes
 - [x] *(step 4, deep links)* — **nothing to build.** The plan's premise is stale: the destination exists (`dashboard-header.tsx:189` → `/appointments?appointmentId=…` + a `clinic:deeplink` event; `appointments/page.tsx:176-198,274` reads both). `?focus=` was **not** added — a second parameter meaning the same thing is the defect shape pointing forwards (F-10). App Links registration remains, and is shell code
 
 *`[~]` = the shell-free half is done and gated; the half needing Part 4 or a device is recorded as owed in `progress.md`, not claimed.*

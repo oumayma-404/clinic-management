@@ -17,7 +17,7 @@ The unit of progress is the **part**, not the story. Each part boundary is a com
 | 4 | Phase 1 | The Android shell | **implemented** (2026-08-06, session 6) — the shell builds, `lint` is clean with `warningsAsErrors`, both the debug APK and the **minified** release APK are produced. Steps 2–6 and step 9 are landed; **step 7's hardware walk is owed** (no physical Android phone), as is the bundle-identifier decision, which is Part 8's. See § Session 6 | `5d247bc` |
 | 5 | Phase 1 | The iOS shell | **blocked** — macOS + Xcode + Apple Developer Program | — |
 | 6 | Phase 3 | A backgrounded phone still knows | **implemented** (2026-08-05/06, session 4) — backend + availability endpoint + settings statement. Web gate green; the **backend suite and both console verbs could not be re-run** (Smart App Control turned mid-session — § Session 4) | `999b877` |
-| 7 | Phase 4 | The phone becomes an instrument | **partly implemented** (2026-08-06, session 5) — the three **shell-free** halves are landed and gated: reachability (AC-62…AC-64), the official forms in a shell (AC-8), the upload retry (AC-77). **Steps 1, 2 and 4 are deliberately not started**, each with its reason recorded in § Session 5 | `8a28846` |
+| 7 | Phase 4 | The phone becomes an instrument | **partly implemented** (2026-08-06, sessions 5 + 7) — session 5 landed the three **shell-free** halves (reachability AC-62…AC-64, the official forms in a shell AC-8, the upload retry AC-77); **session 7 landed step 2, biometric resume** (AC-57…AC-60) across both halves, bridge **1.1.0**. **Steps 1 and 4 stay not started** (each needs hardware or is already built — § Session 5); step 3's native viewer needs no new method and is reached through `saveFile` | `8a28846` + § Session 7 |
 | 8 | Phase 5 | Two store listings | **blocked** — store accounts + 4 deferred business decisions | — |
 
 ## Session log
@@ -1287,3 +1287,174 @@ criterion's outcome (« shows the connected state ») by resume rather than by r
   home: `FileChooser`, `ShellBridge.saveFile`'s open path, and an App Links `intent-filter` respectively.
 - **Part 6's device-token criteria** now have a shell to register from — `onPushToken` is wired and inert, and the
   delivery seam (`window.__clinicShellDeliverPushToken`) is the one line FCM has to call.
+
+---
+
+### Session 7 — 2026-08-06 · Part 7 step 2, biometric resume (AC-57…AC-60)
+
+**Scope chosen by the user:** Part 7 **step 2 only** — the one step Part 4 unblocked, because
+`mobile/shared/bridge.md` now exists and the contract can be amended rather than invented. Same branch
+(`feature/audit-sections-3-to-10`); the Session-1 branch deviation still stands and was not re-opened.
+
+#### Working tree note (start of session)
+
+The tree carried the parallel `multi-tenant-cloud` review-fix work — 11 modified `.cs`/`.md` files plus
+`TtnIdentityUnavailableException.cs`, `TrustedProxies.cs`, `TrustedProxiesTests.cs` and
+`features/multi-tenant-cloud/reviews/`. **None of it is this part's** and none of it was staged;
+`git diff HEAD --numstat` was run before any `git add` and files are staged **explicitly by path**, per the
+standing rule. This part touches no `.cs` file at all, so there is no overlap to adjudicate.
+
+#### What changed
+
+| File | Change |
+|---|---|
+| `mobile/shared/bridge.md` | `confirmIdentity` declared (Phase 4's **one** new method), its four outcomes tabulated with what the web bundle does for each, the API-28 floor stated, and a **version-history table** added. The contract's own rule — a change to the method set edits this file *and* bumps the version — is now discharged in one place |
+| `mobile/android/…/BiometricGate.kt` | **New.** The OS owner check: framework `BiometricPrompt`, `BIOMETRIC_STRONG or DEVICE_CREDENTIAL` from API 30, biometric + « Annuler » on 28–29, `unavailable` below. Error codes mapped by *what the user should do next*, not by what went wrong |
+| `mobile/android/…/ShellBridge.kt` | `confirmIdentity(requestId)` + `__clinicShellDeliverIdentityResult`; the injected wrapper turns the pair into a real `Promise`. Also **the NUL byte that made this file binary to git** since Part 4 — see F-16 |
+| `mobile/android/…/AndroidManifest.xml` | `android.permission.USE_BIOMETRIC` — a **normal** permission, install-granted, no runtime prompt (found by lint, not by reading; see F-15) |
+| `mobile/android/…/strings.xml` | Three French strings for the prompt |
+| `mobile/android/app/build.gradle.kts` | `versionName` **1.0.0 → 1.1.0**, `versionCode` 1 → 2, with the edit-the-contract-and-bump rule written beside it |
+| `web/types/clinic-shell.d.ts` | `ShellIdentityOutcome` + the **optional** `confirmIdentity?()`. Optional is the point: a Phase 1 shell and every browser lack it |
+| `web/components/session-lock-gate.tsx` | **New.** The « Session verrouillée » takeover + `canConfirmIdentityInShell()` |
+| `web/lib/auth/session.tsx` | `expireNow` branches on the bridge; `locked` is a **dependency of the inactivity effect** so the listeners and the timer are torn down while the gate is up |
+| `CLAUDE.md` · `mobile/CLAUDE.md` · `web/components/CLAUDE.md` · `web/lib/CLAUDE.md` · `.claude/rules/frontend-web.md` | The map updated in the five places that describe this seam |
+
+#### Findings that changed the work
+
+##### F-13 · The plan's literal wording leaves the record on screen, and « three failures » has no gesture behind it
+
+Step 2 says « in `session.tsx`'s Local inactivity path, when the bridge is present **await the shell's result
+instead of calling `logout()`** ». Implemented literally that is a loop of up to three `await`s over a **visible**
+page: the inactivity limit exists so a phone left on a counter stops showing a patient's record, and dismissing
+the OS prompt would reveal exactly that. It also gives the second and third attempts no user gesture — an
+automatic re-prompt after Android's `ERROR_LOCKOUT` produces two instant identical errors. Resolved as **DEV-15**.
+
+##### F-14 · `androidx.biometric` was the wrong tool here, and the framework prompt costs nothing
+
+The obvious dependency would add a fifth AndroidX artifact, force `MainActivity` from `ComponentActivity` to
+`FragmentActivity`, and — below API 28 — render its own fingerprint dialog against AppCompat theme attributes
+`Theme.ClinicShell` (a framework `Theme.Material.Light.NoActionBar`) does not carry. The framework
+`BiometricPrompt` needs none of that, and the only thing lost is API 26–27, where the answer is `unavailable`
+and the user gets the password screen AC-60 already specifies. **Zero new dependencies.**
+
+##### F-15 · `BIOMETRIC_ERROR_NEGATIVE_BUTTON` is not a framework constant, and lint found the missing permission
+
+Two things neither the compiler nor the reading caught: `BiometricPrompt.BIOMETRIC_ERROR_NEGATIVE_BUTTON` exists
+only on `androidx.biometric` (the framework class exposes the other thirteen), so it is a named private constant
+with the reason on it; and `authenticate` requires `android.permission.USE_BIOMETRIC`, which **Android Lint's
+`MissingPermission`** reported as an error — a runtime crash on the one path the feature exists for, found by the
+module's own gate. That is the second time lint has caught a real defect in this module, which is the argument
+for `warningsAsErrors`.
+
+##### F-16 · `ShellBridge.kt` was **binary to git**, and the reason was a live defect in Part 4
+
+`git diff --numstat` reported `-  -` for the file — git's binary marker — and `git show HEAD:…` reported the same,
+so it arrived that way in `5d247bc` and **has never been diffable**. One NUL byte in 12 070, at line 174:
+
+```kotlin
+.replace('\u0000', '_')  // what the bytes actually held - a literal NUL, invisible in every editor
+.replace(' ', '_')        // what safeFileName's chain plainly means
+```
+
+A literal NUL had been typed into the `Char` literal where a **space** belonged, so `safeFileName` replaced a
+character that cannot reach it and left spaces in every filename handed to the OS — while every reader, every
+editor and the `Read` tool render the two identically. Fixed to a real space in this commit. Functionally minor
+(a space in a filename is legal, and `File(dir, name)` with an embedded NUL would have thrown into the
+surrounding `catch` anyway); the reason it is worth recording is that **an un-diffable file cannot be reviewed**,
+so the fix restores review of the one Android file both this part and Part 4 edit most. ⚠️ If the NUL was ever
+deliberate — stripping a NUL from untrusted input — that intent is now gone; nothing in the chain around it
+(`substringAfterLast`, `trim`, `ifBlank`) is a security measure, and a space literal is how it would have been written.
+
+⚠️ **This commit's own diff of the file is still binary, and that is not a failed fix**: git marks a diff binary
+when *either* side is, and the HEAD blob still holds the NUL. The **staged** blob is `Unicode text, UTF-8 text`
+(`git show :<path> | file -`), so every commit from this one on diffs normally.
+
+⚠️ **It happened three more times while writing this entry**, which is the strongest evidence for how the defect
+got in. Quoting the offending line into the finding above carried the NUL into `progress.md` and made *that* file
+binary — the same invisible failure, one layer up — and it recurred twice while writing the note about it,
+including inside the sentence warning against it. Each was found the same way (`file`, then a byte scan) and
+replaced with a plain space. The rule is narrow and practical: **a byte you cannot see does not survive being
+quoted** — describe it, never paste it — and `file <path>` is the cheap check that catches it.
+
+#### Deviations
+
+##### DEV-15: a full-screen lock gate, which step 2 does not ask for
+
+**Date:** 2026-08-06 · **Story:** 1, Part 7 · **Category:** Scope (one new component)
+**Original plan:** « In `session.tsx`, when the bridge is present, the inactivity path awaits the shell's result
+instead of calling `logout()`. »
+**Actual implementation:** `web/components/session-lock-gate.tsx` — an **opaque** « Session verrouillée » takeover
+rendered over the still-mounted app, prompting on mount and on each « Déverrouiller », with « Se déconnecter »
+beside it.
+**Justification:** F-13. The plan's wording describes the *control flow* correctly and is silent on presentation;
+taken as the whole design it defeats the limit it is resuming from. The gate is also what gives « three failures »
+a gesture. It follows Part 3's `client-version-gate.tsx` verbatim in shape (`h-dvh`, `my-auto` for § 11's vertical
+clipping trap, `bg-background`, `role="alertdialog"`), so it adds a surface, not a pattern.
+**Impact:** one new file; the app stays mounted behind it, which is what preserves the user's place. iOS (Part 5)
+inherits the web half unchanged.
+**Approved:** Yes — the user chose it over the literal loop, with the trade-off stated.
+
+##### DEV-16: a dismissed prompt counts as one of the three attempts
+
+**Date:** 2026-08-06 · **Story:** 1, Part 7 · **Category:** Technical
+**Original plan / spec:** AC-57 says « three failures fall back to the password screen » without distinguishing a
+refusal from a dismissal; Android reports them separately (`ERROR_LOCKOUT` vs. `ERROR_USER_CANCELED`).
+**Actual implementation:** one counter — three outcomes that are not `confirmed` fall back, whichever they are.
+**Justification:** AC-57 also requires the session cookie **not** be cleared on this path, so while the gate is up
+a fully valid session sits behind a client-side overlay. The counter is the only thing bounding that. Treating a
+dismissal as free would make the bound unreachable by simply pressing « Annuler » forever.
+**Impact:** a fat-fingered dismissal costs one of three attempts. `unavailable` is **not** counted — it is not an
+attempt, it is a device that cannot ask.
+**Approved:** Yes.
+
+##### Auto-approved deviations (trivial)
+
+| Deviation | Classification | Reason |
+|-----------|----------------|--------|
+| `ERROR_NEGATIVE_BUTTON = 13` as a private constant | Trivial | Internal; the framework class does not expose it and the value is stable. Documented on the declaration (F-15) |
+| `once()` wrapper in `BiometricGate` | Trivial | Private helper, no API change. One dismissal can deliver both a negative-button callback and an error; the gate must answer once |
+| `versionCode` 1 → 2 | Trivial | Nothing has been submitted, and a new `versionName` with a stale `versionCode` is not a shippable pair |
+
+#### Gate
+
+| Gate | Result | vs. baseline |
+|------|--------|--------------|
+| `npm run check:responsive` | **All 15 checks passed** | identical (no new check — see below) |
+| `npx tsc --noEmit` | **0 errors** | identical |
+| `npm run build` | **exit 0**, route table emitted, on a cleared `.next` with no `next dev` alive | identical |
+| `./gradlew :app:lintRelease` | **BUILD SUCCESSFUL** — `warningsAsErrors` + `abortOnError`, 0 errors, 0 warnings (after the `USE_BIOMETRIC` fix, F-15) | identical to session 6 |
+| `./gradlew :app:assembleRelease :app:assembleDebug` | both APKs produced — debug 2 350 407 B, **minified** release 127 976 B | identical shape to session 6 |
+| Backend | **not applicable and not run** — this part changes no `.cs` file. `verify-schema` (which **does** exist, `API/Maintenance/VerifySchemaCommand.cs` — checked, not assumed) is not applicable either: no migration | — |
+
+**No new mechanical check was added, deliberately.** The two invariants worth guarding both fail § 14's own rules:
+« the bridge contract and the shell version move together » lives across `mobile/`, and `mobile/` must not be able
+to redden `web/`'s gate (`mobile/CLAUDE.md`'s stated separation); and « only sanctioned files read
+`window.__clinicShell` » would need a four-entry allow-list, which § 14 forbids outright — an exemption list that
+grows is a check that has stopped working. Recorded rather than added, on the reasoning that a guard which cannot
+fail on the new case is worse than none.
+
+#### Device verification (eye pass)
+
+⚠️ **No eye pass on the running application was performed, and none is claimed.** There is no `agent-browser` on
+this machine and the stack is not up. `SessionLockGate` is built to the contract rather than measured: it reuses
+`client-version-gate.tsx`'s proven shape verbatim — `fixed inset-0 z-50 flex h-dvh items-start justify-center
+overflow-y-auto bg-background p-4` with `my-auto` on a `max-w-md` card (§ 11's vertical clipping trap), `min-h-11`
+on both controls, tokens throughout, no `dark:` twin, no fixed widths, no `text-[Npx]`. `check:responsive` (15/15)
+is the mechanical half and it passed. **The widths owed are 320 / 390 / 820 / 1180 / 1440 + landscape + keyboard.**
+
+⚠️ **Z-order was reasoned, not observed.** Both gates are `z-50`; `<ClientVersionGate>` is last in `layout.tsx`'s
+body and therefore paints **above** the lock gate, which is the right precedence — a 426 is unrecoverable in-app
+and must not be hidden behind a lock the user can pass.
+
+#### Owed verification (Part 7 step 2)
+
+- [ ] **AC-57 on a real phone** — resume past the limit with a fingerprint, and confirm through DevTools that
+      `local_session` is **still present** afterwards. The whole criterion turns on that check, because a passing
+      banner and a destroyed session look identical from the outside.
+- [ ] **AC-59** — inspect what the shell persists (`SharedPreferences`, the WebView cookie store) and confirm no
+      password. True by construction (nothing writes one), never observed.
+- [ ] **AC-60 on a device with no enrolment** — the prompt is never shown and the password screen arrives with no
+      error dialog. Also the API 26–27 path, which no device here can exercise.
+- [ ] **AC-58 by deleting the bridge at runtime** — `delete window.__clinicShell`, wait out the limit, and confirm
+      the browser behaviour returns byte-identical.
+- [ ] **Three attempts** — fail or dismiss three times and land on `/login` with `returnTo` intact.

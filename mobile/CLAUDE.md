@@ -19,7 +19,8 @@ mobile/
 │       ├── MainActivity.kt        the five states, the WebView, insets, back, the launch version check
 │       ├── ServerConfig.kt        the address + SharedPreferences; a port of desktop/ServerConfig.cs
 │       ├── ClientRequirements.kt  the native pre-launch read of GET /api/meta/client-requirements
-│       ├── ShellBridge.kt         window.__clinicShell — saveFile · print · onPushToken
+│       ├── ShellBridge.kt         window.__clinicShell — saveFile · print · onPushToken · confirmIdentity
+│       ├── BiometricGate.kt       the OS owner check behind confirmIdentity (AC-57…AC-60, API 28+)
 │       ├── FileChooser.kt         WebChromeClient.onShowFileChooser + the camera
 │       └── ExternalNavigation.kt  off-origin top-level navigations → Custom Tabs
 └── ios/                    Swift, `WKWebView`                          (Part 5, NOT built — no Mac, no Apple account)
@@ -57,6 +58,15 @@ mobile/
   gesture that closed the app.
 - **`@JavascriptInterface` methods run on the WebView's JS thread**, and an exception thrown out of one is
   invisible to JavaScript. `ShellBridge` posts to the UI thread and reports its own failures natively.
+- **An async answer comes back through a separate global, never a return value.** `@JavascriptInterface` is
+  synchronous and cannot hand back a `Promise`, so `confirmIdentity` parks a resolver by id in the injected
+  wrapper and the native side calls `window.__clinicShellDeliverIdentityResult(id, outcome)` — the shape
+  `onPushToken` already uses, and deliberately outside `__clinicShell` so deleting the bridge (AC-26) cannot
+  leave a resolver the native side can still reach.
+- **`BiometricGate` asks only from API 28**, using the *framework* `BiometricPrompt`. `androidx.biometric` would
+  add a dependency, force `MainActivity` to be a `FragmentActivity`, and below 28 render its own dialog against
+  AppCompat theme attributes `Theme.ClinicShell` does not carry. An API 26–27 device answers `unavailable`, which
+  the web side already treats as « fall back to the password screen » — a first-class outcome, not a failure.
 
 ## Gotchas
 

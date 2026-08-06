@@ -4,6 +4,13 @@
     <uses-permission android:name="android.permission.INTERNET" />
 
     <!--
+      `confirmIdentity` (AC-57). A **normal** permission, granted at install with no runtime prompt — unlike
+      CAMERA above, which is deliberately absent. `USE_BIOMETRIC` supersedes `USE_FINGERPRINT` at API 28, which
+      is also the floor `BiometricGate` asks below, so the deprecated one buys nothing.
+    -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+
+    <!--
       Without this, `resolveActivity` for ACTION_IMAGE_CAPTURE returns null on API 30+ (package visibility) and
       the camera would silently disappear from the file chooser (AC-18). There is deliberately NO
       `android.permission.CAMERA`: declaring it would oblige us to request it at runtime, while the camera app

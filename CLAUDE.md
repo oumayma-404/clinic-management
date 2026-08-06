@@ -679,6 +679,24 @@ Frontend talks to the API via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
   ⚠️ Not CI-runnable, operator-verified (as `desktop/` is) and in **neither** the `.sln` **nor** `web/`. Android Lint
   runs with `warningsAsErrors` as the module's only static gate. The **hardware walk is owed**, and `applicationId`
   is **provisional** — the bundle id is one of Part 8's deferred decisions and cannot change after first submission.
+- **A phone that has been in a pocket is unlocked, not signed out (`mobile-native-shells` P7 step 2)**: the Local
+  session's 30-minute inactivity limit used to clear the cookie and drop the user on `/login`, which on a phone —
+  where the OS lock is already the barrier that matters — costs a dentist the fiche they had open several times a
+  day. In a shell it now **pauses**: `window.__clinicShell.confirmIdentity()` (bridge version **1.1.0**, Phase 4's
+  one new method) asks the OS to confirm the device owner, and `web/components/session-lock-gate.tsx` covers the
+  app while it does. On success the timer re-arms and **the cookie is never cleared** — AC-57 says so explicitly,
+  because a passing banner and a destroyed session look identical from outside.
+  ⚠️ **The gate is opaque and the app stays mounted behind it**, and both halves are load-bearing: unmounting
+  `children` would reload the page the resume exists to preserve, while a translucent one would leave a patient's
+  record readable to whoever dismisses the OS prompt — which is the entire thing the limit is for.
+  ⚠️ **Three attempts, and a dismissal counts as one.** Not tidiness: the cookie deliberately stays valid, so the
+  counter is the only bound on how long a live session can sit behind a client-side overlay. `unavailable` (no
+  enrolled biometric, no device credential, Android < 28) falls through **immediately** to the ordinary password
+  screen — no error and no dead control (AC-60) — and **nothing is stored on the device** (AC-59): the shell asks
+  the OS a yes/no question, and the session resumed is the one already in the WebView's cookie store.
+  ⚠️ **`@JavascriptInterface` is synchronous**, so the result comes back through a separate global
+  (`__clinicShellDeliverIdentityResult`) resolving a pending request by id — `onPushToken`'s shape, and outside
+  `__clinicShell` for the same reason: deleting the bridge must not leave a live resolver.
 - **A stale app says so, once, instead of failing screen by screen (`mobile-native-shells` P3)**: a native shell sends
   **`X-Client-Version`**; `ClientVersionMiddleware` refuses a build below the operator's `Clients:MinimumShellVersion`
   with **426** and `code: "client_too_old"`, and `<ClientVersionGate>` turns that into one full-screen « Mise à jour

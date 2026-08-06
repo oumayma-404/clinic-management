@@ -12,6 +12,15 @@
  * i.e. in every browser, which is where this app is used today — behaviour must be byte-identical to what it was
  * before the bridge existed. That is why the property is optional and why nothing here is a required global.
  */
+/**
+ * What the OS answered when asked to confirm the device owner. Four values, and the three that are not
+ * `"confirmed"` are genuinely different actions — see `mobile/shared/bridge.md`'s table.
+ *
+ * `"unavailable"` is a **first-class** outcome, not an error: a phone with no enrolled biometric and no device
+ * credential falls straight through to the password screen, which is what it would have shown anyway (AC-60).
+ */
+type ShellIdentityOutcome = "confirmed" | "rejected" | "cancelled" | "unavailable"
+
 interface ClinicShell {
   /**
    * The shell's own version, injected before first paint.
@@ -43,6 +52,16 @@ interface ClinicShell {
    * `lib/download.ts` tries it first and only then falls back to the browser paths.
    */
   saveFile(base64: string, filename: string, mimeType: string): void | Promise<void>
+
+  /**
+   * Ask the OS to confirm the device owner, so a session past the inactivity limit can resume with no password.
+   *
+   * ⚠️ **It never rejects.** The one caller is `components/session-lock-gate.tsx`, which must not fail open, so
+   * every failure is a value — a shell that cannot even ask answers `"unavailable"`. Absent method (a Phase 1
+   * shell, or any browser) ⇒ the inactivity path is byte-identical to today: the cookie is cleared and the user
+   * lands on `/login` with their place remembered (AC-58).
+   */
+  confirmIdentity?(): Promise<ShellIdentityOutcome>
 }
 
 interface Window {
