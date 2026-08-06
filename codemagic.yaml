@@ -1,0 +1,99 @@
+# Codemagic build definition — the iOS shell's compiler.
+#
+# ⚠️ **This file must live at the repository root**, not beside the app: Codemagic looks for `codemagic.yaml` at
+# the root even when the project root is set to a subfolder. The app itself is `mobile/ios/`.
+#
+# Why Codemagic and not GitHub Actions: `.github/workflows/ios-shell.yml` does the same job on a `macos-latest`
+# runner, which is free only for **public** repositories. This one is private and its git history carries real
+# credentials, so publishing it is not an option — Codemagic's free tier builds a private repo on a real Mac.
+# The two files are kept in step deliberately; a change to one is a change to both.
+#
+# ⚠️ There is no signing here, and that is the design. Signing needs an Apple identity; the free path signs on the
+# operator's own Windows machine with Sideloadly and a free Apple ID. See `mobile/ios/README.md`.
+
+workflows:
+  ios-shell:
+    name: iOS shell (unsigned)
+    instance_type: mac_mini_m2
+    max_build_duration: 30
+
+    environment:
+      xcode: latest
+      vars:
+        XCODE_PROJECT: ClinicShell.xcodeproj
+        XCODE_SCHEME: ClinicShell
+
+    triggering:
+      events:
+        - push
+      cancel_previous_builds: true
+
+    scripts:
+      - name: Install XcodeGen
+        script: |
+          brew install xcodegen
+
+      # `project.yml` IS the project. An .xcodeproj is machine-written XML with UUID cross-references: it cannot
+      # be reviewed in a diff and can only be authored by Xcode, which this project has no access to.
+      - name: Generate the Xcode project
+        working_directory: mobile/ios
+        script: |
+          xcodegen generate
+          ls -la "$XCODE_PROJECT"
+
+      # The simulator build first, deliberately: it is faster and reports compile errors before a device-SDK build
+      # has to finish. On a first run — where the Swift has never met a compiler — that is the whole feedback loop.
+      - name: Build for the simulator
+        working_directory: mobile/ios
+        script: |
+          xcodebuild \
+            -project "$XCODE_PROJECT" \
+            -scheme "$XCODE_SCHEME" \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build-sim \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Build for a device (unsigned)
+        working_directory: mobile/ios
+        script: |
+          xcodebuild \
+            -project "$XCODE_PROJECT" \
+            -scheme "$XCODE_SCHEME" \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+      # Sideloadly and AltStore both take an .ipa, which is a zip with the .app under `Payload/`. Building it here
+      # keeps one fewer manual step between the runner and the phone.
+      - name: Package an unsigned .ipa
+        working_directory: mobile/ios
+        script: |
+          set -euo pipefail
+          APP="build/Build/Products/Release-iphoneos/ClinicShell.app"
+          test -d "$APP" || { echo "no .app was produced at $APP"; exit 1; }
+          rm -rf Payload ClinicShell-unsigned.ipa
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          zip -qry ClinicShell-unsigned.ipa Payload
+          ls -la ClinicShell-unsigned.ipa
+
+    artifacts:
+      - mobile/ios/ClinicShell-unsigned.ipa
+      # The raw logs are the point of the first few runs: this Swift has never been compiled, so the errors are
+      # the deliverable until they stop.
+      - /tmp/xcodebuild_logs/*.log
+
+    publishing:
+      email:
+        recipients:
+          - o.benkhalifa@instadeep.com
+        notify:
+          success: true
+          failure: true
