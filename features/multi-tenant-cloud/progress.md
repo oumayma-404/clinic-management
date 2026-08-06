@@ -15,7 +15,7 @@ unit ( « 18 steps and ~35 files will not fit one session » ). This table is th
 | B | US-2 | 5–10 | **implemented** (code gate) | 2026-08-05 |
 | C | US-3 | 11–13 | **implemented** (code gate) | 2026-08-05 |
 | D | US-4 | 14 | **implemented** (code gate) | 2026-08-06 |
-| E | US-5 | 15 | **implemented** (code gate) | 2026-08-06 |
+| E | US-5 | 15 | **implemented** (code gate) — `18f8a6c` | 2026-08-06 |
 | F | US-6 | 16–18 | **implemented** (code gate) | 2026-08-05 |
 
 ✅ **Part F's step 17 landed before Part D, as the ordering required** — `DataProtection:KeyRingPath` is now required
