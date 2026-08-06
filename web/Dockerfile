@@ -15,8 +15,30 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Set environment variable for API URL
-ENV NEXT_PUBLIC_API_URL=http://localhost:5000/api
+# The API base URL, baked in by Next at build time — `NEXT_PUBLIC_*` is substituted into the bundle, not read at
+# runtime, so it has to be a build ARG and not just an ENV.
+#
+# ⚠️ It was an `ENV` with no `ARG` for the whole life of this file, which made
+# `deploy/docker-compose.prod.yml`'s `args: NEXT_PUBLIC_API_URL: /api` **silently do nothing** — Docker ignores a
+# build arg the Dockerfile does not declare. Every image built from that compose baked
+# `http://localhost:5000/api`, i.e. *the browser's own machine*, contradicting the comment beside the arg and
+# AC-3's « no server address in the image ». The default is now the relative form the deployments actually want.
+ARG NEXT_PUBLIC_API_URL=/api
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+
+# ⚠️ **`AUTH_MODE` must be set at BUILD time, not only at runtime, and this was a live defect.**
+# `app/layout.tsx` is a server component that calls `resolveAuthMode()` to choose between `CloudSessionProvider`
+# and `LocalSessionProvider`, and `/login` is **statically prerendered** — `.next/server/app/login.html` is
+# emitted by `npm run build`. So the provider is baked into the static output using whatever `AUTH_MODE` held
+# *during the build*, and a runtime `AUTH_MODE: local` never reaches it.
+#
+# `deploy/docker-compose.hosted.yml` sets it only at runtime, with a comment stating « Left at `cloud` the app
+# expects Auth0 and there is no way to log in at all » — which is precisely the symptom it then shipped: the
+# hosted multi-tenant deployment renders the Auth0 landing page and its « Se connecter » button goes nowhere.
+# It still has to be a runtime variable too, because `middleware.ts` and the `/bff/auth/*` handlers read it per
+# request; this ARG is in addition to that, not instead of it.
+ARG AUTH_MODE=cloud
+ENV AUTH_MODE=${AUTH_MODE}
 
 # Set dummy Auth0 env vars for build (real values loaded at runtime from .env.local)
 # Auth0 v4 uses different variable names

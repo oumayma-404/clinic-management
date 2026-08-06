@@ -105,6 +105,14 @@ services:
         # Relative => same-origin: the browser calls whatever host it loaded from, so one image works
         # on any domain and the SignalR hub URL resolves to https://${DOMAIN}/hub/clinic.
         NEXT_PUBLIC_API_URL: /api
+        # ⚠️ **This is the fix for a defect that made the whole profile unusable.** `AUTH_MODE` below is a
+        # *runtime* variable, and the comment beside it correctly says that at `cloud` « there is no way to log
+        # in at all » — but `/login` is **statically prerendered** and `app/layout.tsx` chooses the session
+        # provider server-side, so the mode is baked by `npm run build`, when `AUTH_MODE` was unset. Every image
+        # built from this file shipped `CloudSessionProvider`: the Auth0 landing page, on a deployment with no
+        # Auth0, and a « Se connecter » button that goes nowhere. Both the build arg and the runtime variable
+        # are required — `middleware.ts` and the `/bff/auth/*` handlers read the latter per request.
+        AUTH_MODE: local
     container_name: clinic-web-prod
     restart: unless-stopped
     depends_on:

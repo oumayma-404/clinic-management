@@ -48,3 +48,6 @@ skills-lock.json
 .claude/skills/pick-ui-library/
 .claude/skills/prototype/
 .claude/skills/review-animations/
+
+# The LAN certificate password minted by deploy/lan-cert.sh — private key material, never committed.
+deploy/.env

@@ -33,8 +33,16 @@ COPY --from=publish /app/publish .
 # ⚠️ /keys is created and chowned HERE, before the named volume mounts over it. Docker propagates an image
 # directory's ownership to a *new* empty volume, which is what makes the key ring writable without a privileged
 # init step; an already-root-owned volume from an earlier deploy needs a one-off `chown -R 1654:1654` instead.
+#
+# ⚠️ `/app/.local` and `/app/Files` are here for the SAME reason and were missing: `SelfHostedLan`
+# (`deploy/docker-compose.selfhosted-lan.yml`) mounts named volumes over both — the self-generated CA and server
+# certificate, and the patient blobs `LocalDiskFileStorage` writes. Neither path exists in the image, so Docker
+# created them **owned by root** and the non-root process crash-looped on
+# « Access to the path '/app/.local/dataprotection-keys' is denied ». Creating and chowning them first is what
+# makes the ownership propagate to the new volume.
 USER root
-RUN mkdir -p /keys && chown $APP_UID:$APP_UID /keys /app
+RUN mkdir -p /keys /app/.local /app/Files \
+    && chown $APP_UID:$APP_UID /keys /app /app/.local /app/Files
 USER $APP_UID
 
 ENTRYPOINT ["dotnet", "ClinicManagement.API.dll"]

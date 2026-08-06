@@ -21,6 +21,21 @@ public static class Extensions
 {
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
+        // ⚠️ **The console verbs have no host builder, so nothing else registers this.** Five Infrastructure
+        // types take `IConfiguration` in their constructor (`LocalAuthService`, `LocalAuthConfig`,
+        // `ConnectivityConfig`, `EInvoiceService`, `Auth0ManagementService`), and a verb that builds a bare
+        // `new ServiceCollection()` + `AddInfrastructure(configuration)` could not activate any of them:
+        // `provision-clinic` died on « Unable to resolve service for type
+        // 'Microsoft.Extensions.Configuration.IConfiguration' while attempting to activate 'LocalAuthService' ».
+        //
+        // That broke the **only** two doors a hosted deployment has — `provision-clinic` is how a clinic is
+        // created where self-registration is closed and `/setup` is loopback-gated, and `reset-admin-password`
+        // is the documented recovery for a locked-out admin. Registering it here rather than in each verb is
+        // deliberate: four verbs building their own container is exactly where a per-call-site fix rots.
+        //
+        // `TryAdd`, so the API host's own registration keeps winning and this is a no-op there.
+        services.TryAddSingleton(configuration);
+
         // Resolved once: every branch below asks a named capability of it rather than re-reading Auth:Mode.
         var profile = DeploymentProfile.Resolve(configuration);
 

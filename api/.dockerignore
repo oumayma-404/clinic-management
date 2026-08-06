@@ -1,0 +1,36 @@
+# The Dockerfile does `COPY . .` and then restores and builds from scratch, so a host build output in the context
+# is pure cost — and worse than cost.
+#
+# ⚠️ Its absence was a real build failure, not an inefficiency. `bin/Debug/net8.0/Backups/` holds folders written
+# by `PgDumpBackupService` during local runs, and Docker's sender cannot read them (« Access is denied »), so the
+# whole image build aborted before a single layer. It also shipped 207 MB of host-built binaries into the context
+# for a build that discards them.
+#
+# The `.local/` line is the load-bearing one for security: it holds the self-generated CA **private key**, and a
+# container image is a distributable artifact.
+
+**/bin/
+**/obj/
+**/.vs/
+**/.vscode/
+**/.idea/
+
+# Certificates, signing material and the local key store — never in an image.
+**/.local/
+**/*.pfx
+**/*.key
+
+# Runtime state written beside the app during a local run.
+#
+# ⚠️ **Anchored to the API project, NOT `**/`.** A bare `**/Files/` also matches the *source* directory
+# `ClinicManagement.Application/Features/Files/`, which silently removed a whole feature from the build context
+# and produced three CS0234s about a namespace that plainly exists on disk. A dockerignore pattern is matched
+# against every path segment, so a generic folder name needs a path in front of it.
+ClinicManagement.API/Files/
+ClinicManagement.API/logs/
+ClinicManagement.API/Backups/
+logs/
+**/TestResults/
+
+**/*.user
+**/.DS_Store
