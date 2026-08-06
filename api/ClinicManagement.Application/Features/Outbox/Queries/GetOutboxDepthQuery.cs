@@ -4,6 +4,7 @@ using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Domain.Repositories;
 using MediatR;
+using Microsoft.Extensions.Logging;
 
 namespace ClinicManagement.Application.Features.Outbox.Queries;
 
@@ -43,19 +44,22 @@ public class GetOutboxDepthQueryHandler : IRequestHandler<GetOutboxDepthQuery, R
     private readonly IDocumentEmailRepository _documentEmailRepository;
     private readonly IUserRepository _userRepository;
     private readonly IClinicContext _clinicContext;
+    private readonly ILogger<GetOutboxDepthQueryHandler> _logger;
 
     public GetOutboxDepthQueryHandler(
         INotificationRepository notificationRepository,
         IInvoiceRepository invoiceRepository,
         IDocumentEmailRepository documentEmailRepository,
         IUserRepository userRepository,
-        IClinicContext clinicContext)
+        IClinicContext clinicContext,
+        ILogger<GetOutboxDepthQueryHandler> logger)
     {
         _notificationRepository = notificationRepository;
         _invoiceRepository = invoiceRepository;
         _documentEmailRepository = documentEmailRepository;
         _userRepository = userRepository;
         _clinicContext = clinicContext;
+        _logger = logger;
     }
 
     public async Task<Result<OutboxDepthDto>> Handle(
@@ -120,6 +124,7 @@ public class GetOutboxDepthQueryHandler : IRequestHandler<GetOutboxDepthQuery, R
                 DocumentEmails = new DocumentEmailOutboxDepthDto
                 {
                     Queued = documentEmails.Queued,
+                    Blocked = documentEmails.Blocked,
                     Failed = documentEmails.Failed,
                     OldestQueuedUtc = documentEmails.OldestQueuedAt
                 }
@@ -127,6 +132,10 @@ public class GetOutboxDepthQueryHandler : IRequestHandler<GetOutboxDepthQuery, R
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
+            // The irony would be load-bearing without this line: this endpoint exists because « a job with no tenant
+            // scope reads nothing and logs a clean run », and a broken read here used to become a French sentence
+            // with no trace anywhere — turning the one diagnostic endpoint into a second silent failure.
+            _logger.LogError(ex, "Could not read the outbox depth for the caller's clinic");
             return Result<OutboxDepthDto>.Failure(
                 "Erreur lors de la récupération de l'état des files d'attente.");
         }

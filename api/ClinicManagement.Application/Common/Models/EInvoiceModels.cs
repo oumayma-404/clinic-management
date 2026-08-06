@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace ClinicManagement.Application.Common.Models;
 
 /// <summary>
@@ -83,6 +85,26 @@ public sealed record ResolvedTtnIdentity(
     /// <summary>True when both TTN account fields are present, i.e. a production submission can authenticate.</summary>
     public bool HasApiCredentials =>
         !string.IsNullOrWhiteSpace(Username) && !string.IsNullOrWhiteSpace(ApiSecret);
+
+    /// <summary>
+    /// Replaces the compiler-generated printer, which would put the decrypted PFX password and TTN client secret into
+    /// any log line, destructured template or exception message that touched this object — and this is the one type in
+    /// the solution built to carry credentials, one line away from the logging already around it in
+    /// <c>EInvoiceService</c> and <c>HttpTtnClient</c>. The username is kept: it is a matricule printed on the invoice,
+    /// not a secret, and it is what answers « filed under whom? ».
+    /// </summary>
+    private bool PrintMembers(StringBuilder builder)
+    {
+        builder.Append("Source = ").Append(Source)
+            .Append(", CertificateBytes = ").Append(CertificateBytes.Length).Append(" bytes")
+            .Append(", Username = ").Append(Username ?? "(none)")
+            .Append(", CertificatePassword = ").Append(Redacted(CertificatePassword))
+            .Append(", ApiSecret = ").Append(Redacted(ApiSecret));
+        return true;
+    }
+
+    private static string Redacted(string? secret) =>
+        string.IsNullOrEmpty(secret) ? "(none)" : "***";
 }
 
 /// <summary>Outcome of a TTN « El Fatoora » submission attempt.</summary>

@@ -54,13 +54,17 @@ public class TrustController : ApiControllerBase
     private readonly IConfiguration _configuration;
     private readonly IQrCodeGenerator _qrCodeGenerator;
 
-    public TrustController(IConfiguration configuration, IQrCodeGenerator qrCodeGenerator)
+    private readonly DeploymentProfile _deployment;
+
+    public TrustController(IConfiguration configuration, IQrCodeGenerator qrCodeGenerator, DeploymentProfile deployment)
     {
         _configuration = configuration;
+        _deployment = deployment;
         _qrCodeGenerator = qrCodeGenerator;
     }
 
-    private DeploymentProfile Deployment => DeploymentProfile.Resolve(_configuration);
+    // Injected rather than re-resolved per request — see AuthController for why.
+    private DeploymentProfile Deployment => _deployment;
 
     /// <summary>The instructions page itself — the only HTML this API serves.</summary>
     [AllowAnonymous]

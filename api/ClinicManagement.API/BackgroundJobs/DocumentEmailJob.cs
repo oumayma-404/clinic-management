@@ -26,6 +26,16 @@ public class DocumentEmailJob
     private const int DefaultBatchSize = 20;
     private const int DefaultMaxAttempts = 5;
 
+    /// <summary>
+    /// How much of one tick a single clinic may take. Sized so a lone clinic on a single-clinic install still gets
+    /// the whole batch (the repository short-circuits that case), while a busy practice on a hosted backend cannot
+    /// hold the queue against the others.
+    /// </summary>
+    private const int DefaultPerClinicBound = 5;
+
+    /// <summary>How many parked rows are re-examined per tick. Cheap: it is a settings read per row, no send.</summary>
+    private const int BlockedReviewBatchSize = 50;
+
     private readonly IDocumentEmailRepository _documentEmailRepository;
     private readonly IDocumentEmailSender _sender;
     private readonly IReminderSettingsProvider _settingsProvider;
@@ -80,8 +90,15 @@ public class DocumentEmailJob
         var maxAttempts = _configuration.GetValue<int?>("Notification:Smtp:MaxAttempts") is > 0
             ? _configuration.GetValue<int>("Notification:Smtp:MaxAttempts")
             : DefaultMaxAttempts;
+        var perClinicBound = _configuration.GetValue<int?>("Notification:Smtp:PerClinicDispatchBound") is > 0
+            ? _configuration.GetValue<int>("Notification:Smtp:PerClinicDispatchBound")
+            : DefaultPerClinicBound;
 
-        var queued = await _documentEmailRepository.GetQueuedAsync(batchSize);
+        // BEFORE the scan, so a clinic that configured SMTP since the last tick is served in this one rather than
+        // in the next — and so a row parked by mistake cannot sit parked for a whole extra minute.
+        await ReviewBlockedRowsAsync();
+
+        var queued = await _documentEmailRepository.GetQueuedAsync(batchSize, perClinicBound);
 
         foreach (var row in queued)
         {
@@ -97,6 +114,38 @@ public class DocumentEmailJob
         }
     }
 
+    /// <summary>
+    /// Returns parked rows to the queue once their clinic can send again — what stops
+    /// <c>DocumentEmailStatus.Blocked</c> being a one-way door, and the reason parking is safe at all.
+    /// Best-effort: a failure here must not stop the sends below.
+    /// </summary>
+    private async Task ReviewBlockedRowsAsync()
+    {
+        try
+        {
+            var blocked = await _documentEmailRepository.GetBlockedForReviewAsync(BlockedReviewBatchSize);
+
+            foreach (var row in blocked)
+            {
+                var settings = await _settingsProvider.ResolveAsync(row.ClinicId);
+                if (!settings.EmailConfigured)
+                {
+                    continue;
+                }
+
+                row.ReturnToQueue();
+                await PersistAsync(row);
+                _logger.LogInformation(
+                    "Document email {DocumentEmailId} returned to the queue — clinic {ClinicId} can send again.",
+                    row.Id, row.ClinicId);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Could not review blocked document emails; the dispatch pass continues.");
+        }
+    }
+
     private async Task DispatchOneAsync(DocumentEmail row, int maxAttempts)
     {
         // The row's own clinic, not the caller's — the job has no clinic in scope, which is what lets one tick
@@ -104,10 +153,14 @@ public class DocumentEmailJob
         var settings = await _settingsProvider.ResolveAsync(row.ClinicId);
         if (!settings.EmailConfigured)
         {
-            // The cabinet's settings were removed after the row was queued. Not a send failure: leave it queued
-            // and consume no attempt, the same way an offline tick does — restoring the settings resumes it.
+            // PARKED, not left queued (review finding 5). Leaving it consumed no attempt — right — but the scan is
+            // oldest-first and batch-capped, so unsendable rows piled up at the FRONT and past the batch size took
+            // every tick for ever: one clinic that never configured SMTP stopped every clinic's sends. Blocked keeps
+            // the row and its reason out of the scan, and ReviewBlockedRowsAsync brings it back.
+            row.Block("Le cabinet n'a pas de paramètres SMTP utilisables.");
+            await PersistAsync(row);
             _logger.LogWarning(
-                "Document email {DocumentEmailId} left queued — clinic {ClinicId} has no usable SMTP settings.",
+                "Document email {DocumentEmailId} blocked — clinic {ClinicId} has no usable SMTP settings.",
                 row.Id, row.ClinicId);
             return;
         }
@@ -139,9 +192,12 @@ public class DocumentEmailJob
                 break;
 
             case DocumentEmailSendOutcome.NotConfigured:
-                // Resolved as sendable a moment ago but the sender disagrees — leave it queued rather than
-                // burning attempts against a configuration problem no retry can fix.
-                _logger.LogWarning("Document email {DocumentEmailId} left queued — sender reports SMTP not configured.", row.Id);
+                // Resolved as sendable a moment ago but the sender disagrees — park it rather than burning attempts
+                // against a configuration problem no retry can fix, and rather than leaving it at the front of the
+                // scan where it would consume the tick.
+                row.Block("Le service d'envoi signale que SMTP n'est pas configuré.");
+                await PersistAsync(row);
+                _logger.LogWarning("Document email {DocumentEmailId} blocked — sender reports SMTP not configured.", row.Id);
                 return;
 
             default:

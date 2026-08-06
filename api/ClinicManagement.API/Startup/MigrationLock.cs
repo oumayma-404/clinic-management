@@ -53,8 +53,17 @@ public static class MigrationLock
         // held by the session that took it, and a connection returned to the pool in between would release it.
         await database.OpenConnectionAsync(cancellationToken);
 
+        var previousTimeout = database.GetCommandTimeout();
+
         try
         {
+            // ⚠️ « The loser waits » is only true with this line. pg_advisory_lock blocks, and the connection carries
+            // Npgsql's 30 s default command timeout, so the loser of a rolling redeploy waited 30 seconds, threw,
+            // and exited non-zero into Program.cs's fatal rethrow — crash-looping under `restart: unless-stopped`
+            // and looking like a broken deploy rather than a serialised one. That is exactly the case the lock exists
+            // for: a fresh-database migration exceeding 30 s is the documented reason DeferredStartupService exists.
+            database.SetCommandTimeout(Timeout.InfiniteTimeSpan);
+
             logger.LogInformation("Acquiring the startup migration lock...");
             await database.ExecuteSqlRawAsync(AcquireSql, cancellationToken);
 
@@ -66,12 +75,42 @@ public static class MigrationLock
             {
                 // Not strictly required — closing the connection releases it — but an explicit release keeps the
                 // lock held for the shortest possible window rather than until the pool reclaims the session.
-                await database.ExecuteSqlRawAsync(ReleaseSql, CancellationToken.None);
+                await SafelyAsync(
+                    () => database.ExecuteSqlRawAsync(ReleaseSql, CancellationToken.None),
+                    logger,
+                    "release");
             }
         }
         finally
         {
-            await database.CloseConnectionAsync();
+            database.SetCommandTimeout(previousTimeout);
+            await SafelyAsync(() => database.CloseConnectionAsync(), logger, "close");
+        }
+    }
+
+    /// <summary>
+    /// Runs one piece of lock teardown, logging rather than throwing.
+    ///
+    /// <para>⚠️ An unguarded <c>await</c> in a <c>finally</c> <b>replaces</b> the exception on its way out. When the
+    /// migration fails because the connection broke — a dropped connection, a server-side termination — the release
+    /// throws from the <c>finally</c> too, and the operator is shown « connection is broken » instead of
+    /// « column "X" already exists »: the one diagnosis that makes a failed startup actionable, lost on the exact
+    /// path this class was added to protect. The lock is released by the session ending regardless, which is why
+    /// swallowing here costs nothing.</para>
+    /// </summary>
+    private static async Task SafelyAsync(Func<Task> teardown, ILogger logger, string what)
+    {
+        try
+        {
+            await teardown();
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(
+                ex,
+                "Could not {What} the startup migration lock; the session ending releases it. The original outcome "
+                + "of the migration is unaffected.",
+                what);
         }
     }
 }

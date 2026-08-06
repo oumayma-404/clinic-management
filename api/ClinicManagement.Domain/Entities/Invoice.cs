@@ -532,6 +532,34 @@ public class Invoice : AggregateRoot<Guid>
     }
 
     /// <summary>
+    /// Park a queued e-invoice against a <b>configuration</b> state — this clinic has no usable El Fatoora signing
+    /// identity yet. Records the operator's reason and leaves the row <c>Queued</c> and due, <b>consuming no
+    /// attempt</b>.
+    ///
+    /// <para><b>Why this is not <see cref="RecordEInvoiceFailure"/></b> (review finding 6): that one is right for a
+    /// transient failure and wrong here. A missing qualified certificate lasts days, so five bounded attempts empty
+    /// in about ten minutes and the note then leaves the outbox <i>permanently</i> — needing a manual
+    /// <see cref="QueueForElFatoora"/> nobody is told to perform, on what US-4 makes the <b>normal</b> state of
+    /// every newly provisioned clinic. Parking is the <c>Blocked</c> status the reminder outbox has, expressed
+    /// without a new state: the row stays exactly where the dispatcher will find it, and uploading the PFX is all it
+    /// takes to resume.</para>
+    ///
+    /// <para>⚠️ <b><paramref name="retryAt"/> must be a real instant, never null.</b> Both the dispatcher's due-query
+    /// and the <c>GET /api/outbox</c> depth read require <c>EInvoiceNextAttemptAt != null</c> to see a row at all, so
+    /// clearing it would park the invoice somewhere *nothing* looks — invisible to the retry and absent from the very
+    /// backlog figure meant to reveal it.</para>
+    /// </summary>
+    public void ParkEInvoiceUntilConfigured(string reason, DateTime retryAt)
+    {
+        EInvoiceLastError = string.IsNullOrWhiteSpace(reason)
+            ? "Identité El Fatoora de ce cabinet non configurée."
+            : reason.Trim();
+        EInvoiceStatus = EInvoiceStatus.Queued;
+        EInvoiceNextAttemptAt = retryAt;
+        Touch();
+    }
+
+    /// <summary>
     /// Record a transient dispatch failure. Consumes one attempt; stays <c>Queued</c> (retried after
     /// <paramref name="nextAttemptAt"/>) until <paramref name="maxAttempts"/> is reached, then → <c>Failed</c>.
     /// </summary>

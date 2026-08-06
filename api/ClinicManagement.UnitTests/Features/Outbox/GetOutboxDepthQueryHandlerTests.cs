@@ -2,6 +2,7 @@ using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Features.Outbox.Queries;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Xunit;
 
@@ -34,7 +35,8 @@ public class GetOutboxDepthQueryHandlerTests
         _invoices.Object,
         _documentEmails.Object,
         _users.Object,
-        _clinicContext.Object);
+        _clinicContext.Object,
+        NullLogger<GetOutboxDepthQueryHandler>.Instance);
 
     private void GivenCaller(string role, Guid clinicId)
     {
@@ -60,7 +62,7 @@ public class GetOutboxDepthQueryHandlerTests
 
         _documentEmails
             .Setup(r => r.GetOutboxDepthAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(documentEmails ?? new DocumentEmailOutboxDepth(0, 0, null));
+            .ReturnsAsync(documentEmails ?? new DocumentEmailOutboxDepth(0, 0, 0, null));
     }
 
     [Fact]
@@ -75,7 +77,7 @@ public class GetOutboxDepthQueryHandlerTests
         GivenQueues(
             new ReminderOutboxDepth(Pending: 40, Due: 12, Blocked: 3, FailedRecent: 2, oldestReminder),
             new EInvoiceOutboxDepth(Queued: 7, Due: 4, Failed: 1, oldestAttempt),
-            new DocumentEmailOutboxDepth(Queued: 5, Failed: 6, oldestEmail));
+            new DocumentEmailOutboxDepth(Queued: 5, Blocked: 4, Failed: 6, oldestEmail));
 
         var result = await Handler().Handle(new GetOutboxDepthQuery(), CancellationToken.None);
 
@@ -94,6 +96,9 @@ public class GetOutboxDepthQueryHandlerTests
         Assert.Equal(oldestAttempt, dto.EInvoices.OldestDueNextAttemptUtc);
 
         Assert.Equal(5, dto.DocumentEmails.Queued);
+        // Blocked is what separates « the queue is deep » from « the dispatcher is dead » on this queue, which had
+        // no such figure until the review's finding 5.
+        Assert.Equal(4, dto.DocumentEmails.Blocked);
         Assert.Equal(6, dto.DocumentEmails.Failed);
         Assert.Equal(oldestEmail, dto.DocumentEmails.OldestQueuedUtc);
     }

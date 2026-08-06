@@ -4,8 +4,17 @@ import { apiGet } from './client';
  * What `GET /api/auth/mode` answers about this deployment. Anonymous — it is read before anyone has a session.
  */
 export interface AuthModeDto {
-  /** `local` when the product issues its own email+password tokens, `cloud` when Auth0 does. */
-  mode: 'local' | 'cloud';
+  /**
+   * `Local` when the product issues its own email+password tokens, `Cloud` when Auth0 does.
+   *
+   * ⚠️ **Capitalised, because that is what the wire carries.** `AuthController.GetMode` returns
+   * `LocalAuthConfig.LocalMode`/`CloudMode`, whose values are the strings `"Local"`/`"Cloud"` — the camelCase JSON
+   * policy renames *properties*, never string values. This was declared lowercase, which no consumer had caught
+   * because both read `selfRegistrationEnabled` only: the next `if (dto.mode === 'local')` would have been `false`
+   * for ever, and TypeScript would have accepted it. Not to be confused with `useSession().mode`, which is
+   * genuinely lowercase — it comes from Next's own `AUTH_MODE`, not from this endpoint.
+   */
+  mode: 'Local' | 'Cloud';
   /**
    * Whether staff may mint their own account with the clinic's join code (`POST /api/auth/register`).
    *

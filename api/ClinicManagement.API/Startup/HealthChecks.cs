@@ -1,8 +1,8 @@
 using System.Text.Json;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Infrastructure.Persistence;
-using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 
 namespace ClinicManagement.API.Startup;
@@ -29,6 +29,21 @@ public static class HealthChecks
     public const string DatabaseCheckName = "database";
     public const string StorageCheckName = "storage";
 
+    /// <summary>
+    /// How long one health report is reused. Bounds what an anonymous caller can make this endpoint cost.
+    ///
+    /// <para>⚠️ Not a micro-optimisation. <c>/health</c> is anonymous, publicly routed, and deliberately exempt from
+    /// the rate limiter — so without a cache every request buys one PostgreSQL round trip and one object-store call
+    /// against the shared datastore of <b>every</b> tenant, at whatever rate the caller likes. A few thousand
+    /// concurrent requests exhaust the Npgsql pool (default max 100) and starve real traffic, at which point the
+    /// framework 503s the probe, an orchestrator reads « unhealthy » and restarts instances — turning a flood into an
+    /// outage. Five seconds is below any realistic probe interval, so a genuine monitor sees no staleness it would
+    /// notice, while the backend cost stops scaling with request rate.</para>
+    /// </summary>
+    public static readonly TimeSpan ReportCacheDuration = TimeSpan.FromSeconds(5);
+
+    private const string CacheKey = "health:report";
+
     /// <summary>Registers both checks. Call before <c>Build()</c>.</summary>
     public static void AddConfiguredHealthChecks(this IServiceCollection services)
     {
@@ -53,19 +68,66 @@ public static class HealthChecks
     /// </summary>
     public static void Register(WebApplication app)
     {
-        app.MapHealthChecks(Path, new HealthCheckOptions
+        // Mapped by hand rather than through MapHealthChecks, because the cache has to sit in front of the CHECKS
+        // and not merely in front of the response: a cached body over an uncached probe would leave the database and
+        // storage round trips still running once per request, which is the cost being bounded.
+        app.MapGet(Path, async (
+                HealthCheckService healthCheckService,
+                IMemoryCache cache,
+                HttpContext context,
+                CancellationToken cancellationToken) =>
+            {
+                var report = await CachedReportAsync(healthCheckService, cache, cancellationToken);
+                await WriteResponse(context, report);
+            })
+            .AllowAnonymous();
+    }
+
+    // One in-flight probe at a time. A burst arriving on a cold cache would otherwise all miss and all probe —
+    // the exact stampede the cache exists to prevent, just one window wide instead of unbounded.
+    private static readonly SemaphoreSlim ProbeGate = new(1, 1);
+
+    private static async Task<HealthReport> CachedReportAsync(
+        HealthCheckService healthCheckService,
+        IMemoryCache cache,
+        CancellationToken cancellationToken)
+    {
+        if (cache.TryGetValue(CacheKey, out HealthReport? cached) && cached is not null)
         {
-            ResponseWriter = WriteResponse
-        }).AllowAnonymous();
+            return cached;
+        }
+
+        await ProbeGate.WaitAsync(cancellationToken);
+        try
+        {
+            // Double-checked: the request that waited on the gate is served by the winner's result, not by a probe
+            // of its own.
+            if (cache.TryGetValue(CacheKey, out cached) && cached is not null)
+            {
+                return cached;
+            }
+
+            var report = await healthCheckService.CheckHealthAsync(cancellationToken);
+            cache.Set(CacheKey, report, ReportCacheDuration);
+            return report;
+        }
+        finally
+        {
+            ProbeGate.Release();
+        }
     }
 
     /// <summary>
     /// Serialises the report as <c>{ "status": …, "checks": { "database": …, "storage": … } }</c>.
-    /// The status code is the framework's: 200 for Healthy <b>and Degraded</b>, 503 for Unhealthy — which is
-    /// exactly the distinction the two checks are graded on (see each one's summary).
+    /// The status code keeps the framework's own mapping: 200 for Healthy <b>and Degraded</b>, 503 for Unhealthy —
+    /// exactly the distinction the two checks are graded on (see each one's summary). Set explicitly here because
+    /// this endpoint is mapped by hand for the cache above.
     /// </summary>
     private static Task WriteResponse(HttpContext context, HealthReport report)
     {
+        context.Response.StatusCode = report.Status == HealthStatus.Unhealthy
+            ? StatusCodes.Status503ServiceUnavailable
+            : StatusCodes.Status200OK;
         context.Response.ContentType = "application/json";
 
         var payload = new

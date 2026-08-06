@@ -20,10 +20,13 @@ public class ClinicsController : ApiControllerBase
     private readonly IMediator _mediator;
     private readonly IConfiguration _configuration;
 
-    public ClinicsController(IMediator mediator, IConfiguration configuration)
+    private readonly DeploymentProfile _deployment;
+
+    public ClinicsController(IMediator mediator, IConfiguration configuration, DeploymentProfile deployment)
     {
         _mediator = mediator;
         _configuration = configuration;
+        _deployment = deployment;
     }
 
     /// <summary>
@@ -361,7 +364,7 @@ public class ClinicsController : ApiControllerBase
     public async Task<IActionResult> ConnectWhatsApp(
         [FromBody] ConnectWhatsAppRequest request, CancellationToken cancellationToken = default)
     {
-        if (!DeploymentProfile.Resolve(_configuration).ExposesMetaOnboarding)
+        if (!_deployment.ExposesMetaOnboarding)
         {
             return NotFound();
         }
@@ -385,7 +388,7 @@ public class ClinicsController : ApiControllerBase
     [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
     public async Task<IActionResult> DisconnectWhatsApp(CancellationToken cancellationToken = default)
     {
-        if (!DeploymentProfile.Resolve(_configuration).ExposesMetaOnboarding)
+        if (!_deployment.ExposesMetaOnboarding)
         {
             return NotFound();
         }

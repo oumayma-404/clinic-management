@@ -622,7 +622,11 @@ try
     // migrations run is an SCM start-timeout concern, while the backfills are data obligations. Under one flag
     // a new profile gets them right only by accident, and this is the block Part B must scope and Part F must
     // wrap in an advisory lock — so "correct by luck" is not good enough.
-    if (!profile.DefersMigrations)
+    // ⚠️ The two capabilities are now genuinely independent (review finding 23). RunsStartupBackfills used to be
+    // evaluated INSIDE the !DefersMigrations branch, so for SelfHostedLan it was unreachable — and a future profile
+    // declaring `DefersMigrations: true, RunsStartupBackfills: true` would have silently skipped both, which is
+    // precisely the "correct only by accident" the split was made to prevent.
+    if (!profile.DefersMigrations || profile.RunsStartupBackfills)
     {
         using var scope = app.Services.CreateScope();
 
@@ -635,13 +639,18 @@ try
         var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
         // Serialised across instances: EF Core takes no lock of its own, so two containers starting together
-        // apply the same migrations concurrently and the loser fails part-way. See MigrationLock.
+        // apply the same migrations concurrently and the loser fails part-way. See MigrationLock. The backfills are
+        // inside the same lock because they are check-then-insert, i.e. idempotent against themselves but not
+        // against a concurrent twin.
         await ClinicManagement.API.Startup.MigrationLock.RunExclusivelyAsync(
             context.Database,
             app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Startup"),
             async () =>
             {
-                await context.Database.MigrateAsync();
+                if (!profile.DefersMigrations)
+                {
+                    await context.Database.MigrateAsync();
+                }
 
                 if (profile.RunsStartupBackfills)
                 {

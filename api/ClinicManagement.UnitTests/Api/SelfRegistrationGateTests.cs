@@ -27,13 +27,10 @@ namespace ClinicManagement.UnitTests.Api;
 /// </summary>
 public class SelfRegistrationGateTests
 {
+    // The profile is now injected rather than re-resolved from configuration per request, so it is passed
+    // explicitly here. Built through DeploymentProfile.For so the capability matrix under test is the real one.
     private static AuthController Controller(Mock<IMediator> mediator, DeploymentKind kind) =>
-        new(mediator.Object, new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                [DeploymentProfile.ProfileKey] = kind.ToString()
-            })
-            .Build());
+        new(mediator.Object, new ConfigurationBuilder().Build(), DeploymentProfile.For(kind));
 
     private static RegisterRequest AnyRegistration() => new()
     {

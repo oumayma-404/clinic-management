@@ -170,6 +170,21 @@ public class UpdateMedicalDocumentCommandHandler : IRequestHandler<UpdateMedical
             // If PDF file is provided, save it to patient files
             if (request.PdfFile != null && request.PdfFile.Length > 0)
             {
+                // US-5: the blob's key is prefixed with its owning clinic, which is the document's patient's —
+                // NOT the caller's, because PdfGenerationJob re-renders a stored document with no user at all.
+                //
+                // ⚠️ Resolved FIRST, before anything is written (review finding 21). It used to sit below the folder
+                // block, which runs a SaveChangesAsync of its own — so this refusal left a committed « documents »
+                // folder behind it. Its message was wrong on both counts too: the document *was* found (we are 190
+                // lines into updating it), and what actually failed is that the clinic-filtered Patient navigation
+                // did not materialise under the current tenant scope.
+                var owningClinicId = document.Patient?.ClinicId;
+                if (owningClinicId is null)
+                {
+                    return Result<MedicalDocumentDto>.Failure(
+                        "Le patient de ce document est introuvable dans votre cabinet.");
+                }
+
                 // ALWAYS save PDF files to "documents" folder (not "brouillons")
                 // This ensures all PDFs are in the documents folder regardless of draft status
                 const string folderName = "documents";
@@ -192,14 +207,6 @@ public class UpdateMedicalDocumentCommandHandler : IRequestHandler<UpdateMedical
                 var sanitizedPatientName = SanitizeFileName(document.PatientName.ToLowerInvariant());
                 var baseFileName = $"{documentTypeName}-{sanitizedPatientName}";
                 var fileName = await GenerateUniqueFileName(_fileRepository, folder.Id, baseFileName, "pdf", cancellationToken);
-
-                // US-5: the blob's key is prefixed with its owning clinic, which is the document's patient's —
-                // NOT the caller's, because PdfGenerationJob re-renders a stored document with no user at all.
-                var owningClinicId = document.Patient?.ClinicId;
-                if (owningClinicId is null)
-                {
-                    return Result<MedicalDocumentDto>.Failure("Document médical introuvable.");
-                }
 
                 // Store the PDF blob first, then persist the record. If the DB save fails we must
                 // remove the just-stored blob so no orphan remains (FR-C3).

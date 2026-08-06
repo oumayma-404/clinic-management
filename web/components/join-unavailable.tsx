@@ -15,17 +15,25 @@ import { ShieldCheck } from "lucide-react"
  *
  * Shared by the page's capability probe and the wizard's 404 fallback so the two cannot word it differently.
  */
+/*
+ * ⚠️ `justify-start` + `mx-auto`, never `justify-center` (§ 11). A flex item's `min-width: auto` floor beats
+ * `max-w-md`, and when the content overflows a *centring* parent splits that overflow to BOTH sides — the
+ * inline-start half landing outside the scrollable region, unreachable by any means. `app/join/page.tsx` annotates
+ * the same structure costing ~24 px of a card's left edge. Here the title's « l'administrateur » (`&apos;` = U+0027,
+ * no break opportunity) is ~171 px: fine at a plain 320 px, off-canvas at 320 px with the 200 % zoom § 0 requires.
+ * An auto margin resolves to 0 when there is no free space, so it centres and then degrades to start-aligned.
+ */
 export default function JoinUnavailable() {
   return (
-    <div className="min-h-dvh bg-background flex items-center justify-center p-4 sm:p-6">
-      <div className="w-full max-w-md">
+    <div className="min-h-dvh bg-background flex items-center justify-start p-4 sm:p-6">
+      <div className="mx-auto w-full max-w-md">
         <Card className="border-primary/20 shadow-lg">
           <CardHeader className="space-y-4 text-center">
             <div className="mx-auto inline-flex size-16 items-center justify-center rounded-full bg-primary/10">
               <ShieldCheck className="size-8 text-primary" aria-hidden="true" />
             </div>
             <div>
-              <CardTitle className="text-2xl text-accent-foreground">
+              <CardTitle className="text-2xl break-words text-accent-foreground">
                 Votre compte est créé par l&apos;administrateur
               </CardTitle>
               <CardDescription className="mt-2">

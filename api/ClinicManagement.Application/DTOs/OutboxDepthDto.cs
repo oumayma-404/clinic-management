@@ -72,6 +72,15 @@ public class EInvoiceOutboxDepthDto
 public class DocumentEmailOutboxDepthDto
 {
     public int Queued { get; init; }
+
+    /// <summary>
+    /// Queued but parked because the clinic has no usable SMTP settings. Non-terminal — the dispatcher's review pass
+    /// returns it once the channel is sendable. ⚠️ Without this figure a growing <see cref="Queued"/> with an ancient
+    /// <see cref="OldestQueuedUtc"/> reads identically to « the dispatcher is not running », which is exactly the
+    /// distinction this endpoint exists to make (review finding 5).
+    /// </summary>
+    public int Blocked { get; init; }
+
     public int Failed { get; init; }
     public DateTime? OldestQueuedUtc { get; init; }
 }

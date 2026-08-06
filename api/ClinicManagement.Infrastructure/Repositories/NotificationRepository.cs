@@ -187,19 +187,35 @@ public class NotificationRepository : INotificationRepository
                  && n.SentAt <= todayToUtcInclusive,
             cancellationToken);
 
-        // Pending is deliberately unbounded by date: a backlog is a backlog whenever it was queued, and a
-        // pending row from yesterday is the one most worth noticing.
+        var shared = await SharedCountsAsync(scoped, failedSinceUtc, cancellationToken);
+
+        return new ReminderLogCounts(sentToday, shared.Pending, shared.FailedRecent, shared.Blocked);
+    }
+
+    /// <summary>
+    /// The three counts this file's two reads share. Extracted because they were byte-identical twenty lines apart
+    /// (review finding 34): the rule that a *dispatcher's* predicate must be copied is explicit and justified — the
+    /// `Due` figure has to match <see cref="GetDueForDispatchAsync"/> or the read reports a backlog nothing will
+    /// drain — but it does not extend to copying a sibling read in the same class, where a change to what « blocked »
+    /// or « failed recently » means would otherwise have to be made twice with nothing holding them equal.
+    ///
+    /// <para><c>Pending</c> and <c>Blocked</c> are deliberately unbounded by date: a backlog is a backlog whenever it
+    /// was queued, and the oldest row is the one most worth noticing.</para>
+    /// </summary>
+    private static async Task<(int Pending, int FailedRecent, int Blocked)> SharedCountsAsync(
+        IQueryable<Notification> scoped,
+        DateTime failedSinceUtc,
+        CancellationToken cancellationToken)
+    {
         var pending = await scoped.CountAsync(n => n.Status == NotificationStatus.Pending, cancellationToken);
 
         var failedRecent = await scoped.CountAsync(
             n => n.Status == NotificationStatus.Failed && n.ScheduledFor >= failedSinceUtc,
             cancellationToken);
 
-        // Unbounded by date like Pending, and for the same reason: a blocked row is blocked whenever it was
-        // queued, and the oldest one is the one most worth noticing.
         var blocked = await scoped.CountAsync(n => n.Status == NotificationStatus.Blocked, cancellationToken);
 
-        return new ReminderLogCounts(sentToday, pending, failedRecent, blocked);
+        return (pending, failedRecent, blocked);
     }
 
     public async Task<ReminderOutboxDepth> GetOutboxDepthAsync(
@@ -210,10 +226,11 @@ public class NotificationRepository : INotificationRepository
     {
         var scoped = _context.Notifications.Where(n => n.ClinicId == clinicId);
 
-        var pending = await scoped.CountAsync(n => n.Status == NotificationStatus.Pending, cancellationToken);
+        var shared = await SharedCountsAsync(scoped, failedSinceUtc, cancellationToken);
 
         // The dispatcher's own predicate (GetDueForDispatchAsync): Pending AND its send time has come. Counted
-        // against the caller's `nowUtc` for that reason — see the interface's note.
+        // against the caller's `nowUtc` for that reason — see the interface's note. This one stays a local copy
+        // deliberately: it must track the dispatcher, not this file's other read.
         var due = scoped.Where(n => n.Status == NotificationStatus.Pending && n.ScheduledFor <= nowUtc);
 
         var dueCount = await due.CountAsync(cancellationToken);
@@ -224,13 +241,8 @@ public class NotificationRepository : INotificationRepository
             .Select(n => (DateTime?)n.ScheduledFor)
             .MinAsync(cancellationToken);
 
-        var blocked = await scoped.CountAsync(n => n.Status == NotificationStatus.Blocked, cancellationToken);
-
-        var failedRecent = await scoped.CountAsync(
-            n => n.Status == NotificationStatus.Failed && n.ScheduledFor >= failedSinceUtc,
-            cancellationToken);
-
-        return new ReminderOutboxDepth(pending, dueCount, blocked, failedRecent, oldestDue);
+        return new ReminderOutboxDepth(
+            shared.Pending, dueCount, shared.Blocked, shared.FailedRecent, oldestDue);
     }
 
     public async Task<IEnumerable<Notification>> GetRecallBatchAsync(

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
@@ -12,6 +12,9 @@ import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { statusToneClass } from "@/components/ui/status-tone"
 import { DataTablePagination } from "@/components/ui/data-table-pagination"
 import { DEFAULT_PAGE_SIZE, emptyPage } from "@/lib/api/paging"
+// The seven English storage keys + their French labels — the same list the setup and join wizards offer, so a
+// practitioner created here is filed under a value every other screen already renders.
+import { DOCTOR_SPECIALTIES, specialtyLabel } from "@/lib/specialties"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -119,6 +122,11 @@ export function UserManagement() {
   const [createEmail, setCreateEmail] = useState("")
   const [createFullName, setCreateFullName] = useState("")
   const [createRole, setCreateRole] = useState<UserRole>("secretary")
+  // The praticien fields, sent only for the doctor role. Kept when the admin switches role and back, so a mistaken
+  // change of « Rôle » does not silently discard what they typed.
+  const [createFirstName, setCreateFirstName] = useState("")
+  const [createLastName, setCreateLastName] = useState("")
+  const [createSpecialty, setCreateSpecialty] = useState<string>(DOCTOR_SPECIALTIES[0])
   const [createError, setCreateError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
 
@@ -233,11 +241,25 @@ export function UserManagement() {
         email: createEmail.trim(),
         fullName: createFullName.trim(),
         role: createRole,
+        // Only for the practitioner role — the server ignores it otherwise, and sending a half-filled object for a
+        // secretary would be a doctor record nobody asked for.
+        ...(createRole === "doctor"
+          ? {
+              doctorInfo: {
+                firstName: createFirstName.trim(),
+                lastName: createLastName.trim(),
+                specialty: createSpecialty,
+              },
+            }
+          : {}),
       })
       setCreateOpen(false)
       setCreateEmail("")
       setCreateFullName("")
       setCreateRole("secretary")
+      setCreateFirstName("")
+      setCreateLastName("")
+      setCreateSpecialty(DOCTOR_SPECIALTIES[0])
       setTempPassword({ email: created.email, password: created.temporaryPassword })
       toast.success("Compte créé. Communiquez le mot de passe temporaire à la personne concernée.")
       await loadData()
@@ -359,19 +381,6 @@ export function UserManagement() {
               </span>
               Utilisateurs
               <Badge variant="secondary">{userPage.totalCount}</Badge>
-              {canCreateAccounts && (
-                <Button
-                  size="sm"
-                  className="ms-auto gap-2"
-                  onClick={() => {
-                    setCreateError(null)
-                    setCreateOpen(true)
-                  }}
-                >
-                  <UserPlus className="size-4" aria-hidden="true" />
-                  Créer un compte
-                </Button>
-              )}
               {/* `active` is the tone that asks for attention — see `ui/status-tone.ts`; there is no
                   separate "warning" tone and inventing a seventh colour is how the four private palettes
                   it replaced came about. */}
@@ -381,6 +390,25 @@ export function UserManagement() {
                 </Badge>
               )}
             </CardTitle>
+            {/* `CardAction`, not `ms-auto` inside the title (which re-solved what `CardHeader`'s
+                `has-data-[slot=card-action]:grid-cols-[1fr_auto]` already provides). Inside the wrapping title row the
+                ~149 px button dropped to a second line where `ms-auto` right-aligned it alone and pushed the pending
+                badge to a third — a three-line header with the action floating in the middle of it. */}
+            {canCreateAccounts && (
+              <CardAction>
+                <Button
+                  size="sm"
+                  className="gap-2"
+                  onClick={() => {
+                    setCreateError(null)
+                    setCreateOpen(true)
+                  }}
+                >
+                  <UserPlus className="size-4" aria-hidden="true" />
+                  Créer un compte
+                </Button>
+              </CardAction>
+            )}
           </CardHeader>
           <CardContent>
             <FormErrorBanner message={error} className="mb-4" />
@@ -777,7 +805,10 @@ export function UserManagement() {
                 onValueChange={(value) => setCreateRole(value as UserRole)}
                 disabled={creating}
               >
-                <SelectTrigger id="create-user-role">
+                {/* `w-full` because the primitive's base is `w-fit`: without it this renders as a ~110 px stub in a
+                    240 px column of full-width fields, and being shrink-to-fit it *changes width* when the admin
+                    picks « Administrateur » over « Secrétaire », reflowing the field mid-interaction. */}
+                <SelectTrigger id="create-user-role" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -792,6 +823,63 @@ export function UserManagement() {
                 Le compte donne accès aux dossiers des patients. Le rôle décide de ce qu&apos;il peut consulter.
               </p>
             </div>
+
+            {/*
+              The practitioner behind a « médecin » account. Required by the server for that role and shown only for
+              it, exactly as « Rejoindre une clinique » does — an admin or a secretary is not a practitioner.
+              Without these the account got no `Doctor` record, so the person was absent from the praticien lists,
+              « Mon profil » had nothing to edit, the money they collected was unattributed, and their ordonnances
+              and certificats printed with **no** cachet and no n° d'ordre CNOMDT.
+            */}
+            {createRole === "doctor" && (
+              <div className="space-y-4 rounded-lg border bg-muted/40 p-3">
+                <p className="text-xs text-muted-foreground">
+                  Ces informations créent la fiche praticien : elles apparaissent sur les ordonnances, les
+                  certificats et les bulletins CNAM.
+                </p>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="create-user-firstname">Prénom du praticien</Label>
+                    <Input
+                      id="create-user-firstname"
+                      value={createFirstName}
+                      onChange={(e) => setCreateFirstName(e.target.value)}
+                      autoComplete="off"
+                      disabled={creating}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="create-user-lastname">Nom du praticien</Label>
+                    <Input
+                      id="create-user-lastname"
+                      value={createLastName}
+                      onChange={(e) => setCreateLastName(e.target.value)}
+                      autoComplete="off"
+                      disabled={creating}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="create-user-specialty">Spécialité</Label>
+                  <Select
+                    value={createSpecialty}
+                    onValueChange={setCreateSpecialty}
+                    disabled={creating}
+                  >
+                    <SelectTrigger id="create-user-specialty" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {DOCTOR_SPECIALTIES.map((specialty) => (
+                        <SelectItem key={specialty} value={specialty}>
+                          {specialtyLabel(specialty)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            )}
           </div>
           {/* `coarse:h-11` — the default Button is `h-9` (36 px), under the § 2 floor on a finger. */}
           <DialogFooter>
@@ -803,10 +891,18 @@ export function UserManagement() {
             >
               Annuler
             </Button>
+            {/* The praticien terms are part of the gate for the doctor role, so the server's refusal is unreachable
+                rather than merely unlikely — the same reasoning as `chequePaymentFields()`. */}
             <Button
               className="coarse:h-11"
               onClick={submitCreate}
-              disabled={creating || !createEmail.trim() || !createFullName.trim()}
+              disabled={
+                creating ||
+                !createEmail.trim() ||
+                !createFullName.trim() ||
+                (createRole === "doctor" &&
+                  (!createFirstName.trim() || !createLastName.trim() || !createSpecialty))
+              }
             >
               {creating ? "Création…" : "Créer le compte"}
             </Button>
@@ -816,12 +912,25 @@ export function UserManagement() {
 
       {/* Temp password display (AC-5.2) — shown once for the admin to relay */}
       <Dialog open={tempPassword !== null} onOpenChange={(open) => !open && setTempPassword(null)}>
-        <DialogContent>
+        {/*
+          `onInteractOutside` prevented because this dialog is *opened by* `submitCreate` in the same commit that
+          closes « Créer un compte » — i.e. while the admin's thumb is still travelling from the button they just
+          pressed, which on a phone sat where this sheet's content now lands. Below `md:` it renders as a ~300 px
+          bottom sheet under ~540 px of live overlay, and Radix closes on a tap anywhere in that band. Escape, the ✕
+          and « Terminé » stay as deliberate exits, so § 2's keyboard requirement is untouched.
+        */}
+        <DialogContent onInteractOutside={(event) => event.preventDefault()}>
           <DialogHeader>
             <DialogTitle>Mot de passe temporaire</DialogTitle>
+            {/*
+              The copy no longer denies a recovery that exists: `usersApi.resetPassword` is gated on the same
+              condition as account creation, so « Réinitialiser le mot de passe » on the new row does regenerate one.
+              Saying « affiché une seule fois » alone made a lost password read as an unrecoverable mistake.
+            */}
             <DialogDescription>
               Communiquez-le à {tempPassword?.email || "l'utilisateur"}. Il n'est affiché qu'une seule fois et
-              l'utilisateur devra le changer à la prochaine connexion.
+              l'utilisateur devra le changer à la prochaine connexion. Si vous le perdez, utilisez
+              « Réinitialiser le mot de passe » sur la ligne de ce compte pour en générer un nouveau.
             </DialogDescription>
           </DialogHeader>
           <div className="flex items-center gap-2 rounded-lg border bg-muted p-3">

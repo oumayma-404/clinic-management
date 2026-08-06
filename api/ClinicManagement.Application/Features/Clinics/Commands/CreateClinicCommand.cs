@@ -239,13 +239,15 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
                 }
             }
 
-            // Seed the clinic's procedure menu with the common Tunisian dental procedures (all editable).
-            await SeedDefaultProcedureTypesAsync(clinic.Id, cancellationToken);
+            // Both seeds go through LocalClinicProvisioning, which is the single definition of what a new clinic
+            // starts with — this branch used to hold byte-identical private copies (review finding 33).
+            await LocalClinicProvisioning.SeedDefaultProcedureTypesAsync(
+                clinic.Id, _procedureTypeRepository, cancellationToken);
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            // Seed the clinic's reference catalogs (CNAM / medications / dental acts) with the shared default (#5).
-            await SeedClinicCatalogsAsync(clinic.Id, cancellationToken);
+            await LocalClinicProvisioning.TrySeedCatalogsAsync(
+                clinic.Id, _clinicCatalogSeeder, _logger, cancellationToken);
 
             // Update Auth0 app_metadata
             try
@@ -323,6 +325,7 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
             _procedureTypeRepository,
             _unitOfWork,
             _clinicCatalogSeeder,
+            _logger,
             cancellationToken);
 
         if (provisioned.IsFailure)
@@ -346,27 +349,5 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
         });
     }
 
-    private async Task SeedDefaultProcedureTypesAsync(Guid clinicId, CancellationToken cancellationToken)
-    {
-        foreach (var procedureType in ProcedureTypeCatalogSeed.CreateFor(clinicId))
-        {
-            await _procedureTypeRepository.AddAsync(procedureType, cancellationToken);
-        }
-    }
-
-    // Best-effort (#5): seed the clinic's reference catalogs after it is committed. A failure here must not
-    // undo the already-created clinic — the startup backfill (IClinicCatalogSeeder.SeedAllClinicsAsync)
-    // re-seeds any clinic that is missing a catalog on the next boot.
-    private async Task SeedClinicCatalogsAsync(Guid clinicId, CancellationToken cancellationToken)
-    {
-        try
-        {
-            await _clinicCatalogSeeder.SeedForClinicAsync(clinicId, cancellationToken);
-        }
-        catch
-        {
-            // Swallowed: the startup backfill is the safety net (see SeedAllClinicsAsync).
-        }
-    }
 }
 

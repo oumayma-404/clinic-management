@@ -21,10 +21,13 @@ public class UsersController : ApiControllerBase
     private readonly IMediator _mediator;
     private readonly IConfiguration _configuration;
 
-    public UsersController(IMediator mediator, IConfiguration configuration)
+    private readonly DeploymentProfile _deployment;
+
+    public UsersController(IMediator mediator, IConfiguration configuration, DeploymentProfile deployment)
     {
         _mediator = mediator;
         _configuration = configuration;
+        _deployment = deployment;
     }
 
     /// <summary>
@@ -65,7 +68,7 @@ public class UsersController : ApiControllerBase
     [HttpPost]
     public async Task<ActionResult<CreatedClinicUserDto>> CreateUser([FromBody] CreateClinicUserRequest request)
     {
-        if (!DeploymentProfile.Resolve(_configuration).UsesLocalAccounts)
+        if (!_deployment.UsesLocalAccounts)
         {
             return NotFound();
         }
@@ -74,7 +77,8 @@ public class UsersController : ApiControllerBase
         {
             Email = request.Email,
             FullName = request.FullName,
-            Role = request.Role
+            Role = request.Role,
+            DoctorInfo = request.DoctorInfo
         };
         var result = await _mediator.Send(command);
 

@@ -14,6 +14,23 @@ import { useAuthToken } from "@/lib/hooks/use-auth-token"
 import JoinWizard from "@/components/join-wizard"
 import JoinUnavailable from "@/components/join-unavailable"
 
+/** How long the deployment-capability probe may take before the form is shown anyway. */
+const CapabilityProbeTimeoutMs = 5000
+
+/**
+ * Rejects if `promise` has not settled within `ms`. A wrapper rather than `AbortSignal.timeout` passed into the
+ * fetch, because `apiGet` takes no signal — and giving the whole client layer one is a change well outside a
+ * single page's probe. The request may still be in flight afterwards; nothing here reads its result.
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("La vérification a expiré.")), ms)
+    ),
+  ])
+}
+
 export default function JoinClinicPage() {
   const router = useRouter()
   const { user, isLoading: userLoading, mode } = useSession()
@@ -34,7 +51,12 @@ export default function JoinClinicPage() {
       // own PC and on the hosted backend (US-3). Ask the server.
       if (mode === "local") {
         try {
-          const { selfRegistrationEnabled } = await authApi.getMode()
+          // ⚠️ Bounded, because `setIsChecking(false)` now waits on this call and `apiGet` attaches no timeout of its
+          // own. A *rejected* fetch was handled; a **stalled** one was not — an API mid-restart, a marginal mobile
+          // signal or a captive portal that completes the handshake and never answers left « Vérification du statut
+          // de votre clinique… » on screen for ever, with no retry, no error and no way forward, on the normal way
+          // into a LAN install. A timeout is treated exactly like the rejection below.
+          const { selfRegistrationEnabled } = await withTimeout(authApi.getMode(), CapabilityProbeTimeoutMs)
           if (cancelled) return
           setSelfRegistrationClosed(!selfRegistrationEnabled)
         } catch (err) {
@@ -109,8 +131,8 @@ export default function JoinClinicPage() {
 
   if (userLoading || authLoading || isChecking) {
     return (
-      <div className="min-h-dvh bg-background flex items-center justify-center p-6">
-        <div className="text-center">
+      <div className="min-h-dvh bg-background flex items-center justify-start p-6">
+        <div className="mx-auto text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
           <p className="text-muted-foreground">Vérification du statut de votre clinique…</p>
         </div>
@@ -130,8 +152,12 @@ export default function JoinClinicPage() {
   }
 
   return (
-    <div className="min-h-dvh bg-background flex items-center justify-center p-6">
-      <div className="w-full max-w-md">
+    // `justify-start` + `mx-auto` for the reason the label comment further down already documents: a centring parent
+    // splits a flex item's overflow to BOTH sides, and the inline-start half is outside the scrollable region.
+    // Letting that long label wrap fixed the trigger; this fixes the structure, so the next long string cannot
+    // re-create it.
+    <div className="min-h-dvh bg-background flex items-center justify-start p-6">
+      <div className="mx-auto w-full max-w-md">
         <Card className="border-primary/20 shadow-lg">
           <CardHeader className="text-center space-y-4">
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-accent/20 mx-auto">

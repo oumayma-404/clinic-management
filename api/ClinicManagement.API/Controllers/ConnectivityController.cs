@@ -26,10 +26,13 @@ public class ConnectivityController : ApiControllerBase
     private readonly IMediator _mediator;
     private readonly IConfiguration _configuration;
 
-    public ConnectivityController(IMediator mediator, IConfiguration configuration)
+    private readonly DeploymentProfile _deployment;
+
+    public ConnectivityController(IMediator mediator, IConfiguration configuration, DeploymentProfile deployment)
     {
         _mediator = mediator;
         _configuration = configuration;
+        _deployment = deployment;
     }
 
     [AllowAnonymous]
@@ -37,7 +40,7 @@ public class ConnectivityController : ApiControllerBase
     public async Task<IActionResult> Get()
     {
         // Same capability as the trust page: both exist only for a box the clinic hosts itself.
-        if (!DeploymentProfile.Resolve(_configuration).ExposesTrustEndpoints)
+        if (!_deployment.ExposesTrustEndpoints)
         {
             return NotFound();
         }

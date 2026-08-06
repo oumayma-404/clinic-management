@@ -1,4 +1,5 @@
 using ClinicManagement.API.Startup;
+using ClinicManagement.Infrastructure;
 using Microsoft.AspNetCore.Http;
 using Xunit;
 
@@ -110,7 +111,7 @@ public class RateLimitingTests
         Assert.True(RateLimiting.IsExempt(Request(HealthChecks.Path)));
     }
 
-    // ---- The auth limiter's partition: per submitted ACCOUNT, address as the second dimension (US-6) ----
+    // ---- The auth limiter's partition: per (submitted ACCOUNT, address), address alone as the ceiling ----
 
     [Theory]
     [InlineData("/api/auth/login")]
@@ -144,13 +145,11 @@ public class RateLimitingTests
         var second = Request("/api/auth/login");
         second.Items[RateLimiting.SubmittedAccountItemKey] = "bechir@cabinet.tn";
 
-        Assert.NotEqual(
-            RateLimiting.AuthAttemptPartitionKey(first),
-            RateLimiting.AuthAttemptPartitionKey(second));
+        Assert.NotEqual(Key(first), Key(second));
     }
 
     [Fact]
-    public void The_same_account_shares_one_partition_regardless_of_address()
+    public void One_account_attacked_from_elsewhere_keeps_its_owners_budget()
     {
         var fromTheClinic = Request("/api/auth/login");
         fromTheClinic.Items[RateLimiting.SubmittedAccountItemKey] = "amel@cabinet.tn";
@@ -160,11 +159,11 @@ public class RateLimitingTests
         fromElsewhere.Items[RateLimiting.SubmittedAccountItemKey] = "amel@cabinet.tn";
         fromElsewhere.Connection.RemoteIpAddress = System.Net.IPAddress.Parse("197.0.0.9");
 
-        // Guessing one account from a hundred addresses must not buy a hundred budgets — which is exactly what a
-        // compound « account + address » key would have done.
-        Assert.Equal(
-            RateLimiting.AuthAttemptPartitionKey(fromTheClinic),
-            RateLimiting.AuthAttemptPartitionKey(fromElsewhere));
+        // The account alone used to be the whole key, which handed a permanent lockout to anyone who merely NAMED an
+        // address-independent account: the permit is spent before authentication, on every attempt. The address is in
+        // the key so a stranger empties only their own bucket. The hole that opens — one account from a hundred
+        // addresses buying a hundred budgets — is closed by the separate per-address ceiling, not by this key.
+        Assert.NotEqual(Key(fromTheClinic), Key(fromElsewhere));
     }
 
     [Fact]
@@ -176,9 +175,7 @@ public class RateLimitingTests
         var context = Request("/api/auth/refresh");
         context.Connection.RemoteIpAddress = System.Net.IPAddress.Parse("41.229.0.1");
 
-        var key = RateLimiting.AuthAttemptPartitionKey(context);
-
-        Assert.Equal("ip:41.229.0.1", key);
+        Assert.Equal("ip:41.229.0.1", Key(context));
     }
 
     [Fact]
@@ -192,9 +189,7 @@ public class RateLimitingTests
 
         // An email is caller-supplied text, so without the prefixes an account literally named after an address
         // would share that address's budget.
-        Assert.NotEqual(
-            RateLimiting.AuthAttemptPartitionKey(byAccount),
-            RateLimiting.AuthAttemptPartitionKey(byAddress));
+        Assert.NotEqual(Key(byAccount), Key(byAddress));
     }
 
     [Fact]
@@ -204,6 +199,26 @@ public class RateLimitingTests
         context.Items[RateLimiting.SubmittedAccountItemKey] = string.Empty;
         context.Connection.RemoteIpAddress = System.Net.IPAddress.Parse("41.229.0.1");
 
-        Assert.Equal("ip:41.229.0.1", RateLimiting.AuthAttemptPartitionKey(context));
+        Assert.Equal("ip:41.229.0.1", Key(context));
     }
+
+    // ---- The tight bounds apply to a POST, not to every /api/auth route (review finding 24) ----
+
+    [Theory]
+    [InlineData("POST", "/api/auth/login", true)]
+    [InlineData("POST", "/api/auth/refresh", true)]
+    // GET auth/mode is read on every app start by /join and /users, and change-password is authenticated: the
+    // prefix alone dropped both from 600/60 s to 150/300 s, a 20× cut on routes nobody brute-forces.
+    [InlineData("GET", "/api/auth/mode", false)]
+    [InlineData("POST", "/api/patients", false)]
+    public void Only_a_post_to_the_auth_surface_is_an_auth_attempt(string method, string path, bool expected)
+    {
+        var context = Request(path);
+        context.Request.Method = method;
+
+        Assert.Equal(expected, RateLimiting.IsAnonymousAuthAttempt(context));
+    }
+
+    private static string Key(HttpContext context) =>
+        RateLimiting.AuthAttemptPartitionKey(context, TrustedProxies.LoopbackOnly);
 }

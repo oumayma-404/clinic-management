@@ -105,6 +105,16 @@ public class EInvoiceService : IEInvoiceService
                 await DispatchAsync(invoice, clinic, patient, maxAttempts, cancellationToken);
             }
         }
+        catch (TtnIdentityUnavailableException ex)
+        {
+            // PARKED, not retried: a missing certificate is a configuration state lasting days, so spending one of
+            // five attempts on it empties the budget in ~10 minutes and the note then leaves the outbox for good,
+            // needing a manual re-queue nobody is told to perform (review finding 6). The row keeps its reason and
+            // stays Queued, so uploading the PFX is all it takes to resume.
+            _logger.LogWarning(
+                ex, "El Fatoora dispatch of invoice {InvoiceId} is parked: {Message}", invoiceId, ex.Message);
+            invoice?.ParkEInvoiceUntilConfigured(ex.Message, ParkedRetryAt());
+        }
         catch (InvalidOperationException ex)
         {
             // Operator-recoverable (e.g. missing certificate): keep it queued so a retry works once fixed.
@@ -239,6 +249,14 @@ public class EInvoiceService : IEInvoiceService
         // Fall back to the sandbox client — never send to production by accident on a misconfigured environment.
         return _ttnClients[Clinic.TtnEnvironmentSandbox];
     }
+
+    /// <summary>
+    /// When a parked row is looked at again. A flat interval rather than the attempt-scaled backoff below, because a
+    /// parked row consumes no attempt — the scaling factor would never move, and the point is only that the retry is
+    /// cheap and the row stays visible in <c>GET /api/outbox</c>.
+    /// </summary>
+    private DateTime ParkedRetryAt() =>
+        DateTime.UtcNow.AddSeconds(TtnConfig.BackoffBaseSeconds(_configuration));
 
     private void RecordTransientFailure(Invoice invoice, string error, int maxAttempts)
     {

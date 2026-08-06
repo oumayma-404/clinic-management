@@ -18,6 +18,14 @@
 {$DOMAIN} {
 	encode zstd gzip
 
+	# HSTS belongs HERE, not in the API. `SecurityHeadersMiddleware` guards on `context.Request.IsHttps`, and TLS
+	# terminates in this container — it speaks plain HTTP to `api:5000` and nothing in the solution consumes
+	# `X-Forwarded-Proto` (`UseForwardedHeaders` is deliberately absent so the loopback gates on `setup` and
+	# `/hangfire` stay a property of the real TCP peer). So `IsHttps` is false for every proxied request and the
+	# header was never emitted in either hosted profile, despite the middleware's own docstring saying a publicly
+	# trusted certificate gets it. Set once at the site level so it covers /api/*, /hub/*, /health and the pages.
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+
 	# API — same-origin front door for the frontend's relative `/api` calls (AC-3).
 	handle /api/* {
 		reverse_proxy api:5000
@@ -46,10 +54,17 @@
 		# /api/* alone — and Next emits its own headers only when AUTH_MODE != local, which is false in
 		# HostedMultiTenant. Stating them here is what keeps a page response covered in both hosted
 		# profiles. Caddy replaces rather than appends, so a header Next already set is not duplicated.
+		#
+		# ⚠️ The CSP is the load-bearing addition. Without it page responses carried NO policy at all, which made
+		# `Security:EnforceCsp` — the switch US-6 added — have no effect whatsoever on the HTML documents and
+		# scripts it exists to constrain: an operator flipping it after a clean page walk would believe the pages
+		# were protected when only JSON API responses were. Kept byte-identical to
+		# `SecurityHeadersMiddleware.ContentSecurityPolicy`; the two must be changed together.
 		header {
 			X-Content-Type-Options nosniff
 			X-Frame-Options DENY
 			Referrer-Policy strict-origin-when-cross-origin
+			Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'self' blob:; frame-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 		}
 
 		reverse_proxy web:3000

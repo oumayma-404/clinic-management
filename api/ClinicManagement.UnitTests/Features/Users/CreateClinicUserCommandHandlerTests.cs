@@ -1,4 +1,5 @@
 using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Users.Commands;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
@@ -26,13 +27,19 @@ public class CreateClinicUserCommandHandlerTests
     private sealed class Harness
     {
         public Mock<IUserRepository> Users { get; } = new();
+        public Mock<IDoctorRepository> Doctors { get; } = new();
         public Mock<IClinicContext> ClinicContext { get; } = new();
         public Mock<ILocalAuthService> LocalAuth { get; } = new();
         public Mock<IUnitOfWork> UnitOfWork { get; } = new();
         public List<User> Added { get; } = new();
+        public List<Doctor> AddedDoctors { get; } = new();
 
         public Harness(User? caller)
         {
+            Doctors.Setup(r => r.AddAsync(It.IsAny<Doctor>(), It.IsAny<CancellationToken>()))
+                .Callback<Doctor, CancellationToken>((d, _) => AddedDoctors.Add(d))
+                .Returns(Task.CompletedTask);
+
             ClinicContext.Setup(c => c.GetUserId()).Returns(caller?.Id ?? "local|caller");
             Users.Setup(r => r.GetByAuth0SubAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(caller);
@@ -49,6 +56,7 @@ public class CreateClinicUserCommandHandlerTests
 
         public CreateClinicUserCommandHandler Handler() => new(
             Users.Object,
+            Doctors.Object,
             ClinicContext.Object,
             LocalAuth.Object,
             UnitOfWork.Object,
@@ -185,7 +193,9 @@ public class CreateClinicUserCommandHandlerTests
         var result = await harness.Handler().Handle(Command(), CancellationToken.None);
 
         Assert.True(result.IsFailure);
-        Assert.Contains("existe déjà", result.Error);
+        // The fixture's collision is in ANOTHER clinic, so the refusal must not confirm the address is taken —
+        // that would be a cross-tenant oracle (review finding 25). The two wordings have their own cases below.
+        Assert.Contains("ne peut pas être utilisé", result.Error);
         Assert.Empty(harness.Added);
         harness.UnitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
@@ -221,5 +231,132 @@ public class CreateClinicUserCommandHandlerTests
         Assert.True(result.IsFailure);
         Assert.DoesNotContain("23505", result.Error);
         Assert.Contains("Erreur lors de la création du compte", result.Error);
+    }
+
+    // ---- The doctor role creates and links a practitioner (review finding 4) ----
+
+    /// <summary>
+    /// The defect this closes was silent and its symptom was three screens away: a doctor account with no
+    /// <see cref="Doctor"/> row is absent from the practitioner roster, has nothing for « Mon profil » to edit,
+    /// leaves <c>PractitionerAttribution</c>'s caller fall-back resolving to null so the money it collects is
+    /// unattributed, and makes <c>PractitionerRenderSnapshot</c> stamp certificats and ordonnances with **no**
+    /// practitioner identity — on the one profile where this command is the only way to add a dentist.
+    /// </summary>
+    [Fact]
+    public async Task A_doctor_account_gets_a_linked_practitioner_record()
+    {
+        var harness = new Harness(Admin(ClinicId));
+        var command = Command("doctor");
+        command.DoctorInfo = new DoctorPersonalInfoDto
+        {
+            FirstName = "Bechir",
+            LastName = "Ben Salah",
+            Specialty = "Dentiste",
+            Phone = "71234567"
+        };
+
+        var result = await harness.Handler().Handle(command, CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+
+        var created = Assert.Single(harness.Added);
+        var doctor = Assert.Single(harness.AddedDoctors);
+        Assert.Equal(ClinicId, doctor.ClinicId);
+        Assert.Equal("Bechir", doctor.FirstName);
+        Assert.Equal("Ben Salah", doctor.LastName);
+        // The link is the load-bearing part: without it « Mon profil » and every attribution read find nothing.
+        Assert.Equal(created.Id, doctor.UserId);
+        // Both rows in ONE save — an account whose practitioner failed to commit is the half-created state this fixes.
+        harness.UnitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Theory]
+    [InlineData(null, "Ben Salah", "Dentiste")]
+    [InlineData("Bechir", null, "Dentiste")]
+    [InlineData("Bechir", "Ben Salah", null)]
+    public async Task A_doctor_role_without_a_practitioner_is_refused_in_French(
+        string? firstName, string? lastName, string? specialty)
+    {
+        var harness = new Harness(Admin(ClinicId));
+        var command = Command("doctor");
+        command.DoctorInfo = new DoctorPersonalInfoDto
+        {
+            FirstName = firstName!,
+            LastName = lastName!,
+            Specialty = specialty!
+        };
+
+        var result = await harness.Handler().Handle(command, CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Contains("praticien", result.Error);
+        // Refused BEFORE anything is written: a user row with no doctor is exactly what must not survive.
+        Assert.Empty(harness.Added);
+        Assert.Empty(harness.AddedDoctors);
+    }
+
+    [Fact]
+    public async Task A_doctor_role_with_no_practitioner_object_at_all_is_refused()
+    {
+        var harness = new Harness(Admin(ClinicId));
+
+        var result = await harness.Handler().Handle(Command("doctor"), CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Empty(harness.Added);
+    }
+
+    [Theory]
+    [InlineData("admin")]
+    [InlineData("secretary")]
+    public async Task A_non_practitioner_role_creates_no_doctor_record(string role)
+    {
+        // An admin or a secretary is not a practitioner, so DoctorInfo is ignored rather than required.
+        var harness = new Harness(Admin(ClinicId));
+
+        var result = await harness.Handler().Handle(Command(role), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Empty(harness.AddedDoctors);
+    }
+
+    // ---- The email refusal must not be a cross-tenant oracle (review finding 25) ----
+
+    /// <summary>
+    /// The uniqueness check is global on purpose (login resolves an account by email alone), but on a hosted backend
+    /// serving competing practices a refusal that says « taken » for an address belonging to *another* clinic turns
+    /// this endpoint into an oracle any clinic admin can walk against a list of addresses.
+    /// </summary>
+    [Fact]
+    public async Task An_email_taken_by_another_clinic_is_refused_without_disclosing_that()
+    {
+        var harness = new Harness(Admin(ClinicId));
+        harness.Users.Setup(r => r.GetByEmailAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(User.CreateLocalUser(
+                OtherClinicId, User.RoleDoctor, "assistante@cabinet.tn", "hash", "Quelqu'un d'autre"));
+
+        var result = await harness.Handler().Handle(Command(), CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.DoesNotContain("existe déjà", result.Error);
+        Assert.Contains("ne peut pas être utilisé", result.Error);
+        Assert.Empty(harness.Added);
+    }
+
+    [Fact]
+    public async Task An_email_taken_inside_the_callers_own_clinic_says_so()
+    {
+        // Here the admin can see the colleague on their own « Utilisateurs » screen, so naming the collision
+        // discloses nothing and is the more useful message.
+        var harness = new Harness(Admin(ClinicId));
+        harness.Users.Setup(r => r.GetByEmailAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(User.CreateLocalUser(
+                ClinicId, User.RoleSecretary, "assistante@cabinet.tn", "hash", "Amira Trabelsi"));
+
+        var result = await harness.Handler().Handle(Command(), CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Contains("existe déjà", result.Error);
+        Assert.Contains("votre cabinet", result.Error);
     }
 }

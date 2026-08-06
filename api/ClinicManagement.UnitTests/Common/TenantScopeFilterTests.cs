@@ -19,9 +19,10 @@ namespace ClinicManagement.UnitTests.Common;
 ///
 /// <para><b>Every case is derived from the model, never from a list of entity names.</b> The filtered set is read
 /// off <c>db.Model</c>, so a 22nd clinic-owned root is covered the day it is configured. The one hand-written
-/// list here is the three clinic-owned tables that are deliberately <i>not</i> filtered, and it is asserted to be
-/// exactly right in both directions — a new unfiltered root fails, and so does an exemption for a table that has
-/// since been filtered.</para>
+/// list here is <see cref="UnfilteredByDesign"/> — the clinic-owned tables that are deliberately <i>not</i>
+/// filtered — and it is asserted to be exactly right in both directions: a new unfiltered root fails, and so does
+/// an exemption for a table that has since been filtered. The count is left to the dictionary rather than repeated
+/// in prose, which is how this said « three » over four entries.</para>
 /// </summary>
 public class TenantScopeFilterTests
 {
@@ -37,7 +38,10 @@ public class TenantScopeFilterTests
         ["Clinic"] = "same — a clinic is looked up by code before the caller belongs to it",
         ["AuditEntry"] = "ClinicId is nullable (a job or verb mutates rows with no clinic), so a filter would hide "
                          + "exactly the unattributed rows an owner needs; GetAuditEntriesQuery filters explicitly",
-        ["Notification"] = "the outbound reminder outbox, drained cross-clinic by the minutely dispatcher"
+        // ⚠️ The reason is the NULLABLE ClinicId, not the cross-clinic dispatcher: DocumentEmail is filtered and its
+        // dispatcher declares UseSystemWide too, so « drained cross-clinic » cannot be what exempts a table.
+        ["Notification"] = "ClinicId is nullable (legacy and recall rows), so a filter would hide exactly the "
+                           + "unattributed rows; all four reachable reads take a clinicId explicitly"
     };
 
     private sealed class Scope : ICurrentClinicProvider

@@ -65,6 +65,14 @@ public static class ProvisionClinicCommand
                 return 1;
             }
 
+            // The same gate its three read-only siblings use (review finding 31). Without it, no connection string
+            // meant an infrastructure exception out of AddInfrastructure/DbContext resolution instead of the operator
+            // sentence naming the environment variable — which is the defect MaintenanceDatabase was extracted to fix.
+            if (!MaintenanceDatabase.HasConnectionString(configuration, "Provisioning a clinic"))
+            {
+                return 1;
+            }
+
             var services = new ServiceCollection();
             services.AddLogging();
             services.AddInfrastructure(configuration);
@@ -103,6 +111,7 @@ public static class ProvisionClinicCommand
                 scope.ServiceProvider.GetRequiredService<IProcedureTypeRepository>(),
                 scope.ServiceProvider.GetRequiredService<IUnitOfWork>(),
                 scope.ServiceProvider.GetRequiredService<IClinicCatalogSeeder>(),
+                scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger(CommandName),
                 cancellationToken);
 
             if (result.IsFailure)
@@ -116,13 +125,29 @@ public static class ProvisionClinicCommand
             Console.WriteLine("Clinic provisioned successfully.");
             Console.WriteLine($"  Clinic:             {provisioned.Clinic.Name}");
             Console.WriteLine($"  Clinic id:          {provisioned.Clinic.Id}");
-            Console.WriteLine($"  Join code:          {provisioned.Clinic.Code}");
+
+            // ⚠️ Labelled, not printed bare (review finding 31). In HostedMultiTenant — the profile this verb exists
+            // for — AllowsSelfRegistration is false and POST /api/auth/register 404s, so a bare « Join code » beside
+            // the one-time password reads as an alternative way in and leads nowhere.
+            Console.WriteLine(profile.AllowsSelfRegistration
+                ? $"  Join code:          {provisioned.Clinic.Code}"
+                : $"  Clinic code:        {provisioned.Clinic.Code}  (reference only — self-registration is closed "
+                  + "on this deployment)");
+
             Console.WriteLine($"  Administrator:      {provisioned.Admin.Email}");
             Console.WriteLine($"  Temporary password: {temporaryPassword}");
             Console.WriteLine();
             Console.WriteLine("Give this password to the administrator. They will be required to choose a new");
             Console.WriteLine("one the first time they log in, and can then create the rest of the staff accounts");
             Console.WriteLine("from « Utilisateurs ».");
+
+            if (!provisioned.CatalogsSeeded)
+            {
+                Console.WriteLine();
+                Console.WriteLine("⚠️  Catalogues non initialisés (CNAM, médicaments, actes dentaires) — ils seront");
+                Console.WriteLine("    recréés au prochain démarrage de l'API. Voir le journal pour la cause.");
+            }
+
             Console.WriteLine();
             return 0;
         }

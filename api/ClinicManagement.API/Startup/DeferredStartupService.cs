@@ -77,6 +77,14 @@ public sealed class DeferredStartupService : IHostedService
             // a clinic that already has its catalog is skipped; new clinics are seeded on creation instead.
             var catalogSeeder = scope.ServiceProvider.GetRequiredService<IClinicCatalogSeeder>();
             await catalogSeeder.SeedAllClinicsAsync(cancellationToken);
+
+            // The clinic-admin backfill, which this path never ran (review finding 23). It was left out because the
+            // synchronous block that owns it is gated on `!DefersMigrations`, i.e. unreachable here — so a LAN clinic
+            // created before onboarding assigned an admin stayed permanently without one, which is the account that
+            // creates staff, resets passwords and reads the audit log. Idempotent: it promotes the earliest user only
+            // where a clinic has no active admin, so on every later boot it is a no-op.
+            var adminBackfill = scope.ServiceProvider.GetRequiredService<IClinicAdminBackfill>();
+            await adminBackfill.BackfillAsync(cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

@@ -360,7 +360,7 @@ public class SchemaVerificationServiceTests
     [Fact]
     public async Task Appointments_Naming_An_Act_With_No_Procedure_Row_Are_Drift()
     {
-        Arrange(counts: new DataMigrationCounts(0, 0, 0, 0, 0, 0, 12, 4, 0, 0, 0, 0, 0, 0));
+        Arrange(counts: CleanCounts with { AppointmentsWithActScalarLackingRow = 4 });
 
         var report = await CreateService().RunAsync();
 
@@ -372,7 +372,7 @@ public class SchemaVerificationServiceTests
     [Fact]
     public async Task Appointment_Act_Rows_Reads_Not_Applicable_Before_The_Table_Exists()
     {
-        Arrange(counts: new DataMigrationCounts(0, 0, 0, 0, 0, 0, 12, null, 0, 0, 0, 0, 0, 0));
+        Arrange(counts: CleanCounts with { AppointmentsWithActScalarLackingRow = null });
 
         var report = await CreateService().RunAsync();
 
@@ -382,7 +382,7 @@ public class SchemaVerificationServiceTests
     [Fact]
     public async Task Appointment_Notes_Still_Carrying_A_Type_Prefix_Are_Drift()
     {
-        Arrange(counts: new DataMigrationCounts(3, 0, 0, 0, 0, 0, 12, 0, 0, 0, 0, 0, 0, 0));
+        Arrange(counts: CleanCounts with { AppointmentsWithTypePrefixRemaining = 3 });
 
         var report = await CreateService().RunAsync();
 
@@ -392,7 +392,7 @@ public class SchemaVerificationServiceTests
     [Fact]
     public async Task Pre_Existing_Overlapping_Pairs_Are_Drift()
     {
-        Arrange(counts: new DataMigrationCounts(0, 2, 0, 0, 0, 0, 12, 0, 0, 0, 0, 0, 0, 0));
+        Arrange(counts: CleanCounts with { OverlappingAppointmentPairs = 2 });
 
         var report = await CreateService().RunAsync();
 
@@ -408,7 +408,7 @@ public class SchemaVerificationServiceTests
     [Fact]
     public async Task A_Legacy_Expiry_With_No_Opening_Batch_Is_Drift()
     {
-        Arrange(counts: new DataMigrationCounts(0, 0, 5, 5, 0, 0, 12, 0, 0, 0, 0, 0, 0, 0));
+        Arrange(counts: CleanCounts with { StockItemsWithLegacyExpiry = 5, StockItemsWithLegacyExpiryLackingBatch = 5 });
 
         var report = await CreateService().RunAsync();
 
@@ -420,7 +420,7 @@ public class SchemaVerificationServiceTests
     [Fact]
     public async Task Patients_Missing_A_Normalized_Name_Are_Drift()
     {
-        Arrange(counts: new DataMigrationCounts(0, 0, 0, 0, 0, 4, 12, 0, 0, 0, 0, 0, 0, 0));
+        Arrange(counts: CleanCounts with { PatientsMissingNormalizedName = 4 });
 
         var report = await CreateService().RunAsync();
 
@@ -436,7 +436,21 @@ public class SchemaVerificationServiceTests
     [Fact]
     public async Task A_Count_Whose_Subject_Does_Not_Exist_Yet_Is_Not_Applicable_Rather_Than_Drift()
     {
-        Arrange(counts: new DataMigrationCounts(0, 0, null, null, null, null, null, null, null, 0, null, 0, null, null));
+        // Every part that has not run yet reports « not applicable » rather than a misleading 0. Spelled out as
+        // named overrides because *which* facets are null is the whole assertion.
+        Arrange(counts: CleanCounts with
+        {
+            StockItemsWithLegacyExpiry = null,
+            StockItemsWithLegacyExpiryLackingBatch = null,
+            StockItemsWithStockLackingBatch = null,
+            PatientsMissingNormalizedName = null,
+            PatientsTotal = null,
+            AppointmentsWithActScalarLackingRow = null,
+            ProcedureTypesWithCategoryStillInDescription = null,
+            PaymentsWithChequeDetailsOnNonCheque = null,
+            PushDeliveriesWithMismatchedClinic = null,
+            ClinicsWithPartialTtnIdentity = null,
+        });
 
         var report = await CreateService().RunAsync();
 
@@ -455,7 +469,7 @@ public class SchemaVerificationServiceTests
     [Fact]
     public async Task After_The_Migration_The_Backfill_Check_Says_It_Was_Superseded()
     {
-        Arrange(counts: new DataMigrationCounts(0, 0, null, null, 0, 0, 12, 0, 0, 0, 0, 0, 0, 0));
+        Arrange(counts: CleanCounts with { StockItemsWithLegacyExpiry = null, StockItemsWithLegacyExpiryLackingBatch = null });
 
         var report = await CreateService().RunAsync();
 
@@ -471,7 +485,7 @@ public class SchemaVerificationServiceTests
     [Fact]
     public async Task An_Item_Holding_Stock_With_No_Lot_Is_Drift()
     {
-        Arrange(counts: new DataMigrationCounts(0, 0, null, null, 3, 0, 12, 0, 0, 0, 0, 0, 0, 0));
+        Arrange(counts: CleanCounts with { StockItemsWithLegacyExpiry = null, StockItemsWithLegacyExpiryLackingBatch = null, StockItemsWithStockLackingBatch = 3 });
 
         var report = await CreateService().RunAsync();
 
@@ -486,7 +500,7 @@ public class SchemaVerificationServiceTests
     [Fact]
     public async Task HasDrift_Agrees_With_DriftCount()
     {
-        Arrange(counts: new DataMigrationCounts(1, 1, 0, 0, 0, 0, 12, 0, 0, 0, 0, 0, 0, 0));
+        Arrange(counts: CleanCounts with { AppointmentsWithTypePrefixRemaining = 1, OverlappingAppointmentPairs = 1 });
 
         var report = await CreateService().RunAsync();
 
@@ -629,7 +643,7 @@ public class SchemaVerificationServiceTests
     [Fact]
     public async Task Clinics_Left_With_A_Zero_Backup_Retention_Are_Drift()
     {
-        Arrange(counts: new DataMigrationCounts(0, 0, 0, 0, 0, 0, 12, 0, 0, 3, 0, 0, 0, 0));
+        Arrange(counts: CleanCounts with { ClinicsWithUnsetBackupSchedule = 3 });
 
         var report = await CreateService().RunAsync();
 
@@ -641,7 +655,7 @@ public class SchemaVerificationServiceTests
     [Fact]
     public async Task Backup_Schedule_Backfill_Reads_Not_Applicable_Before_The_Columns_Exist()
     {
-        Arrange(counts: new DataMigrationCounts(0, 0, 0, 0, 0, 0, 12, 0, 0, null, 0, 0, 0, 0));
+        Arrange(counts: CleanCounts with { ClinicsWithUnsetBackupSchedule = null });
 
         var report = await CreateService().RunAsync();
 

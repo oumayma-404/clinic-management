@@ -1,9 +1,11 @@
+using System.Text;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.ProcedureTypes;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
+using Microsoft.Extensions.Logging;
 
 namespace ClinicManagement.Application.Features.Clinics;
 
@@ -29,10 +31,34 @@ public sealed record LocalClinicRequest(
     string? Phone = null,
     string? City = null,
     DoctorPersonalInfoDto? DoctorInfo = null,
-    string? WorkingHoursJson = null);
+    string? WorkingHoursJson = null)
+{
+    /// <summary>
+    /// Replaces the compiler-generated printer so <see cref="PasswordHash"/> cannot reach a log through a
+    /// destructured template or an interpolated exception message. A PBKDF2 hash is not a password, but it is the
+    /// verifier for one and belongs in no log; this record is constructed on the two paths that mint an
+    /// administrator, which is exactly where such a line would be written.
+    /// </summary>
+    private bool PrintMembers(StringBuilder builder)
+    {
+        builder.Append("ClinicId = ").Append(ClinicId)
+            .Append(", Name = ").Append(Name)
+            .Append(", AdminEmail = ").Append(AdminEmail)
+            .Append(", FullName = ").Append(FullName)
+            .Append(", MustChangePassword = ").Append(MustChangePassword)
+            .Append(", PasswordHash = ***");
+        return true;
+    }
+}
 
 /// <summary>The committed clinic and the admin account that can log into it.</summary>
-public sealed record ProvisionedClinic(Clinic Clinic, User Admin);
+/// <param name="CatalogsSeeded">
+/// False when the reference-catalog seed failed. The clinic is committed either way — the seed is a best-effort
+/// post-commit side effect — but `provision-clinic` has to be able to *say so*, because it otherwise prints
+/// « Clinic provisioned successfully. » over a clinic with no CNAM, medication or dental-act catalogue, and on a
+/// hosted backend the startup backfill that repairs it may not run for months.
+/// </param>
+public sealed record ProvisionedClinic(Clinic Clinic, User Admin, bool CatalogsSeeded = true);
 
 /// <summary>
 /// Creates a clinic together with its first local (email + password) administrator — the **single** definition of
@@ -66,6 +92,7 @@ public static class LocalClinicProvisioning
         IProcedureTypeRepository procedureTypeRepository,
         IUnitOfWork unitOfWork,
         IClinicCatalogSeeder clinicCatalogSeeder,
+        ILogger logger,
         CancellationToken cancellationToken = default)
     {
         var refusal = Validate(request);
@@ -133,25 +160,66 @@ public static class LocalClinicProvisioning
             await doctorRepository.AddAsync(doctor, cancellationToken);
         }
 
-        foreach (var procedureType in ProcedureTypeCatalogSeed.CreateFor(clinic.Id))
-        {
-            await procedureTypeRepository.AddAsync(procedureType, cancellationToken);
-        }
+        await SeedDefaultProcedureTypesAsync(clinic.Id, procedureTypeRepository, cancellationToken);
 
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
-        // Best-effort (#5): a failure here must not undo the already-committed clinic — the startup backfill
-        // (IClinicCatalogSeeder.SeedAllClinicsAsync) re-seeds any clinic missing a catalog on the next boot.
+        var catalogsSeeded = await TrySeedCatalogsAsync(
+            clinic.Id, clinicCatalogSeeder, logger, cancellationToken);
+
+        return Result<ProvisionedClinic>.Success(new ProvisionedClinic(clinic, admin, catalogsSeeded));
+    }
+
+    /// <summary>
+    /// Stages the clinic's starting procedure menu (the common Tunisian dental procedures, all editable).
+    ///
+    /// <para>⚠️ Shared with <c>CreateClinicCommandHandler</c>'s <b>Cloud</b> branch (review finding 33). This class
+    /// claims to be « the single definition » of creating a clinic and cites <c>fixes-dont-propagate</c> by name, but
+    /// the extraction covered the Local branch only — leaving a byte-identical private copy of this loop and of the
+    /// catalog seed below in the handler, i.e. two answers to « what a new clinic starts with », the seldom-changed
+    /// one being the copy the helper was written to eliminate.</para>
+    /// </summary>
+    public static async Task SeedDefaultProcedureTypesAsync(
+        Guid clinicId,
+        IProcedureTypeRepository procedureTypeRepository,
+        CancellationToken cancellationToken = default)
+    {
+        foreach (var procedureType in ProcedureTypeCatalogSeed.CreateFor(clinicId))
+        {
+            await procedureTypeRepository.AddAsync(procedureType, cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Seeds the clinic's reference catalogs (CNAM / medications / dental acts) best-effort, returning whether it
+    /// worked. Post-commit by design: a failure must not undo the already-created clinic, since the startup backfill
+    /// (<c>IClinicCatalogSeeder.SeedAllClinicsAsync</c>) re-seeds any clinic missing one on the next boot.
+    ///
+    /// <para>⚠️ It <b>logs</b> rather than swallowing silently (review finding 20), and returns the outcome so a
+    /// caller can say so: <c>provision-clinic</c> otherwise prints « Clinic provisioned successfully. » and a
+    /// password over a clinic with no catalogue at all, and on a hosted backend the safety net named above may not
+    /// run for months.</para>
+    /// </summary>
+    public static async Task<bool> TrySeedCatalogsAsync(
+        Guid clinicId,
+        IClinicCatalogSeeder clinicCatalogSeeder,
+        ILogger logger,
+        CancellationToken cancellationToken = default)
+    {
         try
         {
-            await clinicCatalogSeeder.SeedForClinicAsync(clinic.Id, cancellationToken);
+            await clinicCatalogSeeder.SeedForClinicAsync(clinicId, cancellationToken);
+            return true;
         }
-        catch
+        catch (Exception ex)
         {
-            // Swallowed: the startup backfill is the safety net (see SeedAllClinicsAsync).
+            logger.LogError(
+                ex,
+                "Reference catalogs could not be seeded for clinic {ClinicId}; the startup backfill will retry on the "
+                + "next boot.",
+                clinicId);
+            return false;
         }
-
-        return Result<ProvisionedClinic>.Success(new ProvisionedClinic(clinic, admin));
     }
 
     /// <summary>

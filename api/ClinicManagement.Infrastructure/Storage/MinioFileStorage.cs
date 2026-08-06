@@ -150,10 +150,15 @@ public class MinioFileStorage : IFileStorage
     /// Asks MinIO whether the bucket exists. That single call exercises everything the storage path depends on —
     /// DNS, the endpoint, TLS and the credentials — and it neither creates nor stores anything.
     ///
-    /// <para>⚠️ A <b>missing</b> bucket is reported as reachable-but-unusable rather than as unreachable, because
-    /// the two have different operator answers: the first is « create it / fix the name », the second is « the
-    /// container is down ». <c>UploadAsync</c> creates the bucket on demand, so a missing bucket is not fatal —
-    /// which is why the message says so instead of pretending the endpoint is unreachable.</para>
+    /// <para>⚠️ A <b>missing</b> bucket <b>returns normally</b> (review finding 19). The distinction this docstring
+    /// used to promise — reachable-but-unusable vs. unreachable — had no channel to travel on: throwing was the only
+    /// signal available, and <c>FileStorageHealthCheck</c> catches every exception into one <c>Degraded</c> plus
+    /// « the file storage is unreachable ». So the promise never reached an operator, and it made a correctly deployed
+    /// brand-new stack answer <c>storage: Degraded</c> from first boot with an Error line every probe tick, because
+    /// neither compose file creates the bucket and <c>UploadAsync</c> creates it on demand — i.e. the first signal an
+    /// operator checks read as a fault on a healthy deployment. What this call verifies is what it can actually
+    /// distinguish: DNS, the endpoint, TLS and the credentials. A bucket that does not exist yet is logged, not
+    /// graded.</para>
     /// </summary>
     public async Task ProbeAsync(CancellationToken cancellationToken = default)
     {
@@ -163,8 +168,9 @@ public class MinioFileStorage : IFileStorage
 
         if (!exists)
         {
-            throw new InvalidOperationException(
-                $"MinIO is reachable but the bucket '{_bucketName}' does not exist yet.");
+            _logger.LogInformation(
+                "MinIO is reachable; the bucket {BucketName} does not exist yet and will be created on first upload.",
+                _bucketName);
         }
     }
 }

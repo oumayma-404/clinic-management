@@ -48,6 +48,18 @@ services:
       # derivation exists for installs that predate this key, not as a second place to state the answer.
       Deployment__Profile: HostedMultiTenant
       ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+      # This profile owns its accounts, so THIS is what signs and validates every bearer token and every 12-hour
+      # refresh cookie. Absent, LocalAuthConfig generates a key into /app/.local/ — on the container's ephemeral
+      # layer, silently — so every `up -d --build` mints a new one and signs the whole fleet out mid-shift with
+      # nothing in any log naming the cause, and scaling `api` past one replica breaks authentication outright
+      # (a token minted by one replica fails signature validation on the other). Same defect the key ring below
+      # required a volume for; this is the other per-install secret in the container.
+      Auth__Local__SigningKey: ${AUTH_LOCAL_SIGNING_KEY}
+      # Whose X-Forwarded-For may be believed. Caddy and the web container are the only hops in front of the API,
+      # and both reach it over this bridge network — without this every address-keyed partition (the auth
+      # limiter's ceiling, the API limiter's fall-back, the per-source login lockout) collapses into ONE bucket
+      # for the whole service, so ordinary load 429s and one caller can lock every clinic out of logging in.
+      Security__TrustedProxies__0: ${INTERNAL_SUBNET:-172.20.0.0/16}
       # OAuth success redirect + primary CORS origin (same-origin, so CORS is not exercised by the browser).
       FrontendUrl: "https://${DOMAIN}"
       # Required in this profile — startup fails loud when it is unset (US-4/US-6 step 17). The named
@@ -140,6 +152,11 @@ services:
 networks:
   internal:
     driver: bridge
+    # Pinned, because Security__TrustedProxies above names it. Docker otherwise picks a range from its own pool and
+    # a proxy-trust CIDR guessed against that would either be wrong (every partition collapses again) or too wide.
+    ipam:
+      config:
+        - subnet: ${INTERNAL_SUBNET:-172.20.0.0/16}
 
 volumes:
   postgres_data:
@@ -147,7 +164,12 @@ volumes:
   caddy_data:
   caddy_config:
   backups:
-  # The Data Protection key ring. Everything encrypted at rest — each clinic's reminder credentials,
-  # and from US-4 its TTN secrets — is unreadable without it, so this volume is as load-bearing as
-  # postgres_data and belongs in the same backup policy.
+  # The Data Protection key ring. Everything encrypted at rest — each clinic's reminder credentials, and from US-4
+  # its TTN secrets — is unreadable without it, so it must be backed up.
+  #
+  # ⚠️ Back it up SEPARATELY from postgres_data, never into the same archive. The ring is stored in cleartext (a
+  # custom key repository disables the framework's automatic key encryption, and DPAPI is Windows-only), so one
+  # off-site archive holding both the ciphertext and the key that opens it means the encryption protects nothing
+  # against the most likely exposure — a leaked or stolen backup. Whoever holds that archive can forge auth cookies
+  # and impersonate any clinic's e-invoicing identity.
   dataprotection_keys:

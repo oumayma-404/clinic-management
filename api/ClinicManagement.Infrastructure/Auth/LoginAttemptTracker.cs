@@ -32,11 +32,16 @@ public sealed class LoginAttemptTracker : ILoginAttemptTracker
 
     private readonly IMemoryCache _cache;
     private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly TrustedProxies _trustedProxies;
 
-    public LoginAttemptTracker(IMemoryCache cache, IHttpContextAccessor httpContextAccessor)
+    public LoginAttemptTracker(
+        IMemoryCache cache,
+        IHttpContextAccessor httpContextAccessor,
+        TrustedProxies trustedProxies)
     {
         _cache = cache;
         _httpContextAccessor = httpContextAccessor;
+        _trustedProxies = trustedProxies;
     }
 
     public bool IsLockedOutForCurrentSource(string userId) =>
@@ -53,13 +58,16 @@ public sealed class LoginAttemptTracker : ILoginAttemptTracker
     public void ClearForCurrentSource(string userId) => _cache.Remove(CacheKey(userId));
 
     /// <summary>
-    /// Partition key. The source comes from <see cref="ClientIp"/>, which honours <c>X-Forwarded-For</c> only
-    /// from a loopback peer (our own BFF), so a LAN client cannot vary the header to escape its own bucket.
+    /// Partition key. The source comes from <see cref="ClientIp"/>, which honours <c>X-Forwarded-For</c> only from a
+    /// peer in <see cref="TrustedProxies"/>, so a client cannot vary the header to escape its own bucket.
+    /// ⚠️ Passing the configured set is load-bearing behind a proxy: on the loopback-only rule every request's peer
+    /// was the proxy container, so this key lost its source dimension and « 5 failures per (account, source) » became
+    /// 5 per account for the entire deployment — a lockout any stranger could drive.
     /// </summary>
     private string CacheKey(string userId)
     {
         var context = _httpContextAccessor.HttpContext;
-        var source = context is null ? ClientIp.Unknown : ClientIp.Resolve(context);
+        var source = context is null ? ClientIp.Unknown : ClientIp.Resolve(context, _trustedProxies);
 
         return $"{KeyPrefix}:{userId}:{source}";
     }

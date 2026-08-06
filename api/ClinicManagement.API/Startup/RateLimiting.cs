@@ -17,14 +17,19 @@ namespace ClinicManagement.API.Startup;
 ///   runaway client loop or scraping. Normal use must never reach it.</item>
 /// </list>
 ///
-/// <para><b>⚠️ The auth limiter is keyed on the account, and the address is a second, looser ceiling</b>
-/// (multi-tenant-cloud US-6). It used to be per address alone, which is a lockout waiting to happen the moment a
-/// deployment is reached over the internet: a whole practice arrives through **one** public NAT address, so a
-/// single colleague fat-fingering their password ten times spends everybody's budget and the receptionist is told
-/// « trop de tentatives » for a password she typed correctly. Keying the tight window on the email puts the
-/// guessing limit where guessing happens — one account — while the address keeps a ceiling several times higher,
-/// so one source cannot walk a list of accounts unbounded. Both apply: the named policy partitions on the
-/// account, the global limiter partitions the same request on its address (see <see cref="PartitionKey"/>).</para>
+/// <para><b>⚠️ The auth limiter is keyed on the account <i>and</i> the address, with the address alone as a second,
+/// looser ceiling</b> (multi-tenant-cloud US-6, tightened by review finding 8). It used to be per address alone,
+/// which is a lockout waiting to happen the moment a deployment is reached over the internet: a whole practice
+/// arrives through **one** public NAT address, so a single colleague fat-fingering their password ten times spends
+/// everybody's budget and the receptionist is told « trop de tentatives » for a password she typed correctly.
+/// Including the email puts the guessing limit where guessing happens — one account from one place.</para>
+///
+/// <para><b>⚠️ The account alone was not enough, and the address alone is what saves it.</b> The permit is spent
+/// <i>before</i> authentication, on every attempt whatever its outcome, so a window keyed on the account alone hands
+/// a lockout to whoever merely <b>names</b> it — and staff emails are printed on ordonnances, certificats and
+/// invoices. Keying on (account, address) means an attacker exhausts only their own bucket while the victim keeps
+/// theirs; the per-address ceiling below is then what stops one source walking a list of accounts, which is the hole
+/// a compound key would otherwise open. Both bounds are required — neither alone is sound.</para>
 ///
 /// <para><b>Exemptions matter as much as the limits.</b> The connectivity probe is polled every 15 s <i>per
 /// browser tab</i>, and a 429 there would make the app look offline and disable AI + Google Calendar. The
@@ -91,6 +96,10 @@ public static class RateLimiting
         var apiWindow = TimeSpan.FromSeconds(
             Read(configuration, "RateLimiting:Api:WindowSeconds", DefaultApiWindowSeconds));
 
+        // Resolved once: behind a reverse proxy every peer is the proxy container, so without this every partition
+        // below is one bucket for the whole deployment (review finding 1).
+        var trustedProxies = TrustedProxies.FromConfiguration(configuration);
+
         services.AddRateLimiter(options =>
         {
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -115,7 +124,7 @@ public static class RateLimiting
 
             options.AddPolicy(AnonymousAuthPolicy, httpContext =>
                 RateLimitPartition.GetSlidingWindowLimiter(
-                    AuthAttemptPartitionKey(httpContext),
+                    AuthAttemptPartitionKey(httpContext, trustedProxies),
                     _ => new SlidingWindowRateLimiterOptions
                     {
                         PermitLimit = authPermitLimit,
@@ -132,13 +141,13 @@ public static class RateLimiting
                 }
 
                 // An anonymous auth request is bounded on BOTH dimensions: the named policy above spends its
-                // account's budget, this one spends its address's. Without the branch the address ceiling on a
-                // login would be the API window (600/min), which against a run through a list of accounts is no
-                // ceiling at all — so re-keying the policy on the account would have traded a lockout for a hole.
-                if (IsAnonymousAuthPath(httpContext.Request.Path))
+                // (account, address) budget, this one spends its address's. Without the branch the address ceiling
+                // on a login would be the API window (600/min), which against a run through a list of accounts is
+                // no ceiling at all — so keying the policy on the account would have traded a lockout for a hole.
+                if (IsAnonymousAuthAttempt(httpContext))
                 {
                     return RateLimitPartition.GetSlidingWindowLimiter(
-                        $"authip:{ClientIp.Resolve(httpContext)}",
+                        $"authip:{ClientIp.Resolve(httpContext, trustedProxies)}",
                         _ => new SlidingWindowRateLimiterOptions
                         {
                             PermitLimit = authAddressPermitLimit,
@@ -149,7 +158,7 @@ public static class RateLimiting
                 }
 
                 return RateLimitPartition.GetSlidingWindowLimiter(
-                    PartitionKey(httpContext),
+                    PartitionKey(httpContext, trustedProxies),
                     _ => new SlidingWindowRateLimiterOptions
                     {
                         PermitLimit = apiPermitLimit,
@@ -205,7 +214,28 @@ public static class RateLimiting
         path.StartsWithSegments("/api/auth", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
-    /// The account this attempt is against, else the address.
+    /// A request the tight auth bounds apply to: a <b>POST</b> to that surface.
+    ///
+    /// <para>⚠️ The method test is the point (review finding 24). The prefix alone also caught
+    /// <c>GET auth/mode</c> — read on every app start by <c>/join</c> and <c>/users</c> — and the authenticated
+    /// <c>POST auth/change-password</c>, dropping both from 600 permits / 60 s to 150 / 300 s, a 20× cut in
+    /// sustained rate on two routes that are not a brute-force surface. <see cref="AuthAttemptAccount"/> asks this
+    /// same question, so the limiter and the capture cannot disagree about what an auth attempt is.</para>
+    /// </summary>
+    public static bool IsAnonymousAuthAttempt(HttpContext httpContext) =>
+        HttpMethods.IsPost(httpContext.Request.Method)
+        && IsAnonymousAuthPath(httpContext.Request.Path);
+
+    /// <summary>
+    /// The account this attempt is against <b>together with</b> the address it came from, else the address alone.
+    ///
+    /// <para><b>Both dimensions, because either alone is exploitable.</b> Per address alone locks out a whole
+    /// practice behind one NAT address (US-6's reason for moving off it); per <i>account</i> alone hands a
+    /// permanent lockout to anyone who knows a staff email, since the permit is spent before authentication and
+    /// regardless of outcome (review finding 8). Keyed on the pair, an attacker exhausts only their own bucket and
+    /// the account's real owner keeps theirs — and the separate per-address ceiling in
+    /// <see cref="AddConfiguredRateLimiter"/> is what stops one source walking a list of accounts, which is the
+    /// hole this compound key would otherwise open.</para>
     ///
     /// <para><b>Falling back to the address is what keeps an unreadable body from being either a bypass or a new
     /// lockout.</b> <c>POST auth/refresh</c> carries no email at all, and a malformed or oversized body yields
@@ -214,28 +244,30 @@ public static class RateLimiting
     ///
     /// <para>The two forms are prefixed so an email can never collide with an address partition.</para>
     /// </summary>
-    public static string AuthAttemptPartitionKey(HttpContext httpContext)
+    public static string AuthAttemptPartitionKey(HttpContext httpContext, TrustedProxies trustedProxies)
     {
         var account = httpContext.Items.TryGetValue(SubmittedAccountItemKey, out var captured)
             ? captured as string
             : null;
 
+        var address = ClientIp.Resolve(httpContext, trustedProxies);
+
         return string.IsNullOrEmpty(account)
-            ? $"ip:{ClientIp.Resolve(httpContext)}"
-            : $"account:{account}";
+            ? $"ip:{address}"
+            : $"account:{account}|{address}";
     }
 
     /// <summary>
     /// Per authenticated user where possible, else per resolved client address, so one signed-in client's
     /// runaway loop cannot consume another's allowance.
     /// </summary>
-    private static string PartitionKey(HttpContext httpContext)
+    private static string PartitionKey(HttpContext httpContext, TrustedProxies trustedProxies)
     {
         var subject = httpContext.User?.FindFirst("sub")?.Value
             ?? httpContext.User?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
 
         return string.IsNullOrWhiteSpace(subject)
-            ? $"ip:{ClientIp.Resolve(httpContext)}"
+            ? $"ip:{ClientIp.Resolve(httpContext, trustedProxies)}"
             : $"user:{subject}";
     }
 

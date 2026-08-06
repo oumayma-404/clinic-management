@@ -3,6 +3,7 @@ using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Clinics;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Xunit;
 
@@ -74,7 +75,8 @@ public class LocalClinicProvisioningTests
                 Doctors.Object,
                 ProcedureTypes.Object,
                 UnitOfWork.Object,
-                CatalogSeeder.Object);
+                CatalogSeeder.Object,
+                NullLogger.Instance);
     }
 
     private static LocalClinicRequest Request(

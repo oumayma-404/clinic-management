@@ -84,7 +84,19 @@ export const usersApi = {
    * The clinic comes from the caller's own record, never the request: an admin creates staff for their own
    * practice and nowhere else. 404s in Cloud, where Auth0 owns identities.
    */
-  create: async (data: { email: string; fullName: string; role: UserRole }): Promise<CreatedClinicUserDto> => {
+  /**
+   * Creates a colleague's account and returns the one-time password once.
+   *
+   * ⚠️ `doctorInfo` is **required by the server for the `doctor` role** and ignored for the other two — the same
+   * shape `clinicsApi.join` takes. Without it the account gets a `User` row and no `Doctor`, so the person is absent
+   * from every praticien list, their money is unattributed, and their ordonnances print with no cachet or n° d'ordre.
+   */
+  create: async (data: {
+    email: string;
+    fullName: string;
+    role: UserRole;
+    doctorInfo?: { firstName: string; lastName: string; specialty: string; phone?: string };
+  }): Promise<CreatedClinicUserDto> => {
     return apiPost<CreatedClinicUserDto>('/users', data);
   },
 

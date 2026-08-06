@@ -6,6 +6,7 @@ Track incomplete work, bugs, and technical debt across all features.
 
 | Item | Feature | Type | Priority | Created |
 |------|---------|------|----------|---------|
+| [A write path for the per-clinic TTN identity (`set-clinic-ttn-identity` verb)](./ttn-per-clinic-identity-write-path.md) | multi-tenant-cloud | incomplete | high | 2026-08-06 |
 | [Verify/regenerate the CNAM EF migration with the EF tool](./cnam-migration-ef-verify.md) | cnam-bulletin-soins | debt | high | 2026-07-17 |
 | [Validate & correct the BS1 PDF against the official form](./cnam-bs1-pdf-fidelity.md) | cnam-bulletin-soins | incomplete | high | 2026-07-17 |
 | [Admin editing of CNAM nomenclature + reimbursement rates](./cnam-nomenclature-admin-editing.md) | cnam-nomenclature-lookup | enhancement | medium | 2026-07-17 |

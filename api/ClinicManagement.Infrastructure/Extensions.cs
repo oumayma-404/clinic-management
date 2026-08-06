@@ -29,6 +29,10 @@ public static class Extensions
         // consumer calling Resolve again) would re-parse the key and could throw from inside a request.
         services.AddSingleton(profile);
 
+        // Which peers' X-Forwarded-For may be believed. Same lifetime reasoning as the profile, and a singleton so
+        // the login-lockout tracker gets the deployment's real answer rather than the loopback-only default.
+        services.AddSingleton(TrustedProxies.FromConfiguration(configuration));
+
         // Database
         var connectionString = configuration.GetConnectionString("DefaultConnection");
 

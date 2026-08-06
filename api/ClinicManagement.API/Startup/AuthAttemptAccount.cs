@@ -33,28 +33,31 @@ public static class AuthAttemptAccount
     /// Registers the capture. Must sit immediately before <c>UseRateLimiter()</c>: after it, the partition has
     /// already been chosen.
     /// </summary>
-    public static void UseAuthAttemptAccountCapture(this WebApplication app) =>
+    public static void UseAuthAttemptAccountCapture(this WebApplication app)
+    {
+        var logger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger(typeof(AuthAttemptAccount));
+
         app.Use(async (context, next) =>
         {
             if (ShouldCapture(context))
             {
-                await CaptureAsync(context);
+                await CaptureAsync(context, logger);
             }
 
             await next(context);
         });
+    }
 
     /// <summary>
-    /// A JSON POST to the anonymous auth surface, small enough to buffer. Scoped by the same path prefix the
-    /// limiter's own address branch uses, so the two cannot disagree about what « an auth request » is.
+    /// A JSON body small enough to buffer, on an auth attempt. Asks <see cref="RateLimiting.IsAnonymousAuthAttempt"/>
+    /// rather than repeating its terms, so the capture and the limiter cannot disagree about what one is.
     /// </summary>
     public static bool ShouldCapture(HttpContext context) =>
-        HttpMethods.IsPost(context.Request.Method)
-        && RateLimiting.IsAnonymousAuthPath(context.Request.Path)
+        RateLimiting.IsAnonymousAuthAttempt(context)
         && (context.Request.ContentType?.Contains("json", StringComparison.OrdinalIgnoreCase) ?? false)
         && context.Request.ContentLength is > 0 and <= MaxCapturedBodyBytes;
 
-    private static async Task CaptureAsync(HttpContext context)
+    private static async Task CaptureAsync(HttpContext context, ILogger logger)
     {
         try
         {
@@ -65,7 +68,7 @@ public static class AuthAttemptAccount
             // Unconditionally, and before anything can throw on the bytes: the action's model binding reads this
             // same stream, so leaving it at the end would bind an empty body — the request would fail validation
             // for a reason that has nothing to do with the request.
-            context.Request.Body.Position = 0;
+            Rewind(context);
 
             var email = ReadEmail(buffer.ToArray());
             if (email is not null)
@@ -73,10 +76,27 @@ public static class AuthAttemptAccount
                 context.Items[RateLimiting.SubmittedAccountItemKey] = email;
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // Deliberately silent and total. Nothing downstream depends on this succeeding — the limiter falls
-            // back to the address — and no shape of body may be able to stop a login from being answered.
+            // Silent to the caller but not to the log: a *systematic* capture failure silently reverts the limiter
+            // to per-address partitioning, i.e. reinstates the lockout US-6 exists to remove, and nothing else
+            // would connect the two.
+            logger.LogWarning(ex, "Could not read the submitted account for rate limiting; falling back to the address.");
+            Rewind(context);
+        }
+    }
+
+    /// <summary>
+    /// Rewinds the body for model binding. ⚠️ <c>CanSeek</c> is not defensive tidiness: the reachable failure above
+    /// is <c>EnableBuffering</c> itself, and assigning <c>Position</c> to a still-unbuffered stream throws
+    /// <c>NotSupportedException</c> — out of a handler that runs *before* <c>ExceptionMiddleware</c>, so it would
+    /// surface as a raw 500 on <c>POST auth/login</c> and break the one contract this class claims: that nothing
+    /// about it can refuse a request.
+    /// </summary>
+    private static void Rewind(HttpContext context)
+    {
+        if (context.Request.Body.CanSeek)
+        {
             context.Request.Body.Position = 0;
         }
     }

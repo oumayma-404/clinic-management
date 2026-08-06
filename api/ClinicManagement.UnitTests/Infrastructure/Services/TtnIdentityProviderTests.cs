@@ -1,4 +1,5 @@
 using System.Text;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Domain.Entities;
@@ -98,11 +99,15 @@ public class TtnIdentityProviderTests
     [Theory]
     [InlineData(DeploymentKind.HostedMultiTenant)]
     [InlineData(DeploymentKind.CloudBrowser)]
+    // ⚠️ The exception TYPE is part of the contract, not incidental (review finding 6): every refusal here is a
+    // `TtnIdentityUnavailableException`, which is what lets `EInvoiceService` PARK the invoice instead of spending
+    // one of its five attempts. Asserted as the exact type — widened to the base `InvalidOperationException`, these
+    // cases would pass again the day a refusal stopped being parkable and silently started burning the retry budget.
     public async Task A_Hosted_Clinic_Without_Its_Own_Certificate_Is_Refused(DeploymentKind kind)
     {
         GivenClinic(withOwnIdentity: false);
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+        var ex = await Assert.ThrowsAsync<TtnIdentityUnavailableException>(
             () => Provider(kind).ResolveAsync(ClinicId));
 
         Assert.Contains("certificat", ex.Message, StringComparison.OrdinalIgnoreCase);
@@ -119,7 +124,7 @@ public class TtnIdentityProviderTests
     {
         GivenClinic(withOwnIdentity: false);
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+        var ex = await Assert.ThrowsAsync<TtnIdentityUnavailableException>(
             () => Provider(DeploymentKind.SelfHostedLan).ResolveAsync(ClinicId));
 
         Assert.Contains(".local", ex.Message);
@@ -138,7 +143,7 @@ public class TtnIdentityProviderTests
         _storage.Setup(s => s.DownloadAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new FileNotFoundException("gone"));
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+        var ex = await Assert.ThrowsAsync<TtnIdentityUnavailableException>(
             () => Provider(DeploymentKind.SelfHostedLan).ResolveAsync(ClinicId));
 
         Assert.Contains("stockage", ex.Message, StringComparison.OrdinalIgnoreCase);
@@ -152,7 +157,7 @@ public class TtnIdentityProviderTests
         GivenClinic(withOwnIdentity: true);
         _protector.Setup(p => p.Unprotect(It.IsAny<string>())).Throws(new InvalidOperationException("bad key"));
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+        var ex = await Assert.ThrowsAsync<TtnIdentityUnavailableException>(
             () => Provider(DeploymentKind.HostedMultiTenant).ResolveAsync(ClinicId));
 
         Assert.Contains("déchiffrer", ex.Message, StringComparison.OrdinalIgnoreCase);
@@ -165,7 +170,13 @@ public class TtnIdentityProviderTests
         _clinics.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((Clinic?)null);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(
+        // ⚠️ A plain InvalidOperationException, deliberately NOT the parkable identity one. Every other refusal here
+        // is a configuration state an operator fixes by supplying a certificate, so parking the invoice and waiting
+        // is right. « This clinic does not exist » is not: nothing an operator uploads resolves it, so it must burn
+        // its attempts and reach Failed, where the outbox surfaces it, rather than sitting Queued for ever.
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
             () => Provider(DeploymentKind.HostedMultiTenant).ResolveAsync(ClinicId));
+
+        Assert.IsNotType<TtnIdentityUnavailableException>(ex);
     }
 }

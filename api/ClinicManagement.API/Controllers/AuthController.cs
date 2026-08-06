@@ -29,13 +29,19 @@ public class AuthController : ApiControllerBase
     private readonly IMediator _mediator;
     private readonly IConfiguration _configuration;
 
-    public AuthController(IMediator mediator, IConfiguration configuration)
+    private readonly DeploymentProfile _deployment;
+
+    public AuthController(IMediator mediator, IConfiguration configuration, DeploymentProfile deployment)
     {
         _mediator = mediator;
         _configuration = configuration;
+        _deployment = deployment;
     }
 
-    private DeploymentProfile Deployment => DeploymentProfile.Resolve(_configuration);
+    // Injected, not re-resolved per request: AddInfrastructure already registers the resolved profile as a
+    // singleton, so calling Resolve here re-read the key, re-parsed the enum and allocated a new profile on every
+    // request — two answers to « which profile is this? », which is the shape the type was created to remove.
+    private DeploymentProfile Deployment => _deployment;
 
     /// <summary>
     /// Public: reports whether this deployment owns its accounts, so the frontend renders the right login UI.

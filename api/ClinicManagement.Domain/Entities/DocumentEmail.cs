@@ -186,6 +186,36 @@ public class DocumentEmail : Entity<Guid>
     }
 
     /// <summary>
+    /// Parks the row because this clinic cannot send at all (SMTP unconfigured, or removed after queueing).
+    /// Consumes **no** attempt: the row is not failing, it is waiting on a setting.
+    ///
+    /// <para>⚠️ This replaces « leave it Queued and return », which was the starvation
+    /// <see cref="DocumentEmailStatus.Blocked"/> exists to end: the scan is oldest-first and batch-capped, so
+    /// unsendable rows piled up at the front and one clinic's missing SMTP stopped every clinic's sends.</para>
+    /// </summary>
+    public void Block(string? reason)
+    {
+        Status = DocumentEmailStatus.Blocked;
+        FailureReason = reason;
+    }
+
+    /// <summary>
+    /// Returns a parked row to the queue once its clinic can send again — the half that keeps
+    /// <see cref="DocumentEmailStatus.Blocked"/> from being a one-way door. Consumes no attempt and clears the
+    /// reason, so a row that blocks a second time records why it did *this* time.
+    /// </summary>
+    public void ReturnToQueue()
+    {
+        if (Status != DocumentEmailStatus.Blocked)
+        {
+            return;
+        }
+
+        Status = DocumentEmailStatus.Queued;
+        FailureReason = null;
+    }
+
+    /// <summary>
     /// Releases the stored attachment once the row is terminal — the blob exists only to survive the wait
     /// between queueing and sending. Idempotent: clearing an already-cleared key is a no-op.
     /// </summary>

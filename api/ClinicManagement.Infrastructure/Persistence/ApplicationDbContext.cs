@@ -163,6 +163,12 @@ public class ApplicationDbContext : DbContext
         //
         // User/Clinic stay deliberately unfiltered — the auth, setup and join flows resolve them before any
         // clinic exists to be in scope, and filtering them would break onboarding rather than protect it.
+        //
+        // ⚠️ `Notification` is unfiltered for the same structural reason as `AuditEntries` below, and it is recorded
+        // here because that reason is NOT the one `TenantScopeFilterTests.UnfilteredByDesign` gives: its `ClinicId`
+        // is **nullable**, so a filter comparing it to the scoped id would hide exactly the unattributed rows an
+        // owner needs. « Drained cross-clinic by the dispatcher » is not the reason — `DocumentEmail` is filtered and
+        // its dispatcher declares `UseSystemWide` too. All four reachable reads take a `clinicId` explicitly.
         modelBuilder.Entity<Patient>().HasQueryFilter(p => IsSystemWide || p.ClinicId == ScopedClinicId);
         modelBuilder.Entity<Appointment>().HasQueryFilter(a => IsSystemWide || a.ClinicId == ScopedClinicId);
         modelBuilder.Entity<ProcedureType>().HasQueryFilter(pt => IsSystemWide || pt.ClinicId == ScopedClinicId);

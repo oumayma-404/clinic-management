@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Xml;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Infrastructure.Services;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -84,13 +85,27 @@ public class XadesEInvoiceSignerTests
         Assert.Equal(second.Thumbprint, EmbeddedThumbprint(Signer().Sign(Teif, Identity(second.Pfx))));
     }
 
-    // [FR-2][edge] A certificate whose password does not open it fails rather than signing with nothing.
+    /// <summary>
+    /// [FR-2][edge] A certificate whose password does not open it fails rather than signing with nothing — and it
+    /// fails as an <b>identity</b> problem carrying a French operator sentence, not as a bare
+    /// <c>CryptographicException</c> (review finding 22).
+    ///
+    /// <para>A wrong PFX password is the single most likely misconfiguration of a hand-provisioned identity, and the
+    /// raw exception landed in <c>EInvoiceService</c>'s generic catch — which overwrote the invoice row's reason with
+    /// « Erreur lors de l'envoi à El Fatoora. », telling the operator nothing about which secret to re-enter, on a
+    /// queue that keeps retrying. As a <c>TtnIdentityUnavailableException</c> it instead parks the row with a reason
+    /// that names the cause. The original exception is kept as the inner one, so nothing diagnostic is lost.</para>
+    /// </summary>
     [Fact]
-    public void Sign_With_The_Wrong_Password_Throws()
+    public void Sign_With_The_Wrong_Password_Fails_As_An_Unusable_Identity()
     {
         var (pfx, _) = SelfSignedPfx("Cabinet Test");
 
-        Assert.ThrowsAny<CryptographicException>(() => Signer().Sign(Teif, Identity(pfx, "not-the-password")));
+        var ex = Assert.Throws<TtnIdentityUnavailableException>(
+            () => Signer().Sign(Teif, Identity(pfx, "not-the-password")));
+
+        Assert.Contains("mot de passe incorrect", ex.Message);
+        Assert.IsAssignableFrom<CryptographicException>(ex.InnerException);
     }
 
     // [FR-2][edge] No certificate at all fails fast with a clear operator message.

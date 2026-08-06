@@ -1,6 +1,8 @@
+using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Security.Cryptography.Xml;
 using System.Xml;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using Microsoft.Extensions.Logging;
@@ -35,6 +37,36 @@ public class XadesEInvoiceSigner : IEInvoiceSigner
         _logger = logger;
     }
 
+    /// <summary>
+    /// Opens the PFX. <c>EphemeralKeySet</c> only (no on-disk key persistence), and NOT <c>Exportable</c> — a
+    /// signing-only key never needs marshalling out of the key object.
+    ///
+    /// <para>⚠️ The wrap is the point (review finding 22). A <b>wrong PFX password</b> is the single most likely
+    /// misconfiguration of a hand-provisioned identity, and unwrapped it threw a bare
+    /// <c>CryptographicException</c> into <c>EInvoiceService</c>'s generic catch — which overwrote the invoice row's
+    /// reason with « Erreur lors de l'envoi à El Fatoora. », telling the operator nothing about which secret to
+    /// re-enter, on a queue that keeps retrying. Raised as an identity failure instead, it parks the row with a
+    /// sentence naming the cause.</para>
+    /// </summary>
+    private X509Certificate2 LoadCertificate(ResolvedTtnIdentity identity)
+    {
+        try
+        {
+            return new X509Certificate2(
+                identity.CertificateBytes,
+                identity.CertificatePassword,
+                X509KeyStorageFlags.EphemeralKeySet);
+        }
+        catch (CryptographicException ex)
+        {
+            _logger.LogError(
+                ex, "Could not open the TTN signing certificate ({Source} identity).", identity.Source);
+            throw new TtnIdentityUnavailableException(
+                "Certificat de signature illisible ou mot de passe incorrect. Vérifiez le fichier PFX du cabinet "
+                + "et son mot de passe dans les paramètres El Fatoora.", ex);
+        }
+    }
+
     public SignedEInvoiceResult Sign(string teifXml, ResolvedTtnIdentity identity)
     {
         ArgumentNullException.ThrowIfNull(identity);
@@ -50,12 +82,7 @@ public class XadesEInvoiceSigner : IEInvoiceSigner
                 "Certificat de signature électronique introuvable ou vide. Vérifiez le certificat qualifié (PFX) du cabinet avant l'envoi à El Fatoora.");
         }
 
-        // EphemeralKeySet only (no on-disk key persistence); NOT Exportable — a signing-only key never needs
-        // to be marshalled out of the key object.
-        using var certificate = new X509Certificate2(
-            identity.CertificateBytes,
-            identity.CertificatePassword,
-            X509KeyStorageFlags.EphemeralKeySet);
+        using var certificate = LoadCertificate(identity);
 
         using var rsa = certificate.GetRSAPrivateKey();
         if (rsa == null)

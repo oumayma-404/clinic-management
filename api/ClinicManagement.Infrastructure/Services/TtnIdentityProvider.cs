@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Domain.Entities;
@@ -15,10 +16,13 @@ namespace ClinicManagement.Infrastructure.Services;
 /// second branch exists only where <c>DeploymentProfile.SharesInstallWideTtnIdentity</c> holds, i.e. where the
 /// install serves one clinic and « per install » and « per clinic » name the same thing.</para>
 ///
-/// <para>⚠️ <b>A clinic's own certificate is not a partial fall-back.</b> If the clinic has a certificate key,
-/// the per-install certificate is never reached — not even when the blob turns out to be missing. Quietly
-/// substituting another identity for a clinic that was explicitly given one is how the wrong practice's name
-/// ends up on a validated, irreversible declaration; the refusal is the correct outcome.</para>
+/// <para>⚠️ <b>A clinic's own identity is not a partial fall-back, and « own identity » is any of the four columns
+/// — not just the certificate</b> (review finding 3). <c>Clinic.SetTtnIdentity</c> deliberately allows a TTN account
+/// with no certificate yet, since the signing half and the submitting half are provisioned separately; keying the
+/// precedence on <c>TtnCertificateKey</c> alone sent exactly that clinic down the install branch, which returns the
+/// install's <b>credentials</b> too — filing the declaration under the install-wide matricule. That is the
+/// « signed as clinic A, filed under clinic B » state this class exists to make unreachable, so a clinic carrying
+/// any part of an identity is refused rather than substituted.</para>
 /// </summary>
 public class TtnIdentityProvider : ITtnIdentityProvider
 {
@@ -50,10 +54,30 @@ public class TtnIdentityProvider : ITtnIdentityProvider
         var clinic = await _clinicRepository.GetByIdAsync(clinicId, cancellationToken)
             ?? throw new InvalidOperationException("Cabinet introuvable pour la résolution de l'identité El Fatoora.");
 
-        return clinic.TtnCertificateKey != null
-            ? await ResolveClinicIdentityAsync(clinic, cancellationToken)
-            : ResolveInstallIdentity(clinic);
+        if (clinic.TtnCertificateKey != null)
+        {
+            return await ResolveClinicIdentityAsync(clinic, cancellationToken);
+        }
+
+        if (HasPartialOwnIdentity(clinic))
+        {
+            throw new TtnIdentityUnavailableException(
+                "Ce cabinet a un compte TTN mais pas encore de certificat de signature électronique. "
+                + "Déposez son certificat qualifié (PFX) et son mot de passe pour pouvoir déclarer ses factures — "
+                + "le certificat de l'installation ne peut pas signer sous le matricule d'un autre.");
+        }
+
+        return ResolveInstallIdentity(clinic);
     }
+
+    /// <summary>
+    /// True when the clinic was given part of an identity but not a certificate. Read over <b>all four</b> columns
+    /// because any one of them is an operator saying « this clinic files under its own name ».
+    /// </summary>
+    private static bool HasPartialOwnIdentity(Clinic clinic) =>
+        clinic.TtnUsername != null
+        || clinic.TtnApiSecretEncrypted != null
+        || clinic.TtnCertificatePasswordEncrypted != null;
 
     private async Task<ResolvedTtnIdentity> ResolveClinicIdentityAsync(Clinic clinic, CancellationToken cancellationToken)
     {
@@ -77,7 +101,7 @@ public class TtnIdentityProvider : ITtnIdentityProvider
     {
         if (!_profile.SharesInstallWideTtnIdentity)
         {
-            throw new InvalidOperationException(
+            throw new TtnIdentityUnavailableException(
                 "Ce cabinet n'a pas de certificat de signature électronique. Sur un hébergement multi-cabinets, "
                 + "chaque cabinet doit fournir son propre certificat qualifié et son propre compte TTN — "
                 + "le certificat de l'installation ne peut pas signer à sa place.");
@@ -86,7 +110,7 @@ public class TtnIdentityProvider : ITtnIdentityProvider
         var certPath = TtnConfig.CertificatePath(_configuration);
         if (!File.Exists(certPath))
         {
-            throw new InvalidOperationException(
+            throw new TtnIdentityUnavailableException(
                 "Certificat de signature électronique introuvable. Déposez le certificat qualifié (PFX) dans le "
                 + "dossier .local/ avant l'envoi à El Fatoora.");
         }
@@ -95,11 +119,32 @@ public class TtnIdentityProvider : ITtnIdentityProvider
             "Clinic {ClinicId} has no El Fatoora identity of its own; using the per-install certificate.", clinic.Id);
 
         return new ResolvedTtnIdentity(
-            File.ReadAllBytes(certPath),
+            ReadInstallCertificate(certPath),
             TtnConfig.CertificatePassword(_configuration),
             TtnConfig.Username(_configuration),
             TtnConfig.ApiSecret(_configuration),
             TtnIdentitySource.Install);
+    }
+
+    /// <summary>
+    /// Reads the per-install PFX, wrapped like <see cref="DownloadCertificateAsync"/>. Unwrapped, a permissions or
+    /// IO error escaped this class's stated contract as an <c>IOException</c> and landed in
+    /// <c>EInvoiceService</c>'s generic catch, replacing the reason on the invoice row with « Erreur lors de l'envoi
+    /// à El Fatoora. » — on a queue that retries, telling the operator nothing about what to fix.
+    /// </summary>
+    private byte[] ReadInstallCertificate(string certPath)
+    {
+        try
+        {
+            return File.ReadAllBytes(certPath);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Could not read the per-install TTN signing certificate at {CertPath}.", certPath);
+            throw new TtnIdentityUnavailableException(
+                "Le certificat de signature de l'installation est illisible. Vérifiez les droits d'accès au "
+                + "fichier PFX dans le dossier .local/.", ex);
+        }
     }
 
     private async Task<byte[]> DownloadCertificateAsync(string storageKey, CancellationToken cancellationToken)
@@ -119,7 +164,7 @@ public class TtnIdentityProvider : ITtnIdentityProvider
         {
             // The key is safe to log; it names a blob, not a secret.
             _logger.LogError(ex, "Could not read the TTN signing certificate at storage key {StorageKey}.", storageKey);
-            throw new InvalidOperationException(
+            throw new TtnIdentityUnavailableException(
                 "Le certificat de signature du cabinet est introuvable ou illisible dans le stockage de fichiers.", ex);
         }
     }
@@ -143,7 +188,7 @@ public class TtnIdentityProvider : ITtnIdentityProvider
         }
         catch (Exception ex)
         {
-            throw new InvalidOperationException(
+            throw new TtnIdentityUnavailableException(
                 $"Impossible de déchiffrer {what} de ce cabinet (clé de protection indisponible ou changée). "
                 + "Ressaisissez-le dans les paramètres El Fatoora.", ex);
         }
