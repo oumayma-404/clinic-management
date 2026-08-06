@@ -16,7 +16,7 @@ The unit of progress is the **part**, not the story. Each part boundary is a com
 | 3 | Phase 2 | A stale app says so | **implemented** — gate green; the on-device half (a real shell below the floor) is owed | `8f42b5d` (⚠️ the `Program.cs` registration travelled in `65a72e6` — § Session 3) |
 | 4 | Phase 1 | The Android shell | **blocked — R-12 tooling check RAN and failed** (2026-08-05, session 3): no `java` on `PATH`, `JAVA_HOME` unset, `ANDROID_HOME`/`ANDROID_SDK_ROOT` unset, nothing at `%LOCALAPPDATA%\Android\Sdk`, no `gradle`. Per the story's own step 1 this stops Part 4 rather than half-building it. **Unlike Part 5 this is recoverable here** — a JDK 17+ and the Android SDK on the build machine is all it needs | — |
 | 5 | Phase 1 | The iOS shell | **blocked** — macOS + Xcode + Apple Developer Program | — |
-| 6 | Phase 3 | A backgrounded phone still knows | **implemented** (2026-08-05/06, session 4) — backend + availability endpoint + settings statement. Web gate green; the **backend suite and both console verbs could not be re-run** (Smart App Control turned mid-session — § Session 4) | see § Session 4 |
+| 6 | Phase 3 | A backgrounded phone still knows | **implemented** (2026-08-05/06, session 4) — backend + availability endpoint + settings statement. Web gate green; the **backend suite and both console verbs could not be re-run** (Smart App Control turned mid-session — § Session 4) | `999b877` |
 | 7 | Phase 4 | The phone becomes an instrument | not-started (web + Android halves only) | — |
 | 8 | Phase 5 | Two store listings | **blocked** — store accounts + 4 deferred business decisions | — |
 
