@@ -1,13 +1,32 @@
 # Story 1: Full — Hosted multi-tenant profile (desktop clients, hosted data)
 
 **Status:** APPROVED
-**Story Status:** in-review — **all six parts A–F are built and the code-gate verification steps pass**
-(2026-08-05/06), but the story does **not** close yet: `/review-story` has never run on **D, E or F**, which is
-an exit criterion, and one acceptance criterion is **knowingly unmet** (`restore-backup` has no hosted path — see
-Part D/E/F block). The **operator gate** below then needs a real hosted deployment. See
-[../progress.md](../progress.md) for the part table, twenty-three deviations and the per-part gate results. ⚠️ Part B's session found a **pre-existing 24-test red baseline** from earlier features, invisible
-until then because Part A's runner was blocked; it was cleared in `23e56f5` and the suite has been green since
-(Part D left it at **2 143 passed / 0 failed**).
+**Story Status:** in-review — **all six parts A–F are built, and the review round is complete.**
+`/review-feature` (2026-08-06) raised **42 findings** (1 Critical, 16 Major, 19 Minor, 6 Suggestion);
+`/challenge-review` kept **all 42** (zero dismissed, six severities corrected); `/apply-review-fixes` fixed
+**39 of them** in `095f108` — see [../reviews/feature-review.md](../reviews/feature-review.md).
+The story still does **not** close, and the reason has moved:
+- the per-part `/review-story` on **D, E and F** is still owed;
+- one acceptance criterion is **knowingly unmet** (`restore-backup` has no hosted path — see the Part D/E/F block);
+- finding **#7** is a deliberate deferral with the decision recorded
+  ([follow-up](../../../follow-up/ttn-per-clinic-identity-write-path.md)) — a write path for the per-clinic TTN
+  identity. ⚠️ Until it ships, an existing **`CloudBrowser`** deployment must be given each clinic's identity by
+  hand before upgrading, or its e-invoice outbox parks on the first dispatch after the deploy;
+- the **operator gate** below now carries more weight than it did: seven fixes (#1, #2, #9, #10, #11, #28, #29)
+  change deploy assets or container startup and **cannot be verified in this repo at all**.
+
+⚠️ **The review's headline held up under challenge: nine of the seventeen Critical/Major findings were one defect
+class** — an assumption true in `SelfHostedLan` and silently false in `HostedMultiTenant` (the loopback trust rule,
+the JWT signing key's ephemeral home, `Request.IsHttps` behind a TLS-terminating proxy, DPAPI key-ring protection, an
+unbounded `/health`, a dispatcher with no per-clinic bound). That is the class this story existed to find, and it is
+**now closed in code** — but every one of those six is a deploy-shaped fix whose proof is a real hosted deployment.
+⚠️ The Critical one was also **wider than the review found**: `LoginAttemptTracker` keys on the same address, so the
+per-(account, source) login lockout had collapsed to 5 failures per account for the entire service.
+
+See [../progress.md](../progress.md) for the part table, twenty-three deviations, the per-part gate results and the
+challenge + fix rounds. ⚠️ Part B's session found a **pre-existing 24-test red baseline** from earlier features,
+invisible until then because Part A's runner was blocked; it was cleared in `23e56f5` and the suite has been green
+since (the review-fix round left it at **2 194 passed / 0 failed**).
 **Layer:** Full — ⚠️ **a deliberate departure from the skill's BE/FE separation rule**, chosen because the plan is
 one coherent topology change: the third profile is « the second deployment's infrastructure with the first's
 authentication », and splitting it would produce a backend story that cannot be exercised (no login path) and a
@@ -91,7 +110,14 @@ _Story-specific:_
       them apart (DEV-11). R-2 holds — both shipped profiles behave exactly as before
 - [x] An admin can create a staff account (`CreateClinicUserCommand`, `AdminOnly`) → temp password → forced
       change. ⚠️ Shipped **with its UI** (DEV-12): with self-registration closed and no « Créer un compte »
-      dialog, a hosted clinic would have had no way to add a colleague at all
+      dialog, a hosted clinic would have had no way to add a colleague at all.
+      ⚠️ **Review finding 4 — the `doctor` role now creates and links a `Doctor`, and it did not before.** The
+      command wrote only the `User` row while both sibling paths (`JoinClinicCommand`, `LocalClinicProvisioning`)
+      required and created a practitioner — so on the one profile where this is the *only* door, every dentist added
+      after `provision-clinic` was absent from the roster, had nothing for « Mon profil » to edit, left
+      `PractitionerAttribution` resolving `null` on their invoices and fiches, and printed certificats and
+      ordonnances with **no cachet and no n° d'ordre CNOMDT**. `DoctorInfo` is now required for that role (both rows
+      in one save) and the dialog grew the three conditional fields
 
 **Part D — secrets** *(implemented)* · **Part E — storage** *(implemented)* · **Part F — operations** *(implemented)*
 - [x] `DataProtection:KeyRingPath` is **required** in `HostedMultiTenant` and fails startup loud when unset
@@ -103,7 +129,19 @@ _Story-specific:_
       lives in **`ITtnIdentityProvider`** rather than in the signer, because it has *two* consumers and a second
       copy is the `fixes-dont-propagate` shape (DEV-18); and `verify-schema` gained
       **`ttn-identity-is-complete`** (DEV-21), because there is no write path yet, so it is the only guard a
-      hand-populated row has. ⚠️ **No write path — deliberately**, per the plan's scope; see progress.md
+      hand-populated row has. ⚠️ **No write path — deliberately**, per the plan's scope; see progress.md.
+      ⚠️ **Two review findings landed here, and one of them made this box's own promise true.** Finding 6: « the
+      invoice stays `Queued` » held only for about ten minutes — an identity refusal was routed into
+      `RecordTransientFailure`, so five bounded attempts burned and the note left the outbox **permanently**, needing
+      a manual re-queue nobody is told to perform, on what US-4 makes the *normal* state of every newly provisioned
+      clinic. `Invoice.ParkEInvoiceUntilConfigured` now parks it without consuming an attempt.
+      Finding 3: precedence keyed on `TtnCertificateKey` alone, so a clinic given its own **TTN account** with no PFX
+      yet fell through to the install branch and had its declaration filed under the install-wide matricule — the
+      exact « signed as clinic A, filed under clinic B » state this part exists to prevent. Any of the four columns
+      now refuses instead. ⚠️ Finding **7** — that DEV-19 and « no write path » *compose* into shipped-`CloudBrowser`
+      e-invoicing stopping with no in-product remedy — is
+      **[deferred with its decision recorded](../../../follow-up/ttn-per-clinic-identity-write-path.md)**; restoring the
+      `CloudBrowser` fall-back is spec-violating and must not be used as the shortcut
 - [x] New storage keys are `clinics/{clinicId}/…`; **old flat keys still resolve, with no backfill**.
       ⚠️ **Every** new key, not only the four that were flat: the four callers that already prefixed a path of
       their own did so by a *different* convention (no `clinics/` segment — Part D's finding 3 left the choice
@@ -426,10 +464,18 @@ All seven re-verified as a **set** at the end of Part E (2026-08-06), not only p
       `ClinicalRecordTenantIsolationTests` (DentalRecord · PatientMedicalHistory · PatientFamilyHistory ·
       ToothState), `MedicalDocumentTenantIsolationTests`, `FilesTenantIsolationTests` (PatientFile ·
       PatientFolder)
-- [x] Frontend gate — run in **Part C**, the only part that touches `web/`: `tsc` clean, `check:responsive`
-      14/14, `build` succeeds, and a **measured** eye pass at 320/390/820/1180/1440 px + an 844×380 landscape
-      phone over CDP. Parts A, B, D, E and F change no `web/` file
-- [x] Full suite: **2 157 passed / 0 failed** (Part E's run)
+- [x] Frontend gate — run in **Part C** and again in the **review-fix round** (the only two that touch `web/`):
+      `tsc` clean, `check:responsive` **15/15**, `build` succeeds, and a **measured** eye pass at
+      320/390/820/1180/1440 px + an 844×380 landscape phone over CDP. Parts A, B, D, E and F change no `web/` file.
+      ⚠️ The fix round's `web/` changes (findings 16, 17, 26, 35, 36, 37) are **not** eye-passed — the mechanical gate
+      is green, but the two that are layout claims (17's overflow at 320 px + 200 % zoom, 37's three-line card header)
+      were reasoned about rather than looked at, and § 14 is explicit that the manual walk is the load-bearing half
+- [x] Full suite: **2 194 passed / 0 failed** (the review-fix round; 2 157 at Part E)
+- [x] **Review round complete** — `/review-feature` 42 findings → `/challenge-review` 42 kept, 6 severities
+      corrected → `/apply-review-fixes` **39 fixed** in `095f108`, one deferred (#7). Six existing test classes had
+      to be re-pointed at changed contracts, which is in scope and is where the new behaviour is actually asserted;
+      three new classes were added (`TrustedProxiesTests`, `TenantScopeMiddlewareTests`, and six cases on
+      `CreateClinicUserCommandHandlerTests`)
 
 ```bash
 # Backend — build to a scratch path so a running API can't lock bin/Debug
@@ -464,6 +510,32 @@ cd web && npx tsc --noEmit && npm run check:responsive && npm run build
 - [ ] A file uploaded after this story has a `clinics/{clinicId}/…` key; a document uploaded **before** it still
       downloads, and a practitioner cachet still renders on a PDF
 
+**Operator gate — the seven review fixes nothing in this repo can prove:**
+
+- [ ] **#28 — the API container starts at all as `$APP_UID`**, and can write `/keys`. This is the fix most likely to
+      break a deploy rather than a feature: it relies on Docker propagating the image's `/keys` ownership to a **new**
+      volume. On a stack with an existing root-owned `dataprotection_keys`, expect a startup failure until
+      `chown -R 1654:1654`. Check this **first** — everything below assumes the container runs
+- [ ] **#1 — two clinics behind the proxy get different rate-limit buckets.** The only real test: sign in from two
+      addresses and confirm neither consumes the other's budget, and that `X-Forwarded-For` from a client that is
+      *not* in `Security__TrustedProxies` is still ignored. ⚠️ `INTERNAL_SUBNET` and the compose network's `ipam`
+      subnet must match, or the fix is silently inert and every partition collapses again
+- [ ] **#2 — a `docker compose up -d --build` does NOT sign everybody out.** Log in, redeploy, confirm the session
+      survives. Then confirm startup still works with `AUTH_LOCAL_SIGNING_KEY` **unset**, to see which failure mode
+      that is
+- [ ] **#9 / #29 — `curl -I https://${DOMAIN}` carries `Strict-Transport-Security`, and a page response carries
+      `Content-Security-Policy`.** Both are set at Caddy now, so both must be checked on a **page** URL, not on
+      `/api/*`
+- [ ] **#10 — the backup runbook stores the key ring separately from `postgres_data`.** A documentation fix whose
+      proof is what the operator actually does
+- [ ] **#11 — `/health` under load does not exhaust the Npgsql pool.** Hammer it and watch connection count; the
+      5 s cache should hold backend cost flat regardless of request rate
+- [ ] **#5 — one clinic with no SMTP no longer starves the others.** Queue a document email in clinic A with SMTP
+      unconfigured and one in clinic B with it configured; B's must send, and A's must appear as `blocked` in
+      `GET /api/outbox` rather than sitting at the front of the scan
+- [ ] **#4 — a hosted dentist's ordonnance prints with a cachet.** Create a `doctor` account through
+      « Créer un compte », set a cachet on « Mon profil », print — the defect was that this was silently impossible
+
 ## Exit Criteria
 
 **Closes at `implemented` (code gate):**
@@ -474,8 +546,24 @@ cd web && npx tsc --noEmit && npm run check:responsive && npm run build
 - [x] `plan.md`'s docs-debt step is done — the three `CLAUDE.md` files and the `CurrentClinicProvider` docstring
       no longer describe a fail-open filter (landed in **Part B**, deliberately early: a `CLAUDE.md` asserting the
       inverted contract is worse than no doc, so it could not wait for the part that owns step 18)
-- [ ] **Reviewed (`/review-story`) — NOT DONE.** Parts D, E and F have never been reviewed; A, B and C were
-      ⚠️ **This is what stops the story reading `implemented`.** Everything above it is met
+- [~] **Reviewed, challenged and fixed — the full round ran on 2026-08-06**
+      ([../reviews/feature-review.md](../reviews/feature-review.md)). `/review-feature`: six agents over the feature's
+      own six commits (~7 575 added lines) → **42 findings** (1 Critical, 16 Major, 19 Minor, 6 Suggestion; Part E
+      drew none). `/challenge-review`: **all 42 kept, zero dismissed**, six severities corrected — the review had
+      already verified its own precedent claims, so nothing collapsed. `/apply-review-fixes`: **39 fixed** in
+      `095f108`, gate green (0 errors · 57 warnings unchanged · **2 194 tests passing** · `tsc` · 15/15 · build).
+      ⚠️ **The box stays `[~]` for three reasons, and « unfixed findings » is no longer one of them.**
+      (a) It was a *diff* review, not `/review-story` — it judges the code, not conformance to each part's acceptance
+      criteria, so the per-part `/review-story` on **D, E and F** is still owed.
+      (b) Finding **#7** is deferred by decision
+      ([follow-up](../../../follow-up/ttn-per-clinic-identity-write-path.md)): a shipped **`CloudBrowser`** deployment
+      still needs each clinic's TTN identity installed by hand before it upgrades, or its e-invoice outbox parks.
+      (c) **Seven of the fixes cannot be verified in this repo at all** — #1 (trusted proxies), #2 (the signing key),
+      #9 (HSTS at Caddy), #10 (key-ring backup guidance), #11 (`/health` caching), #28 (the container's non-root
+      user) and #29 (the page-side CSP) are deploy assets and container startup. #28 in particular changes whether the
+      API container *starts*: it relies on Docker propagating the image's `/keys` ownership to a **new** volume, so an
+      existing root-owned `dataprotection_keys` needs a one-off `chown -R 1654:1654`. The operator gate below is now
+      carrying the proof for all seven
 
 **Moves to `done` (operator gate):**
 

@@ -82,7 +82,7 @@ graph TD
 
 | Story | Layer | Name | Status | Depends On |
 |-------|-------|------|--------|------------|
-| 1 | Full | [Hosted multi-tenant profile](story-1-full-hosted-multi-tenant.md) | **in-review** — parts A–F built, code gate passes; `/review-story` owed on D+E+F, one AC knowingly unmet (`restore-backup` hosted path), operator gate owed | — |
+| 1 | Full | [Hosted multi-tenant profile](story-1-full-hosted-multi-tenant.md) | **in-review — review round complete 2026-08-06.** [`/review-feature`](../reviews/feature-review.md) over all six parts → 42 findings (1 Critical / 16 Major / 19 Minor / 6 Suggestion) → `/challenge-review` kept **all 42** (0 dismissed, 6 severities corrected) → `/apply-review-fixes` **fixed 39** (`095f108`; 2 194 tests green). Still owed: `/review-story` on **D+E+F**; finding **#7** deferred by decision ([follow-up](../../../follow-up/ttn-per-clinic-identity-write-path.md)); one AC knowingly unmet (`restore-backup` hosted path); **operator gate**, now also proving the seven deploy-shaped fixes | — |
 
 ### Internal parts (the resumable unit)
 

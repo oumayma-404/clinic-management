@@ -17,9 +17,17 @@ unit ( « 18 steps and ~35 files will not fit one session » ). This table is th
 | D | US-4 | 14 | **implemented** (code gate) | 2026-08-06 |
 | E | US-5 | 15 | **implemented** (code gate) — `18f8a6c` | 2026-08-06 |
 | F | US-6 | 16–18 | **implemented** (code gate) | 2026-08-05 |
+| — | review | — | `/review-feature` → 42 findings · `/challenge-review` → 42 kept · `/apply-review-fixes` → **39 fixed** (`095f108`) | 2026-08-06 |
 
 ✅ **Part F's step 17 landed before Part D, as the ordering required** — `DataProtection:KeyRingPath` is now required
 in `HostedMultiTenant` and fails startup without it, so Part D's PFX password can safely depend on the key ring.
+
+⚠️ **The story still does not close, and the reason has moved.** The Critical and Major findings are fixed, so what
+remains is: the per-part `/review-story` on **D, E and F**; the one knowingly-unmet acceptance criterion
+(`restore-backup` has no hosted path); the deferred finding **#7** (a write path for the per-clinic TTN identity —
+[follow-up](../../follow-up/ttn-per-clinic-identity-write-path.md)); and the **operator gate**, which is now carrying
+more weight than before — seven of the fixes (#1, #2, #9, #10, #11, #28, #29) change deploy assets or container
+startup and **cannot be verified in this repo at all**.
 
 ## Working tree note (start of session)
 
@@ -1054,3 +1062,189 @@ asserted the two are equal. A null patient (unreachable — the job throws first
 - **The plan's own parenthetical was wrong, and enumerating cost less than trusting it.** « pass the clinic id to
   every custom-path caller (`patient-files`, cachet upload) » names a call site that supplies no custom path and
   omits two that do. A grep of `UploadAsync(` took a minute.
+
+---
+
+# Review — `/review-feature` over all six parts (2026-08-06)
+
+**Report:** [reviews/feature-review.md](reviews/feature-review.md) · **Status:** challenged **and fixed** — see the two
+sections below. All 42 survived the challenge (six with corrected severities); 39 are fixed in `095f108` and one
+(#7) is a captured follow-up.
+
+The branch carries several features, so the reviewable diff was scoped to this story's **own six commits**
+(`a4a336e` · `7f3760e` · `65a72e6` · `832ee58` · `18f8a6c` · `b06cdee`) — ~7 575 added lines — rather than the
+merge-base diff, which is 1 690 files / +389 489 and almost none of it this work. Six agents, not the skill's
+default four: Agent 2's ROP mandate was repointed at this repo's `Result<T>` idiom, a **Security** agent was added
+(the feature *is* a tenancy and secrets change) and the **Device & UX** agent was required by Part C's four `.tsx`
+files.
+
+| Severity | Count |
+|---|---|
+| Critical | 1 |
+| Major | 16 |
+| Minor | 19 |
+| Suggestion | 6 |
+
+**Part E drew zero findings** — the signature-enforced design (`Guid clinicId` required on both `UploadAsync`
+overloads, one composer, reads verbatim) held under both the security and breaking-change mandates.
+
+## What the review actually says
+
+**Nine of the seventeen Critical/Major findings are one defect class: an assumption that was true in
+`SelfHostedLan` and is silently false in `HostedMultiTenant`.** That is the class this story existed to find, which
+makes it the right review to have run and the wrong result to close on:
+
+| # | The assumption | Where it breaks |
+|---|---|---|
+| **1 (Critical)** | `ClientIp.Resolve` trusts `X-Forwarded-For` only from a **loopback** peer — "our own front door or BFF" | Behind Caddy and the `web` container both peers are Docker-bridge. Every address-keyed partition collapses to **one bucket for the whole service**: `/api/auth/refresh` shares 30 permits / 5 min across all clinics, and an **unauthenticated** caller can 429 every clinic out of login |
+| **2 (Major)** | a per-install secret persists across restarts | The **JWT signing key** gets no env var and no volume in the hosted compose, so `docker compose up -d --build` — the command the file itself prescribes — mints a new one and signs the whole fleet out. US-6 step 17 fixed exactly this for the Data Protection ring and not for its sibling |
+| **9 (Major)** | `Request.IsHttps` reports the client's scheme | Caddy terminates TLS and speaks plain HTTP to `api:5000`, and `UseForwardedHeaders` is deliberately absent — so **HSTS is never emitted in either hosted profile**, despite DEV-3's docstring saying it is on |
+| **10 (Major)** | the key ring is protected at rest | DPAPI is gated on `RunsAsWindowsService`. Cleartext is a *stated* ops decision; the **new** problem is the backup guidance telling operators to archive the key volume beside `postgres_data` |
+| **11 (Major)** | `/health` is cheap | Anonymous, limiter-exempt **by design**, and one uncached DB round trip + one object-store call per request |
+| **5 (Major)** | a cross-clinic dispatcher is fair | `DocumentEmailJob` got `UseSystemWide` without L3's per-clinic bound or `Blocked` status, so one clinic with unconfigured SMTP starves email for **every** clinic — the exact starvation L3 diagnosed |
+
+Three more are the `fixes-dont-propagate` shape this repo names as its dominant defect — a correct rule wired to
+one call site and not its sibling: **3** (`TtnIdentityProvider` guards the certificate half of a partial identity
+and not the credentials half, so a clinic's declaration is filed under the install-wide matricule), **6** (an
+identity refusal burns a bounded retry budget, so the invoice reaches `Failed` in ~10 minutes and leaves the outbox
+the AC promises it stays in), **7** (DEV-19 + "no write path" compose into `CloudBrowser` e-invoicing stopping
+permanently with no in-product remedy — individually approved, jointly a shipped-profile break).
+
+⚠️ **Finding 4 is the one with no infrastructure in it and it may be the most user-visible:**
+`CreateClinicUserCommand` accepts `role = "doctor"` and creates no `Doctor` record, while both sibling paths do. In
+hosted this is the *only* way to add staff, so every dentist added after `provision-clinic` is absent from the
+roster, unattributed on invoices and plans, and prints certificats with **no cachet and no n° d'ordre CNOMDT**.
+
+## Convergence, and what it is worth
+
+Nine findings were raised independently by 2–3 agents (the `MigrationLock` command-timeout and its
+exception-masking `finally`, the `/api/outbox` silent swallow, `ResolvedTtnIdentity`'s secret-printing `ToString`,
+the `AuthAttemptAccount` rewind, the account-only limiter key, `ProbeAsync`, the silent catalog-seed catch, and the
+`ClientIp` collapse). Three came from **orchestrator cross-boundary tracing that no diff-scoped agent could
+perform** — findings 2 and 40 (code ↔ compose ↔ `.env`, and a capability count in `CLAUDE.md`) and 26
+(`AuthModeDto.mode` is typed `'local' | 'cloud'` while the server sends `"Local"` / `"Cloud"`).
+
+## Learnings
+
+- **A review is only as scoped as its diff, and on a shared branch that is real work.** The merge-base diff was
+  389 k lines of four features; this one is 7.5 k. The six commits are *non-contiguous* — interleaved with
+  `mobile-native-shells` — so neither a range nor a file-list would have worked, and one of Part D's own changes
+  lives in another session's commit (`999b877`). Scoping by commit and telling every agent about that displaced
+  capability is what kept it from being reported as undefined.
+- **The defect class a feature is built to find is the class its own deploy assets reproduce.** The story hunted
+  « this boolean answers ten questions » and « the filter is inert »; six of the findings are the same shape one
+  layer down, in `docker-compose.hosted.yml` and in code whose *docstring* names loopback or Windows. R-6 predicted
+  it in as many words — « a key ring with no volume works until the first redeploy » — and the prediction was
+  applied to the key ring and not to the signing key beside it.
+- **Two individually-approved decisions can compose into a break.** DEV-19 (CloudBrowser loses the fall-back) and
+  « no write path, deliberately » were each asked and approved on their own; together they stop e-invoicing in a
+  shipped profile with no in-product remedy. Neither review of either half would have caught it.
+- **Part E is the evidence that a signature beats a convention.** It is the only part with zero findings, and the
+  reason is that `Guid clinicId` on both overloads made the wrong thing *uncompilable* rather than merely
+  discouraged.
+
+---
+
+# Challenge — `/challenge-review` (2026-08-06)
+
+**Result: 42 original findings → 42 kept. Zero dismissed.** Six severities corrected. Every finding's file was
+opened and read around the cited line, and **every precedent claim the review made was checked against the cited
+file verbatim** — `ClientIp`'s loopback rule, the absent `UseForwardedHeaders` (only docstrings explaining its
+absence), zero `Auth__Local__SigningKey` under `deploy/`, `services.AddSingleton(profile)` at `Extensions.cs:30`,
+`select.tsx:42`'s `w-fit`, `app/join/page.tsx:189–198`'s own annotation of the identical clipping structure,
+`LoginAttemptTracker.MaxAttemptsPerSource = 5`, the twelve positional `DataMigrationCounts` calls, and fourteen
+`DeploymentProfile` bool capabilities against `CLAUDE.md`'s « 13 ». All held.
+
+| # | Was → Now | Why |
+|---|---|---|
+| 14 | Major → **Minor** | The masking needs a *broken connection*; an ordinary `PostgresException` propagates intact, so « frequently » overstated it |
+| 16 | Major → **Minor** | A documented recovery exists (`usersApi.resetPassword`), so a lost password is a two-click re-issue — the misleading **copy** is the sharper half |
+| 17 | Major → **Minor** | Fits at a plain 320 px; fails only at 320 px **+ 200 % zoom**, and the identical wrapper is pre-existing on the sibling `/join` page |
+| 27 | Minor → **Suggestion** | The exclusion *is* recorded and guarded in both directions; the review's « the guard is structurally blind » is **false** |
+| 30 | Minor → **Suggestion** | The CSP policy string is pre-existing unchanged code; only the new flag is in scope |
+| 38 | severity kept | One cited call site **removed**: `SecurityHeadersMiddleware`'s ctor runs once at pipeline build, not per request |
+
+## The one finding whose own premise was wrong
+
+**#27 said `TenantScopeFilterTests` « derives over the filtered roots so it structurally cannot notice the
+omission ».** It does not: `UnfilteredByDesign` is asserted **equal to the model in both directions**, so a new
+unfiltered clinic-owned root fails it. The exclusion of `Notification` was therefore a recorded decision all along —
+but the *reason* recorded was wrong. « Drained cross-clinic by the minutely dispatcher » cannot be what exempts a
+table, because `DocumentEmail` is filtered and its dispatcher declares `UseSystemWide` too. The real reason is the
+one the reviewer only guessed at: **`Notification.ClinicId` is nullable**, the same structural reason `AuditEntries`
+is exempt. Both the DbContext and the test now say so.
+
+## Learnings
+
+- **Zero dismissals is a signal about the review, not about the challenge.** This review had already verified its own
+  precedent claims, which is why nothing collapsed. The value the challenge added was elsewhere: correcting six
+  severities, disproving one supporting claim, and finding that a *recorded* design reason was factually wrong.
+- **« Confirm/verify that… » findings were absent, and that is why the pass was cheap.** The skill warns that
+  hedged risk narratives are the dominant false-positive class; none appeared here because every agent was given the
+  story's Out-of-Scope list and asked for a defect, not a concern.
+
+---
+
+# Review fixes — `/apply-review-fixes` (2026-08-06, `095f108`)
+
+**39 of 40 applied.** #7 is a captured follow-up; #8 and #28 were applied on request after being proposed as
+deferrals. 63 files, +3133 / −257.
+
+**Gate:** 0 errors · **57 warnings (the unchanged pre-existing baseline, 0 new)** · **2194 tests passing / 0 failing**
+· `tsc` clean · **15/15** `check:responsive` · `next build` succeeds.
+
+## Three places the review's prescription was wrong, and what was done instead
+
+### #6 — parking must set a retry instant, never null
+The obvious reading (« park it, clear the next attempt ») is a **worse bug than the one being fixed**. Both
+`GetDueForElFatooraDispatchAsync` and `GetEInvoiceOutboxDepthAsync` require `EInvoiceNextAttemptAt != null` to see a
+row at all, so nulling it would have hidden the parked invoice from the retry *and* from the very
+`GET /api/outbox` backlog figure meant to reveal it. `Invoice.ParkEInvoiceUntilConfigured(reason, retryAt)` takes the
+instant explicitly and its docstring carries the trap.
+
+### #8 — the fix is the compound key, not moving off the account
+The finding is right that a pure-account key hands a lockout to whoever *names* a staff email. But its first
+suggestion (« make the account dimension a penalty on failed authentication ») would leave the rate limiter keyed on
+the address alone — reinstating the NAT lockout US-6 removed — and would orphan `AuthAttemptAccount`, a US-6
+deliverable, as dead code. **(account, address)** has neither hole: a NAT'd practice is still keyed per colleague, a
+stranger exhausts only their own bucket, and DEV-14's objection to the compound key (« a fresh budget per address »)
+is closed by the per-address ceiling US-6 already added. `RateLimitingTests`'
+`The_same_account_shares_one_partition_regardless_of_address` asserted the *opposite* and was re-pointed at the new
+property rather than deleted.
+
+### #1 — wider than reported, and one fix covers it
+The review named three consequences on `RateLimiting`. There is a fourth it missed:
+`LoginAttemptTracker.CacheKey` keys on the same address, so « 5 failures per (account, source) » became **5 per
+account for the whole deployment** — a lockout any stranger could drive, on top of the limiter collapse. The new
+`TrustedProxies` (config `Security:TrustedProxies`, **loopback-only by default** so `SelfHostedLan` is byte-identical)
+is passed to all four call sites at once.
+
+## What each fix cost, where it was more than a line
+
+| Finding | Shape of the fix |
+|---|---|
+| #1 | New `Infrastructure/TrustedProxies.cs` (CIDR matcher, IPv4-mapped-IPv6 aware, unparseable entries **narrow** trust rather than failing startup) + a second `ClientIp.Resolve` overload + a DI singleton + `TrustedProxiesTests` |
+| #5 | `DocumentEmailStatus.Blocked` (non-terminal) + `DocumentEmail.Block`/`ReturnToQueue` + a per-clinic dispatch bound mirroring `NotificationRepository` predicate-for-predicate + `GetBlockedForReviewAsync` + `ReviewBlockedRowsAsync` running **before** the scan + a `Blocked` figure on the outbox DTO |
+| #4 | `CreateClinicUserCommand` requires `DoctorInfo` for the doctor role and creates + links the `Doctor` in **one** save; the create-account dialog grew the three conditional fields; six new test cases |
+| #23 | The backfill block moved out of the `!DefersMigrations` branch **and** `DeferredStartupService` now runs `IClinicAdminBackfill` — the LAN gap the coupling had hidden |
+| #11 | `/health` mapped by hand behind a 5 s `IMemoryCache` + a `SemaphoreSlim` so a cold-cache burst cannot stampede; the cache sits in front of the **checks**, not the response |
+| #32 | New `TenantScopeMiddlewareTests` — the C3′ case is written so a claim-reading implementation passes every other test in the file and fails only that one |
+
+## Learnings
+
+- **A signature change is a test change, and the test is where the contract is really written.** Six suites broke,
+  and every break was informative: `Assert.Throws<InvalidOperationException>` is **exact-match**, so introducing
+  `TtnIdentityUnavailableException` failed five TTN tests — and re-pointing them made the *parkability* of a refusal
+  an asserted property instead of an implementation detail. One of those five (`An_Unknown_Clinic_Is_Refused`) had to
+  be re-pointed the **other** way: « this clinic does not exist » is not a configuration state an operator fixes, so
+  it must burn attempts and reach `Failed` rather than park for ever. A blanket sed would have got that wrong.
+- **The reviewer's remedy is a hypothesis about the code, and it can be wrong in a way the finding is not.** Three of
+  the 39 needed a different fix from the one proposed (#1 wider, #6 inverted, #8 the opposite direction). The finding
+  being confirmed says the defect is real; it says nothing about the prescription.
+- **A comment that records a decision has to record the *right* reason, or it is worse than no comment.**
+  `Notification`'s exemption was documented, guarded and asserted in both directions — and the stated reason was
+  disprovable in one line by the sibling table beside it. It read as settled for three features.
+- **Deferring on « new operator surface » is only honest with the decision written down.** #7's follow-up names the
+  chosen remedy (`set-clinic-ttn-identity`, on `provision-clinic`'s template), why an admin endpoint was rejected
+  *for now*, and — load-bearing — that restoring `CloudBrowser`'s per-install fall-back is **spec-violating** and
+  must not be taken as the cheap way out.
