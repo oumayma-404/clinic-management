@@ -20,13 +20,13 @@ public class MinioFileStorage : IFileStorage
         _logger = logger;
     }
 
-    public async Task<string> UploadAsync(Stream file, string contentType,
+    public async Task<string> UploadAsync(Stream file, string contentType, Guid clinicId,
         CancellationToken cancellationToken = default)
     {
-        return await UploadAsync(file, contentType, null, cancellationToken);
+        return await UploadAsync(file, contentType, clinicId, null, cancellationToken);
     }
 
-    public async Task<string> UploadAsync(Stream file, string contentType, string? customPath,
+    public async Task<string> UploadAsync(Stream file, string contentType, Guid clinicId, string? relativePath,
         CancellationToken cancellationToken = default)
     {
         try
@@ -46,10 +46,8 @@ public class MinioFileStorage : IFileStorage
                 _logger.LogInformation("Created bucket: {BucketName}", _bucketName);
             }
 
-            // Generate storage key - use custom path if provided, otherwise generate unique key
-            var storageKey = !string.IsNullOrWhiteSpace(customPath)
-                ? customPath
-                : $"{Guid.NewGuid()}-{DateTime.UtcNow:yyyyMMddHHmmss}";
+            // US-5: one composer for both backends — clinics/{clinicId}/ then the caller's path or a unique leaf.
+            var storageKey = ClinicStorageKey.Compose(clinicId, relativePath);
 
             // Handle stream - MinIO requires knowing the size, so we may need to buffer non-seekable streams
             long streamLength;

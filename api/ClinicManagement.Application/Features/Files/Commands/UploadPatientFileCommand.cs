@@ -125,7 +125,8 @@ public class UploadPatientFileCommandHandler : IRequestHandler<UploadPatientFile
             // Store the blob first, then persist the record. If the DB save fails we must remove
             // the just-stored blob so no orphan remains (FR-C3).
             buffer.Position = 0;
-            var storageKey = await _fileStorage.UploadAsync(buffer, contentType, cancellationToken);
+            var storageKey = await _fileStorage.UploadAsync(
+                buffer, contentType, patient.ClinicId, cancellationToken);
 
             try
             {

@@ -82,7 +82,7 @@ graph TD
 
 | Story | Layer | Name | Status | Depends On |
 |-------|-------|------|--------|------------|
-| 1 | Full | [Hosted multi-tenant profile](story-1-full-hosted-multi-tenant.md) | in-progress — **Parts A + B + C implemented** | — |
+| 1 | Full | [Hosted multi-tenant profile](story-1-full-hosted-multi-tenant.md) | **implemented (code gate)** — parts A–F all landed; the operator gate is still owed | — |
 
 ### Internal parts (the resumable unit)
 

@@ -350,11 +350,24 @@ Concrete EF Core impls of Domain repo interfaces. Pattern: ctor-inject `Applicat
   per install by nature.
 
 ### File Storage (`IFileStorage`, scoped, mode-branched)
-- **`Storage/MinioFileStorage`** (Cloud) — MinIO blob store; auto-creates bucket; key = custom path or
-  `{guid}-{timestamp}`. Uses a singleton `IMinioClient`.
+- **`Storage/ClinicStorageKey`** (`multi-tenant-cloud` US-5) — **the single composer of a new blob's key**, used by
+  both backends: `clinics/{clinicId}/` then the caller's clinic-relative path or a unique `{guid}-{timestamp}` leaf.
+  Before US-5 « which clinic owns this blob » had **two** answers — four upload sites prefixed a path of their own
+  with a bare `{clinicId}/` (logo, cachet, e-invoice artifacts) while four wrote a flat guid with no clinic in it at
+  all — and a third was one new upload away. Both `IFileStorage.UploadAsync` overloads therefore **require** a
+  `Guid clinicId`, so an unprefixed key is not something a caller can write; `ClinicStorageKeyTests` derives that
+  assertion off the interface rather than listing today's overloads.
+  ⚠️ **The clinic is a parameter, not read off the ambient `ITenantScope`** — the e-invoice outbox uploads under
+  `UseSystemWide` (no clinic in scope at all) and would have written an unattributed key, silently.
+  ⚠️ **Reading is deliberately not symmetrical**: `DownloadAsync`/`DeleteAsync` pass the stored key through
+  **verbatim**, so a row written before US-5 keeps resolving with **no backfill** (amendment M2). Composing on the
+  read side would strand every one of them. A path that would climb out of its clinic is refused *in the composer*,
+  so MinIO — which has no traversal semantics and would have stored the literal name — refuses it too.
+- **`Storage/MinioFileStorage`** (Cloud + hosted) — MinIO blob store; auto-creates bucket. Uses a singleton
+  `IMinioClient`.
 - **`Storage/LocalDiskFileStorage`** (Local) — blobs under `FileStorage:BasePath` (resolved install-relative via
-  `LocalInstallPaths`); opaque relative keys; mirrors MinIO semantics (guid keys, deterministic custom-path
-  overwrite, seekable download, idempotent delete, path-traversal-safe).
+  `LocalInstallPaths`); opaque relative keys; mirrors MinIO semantics (the same composed keys, deterministic
+  overwrite at a given path, seekable download, idempotent delete, path-traversal-safe).
 - **`ProbeAsync` (both, multi-tenant-cloud US-6)** — the reachability check behind `/health`. MinIO asks whether the
   bucket exists (one call exercising DNS, endpoint, TLS and credentials, storing nothing); ⚠️ a **missing** bucket is
   reported as reachable-but-unusable rather than unreachable, because the two have different operator answers and

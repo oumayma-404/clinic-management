@@ -208,7 +208,8 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
                 // Store the PDF blob first, then persist the record. If the DB save fails we must
                 // remove the just-stored blob so no orphan remains (FR-C3).
                 using var pdfStream = new MemoryStream(pdfFileToSave);
-                var storageKey = await _fileStorage.UploadAsync(pdfStream, "application/pdf", cancellationToken);
+                var storageKey = await _fileStorage.UploadAsync(
+                    pdfStream, "application/pdf", patient.ClinicId, cancellationToken);
 
                 try
                 {

@@ -21,22 +21,19 @@ public class LocalDiskFileStorage : IFileStorage
         _logger = logger;
     }
 
-    public Task<string> UploadAsync(Stream file, string contentType,
+    public Task<string> UploadAsync(Stream file, string contentType, Guid clinicId,
         CancellationToken cancellationToken = default)
     {
-        return UploadAsync(file, contentType, null, cancellationToken);
+        return UploadAsync(file, contentType, clinicId, null, cancellationToken);
     }
 
-    public async Task<string> UploadAsync(Stream file, string contentType, string? customPath,
+    public async Task<string> UploadAsync(Stream file, string contentType, Guid clinicId, string? relativePath,
         CancellationToken cancellationToken = default)
     {
         try
         {
-            // Storage key: a deterministic custom path (e.g. the clinic-logo path) or a unique
-            // guid-based key, matching MinioFileStorage's key format.
-            var storageKey = !string.IsNullOrWhiteSpace(customPath)
-                ? customPath
-                : $"{Guid.NewGuid()}-{DateTime.UtcNow:yyyyMMddHHmmss}";
+            // US-5: the same composer MinioFileStorage uses, so a key means the same thing in both backends.
+            var storageKey = ClinicStorageKey.Compose(clinicId, relativePath);
 
             var fullPath = ResolveWithinBase(storageKey);
 

@@ -41,7 +41,8 @@ public class UpdateClinicLogoAtomicityTests
 
     private void NewLogoUploadReturns(string key) =>
         _fileStorage
-            .Setup(f => f.UploadAsync(It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(f => f.UploadAsync(
+                It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(key);
 
     private static UpdateClinicCommand WithLogo() => new()

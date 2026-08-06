@@ -11,6 +11,8 @@ namespace ClinicManagement.UnitTests.Infrastructure.Storage;
 /// </summary>
 public class LocalDiskFileStorageTests : IDisposable
 {
+    private static readonly Guid Clinic = Guid.Parse("11111111-1111-1111-1111-111111111111");
+
     private readonly string _basePath;
     private readonly LocalDiskFileStorage _storage;
 
@@ -41,11 +43,40 @@ public class LocalDiskFileStorageTests : IDisposable
     [Fact]
     public async Task Upload_Then_Download_Roundtrips_Content()
     {
-        var key = await _storage.UploadAsync(Bytes("hello clinic"), "text/plain", CancellationToken.None);
+        var key = await _storage.UploadAsync(Bytes("hello clinic"), "text/plain", Clinic, CancellationToken.None);
 
         Assert.False(string.IsNullOrWhiteSpace(key));
         await using var downloaded = await _storage.DownloadAsync(key, CancellationToken.None);
         Assert.Equal("hello clinic", await ReadAll(downloaded));
+    }
+
+    // [US-5] Every new key is clinic-prefixed, in this backend too — the two must not disagree about what a key
+    // means, or a Local install's blobs and a hosted one's are laid out differently for no reason.
+    [Fact]
+    public async Task Upload_Prefixes_The_Key_With_Its_Clinic()
+    {
+        var generated = await _storage.UploadAsync(Bytes("x"), "text/plain", Clinic, CancellationToken.None);
+        var deterministic = await _storage.UploadAsync(Bytes("y"), "image/png", Clinic, "logo", CancellationToken.None);
+
+        Assert.StartsWith($"clinics/{Clinic}/", generated);
+        Assert.Equal($"clinics/{Clinic}/logo", deterministic);
+    }
+
+    // [US-5 / M2] A key written before US-5 is flat, and there is no backfill — so reading must NOT prefix.
+    [Fact]
+    public async Task Download_And_Delete_Resolve_A_Legacy_Flat_Key()
+    {
+        Directory.CreateDirectory(_basePath);
+        const string legacyKey = "8f14e45f-ceea-467a-9c1e-000000000000-20250104120000";
+        await File.WriteAllTextAsync(Path.Combine(_basePath, legacyKey), "written before US-5");
+
+        await using (var downloaded = await _storage.DownloadAsync(legacyKey, CancellationToken.None))
+        {
+            Assert.Equal("written before US-5", await ReadAll(downloaded));
+        }
+
+        await _storage.DeleteAsync(legacyKey, CancellationToken.None);
+        Assert.False(File.Exists(Path.Combine(_basePath, legacyKey)));
     }
 
     // [AC-1] The base folder is created on first use when missing.
@@ -54,7 +85,7 @@ public class LocalDiskFileStorageTests : IDisposable
     {
         Assert.False(Directory.Exists(_basePath));
 
-        await _storage.UploadAsync(Bytes("x"), "text/plain", CancellationToken.None);
+        await _storage.UploadAsync(Bytes("x"), "text/plain", Clinic, CancellationToken.None);
 
         Assert.True(Directory.Exists(_basePath));
     }
@@ -63,8 +94,8 @@ public class LocalDiskFileStorageTests : IDisposable
     [Fact]
     public async Task Upload_Generates_Unique_Keys()
     {
-        var key1 = await _storage.UploadAsync(Bytes("a"), "text/plain", CancellationToken.None);
-        var key2 = await _storage.UploadAsync(Bytes("b"), "text/plain", CancellationToken.None);
+        var key1 = await _storage.UploadAsync(Bytes("a"), "text/plain", Clinic, CancellationToken.None);
+        var key2 = await _storage.UploadAsync(Bytes("b"), "text/plain", Clinic, CancellationToken.None);
 
         Assert.NotEqual(key1, key2);
     }
@@ -73,14 +104,15 @@ public class LocalDiskFileStorageTests : IDisposable
     [Fact]
     public async Task Upload_With_CustomPath_Is_Deterministic_And_Overwrites()
     {
-        const string customPath = "11111111-1111-1111-1111-111111111111/logo";
+        const string relativePath = "logo";
+        var expectedKey = $"clinics/{Clinic}/logo";
 
-        var firstKey = await _storage.UploadAsync(Bytes("v1"), "image/png", customPath, CancellationToken.None);
-        var secondKey = await _storage.UploadAsync(Bytes("v2"), "image/png", customPath, CancellationToken.None);
+        var firstKey = await _storage.UploadAsync(Bytes("v1"), "image/png", Clinic, relativePath, CancellationToken.None);
+        var secondKey = await _storage.UploadAsync(Bytes("v2"), "image/png", Clinic, relativePath, CancellationToken.None);
 
-        Assert.Equal(customPath, firstKey);
-        Assert.Equal(customPath, secondKey); // same key each time
-        await using var downloaded = await _storage.DownloadAsync(customPath, CancellationToken.None);
+        Assert.Equal(expectedKey, firstKey);
+        Assert.Equal(expectedKey, secondKey); // same key each time
+        await using var downloaded = await _storage.DownloadAsync(expectedKey, CancellationToken.None);
         Assert.Equal("v2", await ReadAll(downloaded)); // overwritten in place, not duplicated
     }
 
@@ -106,7 +138,7 @@ public class LocalDiskFileStorageTests : IDisposable
     [Fact]
     public async Task Delete_Removes_Stored_Blob()
     {
-        var key = await _storage.UploadAsync(Bytes("bye"), "text/plain", CancellationToken.None);
+        var key = await _storage.UploadAsync(Bytes("bye"), "text/plain", Clinic, CancellationToken.None);
 
         await _storage.DeleteAsync(key, CancellationToken.None);
 
@@ -114,7 +146,9 @@ public class LocalDiskFileStorageTests : IDisposable
             () => _storage.DownloadAsync(key, CancellationToken.None));
     }
 
-    // [Edge] A crafted key with ".." can never resolve outside the base folder.
+    // [Edge] A crafted path with ".." can never resolve outside the base folder. Since US-5 it cannot climb out
+    // of its own clinic either — the refusal now comes from ClinicStorageKey, so MinIO (which has no traversal
+    // semantics and would happily have stored the literal name) refuses the identical path.
     [Theory]
     [InlineData("../escape.txt")]
     [InlineData("../../escape.txt")]
@@ -122,7 +156,7 @@ public class LocalDiskFileStorageTests : IDisposable
     public async Task Upload_Rejects_Path_Traversal_Keys(string maliciousPath)
     {
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => _storage.UploadAsync(Bytes("evil"), "text/plain", maliciousPath, CancellationToken.None));
+            () => _storage.UploadAsync(Bytes("evil"), "text/plain", Clinic, maliciousPath, CancellationToken.None));
     }
 
     // ---- ProbeAsync: the /health storage check (multi-tenant-cloud US-6) ----

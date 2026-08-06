@@ -68,7 +68,7 @@ public class UploadPatientFileAtomicityTests
     {
         PatientFound();
         _fileStorage
-            .Setup(f => f.UploadAsync(It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(f => f.UploadAsync(It.IsAny<Stream>(), It.IsAny<string>(), ClinicId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(StoredKey);
         _uow.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()))
             .ThrowsAsync(new InvalidOperationException("db save failed"));
@@ -85,7 +85,7 @@ public class UploadPatientFileAtomicityTests
     {
         PatientFound();
         _fileStorage
-            .Setup(f => f.UploadAsync(It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(f => f.UploadAsync(It.IsAny<Stream>(), It.IsAny<string>(), ClinicId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(StoredKey);
         _uow.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
 

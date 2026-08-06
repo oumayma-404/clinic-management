@@ -1,9 +1,9 @@
 # Story 1: Full — Hosted multi-tenant profile (desktop clients, hosted data)
 
 **Status:** APPROVED
-**Story Status:** in-progress — **Parts A, B, C, D and F implemented** (code gate; 2026-08-05/06). **Part E is the
-only one left.** See [../progress.md](../progress.md) for the part table, twenty-one deviations and the per-part
-gate results. ⚠️ Part B's session found a **pre-existing 24-test red baseline** from earlier features, invisible
+**Story Status:** implemented (code gate) — **all six parts A–F landed** (2026-08-05/06); the **operator gate**
+below still needs a real hosted deployment. See [../progress.md](../progress.md) for the part table, twenty-three
+deviations and the per-part gate results. ⚠️ Part B's session found a **pre-existing 24-test red baseline** from earlier features, invisible
 until then because Part A's runner was blocked; it was cleared in `23e56f5` and the suite has been green since
 (Part D left it at **2 143 passed / 0 failed**).
 **Layer:** Full — ⚠️ **a deliberate departure from the skill's BE/FE separation rule**, chosen because the plan is
@@ -91,7 +91,7 @@ _Story-specific:_
       change. ⚠️ Shipped **with its UI** (DEV-12): with self-registration closed and no « Créer un compte »
       dialog, a hosted clinic would have had no way to add a colleague at all
 
-**Part D — secrets** *(implemented)* · **Part E — storage** *(not started)* · **Part F — operations** *(implemented)*
+**Part D — secrets** *(implemented)* · **Part E — storage** *(implemented)* · **Part F — operations** *(implemented)*
 - [x] `DataProtection:KeyRingPath` is **required** in `HostedMultiTenant` and fails startup loud when unset
 - [x] TTN identity is per-clinic; the per-install cert is a fall-back **only** in `SelfHostedLan`.
       ⚠️ **The plan's literal wording changes a shipped profile** — `CloudBrowser` is multi-clinic too, so it
@@ -102,7 +102,13 @@ _Story-specific:_
       copy is the `fixes-dont-propagate` shape (DEV-18); and `verify-schema` gained
       **`ttn-identity-is-complete`** (DEV-21), because there is no write path yet, so it is the only guard a
       hand-populated row has. ⚠️ **No write path — deliberately**, per the plan's scope; see progress.md
-- [ ] New storage keys are `clinics/{clinicId}/…`; **old flat keys still resolve, with no backfill**
+- [x] New storage keys are `clinics/{clinicId}/…`; **old flat keys still resolve, with no backfill**.
+      ⚠️ **Every** new key, not only the four that were flat: the four callers that already prefixed a path of
+      their own did so by a *different* convention (no `clinics/` segment — Part D's finding 3 left the choice
+      here), so composition **moved** into one `ClinicStorageKey` and both `UploadAsync` overloads now require a
+      `Guid clinicId` (DEV-22, asked and approved). The clinic is a parameter rather than read off `ITenantScope`
+      because the e-invoice outbox uploads under `UseSystemWide` (DEV-23). The `DoctorCachetKey` pitfall was
+      verified, not changed — `PdfGenerationService` reads the snapshotted key verbatim
 - [ ] `verify-schema`, `reconcile-money` and `restore-backup` run in the hosted profile
 - [ ] `/hub/*` reaches the API, so realtime works
 - [ ] `Database.Migrate()` is wrapped in a `pg_advisory_lock`

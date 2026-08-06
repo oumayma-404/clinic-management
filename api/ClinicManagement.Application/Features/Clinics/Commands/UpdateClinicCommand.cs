@@ -159,12 +159,12 @@ public class UpdateClinicCommandHandler : IRequestHandler<UpdateClinicCommand, R
                     }
                 }
 
-                // Upload new logo with org-id/logo path
-                var logoPath = $"{clinicId}/logo";
+                // US-5: the clinic segment is the storage's own, so the path here is relative to it.
                 logoUrl = await _fileStorage.UploadAsync(
                     request.LogoFile,
                     request.LogoContentType,
-                    logoPath,
+                    clinicId,
+                    "logo",
                     cancellationToken);
             }
 

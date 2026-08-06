@@ -15,7 +15,7 @@ unit ( « 18 steps and ~35 files will not fit one session » ). This table is th
 | B | US-2 | 5–10 | **implemented** (code gate) | 2026-08-05 |
 | C | US-3 | 11–13 | **implemented** (code gate) | 2026-08-05 |
 | D | US-4 | 14 | **implemented** (code gate) | 2026-08-06 |
-| E | US-5 | 15 | not-started | — |
+| E | US-5 | 15 | **implemented** (code gate) | 2026-08-06 |
 | F | US-6 | 16–18 | **implemented** (code gate) | 2026-08-05 |
 
 ✅ **Part F's step 17 landed before Part D, as the ordering required** — `DataProtection:KeyRingPath` is now required
@@ -917,3 +917,140 @@ depending on what happens to be on the machine.
 
 `/review-story` for Part D, then **Part E** (US-5, clinic-prefixed storage keys) — the last unbuilt part. Its
 `DoctorCachetKey` pitfall and finding 3 above are its two known traps.
+
+---
+
+# Part E — clinic-prefixed storage keys, and the second convention nobody had chosen (step 15)
+
+**Session:** 2026-08-06 · **Plan:** US-5 · **Status:** implemented (code gate) — **the story's last unbuilt part**
+
+## Working tree note (start of session)
+
+The tree was **clean** at branch level when the session opened. Four `web/` files went dirty **during** it —
+`components/connectivity-indicator.tsx`, `components/document-editor-content.tsx`, `lib/api/client.ts`,
+`lib/connectivity/connectivity.tsx` — carrying `mobile-native-shells` AC-64 wording changes from a parallel
+session. **None was staged**; Part E touches no frontend file at all.
+
+## What landed
+
+| Deliverable | Where |
+|---|---|
+| The single key composer | `Infrastructure/Storage/ClinicStorageKey.cs` — `clinics/{clinicId}/` + relative path or generated leaf |
+| Both upload overloads require the clinic | `Application/Common/Interfaces/IFileStorage.cs` |
+| Both backends compose through it | `MinioFileStorage`, `LocalDiskFileStorage` |
+| The four flat-key callers | `UploadPatientFileCommand`, `Create`/`UpdateMedicalDocumentCommand`, `QueueDocumentEmailCommand` |
+| The four already-prefixed callers, unified | `Create`/`UpdateClinicCommand` (logo), `UpdateDoctorProfileCommand` (cachet), `EInvoiceService` (e-invoice artifacts) |
+| Superseded-cachet cleanup | `UpdateDoctorProfileCommand` — post-commit, best-effort |
+| The derived guard + the composer's rules | `UnitTests/Infrastructure/Storage/ClinicStorageKeyTests.cs` (12 cases) |
+| Prefix + legacy-key cases on the real filesystem | `LocalDiskFileStorageTests` (+2) |
+
+### The defect was two conventions, not only the flat keys
+
+The plan names « the default key becomes `clinics/{clinicId}/…` », which reads as four call sites. What the code
+actually held was **two** answers to « which clinic owns this blob »: four sites wrote a flat
+`{guid}-{timestamp}` with no clinic in it (patient files, the two medical-document PDF paths, the document-email
+attachment) and four prefixed a path of their own with a bare `{clinicId}/` (logo, cachet, e-invoice artifacts) —
+the convention Part D's finding 3 flagged and deliberately left for this part to settle. Prefixing only the first
+group would have shipped the second convention permanently.
+
+So the composition **moved** into `ClinicStorageKey` rather than being added beside what was there, and the four
+custom-path callers now pass a path **relative to their clinic** (`logo`, `doctors/{id}/cachet`,
+`e-invoices/{id}-signed.xml`). Same shape as Part D's `ITtnIdentityProvider` and, before it,
+`PatientDuplicateIndex`: this repository's dominant defect is a correct rule wired to some of its call sites.
+
+### The enforcement is the signature
+
+Both `UploadAsync` overloads take a required `Guid clinicId`, so **an unprefixed key is not something a caller can
+write** — the compiler is the guard, and every existing call site had to be revisited to build. What a test can
+still add is the case the compiler cannot see: a *third* overload added later without one.
+`Every_Upload_Overload_Requires_A_Clinic_Id` reflects over `IFileStorage` for that, and it was **proved red** by
+temporarily adding such an overload (it failed naming the offending parameter list; the probe was reverted and the
+suite re-run green).
+
+## Deviations
+
+### DEV-22: one convention, not one prefix — the four custom-path callers change too
+**Date:** 2026-08-06 · **Story:** 1, Part E · **Category:** Technical · **Approved:** Yes (asked)
+**Original Plan:** « `MinioFileStorage` — default key becomes `clinics/{clinicId}/{guid}-{timestamp}` », plus
+« pass the clinic id to every custom-path caller ».
+**Actual Implementation:** every new key is `clinics/{clinicId}/…`, composed in one place for both backends; the
+four callers that supplied their own path drop their `{clinicId}/` segment and pass a clinic-relative one.
+**Justification:** the literal reading leaves `{clinicId}/logo` beside `clinics/{clinicId}/{guid}` — two spellings
+of the same fact, which is what the part exists to remove, and it makes the acceptance criterion (« new storage
+keys are `clinics/{clinicId}/…` ») only half-true. It also keeps the customPath overload clinic-agnostic, so a
+future upload site could still write an unprefixed key.
+**Impact:** the logo, cachet and e-invoice artifact keys change format for **new** uploads. Readers are untouched
+and take stored keys verbatim, so nothing existing breaks. ⚠️ The logo and cachet keys were **deterministic** and
+overwrote in place; a changed key would leave the old blob behind, so `UpdateDoctorProfileCommand` gained a
+post-commit best-effort delete of the superseded one (the logo path already deleted the old key before uploading,
+and a new clinic has nothing to orphan).
+⚠️ The plan's parenthetical « (`patient-files`, cachet upload) » is **wrong about patient files** — that site uses
+the *default* overload and supplies no path. Every `IFileStorage` call site was enumerated rather than trusted.
+
+### DEV-23: the clinic is a parameter, not the ambient tenant scope
+**Date:** 2026-08-06 · **Story:** 1, Part E · **Category:** Technical · **Approved:** self
+The obvious implementation reads the clinic off `ITenantScope` inside the storage: zero call-site churn, and it
+works for every HTTP path. It fails **silently** for the one that matters — `EInvoiceService` uploads its signed
+XML and TTN receipt from the outbox job, which runs `UseSystemWide` and has **no clinic in scope at all** — so
+e-invoice artifacts, the one class of blob with legal weight, would be the class written unattributed.
+`PdfGenerationJob` would have worked (it declares `UseClinic`), which is what makes the trap plausible: three of
+the four no-request paths do the right thing.
+
+### DEV-24: `UpdateMedicalDocumentCommand` takes the clinic from the document's patient
+**Date:** 2026-08-06 · **Story:** 1, Part E · **Category:** Technical · **Approved:** self
+Not `user.ClinicId`: on this handler `user` is legitimately **null**, because the unauthenticated
+`PdfGenerationJob` feeds a stored document back through it to attach the rendered PDF. `document.Patient.ClinicId`
+is the value the job itself resolved to set its scope, and in the authenticated path the handler has already
+asserted the two are equal. A null patient (unreachable — the job throws first) refuses rather than composing
+`clinics/00000000-…/`.
+
+### Auto-approved (trivial)
+
+| Deviation | Classification | Reason |
+|---|---|---|
+| Traversal refusal moved into `ClinicStorageKey` | Trivial | Same exception type and the local-disk `ResolveWithinBase` guard is untouched; MinIO now refuses the identical path instead of storing the literal name, so the two backends cannot disagree about what a key means |
+| `ClinicStorageKey` is `public`, not `internal` | Trivial | Infrastructure has no `InternalsVisibleTo`, and both `DoctorCachetTests`' upload echo and `ClinicStorageKeyTests` compose through the real thing rather than retyping the format |
+| `Guid.Empty` refused in the composer | Trivial | Internal invariant with no caller that can reach it today; the alternative is a folder nothing ever looks in, discovered months later with no way back to the write |
+
+## Quality gate — Part E
+
+| Gate | Result |
+|---|---|
+| Backend build (`--no-incremental`, scratch `BaseOutputPath`) | **0 errors, 0 new warnings.** 57 distinct pre-existing warnings across **30 files** (the same 30 Part D measured) — **none** of them in a file this part touched |
+| Full unit suite | **2 157 passed / 0 failed** (Part D left it at 2 143; the delta is exactly Part E's 12 + 2 new cases) |
+| The derived guard is proved red | **Yes** — a third `UploadAsync` overload with no `Guid` was added temporarily; `Every_Upload_Overload_Requires_A_Clinic_Id` failed naming its parameter list, the probe was reverted and the suite re-run green |
+| `verify-schema` before/after | **Not applicable, and the verb exists** (Part D ran it this week): US-5 adds **no migration** and touches no entity, configuration or model snapshot — `git status` over `Domain/`, `Persistence/Configurations/` and `Migrations/` is empty |
+| `reconcile-money` before/after | **Not applicable, same verb, same reason**: no money path is touched. The one financial file changed is `EInvoiceService`'s artifact *path* |
+| Frontend gate | **Not applicable** — Part E changes no `web/` file. (The four dirty ones are another session's; see the working-tree note) |
+
+## Findings recorded, not fixed (out of Part E's scope)
+
+1. **There is no backfill and there will not be one** (amendment M2). A hosted deployment's object store will hold
+   both shapes indefinitely: flat pre-Part-E keys and `clinics/…` ones. That is deliberate — the rows point at
+   their own keys — but anyone reasoning about the bucket by *listing* it (a retention sweep, a per-clinic export,
+   a future per-clinic restore, which is owed decision #2) must handle both, and cannot infer a blob's clinic from
+   its key alone.
+2. **`Clinic.TtnCertificateKey` needs no consideration after all.** Part D's finding 2 flagged it; since nothing
+   writes that column yet, every certificate ever stored in it will already be prefixed by the caller that
+   eventually uploads one — which must go through `IFileStorage.UploadAsync` and therefore cannot produce a flat
+   key.
+3. **`ProbeAsync` writes outside any clinic.** `LocalDiskFileStorage`'s health probe creates `.health-{guid}` at
+   the base of the store, not under `clinics/`. Correct — it is an infrastructure check, not a tenant's blob — but
+   worth knowing before someone writes a sweep that assumes everything under the root belongs to a clinic.
+
+## Learnings
+
+- **A plan step that names one file can still be about a convention.** « `MinioFileStorage` — default key becomes
+  `clinics/{clinicId}/…` » reads as a one-line change; enumerating the call sites first turned it into « this
+  question has two answers and the plan only addresses one of them ». Part D's finding 3 had already spotted it
+  and wrote it down for whoever came next, which is the only reason it was a decision rather than a discovery.
+- **The strongest guard here was a signature, not a test.** Requiring `Guid clinicId` on both overloads made every
+  call site a compile error and made an unprefixed key unwritable. A test can only add what the compiler cannot
+  see — a *future* overload — which is exactly what the reflection guard covers, and nothing more.
+- **« Read it off the ambient scope » is the shape that works everywhere except where it matters.** Three of the
+  four no-HTTP-context upload paths carry a `UseClinic`; the fourth is the e-invoice outbox under `UseSystemWide`.
+  Convenience implementations tend to fail on the *one* caller with a different shape, and the failure here would
+  have been silent and on the blobs with legal weight.
+- **The plan's own parenthetical was wrong, and enumerating cost less than trusting it.** « pass the clinic id to
+  every custom-path caller (`patient-files`, cachet upload) » names a call site that supplies no custom path and
+  omits two that do. A grep of `UploadAsync(` took a minute.

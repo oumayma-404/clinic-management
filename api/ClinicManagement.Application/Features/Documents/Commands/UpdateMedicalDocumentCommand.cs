@@ -193,10 +193,19 @@ public class UpdateMedicalDocumentCommandHandler : IRequestHandler<UpdateMedical
                 var baseFileName = $"{documentTypeName}-{sanitizedPatientName}";
                 var fileName = await GenerateUniqueFileName(_fileRepository, folder.Id, baseFileName, "pdf", cancellationToken);
 
+                // US-5: the blob's key is prefixed with its owning clinic, which is the document's patient's —
+                // NOT the caller's, because PdfGenerationJob re-renders a stored document with no user at all.
+                var owningClinicId = document.Patient?.ClinicId;
+                if (owningClinicId is null)
+                {
+                    return Result<MedicalDocumentDto>.Failure("Document médical introuvable.");
+                }
+
                 // Store the PDF blob first, then persist the record. If the DB save fails we must
                 // remove the just-stored blob so no orphan remains (FR-C3).
                 using var pdfStream = new MemoryStream(request.PdfFile);
-                var storageKey = await _fileStorage.UploadAsync(pdfStream, "application/pdf", cancellationToken);
+                var storageKey = await _fileStorage.UploadAsync(
+                    pdfStream, "application/pdf", owningClinicId.Value, cancellationToken);
 
                 try
                 {

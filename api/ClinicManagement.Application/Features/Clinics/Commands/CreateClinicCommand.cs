@@ -166,11 +166,12 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
             // Handle logo upload if provided
             if (request.LogoFile != null && !string.IsNullOrWhiteSpace(request.LogoContentType))
             {
-                var logoPath = $"{clinicId}/logo";
+                // US-5: the clinic segment is the storage's own, so the path here is relative to it.
                 var logoUrl = await _fileStorage.UploadAsync(
                     request.LogoFile,
                     request.LogoContentType,
-                    logoPath,
+                    clinicId,
+                    "logo",
                     cancellationToken);
                 
                 // Update clinic with logo URL (preserve the city already set on the clinic)

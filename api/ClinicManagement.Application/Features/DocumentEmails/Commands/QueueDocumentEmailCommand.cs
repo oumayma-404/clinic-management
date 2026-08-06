@@ -114,7 +114,8 @@ public class QueueDocumentEmailCommandHandler : IRequestHandler<QueueDocumentEma
 
             using (var pdfStream = new MemoryStream(attachment.Value.Content, writable: false))
             {
-                storageKey = await _fileStorage.UploadAsync(pdfStream, "application/pdf", cancellationToken);
+                storageKey = await _fileStorage.UploadAsync(
+                    pdfStream, "application/pdf", clinicId, cancellationToken);
             }
 
             var documentEmail = new DocumentEmail(

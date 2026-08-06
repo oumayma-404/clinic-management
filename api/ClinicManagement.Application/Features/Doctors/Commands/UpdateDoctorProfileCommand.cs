@@ -99,6 +99,9 @@ public class UpdateDoctorProfileCommandHandler : IRequestHandler<UpdateDoctorPro
 
             doctor.SetOrdreNumber(request.OrdreNumberCnomdt);
 
+            // Key of a cachet blob the replacement leaves behind; dropped only after the update commits.
+            string? supersededCachetKey = null;
+
             if (request.RemoveCachet)
             {
                 var previousKey = doctor.CachetStorageKey;
@@ -153,15 +156,33 @@ public class UpdateDoctorProfileCommandHandler : IRequestHandler<UpdateDoctorPro
                 var contentType = declaredType == "image/jpg" ? "image/jpeg" : declaredType;
 
                 // Deterministic per-doctor key → re-upload overwrites in place. Persist the validated content
-                // type (unlike the clinic-logo path, which hardcodes image/png).
+                // type (unlike the clinic-logo path, which hardcodes image/png). US-5: the clinic segment is
+                // the storage's own, so the path here is relative to it.
                 buffer.Position = 0;
-                var key = $"{doctor.ClinicId}/doctors/{doctor.Id}/cachet";
-                var storageKey = await _fileStorage.UploadAsync(buffer, contentType, key, cancellationToken);
+                supersededCachetKey = doctor.CachetStorageKey;
+                var storageKey = await _fileStorage.UploadAsync(
+                    buffer, contentType, doctor.ClinicId, $"doctors/{doctor.Id}/cachet", cancellationToken);
                 doctor.SetCachet(storageKey, contentType);
+
+                // Overwriting in place used to make this unnecessary. US-5 changed the key format, so a cachet
+                // stored under the old one is a real blob nothing points at any more — delete it, once.
+                if (supersededCachetKey == storageKey)
+                {
+                    supersededCachetKey = null;
+                }
             }
 
             _doctorRepository.Update(doctor);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            if (supersededCachetKey != null)
+            {
+                try { await _fileStorage.DeleteAsync(supersededCachetKey, cancellationToken); }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Best-effort superseded cachet blob delete failed for {Key}", supersededCachetKey);
+                }
+            }
 
             return Result<DoctorProfileDto>.Success(new DoctorProfileDto
             {

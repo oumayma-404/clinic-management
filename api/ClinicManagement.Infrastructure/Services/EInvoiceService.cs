@@ -249,9 +249,10 @@ public class EInvoiceService : IEInvoiceService
 
     private async Task<string> StoreArtifactAsync(Guid clinicId, Invoice invoice, string suffix, string content, CancellationToken cancellationToken)
     {
-        var path = $"{clinicId}/e-invoices/{invoice.Id}-{suffix}";
+        // US-5: the clinic segment is the storage's own, so the path here is relative to it.
+        var path = $"e-invoices/{invoice.Id}-{suffix}";
         using var stream = new MemoryStream(Encoding.UTF8.GetBytes(content));
-        return await _fileStorage.UploadAsync(stream, "application/xml", path, cancellationToken);
+        return await _fileStorage.UploadAsync(stream, "application/xml", clinicId, path, cancellationToken);
     }
 
     private async Task<string?> StoreReceiptAsync(Guid clinicId, Invoice invoice, string? receiptContent, CancellationToken cancellationToken)

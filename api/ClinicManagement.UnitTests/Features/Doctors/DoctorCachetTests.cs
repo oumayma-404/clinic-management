@@ -2,6 +2,7 @@ using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Features.Doctors.Commands;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
+using ClinicManagement.Infrastructure.Storage;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Xunit;
@@ -43,9 +44,13 @@ public class DoctorCachetTests
         return doctor;
     }
 
+    // Echoes what the real backends return: the composed key, not the clinic-relative path handed in — so a
+    // caller that stopped passing a clinic would be visible here rather than in production (US-5).
     private void SetUpUploadEcho() =>
-        _storage.Setup(s => s.UploadAsync(It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((Stream _, string _, string key, CancellationToken _) => key);
+        _storage.Setup(s => s.UploadAsync(
+                It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Stream _, string _, Guid clinicId, string path, CancellationToken _) =>
+                ClinicStorageKey.Compose(clinicId, path));
 
     private void SaveSucceeds() =>
         _uow.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
@@ -85,8 +90,11 @@ public class DoctorCachetTests
 
         Assert.True(result.IsSuccess);
         Assert.Equal("D-04-9", target.OrdreNumberCnomdt);
-        Assert.NotNull(target.CachetStorageKey);
-        _storage.Verify(s => s.UploadAsync(It.IsAny<Stream>(), "image/png", It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once);
+        // [US-5] The key is the doctor's path under their own clinic — the handler no longer writes the clinic
+        // segment itself, so this is what proves it still reaches the storage.
+        Assert.Equal($"clinics/{ClinicId}/doctors/{target.Id}/cachet", target.CachetStorageKey);
+        _storage.Verify(s => s.UploadAsync(
+            It.IsAny<Stream>(), "image/png", ClinicId, $"doctors/{target.Id}/cachet", It.IsAny<CancellationToken>()), Times.Once);
         _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
@@ -127,7 +135,8 @@ public class DoctorCachetTests
         }, CancellationToken.None);
 
         Assert.True(result.IsFailure);
-        _storage.Verify(s => s.UploadAsync(It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        _storage.Verify(s => s.UploadAsync(
+            It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
         _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
@@ -196,7 +205,8 @@ public class DoctorCachetTests
         Assert.True(result.IsFailure);
         Assert.Null(own.CachetStorageKey);
         _storage.Verify(
-            s => s.UploadAsync(It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            s => s.UploadAsync(
+                It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 }
