@@ -14,10 +14,10 @@ The unit of progress is the **part**, not the story. Each part boundary is a com
 | 1 | Phase 0 | The web fixes a webview makes load-bearing | **implemented** — gate green; on-device verification owed | see § Session 1 |
 | 2 | Phase 2b | The session lasts the working day | **implemented** — gate green; the felt behaviour (AC-37) owed | see § Session 2 |
 | 3 | Phase 2 | A stale app says so | **implemented** — gate green; the on-device half (a real shell below the floor) is owed | `8f42b5d` (⚠️ the `Program.cs` registration travelled in `65a72e6` — § Session 3) |
-| 4 | Phase 1 | The Android shell | **blocked — R-12 tooling check RAN and failed** (2026-08-05, session 3): no `java` on `PATH`, `JAVA_HOME` unset, `ANDROID_HOME`/`ANDROID_SDK_ROOT` unset, nothing at `%LOCALAPPDATA%\Android\Sdk`, no `gradle`. Per the story's own step 1 this stops Part 4 rather than half-building it. **Unlike Part 5 this is recoverable here** — a JDK 17+ and the Android SDK on the build machine is all it needs | — |
+| 4 | Phase 1 | The Android shell | **UNBLOCKED 2026-08-06 (session 5) — the toolchain was installed and R-12 re-run green.** Temurin **JDK 17.0.20** (`JAVA_HOME` set), **Android Studio 2026.1.3.7**, SDK **cmdline-tools rev 22 · platform-tools (adb 1.0.41) · platforms;android-35 · build-tools;35.0.0**, `ANDROID_HOME`/`ANDROID_SDK_ROOT` set. ⚠️ Still owed before Part 4 can be *finished*: a **physical Android phone** for story step 7's hardware walk. ⚠️ No standalone `gradle` — Studio's wizard emits the wrapper, which is the intended route. ⚠️ **Smart App Control is `Enforced`** on this machine, so a first `gradlew` run failing with `0x800711C7` is SAC, not the build | — |
 | 5 | Phase 1 | The iOS shell | **blocked** — macOS + Xcode + Apple Developer Program | — |
 | 6 | Phase 3 | A backgrounded phone still knows | **implemented** (2026-08-05/06, session 4) — backend + availability endpoint + settings statement. Web gate green; the **backend suite and both console verbs could not be re-run** (Smart App Control turned mid-session — § Session 4) | `999b877` |
-| 7 | Phase 4 | The phone becomes an instrument | not-started (web + Android halves only) | — |
+| 7 | Phase 4 | The phone becomes an instrument | **partly implemented** (2026-08-06, session 5) — the three **shell-free** halves are landed and gated: reachability (AC-62…AC-64), the official forms in a shell (AC-8), the upload retry (AC-77). **Steps 1, 2 and 4 are deliberately not started**, each with its reason recorded in § Session 5 | see § Session 5 |
 | 8 | Phase 5 | Two store listings | **blocked** — store accounts + 4 deferred business decisions | — |
 
 ## Session log
@@ -832,3 +832,178 @@ user resolved in favour of the convention.
       tap, a real deep link and a real permission refusal are what remain.
 - [ ] **AC-46 on a real clock** — the quiet-hours deferral is pinned in a unit test against a fixed instant; that a
       08:00 send genuinely arrives at 08:00 Tunis is not.
+
+---
+
+### Session 5 — 2026-08-06 · Part 7 (Phase 4), the three shell-free halves + Part 4 unblocked
+
+**Scope chosen by the user:** Part 7's halves that need **no** `mobile/` shell — steps 5, 3's web half and 6.
+Same branch (`feature/audit-sections-3-to-10`); the Session-1 branch deviation still stands and was not re-opened.
+
+#### Part 4's blocker was removed this session, at the user's direction
+
+The session opened with « which part is now unblocked fully then ? » → « what should i do to unblock part 4 » →
+« yes install ». R-12 was re-run first (still failing, identical to session 3), then the toolchain was installed
+and **R-12 re-run green** — exact versions in the part table above. Two things it does **not** cover, recorded
+rather than glossed: story step 7 wants a **physical Android phone**, and **Smart App Control is `Enforced`**
+(`VerifiedAndReputablePolicyState = 1`), the same mechanism that blocked `dotnet vstest` in session 4.
+
+⚠️ **Two install traps worth keeping.** `Invoke-WebRequest` reported **success** on a `cmdline-tools` download
+that had **truncated at 64.2 MB of 148.4** — it only failed later, at `Expand-Archive` (« End of Central Directory
+record could not be found »). `curl.exe -L --retry 10 --retry-all-errors -C -` fetched the full 148.44 MB in 67 s,
+i.e. the connection was never the problem; Android Studio had been saturating it. And `sdkmanager --licenses`
+**exits 0 having installed nothing** when its prompt gets no stdin (this shell is non-interactive), printing
+« Skipping following packages as the license is not accepted » mid-output — a false green. The fix is the
+documented CI route: write the SHA1 digests into `Sdk/licenses/`.
+
+#### Working tree note (start of session)
+
+The tree carried the parallel `multi-tenant-cloud` TTN/e-invoicing work (19 modified + 7 untracked). **None of it
+was staged**; by the time this part committed, its author had landed it themselves as Parts D and E (`832ee58`,
+`18f8a6c`) and the tree held only this part's six files. `git diff HEAD --numstat` was run before any `git add`
+and files are staged **explicitly by path**, per the standing rule.
+
+#### Pre-change baseline
+
+| Gate | Result |
+|------|--------|
+| `npm run check:responsive` | **14/14 pass** |
+| `npx tsc --noEmit` | **0 errors** |
+| `npm run build` | exit 0, **1 warning** — the `@auth0/nextjs-auth0` Edge-Runtime warning inside `node_modules`, identical to sessions 1–4 |
+
+#### What changed
+
+| File | Change |
+|---|---|
+| `web/lib/connectivity/connectivity.tsx` | The poll no longer asks `AUTH_MODE`; it runs on **every** deployment and derives the two axes from the response. `ConnectivityState.isLocal` → **`egressSignalAvailable`**. The outcome→state truth table is in the provider's doc comment |
+| `web/components/connectivity-indicator.tsx` | Gates on what the deployment can *say*, not on its auth mode: an unreachable server surfaces **everywhere**, the two egress states only where a reading exists, and a healthy server with no probe renders **nothing** (so the Cloud header stays unchanged in the happy path) |
+| `web/lib/api/client.ts` | `NETWORK_ERROR_MESSAGE` — the string **every** failed call surfaces — stopped naming the local network (F-12) |
+| `web/components/document-editor-content.tsx` | AC-8: `bs1BlobRef` keeps the preview's bytes; `deliverOfficialFormPdf` hands them to the OS through the **existing** `saveFile` bridge; the preview is two trees behind `coarse:`; « Imprimer » delivers the file when the frame is not rendered. Plus `buildPdfFileName` (one filename for both routes) and a type-aware iframe title |
+| `web/components/patient-files-manager.tsx` | AC-77: the input is copied-then-cleared before the upload runs, and `handleFileUpload` takes `File[]`. Plus `accept` matching the server allow-list (DEV-13) |
+| `web/scripts/check-responsive.mjs` | New derived check **`local-network-wording`** — **15 checks** now (DEV-14) |
+
+#### Post-change gate
+
+| Gate | Result | vs. baseline |
+|------|--------|--------------|
+| `npm run check:responsive` | **All 15 checks passed** | +1 check (`local-network-wording`), 0 failures |
+| `npx tsc --noEmit` | **0 errors** | identical |
+| `npm run build` | exit 0, **1 warning** — the same `@auth0/nextjs-auth0` Edge-Runtime warning, same text, same import trace, on a cleared `.next` with no `next dev` alive | **identical count, identical text** |
+| Backend | **not applicable and not run** — this part changes no `.cs` file. `verify-schema` (which **does** exist, `API/Maintenance/VerifySchemaCommand.cs` — checked, not assumed) is not applicable either: no migration | — |
+
+**The new check was proved to fail.** A throwaway `components/__probe-delete-me.tsx` carrying the phrase in a
+string **and** in a comment produced a red run (`1 of 15 check(s) failed`) naming **only the string's line** — so
+`commentMask` is doing its job and the check reads real wording, not annotations about it. Probe deleted in the
+same command; the run went green at 15/15.
+
+⚠️ **One build was burned by editing source while it ran.** A mid-edit read caught « Cannot redeclare
+block-scoped variable `deliverOfficialFormPdf` » between an insert and its matching delete. Not a defect — the
+`tsc --noEmit` run *after* both edits was clean and the re-run build is green — but the rule is simply **do not
+touch `web/` while `next build` is running**, a third variant of the collision sessions 1 and 2 recorded.
+
+#### Device verification (eye pass)
+
+⚠️ **No eye pass on the running application was performed, and none is claimed.** There is no `agent-browser` on
+this machine and the stack is not up. The one new UI surface is the official-form coarse-pointer panel, which is
+built to the contract rather than measured: it reuses `patient-file-pdf-preview.tsx`'s proven shape verbatim (two
+trees behind `coarse:`, `max-w-[42ch]` on the prose, `coarse:h-11` on the single button, no fixed widths, tokens
+throughout, no `dark:` twin). `check:responsive` (15/15) is the mechanical half and it passed.
+**The widths owed are 320 / 390 / 820 / 1180 / 1440 + landscape + keyboard.**
+
+## Findings that changed the work (Part 7)
+
+##### F-10 · Step 4's premise is stale — the deep-link destination already exists
+
+The plan and story both say « there is **no `/appointments/[id]`** route and the notification panel navigates
+nowhere », and prescribe adding `?focus=<id>` to `/appointments`. **Both halves are already built:**
+`dashboard-header.tsx:189-193` pushes `/appointments?appointmentId=…` *and* dispatches a `clinic:deeplink` event
+for the already-on-that-page case, and `app/appointments/page.tsx:176-198` reads the query param on mount while
+`:274` listens for the event. `PushDelivery.AppointmentId` (P6) is the routing id that feeds it.
+**Nothing was built**, and `?focus=` was deliberately *not* added: a second parameter meaning what
+`?appointmentId=` already means is the `fixes-dont-propagate` shape pointing forwards. What genuinely remains of
+step 4 is **App Links / Universal Links registration**, which is shell code (Parts 4/5).
+
+##### F-11 · The camera claim was stale in the other direction — that input had no `accept` at all
+
+Plan and story both state `patient-files-manager.tsx:477` « already renders `accept="image/*"` » and so « gets the
+camera free ». It renders **no `accept` attribute**, and it is the **only one of the app's six file inputs**
+without one (`clinic-settings`, `mon-profil`, `setup-wizard` → `image/*`; `doctor-document-identity` →
+`image/png,image/jpeg`; `import-patients` → `.csv,text/csv`). See DEV-13.
+
+##### F-12 · The third « réseau local » was the one that mattered, and it was not in a connectivity file
+
+AC-64 reads as a two-string fix (the toast and the badge). The third instance was `NETWORK_ERROR_MESSAGE` in
+`lib/api/client.ts` — the message surfaced by **every** failed call anywhere in the app, on every deployment,
+whether or not the connectivity poll had ever run. Its own doc comment states it is kept in step with
+`connectivity.tsx`'s banner « so the two ways the app can notice the same outage do not describe it differently »,
+so leaving it would have broken an invariant the file declares about itself. It was found by grep, not by reading
+the connectivity code — which is the argument for DEV-14.
+
+## Deviations (Part 7)
+
+### DEV-13: the patient-file input declares the server's allow-list, not the plan's `image/*`
+
+**Date:** 2026-08-06 · **Story:** 1, Part 7 · **Category:** Technical
+**Original plan:** step 1 — « `patient-files-manager.tsx:477` already renders `accept="image/*"` … Verify the photo
+attaches with the same validation as an uploaded file. » i.e. **no change**.
+**Actual implementation:** `accept="application/pdf,image/png,image/jpeg"`, mirroring
+`FileContentValidation.PatientFileTypes`.
+**Justification:** F-11 — the attribute the plan describes does not exist. Writing the plan's literal `image/*`
+would have been worse than leaving it: a referral letter or lab report arrives as a **PDF**, the server accepts
+one, and hiding it from the picker removes a working capability (§ 0). The server's own list is the only
+non-arbitrary answer, it stops the picker offering the DICOM/TIFF files whose refusal the upload error handler was
+written to explain, and naming the image types is what gives Part 4's `onShowFileChooser` something to key the
+camera intent on.
+**Impact:** Part 4 reads `acceptTypes` rather than assuming `image/*`. No server change.
+**Approved:** Yes — user chose this over the plan's literal `image/*` and over leaving it alone.
+
+### DEV-14: a `local-network-wording` check, which Part 7's plan does not ask for
+
+**Date:** 2026-08-06 · **Story:** 1, Part 7 · **Category:** Scope (additive, gate-only)
+**Original plan:** step 5 says « fix the wording ». No check.
+**Actual implementation:** a 15th derived check in `check-responsive.mjs` failing on « réseau local » in any
+`.ts`/`.tsx` under the scanned roots, with **no exemption list**.
+**Justification:** F-12 — one of the three instances was in a file nobody would open while doing connectivity
+work, and it was the most-surfaced string in the app. `web/` has no test runner, no ESLint and no CI, so the story
+itself defines the gate *as* the test; a criterion of the form « no string may say X » has no other home, and § 14
+of the frontend rule endorses exactly this shape. Proved able to fail before being trusted.
+**Impact:** the gate is 15 checks. A future French string naming the local network fails the build.
+**Approved:** not separately approved — reported here as the test deliverable for AC-64 under the skill's
+« tests are part of the deliverables » rule, on the precedent of Part 1 (+2 checks) and Part 3 (+1).
+
+### Auto-approved deviations (trivial, Part 7)
+
+| Deviation | Classification | Reason |
+|-----------|----------------|--------|
+| `ConnectivityState.isLocal` → `egressSignalAvailable` | Trivial | Renaming the field *is* the fix the plan asks for (« stop deriving the poll from `AUTH_MODE` »). One consumer existed and it is edited in the same change |
+| `buildPdfFileName()` extracted from `handleDownloadPdf` | Trivial | Pure extraction, no behaviour change, made so the shell delivery and « Télécharger » cannot name the same document differently |
+| The official-form iframe's `title` is type-aware | Trivial | It said « bulletin de soins CNAM » on the arrêt de travail too — an accessible name that misnames the document. One line, no API |
+| `handleFileUpload` takes `File[]` instead of `FileList \| null` | Trivial | Forced by AC-77: clearing the input empties the live `FileList`, so the copy must be taken first. Both callers updated in the same edit |
+| Recovery toasts distinguish which axis recovered | Trivial | The single `else` announced « Connexion internet rétablie » when a LAN **server** came back. Same class of false statement AC-64 is about |
+
+## Owed verification (Part 7)
+
+- [ ] **The eye pass at 320 / 390 / 820 / 1180 / 1440 + landscape + keyboard** on the running app, for the
+      official-form coarse panel. Blocked on tooling and on the stack being up, not deferred by choice.
+- [ ] **AC-62 on a real network drop** — lose the cable or cellular and see « Serveur injoignable » within one 15 s
+      poll, then automatic recovery. The truth table is pinned by construction; the timing is not.
+- [ ] **AC-63 against a real `HostedMultiTenant` deployment** — the probe 404s, the AI chat and the Google controls
+      stay **enabled**, and no « pas de connexion internet » warning appears. This is the defect the part exists to
+      fix and it has not been observed fixed on a running hosted instance.
+- [ ] **AC-8 on a real Android shell** — a BS1 opens in the platform viewer and prints. Needs Part 4.
+- [ ] **AC-56 / AC-77 on a real phone** — the camera reaches the record through `onShowFileChooser`, and an upload
+      killed by backgrounding leaves the file re-selectable. Needs Part 4.
+
+## Not started, and why (Part 7)
+
+Recorded rather than half-built, per the story's own « never partially implement a blocked part ».
+
+- **Step 1 (camera, AC-56)** — the picker is Part 4's `onShowFileChooser`. The web half is DEV-13 and is done.
+- **Step 2 (biometric resume, AC-57…AC-60)** — needs a **new** bridge method, and `mobile/shared/bridge.md` (the
+  single contract the plan says to amend, and whose version it says to bump) is created by Part 4. Writing the web
+  half now would define that contract unilaterally, untested against any shell. Nothing in `session.tsx` was
+  touched, so AC-58's « absent bridge ⇒ unchanged » holds trivially.
+- **Step 3's native half (AC-61)** — Android `PdfRenderer` / iOS `QLPreviewController` are shell code. AC-8's web
+  half reaches them through the existing `saveFile` open path, which is what the plan's own step 3 prescribes.
+- **Step 4 (deep links)** — see F-10: the destination exists; only App Links / Universal Links registration
+  remains, which is shell code.

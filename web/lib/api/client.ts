@@ -99,9 +99,13 @@ export function isClientRefusedAsTooOld(): boolean {
  * reading it. `lib/errors.ts` passes an `ApiError` message through **verbatim**, so that string was the one
  * the toast actually showed. The wording matches `connectivity.tsx`'s « Serveur injoignable » banner, so the
  * two ways the app can notice the same outage do not describe it differently.
+ *
+ * ⚠️ It no longer names the **local network** (AC-64). This is the string *every* failed call surfaces, and the
+ * same server is reached over a LAN, over Wi-Fi and over a mobile network — telling a dentist on cellular to
+ * check their local network sends them to look at something that is not there.
  */
 export const NETWORK_ERROR_MESSAGE =
-  "Impossible de joindre le serveur de la clinique. Vérifiez votre connexion au réseau local.";
+  "Impossible de joindre le serveur. Vérifiez votre connexion, puis réessayez.";
 
 /** In-memory access-token cache — see `getAccessToken`. Module scope so every caller shares one token. */
 let cachedToken: { token: string; validUntilMs: number } | null = null;

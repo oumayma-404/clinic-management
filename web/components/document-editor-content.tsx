@@ -23,6 +23,7 @@ import {
   Pill,
   ClipboardList,
   AlertTriangle,
+  ExternalLink,
 } from "lucide-react"
 import { SendDocumentEmailDialog } from "@/components/send-document-email-dialog"
 import { LoadFailureNotice } from "@/components/ui/load-failure"
@@ -587,6 +588,10 @@ export function DocumentEditorContent() {
    * different predicate that happens to select the same two types today. This one names the actual reason.</p>
    */
   const isOfficialForm = documentType === "bulletin-cnam" || documentType === "arret-travail"
+
+  /** The frame's accessible name, so a screen reader names the form rather than announcing "iframe". */
+  const officialFormPreviewTitle =
+    documentType === "arret-travail" ? "Aperçu de l'arrêt de travail CNAM" : "Aperçu du bulletin de soins CNAM"
 
   /*
    * ⚠️ The `doctors[0]` fall-back is **gone**, for every document type — the narrow scoping K3 left in place no
@@ -1803,6 +1808,13 @@ export function DocumentEditorContent() {
     }
   };
 
+  /** The one filename this document's PDF gets — « Télécharger », and the shell delivery AC-8 added below. */
+  const buildPdfFileName = () => {
+    const typeSlug = getDocumentTitle().toLowerCase().replace(/\s+/g, '-');
+    const patientSlug = patientData ? `-${`${patientData.firstName}-${patientData.lastName}`.toLowerCase()}` : '';
+    return `${typeSlug}${patientSlug}.pdf`;
+  };
+
   const handleDownloadPdf = async () => {
     if (saving) {
       return;
@@ -1834,11 +1846,8 @@ export function DocumentEditorContent() {
       // Generate PDF on server using structured data
       const pdfBlob = await medicalDocumentsApi.generatePdfForDownload(documentData);
       
-      // Download the PDF
-      const documentTypeName = getDocumentTitle();
-      const patientName = `${patientData.firstName}-${patientData.lastName}`.toLowerCase();
-      const fileName = `${documentTypeName.toLowerCase().replace(/\s+/g, '-')}-${patientName}.pdf`;
-      
+      const fileName = buildPdfFileName();
+
       await downloadBlob(pdfBlob, fileName);
 
       toast.dismiss(loadingToast);
@@ -1894,6 +1903,32 @@ export function DocumentEditorContent() {
     }
   };
 
+  /**
+   * Hand the generated form to the OS — the only working preview *and* print route in a native shell (AC-8).
+   *
+   * `downloadBlob` tries the shell's `saveFile` first (which writes the file and offers to open it, landing in
+   * Android's `PdfRenderer` / iOS's `QLPreviewController`), then the share sheet on a coarse browser. The OS
+   * viewer owns the printing from there; there is no `window.print()` to reach in an Android WebView.
+   */
+  const deliverOfficialFormPdf = async (reason: "preview" | "print") => {
+    const blob = bs1BlobRef.current;
+    if (!blob) {
+      toast.error("Document indisponible", {
+        description: "Le document n'a pas encore été généré. Complétez le formulaire, puis réessayez.",
+        duration: 4000,
+      });
+      return;
+    }
+    if (reason === "print") {
+      // Announced BEFORE delivery, so a `downloadBlob` failure toast lands after it and is the last word.
+      toast.info("Ouverture du document", {
+        description: "Utilisez l'impression de la visionneuse de votre appareil pour l'imprimer sur le formulaire pré-imprimé.",
+        duration: 5000,
+      });
+    }
+    await downloadBlob(blob, buildPdfFileName());
+  };
+
   /*
    * K4 — printing a bulletin is a **different operation**, and conflating the two is what broke it.
    *
@@ -1927,6 +1962,19 @@ export function DocumentEditorContent() {
           "L'aperçu du bulletin n'a pas encore été généré. Sélectionnez un patient et complétez le bulletin, puis réessayez.",
         duration: 4000,
       });
+      return;
+    }
+
+    /*
+     * ⚠️ Where the frame is not actually rendered, printing *through* it prints nothing (AC-8).
+     * `offsetParent === null` reads the `coarse:hidden` tree below rather than re-deriving its media query —
+     * one hinge, so the two cannot disagree about whether a frame is on screen. That covers the native shell,
+     * where an embedded `blob:` PDF has no viewer and an Android WebView has no `window.print()` at all: a
+     * blank frame beside an inert « Imprimer » is exactly what this criterion forbids.
+     */
+    const hiddenFrame = bs1IframeRef.current;
+    if (!hiddenFrame || hiddenFrame.offsetParent === null) {
+      void deliverOfficialFormPdf("print");
       return;
     }
 
@@ -2233,6 +2281,9 @@ export function DocumentEditorContent() {
   const [bs1PreviewLoading, setBs1PreviewLoading] = useState(false)
   const [bs1PreviewError, setBs1PreviewError] = useState(false)
   const bs1UrlRef = useRef<string | null>(null)
+  // The blob behind that URL. Kept because where the frame cannot render it, the file itself is the answer
+  // (AC-8) and `downloadBlob` takes bytes, not a `blob:` URL — re-fetching one we already hold would be silly.
+  const bs1BlobRef = useRef<Blob | null>(null)
   // The preview iframe itself, so « Imprimer » can print the overlaid PDF the dentist is looking at rather than
   // re-deriving the paper from the DOM (K4 — see printBulletinPdf).
   const bs1IframeRef = useRef<HTMLIFrameElement>(null)
@@ -2263,6 +2314,7 @@ export function DocumentEditorContent() {
         // Revoke the previous object URL so blobs don't leak (AC-3).
         if (bs1UrlRef.current) URL.revokeObjectURL(bs1UrlRef.current)
         bs1UrlRef.current = url
+        bs1BlobRef.current = blob
         setBs1PreviewUrl(url)
       } catch {
         // Keep the last good preview; surface the error state (AC-4). Next successful edit recovers.
@@ -3483,13 +3535,34 @@ export function DocumentEditorContent() {
                   ) : (
                     <>
                       {bs1PreviewUrl ? (
-                        <iframe
-                          ref={bs1IframeRef}
-                          src={bs1PreviewUrl}
-                          title="Aperçu du bulletin de soins CNAM"
-                          className="flex-1 w-full border-0"
-                          style={{ minHeight: "1123px" }}
-                        />
+                        <>
+                          {/* Two trees behind `coarse:`, the same shape as `patient-file-pdf-preview.tsx` — and
+                              for the same reason: an Android WebView renders an embedded `blob:` PDF **blank**
+                              and iOS Safari renders it as one non-scrollable page. CSS, not `useMediaQuery`,
+                              which returns false on the first client render and would tear down a loaded PDF. */}
+                          <iframe
+                            ref={bs1IframeRef}
+                            src={bs1PreviewUrl}
+                            title={officialFormPreviewTitle}
+                            className="block flex-1 w-full border-0 coarse:hidden"
+                            style={{ minHeight: "1123px" }}
+                          />
+
+                          <div className="hidden flex-1 flex-col items-center justify-center gap-3 p-6 text-center coarse:flex">
+                            <FileText className="w-12 h-12 text-muted-foreground/40" />
+                            <p className="font-medium text-foreground">Aperçu non disponible sur cet appareil</p>
+                            <p className="max-w-[42ch] text-sm text-muted-foreground">
+                              Les visionneuses PDF intégrées ne fonctionnent pas de façon fiable sur mobile. Ouvrez le
+                              document pour le consulter et l&apos;imprimer depuis la visionneuse de votre appareil,
+                              sur le formulaire pré-imprimé.
+                            </p>
+                            {/* 44px on a finger, grown rather than overlaid: it is the panel's only control. */}
+                            <Button onClick={() => void deliverOfficialFormPdf("preview")} className="coarse:h-11">
+                              <ExternalLink className="me-2 h-4 w-4" />
+                              Ouvrir le document
+                            </Button>
+                          </div>
+                        </>
                       ) : (
                         <div className="flex-1 flex flex-col items-center justify-center gap-3 p-12 text-center">
                           {bs1PreviewError && !bs1PreviewLoading ? (

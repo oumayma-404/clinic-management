@@ -132,12 +132,17 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
     }
   }, [patientId, loading, folders.length])
 
-  const handleFileUpload = async (filesToUpload: FileList | null) => {
-    if (!filesToUpload || filesToUpload.length === 0) return
+  /**
+   * ⚠️ Takes a **`File[]`, not the live `FileList`** (AC-77). The picker below clears its own `value` the moment
+   * it hands the selection over — which empties the very `FileList` the input exposes — so the array must be a
+   * copy taken first, or a retry would upload nothing.
+   */
+  const handleFileUpload = async (filesToUpload: File[]) => {
+    if (filesToUpload.length === 0) return
 
     setUploading(true)
     try {
-      const uploadPromises = Array.from(filesToUpload).map((file) =>
+      const uploadPromises = filesToUpload.map((file) =>
         patientFilesApi.uploadFile(patientId, file, currentFolderId || undefined)
       )
       await Promise.all(uploadPromises)
@@ -183,7 +188,7 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault()
     setIsDragging(false)
-    handleFileUpload(e.dataTransfer.files)
+    void handleFileUpload(Array.from(e.dataTransfer.files))
   }
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -473,8 +478,31 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
             <input
               type="file"
               multiple
+              /*
+               * Mirrors the server's own allow-list, `FileContentValidation.PatientFileTypes` (AC-56).
+               *
+               * ⚠️ This input had **no** `accept` at all — the only one of the app's six without one — so the
+               * picker offered DICOMs and TIFFs the upload then refused, which is the confusion the error
+               * handler above was written to explain. It is deliberately **not** `image/*`: a referral letter
+               * or a lab report arrives as a PDF and the server takes it, so narrowing to images would remove
+               * a working capability (§ 0). Naming the image types is also what gives the native shell's
+               * `onShowFileChooser` something to key the camera intent on.
+               */
+              accept="application/pdf,image/png,image/jpeg"
               className="hidden"
-              onChange={(e) => handleFileUpload(e.target.files)}
+              onChange={(e) => {
+                /*
+                 * ⚠️ Copy, then clear the input **before** the upload runs (AC-77).
+                 *
+                 * Without the clear, the element still holds the file it just handed over, so re-picking the
+                 * *same* file fires no `change` event at all and « réessayer » silently does nothing. That is
+                 * precisely the case this criterion exists for: an upload killed by the OS backgrounding the
+                 * app fails, and the one thing the user then does — pick that photo again — is a no-op.
+                 */
+                const chosen = Array.from(e.target.files ?? [])
+                e.target.value = ""
+                void handleFileUpload(chosen)
+              }}
               disabled={uploading}
             />
             <Button 

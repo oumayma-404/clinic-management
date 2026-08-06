@@ -513,6 +513,21 @@ check(
     ),
 );
 
+check(
+  "local-network-wording",
+  "N7",
+  "No user-facing string sends someone to check the « réseau local »",
+  "The same clinic server is reached over a LAN, over office Wi-Fi, over a mobile network and from a native " +
+    "shell on cellular — so a message naming the local network is false everywhere except the offline-LAN " +
+    "install, and it points a dentist at something that is not there (AC-64). Three strings carried it, and the " +
+    "one that mattered most was the least obvious: `NETWORK_ERROR_MESSAGE` in `lib/api/client.ts`, which *every* " +
+    "failed call in the app surfaces. Nothing typed can catch this and no reviewer sees it at the width they " +
+    "happen to be working at. Say « Vérifiez votre connexion » instead — true on every network.",
+  // No exemption list: there is no deployment where this wording is the right thing to tell a user, and a
+  // per-file exemption here is how the phrase would creep back into the next French string.
+  () => scanLines(tsx(), /réseau local/i),
+);
+
 // ── run ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
 const only = process.argv.find((a) => a.startsWith("--only="))?.slice("--only=".length);

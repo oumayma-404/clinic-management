@@ -34,7 +34,7 @@ each part is a vertical increment and each boundary is a commit point:
 graph TD
     P1["Part 1 · Phase 0<br/>web fixes<br/>✅ EXECUTABLE"] --> P2["Part 2 · Phase 2b<br/>session continuity<br/>✅ EXECUTABLE"]
     P2 --> P3["Part 3 · Phase 2<br/>client version floor<br/>✅ EXECUTABLE"]
-    P3 --> P4["Part 4 · Phase 1<br/>Android shell<br/>🔒 no JDK/SDK here (R-12)"]
+    P3 --> P4["Part 4 · Phase 1<br/>Android shell<br/>✅ EXECUTABLE (R-12 green 06-08)"]
     P4 --> P5["Part 5 · Phase 1<br/>iOS shell<br/>🔒 macOS + Apple"]
     P4 -.-> P6["Part 6 · Phase 3<br/>OS push<br/>✅ EXECUTABLE"]
     P5 --> P7["Part 7 · Phase 4<br/>native capability<br/>⚠️ PARTLY BLOCKED"]
@@ -44,7 +44,7 @@ graph TD
     style P1 fill:#dcfce7,stroke:#16a34a
     style P2 fill:#dcfce7,stroke:#16a34a
     style P3 fill:#dcfce7,stroke:#16a34a
-    style P4 fill:#fee2e2,stroke:#dc2626
+    style P4 fill:#dcfce7,stroke:#16a34a
     style P5 fill:#fee2e2,stroke:#dc2626
     style P6 fill:#dcfce7,stroke:#16a34a
     style P7 fill:#fef9c3,stroke:#ca8a04
@@ -55,6 +55,9 @@ graph TD
 `GET /api/meta/client-requirements` natively at launch, so Part 3's endpoint must exist first.
 **Part 7 needs both** Part 5 (its iOS halves) and Part 6 (a notification to tap for the deep-link criterion), which
 is why it sits downstream of the two blocked parts even though its web and Android halves are executable.
+
+⚠️ **Part 4's tooling blocker is gone as of 2026-08-06** (see the table below) — with Parts 1, 2, 3, 6 and Part 7's
+shell-free halves landed, **Part 4 is the next executable part**, and the one that unlocks everything still owed.
 
 ⚠️ **Part 4 → Part 6 is drawn dotted because it is not a build dependency.** Push needs a shell to *register a
 device token*, so the two must meet before AC-40 can be demonstrated end to end — but Part 6's whole backend half
@@ -79,10 +82,10 @@ convention `/next` defines for a single `Layer: Full` story delivered part-by-pa
 | 1 | Phase 0 | The web fixes a webview makes load-bearing | ✅ yes | AC-1…AC-12, AC-69 | **implemented** (gate green; on-device checks owed — `progress.md`) |
 | 2 | Phase 2b | The session lasts the working day | ✅ yes | AC-35…AC-39 | **implemented** (gate green; the felt behaviour + desktop shell owed — `progress.md`) |
 | 3 | Phase 2 | A stale app says so | ✅ yes | AC-28…AC-34, AC-70, AC-71 | **implemented** (gate green; AC-33's launch half is Part 4's code — `progress.md`) |
-| 4 | Phase 1 | The Android shell | 🔒 **no — the R-12 check ran and failed** (2026-08-05) | AC-13…AC-27, AC-74, AC-76 | blocked on tooling |
+| 4 | Phase 1 | The Android shell | ✅ **yes — R-12 re-run green 2026-08-06** (JDK 17 · Studio · SDK 35 · adb) | AC-13…AC-27, AC-74, AC-76 | **ready to start**; a physical phone is owed for step 7 |
 | 5 | Phase 1 | The iOS shell | 🔒 **BLOCKED** — macOS + Apple Developer Program | AC-13…AC-27 (iOS half) | blocked |
 | 6 | Phase 3 | A backgrounded phone still knows | ✅ yes | AC-40…AC-55, AC-70…AC-73, AC-75 | **implemented** (web + backend gates green; the backend suite re-run, both console verbs and every device-token criterion owed — `progress.md`) |
-| 7 | Phase 4 | The phone becomes an instrument | ⚠️ web + Android halves only | AC-8, AC-56…AC-64, AC-77 | not-started |
+| 7 | Phase 4 | The phone becomes an instrument | ⚠️ web + Android halves only | AC-8, AC-56…AC-64, AC-77 | **partly implemented** — the three shell-free halves landed 2026-08-06 (AC-62…64 · AC-8 · AC-77 + AC-56's web half); AC-57…AC-61 left unstarted with reasons in `progress.md` |
 | 8 | Phase 5 | Two store listings | 🔒 **BLOCKED** — accounts + 4 deferred decisions | AC-65…AC-68 | blocked |
 
 **Suggested first session: Part 1.** It depends on nothing — no hosted origin, no accounts, no Mac, none of the four
@@ -109,7 +112,7 @@ deliver nothing, blank PDF previews, printing the sidebar, a dead mic button on 
 
 | Part | Blocked on | Who can unblock it |
 |------|-----------|--------------------|
-| 4 | A JDK + Android SDK on the build machine | ✅ **Checked 2026-08-05 (session 3) — absent.** No `java` on `PATH`, `JAVA_HOME` unset, `ANDROID_HOME`/`ANDROID_SDK_ROOT` unset, nothing at `%LOCALAPPDATA%\Android\Sdk`, no `gradle`. **Anyone with the build machine can unblock this** by installing JDK 17+ and the Android SDK (cmdline-tools + platform + build-tools) — unlike Part 5, no purchase and no other OS is involved |
+| ~~4~~ | ~~A JDK + Android SDK on the build machine~~ | ✅ **UNBLOCKED 2026-08-06 (session 5).** Installed and R-12 re-run green: **Temurin JDK 17.0.20** (`JAVA_HOME` set), **Android Studio 2026.1.3.7**, SDK **cmdline-tools rev 22 · platform-tools (adb 1.0.41) · platforms;android-35 · build-tools;35.0.0**, `ANDROID_HOME`/`ANDROID_SDK_ROOT` set. ⚠️ **Still owed to *finish* Part 4:** a physical Android phone for story step 7's hardware walk. ⚠️ No standalone `gradle` — Studio's new-project wizard emits the wrapper, which is the intended route. ⚠️ **Smart App Control is `Enforced`**, so a first `gradlew` failing with `0x800711C7` is SAC, not the build |
 | 5 | macOS + Xcode (or Xcode Cloud / Codemagic) **and** an Apple Developer Program membership | Not solvable in this repo: win32, no CI, and the project **has never had an iOS device** |
 | ~~6~~ | ~~`features/multi-tenant-cloud` **US-2** (`ITenantScope`) merged~~ | ✅ **UNBLOCKED, verified 2026-08-05 (session 2)** — `Application/Common/Interfaces/ITenantScope.cs` and `UnitTests/Common/SystemWideCallerCoverageTests.cs` both exist and the suite is green. Part 6's `PushDispatchJob` must declare `UseSystemWide(...)` or that guard fails the build |
 | 8 | Store accounts + a public domain a reviewer can reach + the four deferred decisions (hosted domain · bundle ids and display name · demo-tenant data policy · store-account ownership) | Business/ops. ⚠️ A bundle identifier **cannot be changed after first submission** |

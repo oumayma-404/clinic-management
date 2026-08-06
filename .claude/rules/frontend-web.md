@@ -284,10 +284,32 @@ and silently omit the version and the floor would cover part of the app only. Th
 because it runs server-side, has no bridge to read, and is explicitly exempt from the floor. A 426 is surfaced
 through `onClientTooOld` and taken over by `<ClientVersionGate>` — it is **never** a sign-out.
 
-Still open, so do not write code that assumes it and do not claim it in a report: everything in
-`features/mobile-native-shells` **Parts 4–8** — the two native shells and `window.__clinicShell`'s
-`print()`/`onPushToken()`, OS push, biometric resume, and the native PDF viewer. `window.__clinicShell` is
-**always** feature-detected; with it absent, behaviour must be byte-identical to a plain browser.
+**Two axes of connectivity, and an absent signal is not "offline"** (Part 7). `useConnectivity()` polls on **every**
+deployment and returns `serverReachable` (did the server answer at all) separately from `internetReachable` (may the
+egress-dependent features run), with `egressSignalAvailable` saying whether the second is a reading or an assumption.
+Never gate a poll or a badge on `AUTH_MODE`: `mode === "local"` is true on a clinic's own PC **and** on the hosted
+multi-tenant backend, where the probe 404s — reading that 404 as "offline" is what pinned a hosted clinic's AI chat
+and Google controls off permanently. **Only a 200 that says so means "no egress".**
+
+**No user-facing string may name the « réseau local ».** The same server is reached over a LAN, over Wi-Fi and over a
+mobile network, so that wording is false everywhere but the offline-LAN install and points a dentist at something
+that is not there. Say « Vérifiez votre connexion ». The `local-network-wording` check fails the gate on it.
+
+**An `<input type="file">` clears its own `value` before the upload runs**, or a failed upload cannot be retried with
+the same file: the element still holds it, so re-picking fires no `change` event at all. Copy the `FileList` into an
+array *first* — clearing `value` empties the live list. And declare an `accept` that mirrors the server's allow-list,
+never a narrower guess: `image/*` on the patient-files input would hide the PDFs the server accepts.
+
+**A `blob:` PDF in an `<iframe>` is not a preview on a finger.** Android WebView renders it **blank** and iOS Safari
+as one non-scrollable page, so any embedded-PDF surface needs two trees behind `coarse:` with the file itself as the
+second — `patient-file-pdf-preview.tsx` is the shape, and `document-editor-content.tsx`'s official forms follow it.
+Where that surface is also the **print** path, printing *through* the frame prints nothing: check the frame is really
+rendered (`offsetParent !== null`) and otherwise hand the file to the OS through `downloadBlob`, whose viewer prints.
+
+Still open, so do not write code that assumes it and do not claim it in a report: `features/mobile-native-shells`
+**Parts 4, 5 and 8** — the two native shells and `window.__clinicShell`'s `print()`/`onPushToken()`, and biometric
+resume (Part 7's AC-57…AC-60, deliberately unstarted until `mobile/shared/bridge.md` exists). `window.__clinicShell`
+is **always** feature-detected; with it absent, behaviour must be byte-identical to a plain browser.
 
 ⚠️ **`items-center` inside an `overflow-y-auto` box is § 11's clipping trap on the vertical axis**, and it cost a
 real defect in Part 3: `align-items: center` pushes overflow to *both* ends and the **top** overflow is outside the
