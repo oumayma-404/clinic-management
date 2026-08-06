@@ -82,7 +82,7 @@ graph TD
 
 | Story | Layer | Name | Status | Depends On |
 |-------|-------|------|--------|------------|
-| 1 | Full | [Hosted multi-tenant profile](story-1-full-hosted-multi-tenant.md) | **implemented (code gate)** — parts A–F all landed; the operator gate is still owed | — |
+| 1 | Full | [Hosted multi-tenant profile](story-1-full-hosted-multi-tenant.md) | **in-review** — parts A–F built, code gate passes; `/review-story` owed on D+E+F, one AC knowingly unmet (`restore-backup` hosted path), operator gate owed | — |
 
 ### Internal parts (the resumable unit)
 

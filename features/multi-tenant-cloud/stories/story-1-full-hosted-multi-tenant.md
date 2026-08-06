@@ -1,9 +1,11 @@
 # Story 1: Full — Hosted multi-tenant profile (desktop clients, hosted data)
 
 **Status:** APPROVED
-**Story Status:** implemented (code gate) — **all six parts A–F landed** (2026-08-05/06); the **operator gate**
-below still needs a real hosted deployment. See [../progress.md](../progress.md) for the part table, twenty-three
-deviations and the per-part gate results. ⚠️ Part B's session found a **pre-existing 24-test red baseline** from earlier features, invisible
+**Story Status:** in-review — **all six parts A–F are built and the code-gate verification steps pass**
+(2026-08-05/06), but the story does **not** close yet: `/review-story` has never run on **D, E or F**, which is
+an exit criterion, and one acceptance criterion is **knowingly unmet** (`restore-backup` has no hosted path — see
+Part D/E/F block). The **operator gate** below then needs a real hosted deployment. See
+[../progress.md](../progress.md) for the part table, twenty-three deviations and the per-part gate results. ⚠️ Part B's session found a **pre-existing 24-test red baseline** from earlier features, invisible
 until then because Part A's runner was blocked; it was cleared in `23e56f5` and the suite has been green since
 (Part D left it at **2 143 passed / 0 failed**).
 **Layer:** Full — ⚠️ **a deliberate departure from the skill's BE/FE separation rule**, chosen because the plan is
@@ -109,10 +111,24 @@ _Story-specific:_
       `Guid clinicId` (DEV-22, asked and approved). The clinic is a parameter rather than read off `ITenantScope`
       because the e-invoice outbox uploads under `UseSystemWide` (DEV-23). The `DoctorCachetKey` pitfall was
       verified, not changed — `PdfGenerationService` reads the snapshotted key verbatim
-- [ ] `verify-schema`, `reconcile-money` and `restore-backup` run in the hosted profile
-- [ ] `/hub/*` reaches the API, so realtime works
-- [ ] `Database.Migrate()` is wrapped in a `pg_advisory_lock`
-- [ ] `deploy/docker-compose.hosted.yml` + `.env.hosted.example` exist and set all five keys from the plan's table
+- [~] `verify-schema`, `reconcile-money` and `restore-backup` run in the hosted profile — **two of the three, and
+      the third is a deliberate refusal.** M3 was implemented as « gate on the connection string, not the profile »
+      and applied to `verify-schema`, `reconcile-money` and **`reset-admin-password`** (a hosted clinic's
+      locked-out admin had no recovery). ⚠️ **`restore-backup` keeps its profile gate on purpose**: its safety
+      interlock is « refuse while the app's ports are listening », which looks for a listener on *this* machine —
+      in a container the API listens in a sibling, so the check would pass silently while `pg_restore --clean`
+      drops tables under a live application. Part F recorded this as its finding 2: **`restore-backup` has no
+      hosted path at all**, and « restore one clinic, or restore at all, in a container topology » is still
+      unanswered. This box is the story's one **knowingly unmet** acceptance criterion
+- [x] `/hub/*` reaches the API, so realtime works — `deploy/Caddyfile:31` `handle /hub/*` → `api:5000`, before the
+      catch-all. ⚠️ Code-gate only: R-6 says a broken hub and a working one look identical on one screen, so the
+      two-browser check stays on the operator gate
+- [x] `Database.Migrate()` is wrapped in a `pg_advisory_lock` — `Program.cs:639` via
+      `Startup/MigrationLock.RunExclusivelyAsync`; `MigrationLockTests` pins the fixed key, the session-level
+      variant (not `xact`) and — against `Program.cs`'s own source — that the migration is *inside* the wrap
+- [x] `deploy/docker-compose.hosted.yml` + `.env.hosted.example` exist and set all five keys from the plan's
+      table — `Deployment__Profile`, `DataProtection__KeyRingPath` (+ named volume), `AUTH_MODE`,
+      `API_INTERNAL_URL`, `AUTH_COOKIE_SECURE`, and no `Auth0__*`
 
 ## Entry Criteria
 
@@ -394,15 +410,26 @@ A ──▶ F(KeyRingPath) ──▶ D (TTN secrets)
 
 **Code gate — runnable in this repo:**
 
-- [ ] Solution builds with **0 errors, 0 warnings**
-- [ ] `DeploymentProfileTests` green — matrix + `Auth:Mode` back-compat
-- [ ] `DeploymentProfileCoverageTests` green — no `IsLocalMode(` outside `Resolve`/`LocalAuthConfig`
-- [ ] `TenantScopeFilterTests` green — all three states
-- [ ] `SystemWideCallerCoverageTests` green — and **verify it fails** when you temporarily delete one job's
-      `UseSystemWide` call. A derived guard that has never gone red is not yet a guard
-- [ ] `*TenantIsolationTests` green, including the seven PHI by-id cases
-- [ ] Frontend gate: `npx tsc --noEmit`, `npm run check:responsive`, `npm run build`, then an eye pass at
-      320/390/820/1180/1440 px
+All seven re-verified as a **set** at the end of Part E (2026-08-06), not only part by part:
+
+- [x] Solution builds with **0 errors, 0 warnings** — 0 errors; **0 new** warnings against a standing baseline of
+      57 across 30 files, none in a file any part touched. ⚠️ Read literally (« 0 warnings ») this repo has never
+      satisfied it and no part tried to: the baseline is nullable-`CS8618` on entities' private EF ctors and is
+      out of every part's scope
+- [x] `DeploymentProfileTests` green — matrix + `Auth:Mode` back-compat. ⚠️ Part A could not *run* it (Smart App
+      Control); Part B's session fixed the runner and it has run in every suite since
+- [x] `DeploymentProfileCoverageTests` green — no `IsLocalMode(` outside `Resolve`/`LocalAuthConfig`
+- [x] `TenantScopeFilterTests` green — all three states, plus the separate no-provider-at-all case
+- [x] `SystemWideCallerCoverageTests` green **and proved red** — it carries its own red-proof
+      (`The_Guard_Rejects_A_Job_Whose_Declaration_Is_Removed`) rather than asking a reviewer to delete a call
+- [x] `*TenantIsolationTests` green, including the seven PHI by-id cases — spread over three classes:
+      `ClinicalRecordTenantIsolationTests` (DentalRecord · PatientMedicalHistory · PatientFamilyHistory ·
+      ToothState), `MedicalDocumentTenantIsolationTests`, `FilesTenantIsolationTests` (PatientFile ·
+      PatientFolder)
+- [x] Frontend gate — run in **Part C**, the only part that touches `web/`: `tsc` clean, `check:responsive`
+      14/14, `build` succeeds, and a **measured** eye pass at 320/390/820/1180/1440 px + an 844×380 landscape
+      phone over CDP. Parts A, B, D, E and F change no `web/` file
+- [x] Full suite: **2 157 passed / 0 failed** (Part E's run)
 
 ```bash
 # Backend — build to a scratch path so a running API can't lock bin/Debug
@@ -441,11 +468,14 @@ cd web && npx tsc --noEmit && npm run check:responsive && npm run build
 
 **Closes at `implemented` (code gate):**
 
-- [ ] Every Part-A…F acceptance criterion that does not require a deploy is checked
-- [ ] All code-gate verification steps pass
-- [ ] `plan.md`'s docs-debt step is done — the three `CLAUDE.md` files and the `CurrentClinicProvider` docstring no
-      longer describe a fail-open filter
-- [ ] Reviewed (`/review-story`)
+- [~] Every Part-A…F acceptance criterion that does not require a deploy is checked — **all but one.**
+      `restore-backup` in the hosted profile is knowingly unmet and reasoned above (Part F finding 2)
+- [x] All code-gate verification steps pass — re-verified as a set at the end of Part E
+- [x] `plan.md`'s docs-debt step is done — the three `CLAUDE.md` files and the `CurrentClinicProvider` docstring
+      no longer describe a fail-open filter (landed in **Part B**, deliberately early: a `CLAUDE.md` asserting the
+      inverted contract is worse than no doc, so it could not wait for the part that owns step 18)
+- [ ] **Reviewed (`/review-story`) — NOT DONE.** Parts D, E and F have never been reviewed; A, B and C were
+      ⚠️ **This is what stops the story reading `implemented`.** Everything above it is met
 
 **Moves to `done` (operator gate):**
 
