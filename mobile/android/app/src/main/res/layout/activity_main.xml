@@ -234,7 +234,10 @@
             android:orientation="vertical"
             android:padding="24dp">
 
+            <!-- Addressable because this panel now serves two states: the app being below the server's floor,
+                 and the device's WebView being below the app's. Same panel, different title. -->
             <TextView
+                android:id="@+id/update_title"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="@string/update_title"

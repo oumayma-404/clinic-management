@@ -25,6 +25,7 @@
     <!-- State: unreachable -->
     <string name="unreachable_title">Impossible de joindre le serveur de la clinique</string>
     <string name="unreachable_detail">Adresse : %1$s\nDétail : %2$s\n\nVérifiez que le serveur est allumé et accessible, puis réessayez.</string>
+    <string name="unreachable_certificate">Le certificat de ce serveur n\'est pas approuvé sur cet appareil. Installez le certificat de la clinique (Paramètres → Sécurité → Installer un certificat → Certificat CA), puis réessayez.</string>
     <string name="unreachable_retry">Réessayer</string>
     <string name="unreachable_change_server">Changer de serveur</string>
 
@@ -33,6 +34,12 @@
     <string name="update_detail">Ce serveur demande la version %1$s ou plus récente de l\'application. La version installée est %2$s.</string>
     <string name="update_detail_no_floor">Ce serveur ne prend plus en charge cette version de l\'application. Mettez-la à jour pour continuer.</string>
     <string name="update_open_store">Mettre à jour</string>
+
+    <!-- The renderer, not the app. Names the component to update, because « Android System WebView » is not
+         something a dentist would guess from « la page s\'affiche mal ». -->
+    <string name="update_webview_title">Mise à jour du système requise</string>
+    <string name="update_webview_detail">Le composant d\'affichage de votre téléphone (Android System WebView) est trop ancien pour cette application : version %1$s, version %2$s minimum requise.\n\nMettez-le à jour depuis le Play Store, puis réessayez.</string>
+    <string name="update_webview_open">Mettre à jour Android System WebView</string>
 
     <!-- The « Serveur » actions, reached with the back gesture at the root of the app -->
     <string name="menu_title">Serveur</string>

@@ -45,43 +45,55 @@ function SheetOverlay({
 }
 
 /**
- * Marks `<body data-sheet-open>` while any sheet is on screen, so things OUTSIDE the sheet can react to it —
- * today the bottom nav bar, which hides rather than showing through under a full-screen sheet and sitting over
- * the sheet's own primary action (AC-8).
+ * Keeps `<body data-sheet-open>` equal to « is any sheet content in the DOM right now », so things OUTSIDE the
+ * sheet can react to it — today `bottom-nav.tsx`, which hides rather than showing through under a full-screen
+ * sheet and sitting over its primary action (AC-8), and `post-visit-review-popup.tsx`.
  *
  * A body attribute rather than context because the consumers are not descendants of the sheet, and Radix
  * already communicates this way (`data-scroll-locked`) so it is an idiom the codebase has rather than a new one.
- * It deliberately does NOT live in `SidebarContext`, which is persistence-adjacent — a transient
- * is-something-covering-the-screen flag has no business near the key that survives a reload.
+ *
+ * ⚠️ **The flag is derived from the DOM by an observer, NOT maintained by a component lifecycle — and that is
+ * the third attempt at this.** A module-level counter came first and was stranded by Fast Refresh. A DOM check
+ * deferred one animation frame came second and lost a race on slow hardware, because Radix keeps the node
+ * mounted for its exit animation. Both were fixed *inside* the unmount cleanup, and on a physical Galaxy S9 the
+ * cleanup **never ran at all**: the mutation log ended `… SET` with no matching `REMOVE` while
+ * `[data-slot="sheet-content"]` count was already **0**. Every clear path written inside that cleanup was
+ * therefore unreachable.
+ *
+ * The symptom is the worst one this flag has — the phone's ONLY navigation disappears on every page, survives
+ * client-side navigation, and nothing on screen explains it. So the observer now lives outside any lifecycle:
+ * it starts when a sheet opens, re-derives the flag on every DOM change, and disconnects as soon as no sheet
+ * remains — which also keeps it off the critical path when nothing is open.
  */
+let sheetFlagObserver: MutationObserver | null = null
+
+function syncSheetFlag(): boolean {
+  const open = document.querySelector('[data-slot="sheet-content"]') !== null
+  if (open) {
+    document.body.setAttribute("data-sheet-open", "")
+  } else {
+    document.body.removeAttribute("data-sheet-open")
+  }
+  return open
+}
+
+function watchSheetFlag() {
+  if (sheetFlagObserver) return
+  sheetFlagObserver = new MutationObserver(() => {
+    if (!syncSheetFlag()) {
+      sheetFlagObserver?.disconnect()
+      sheetFlagObserver = null
+    }
+  })
+  sheetFlagObserver.observe(document.body, { childList: true, subtree: true })
+}
+
 function useMarkSheetOpen() {
   React.useEffect(() => {
     document.body.setAttribute("data-sheet-open", "")
-
-    return () => {
-      /*
-       * ⚠️ Ask the DOM whether a sheet is still open — do NOT decrement a module-level counter.
-       *
-       * The counter this replaced could strand the flag permanently, and the symptom was severe and
-       * app-wide: `bottom-nav.tsx` hides on `[body[data-sheet-open]_&]`, so a stuck attribute removes the
-       * phone's ONLY navigation on every page at once, with nothing on screen explaining why. It survives
-       * client-side navigation, so the user cannot get out of it — only a full reload clears it.
-       *
-       * `openSheetCount` lived in module scope, which is exactly the state Fast Refresh throws away: edit any
-       * file while the nav drawer is open and the module re-evaluates with the count back at 0 while
-       * `<body data-sheet-open>` is still set — the unmount then decrements from 0, the `<= 0` guard clamps,
-       * and no one ever removes the attribute. A counter also cannot survive an unmount that skips cleanup.
-       *
-       * The DOM is the authority that cannot drift: if any sheet content is still mounted the flag must stay,
-       * and if none is, it must go. Deferred a frame because at cleanup time this sheet's own node is still
-       * being removed, so querying now would always find itself and never clear.
-       */
-      requestAnimationFrame(() => {
-        if (!document.querySelector('[data-slot="sheet-content"]')) {
-          document.body.removeAttribute("data-sheet-open")
-        }
-      })
-    }
+    watchSheetFlag()
+    // Deliberately no cleanup: the observer above owns the clear, precisely because an unmount cleanup is what
+    // failed to run on the device. Two mechanisms racing to clear one flag is how the previous versions drifted.
   }, [])
 }
 

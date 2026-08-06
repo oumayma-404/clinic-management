@@ -3,6 +3,7 @@ package com.clinicmanagement.shell
 import android.app.AlertDialog
 import android.content.Intent
 import android.net.Uri
+import android.net.http.SslError
 import android.os.Bundle
 import android.util.Log
 import android.view.View
@@ -11,6 +12,7 @@ import android.webkit.CookieManager
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
+import android.webkit.SslErrorHandler
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
@@ -58,6 +60,15 @@ class MainActivity : ComponentActivity() {
     private var mainFrameFailed = false
     private var bridgeScript: ScriptHandler? = null
     private var storeUrl = ""
+
+    /**
+     * Which listing « Mettre à jour » opens — the app's, or the renderer's.
+     *
+     * The two update states share one panel because they are the same sentence to the user (« something must be
+     * updated before this works »), but they point at different packages, and a button that opens the wrong
+     * listing is worse than no button.
+     */
+    private var updateTargetPackage: String? = null
 
     /** One thread for the launch probe. A coroutine dependency for a single GET is not worth its version pairing. */
     private val background = Executors.newSingleThreadExecutor()
@@ -185,6 +196,16 @@ class MainActivity : ComponentActivity() {
             return
         }
 
+        // Before anything is loaded, and before the network is touched: a renderer too old for the app's own
+        // stylesheet produces a page with NO CSS and no error (see WebViewRequirements). Checked first because
+        // it is a local fact needing no server, and because an unstyled screen is indistinguishable from a
+        // broken product.
+        val webView = WebViewRequirements.read(this)
+        if (WebViewRequirements.isBelowFloor(webView)) {
+            showWebViewOutdated(webView)
+            return
+        }
+
         showConnecting()
         val target = config
         background.execute {
@@ -232,12 +253,26 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun openStoreListing() {
-        val target = storeUrl.trim()
-        if (target.isEmpty()) return
+        // The renderer's listing is opened by package id (`market://`), the app's by the URL the operator
+        // published — a LAN install has no store listing for itself at all, but every device with Play has one
+        // for its WebView.
+        val target = updateTargetPackage
+            ?.let { "market://details?id=$it" }
+            ?: storeUrl.trim().ifEmpty { return }
+
         try {
             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(target)))
         } catch (t: Throwable) {
             Log.w(TAG, "store listing could not be opened", t)
+            // `market://` needs Play installed; the web listing works on any device with a browser.
+            val fallback = updateTargetPackage?.let { "https://play.google.com/store/apps/details?id=$it" }
+            if (fallback != null) {
+                try {
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(fallback)))
+                } catch (inner: Throwable) {
+                    Log.w(TAG, "web store listing could not be opened either", inner)
+                }
+            }
         }
     }
 
@@ -310,11 +345,28 @@ class MainActivity : ComponentActivity() {
                 showUnreachable(error.description?.toString().orEmpty())
             }
 
+            /**
+             * An untrusted certificate is **refused and reported** (AC-15, AC-74).
+             *
+             * ⚠️ **This override exists because leaving it out produced a blank white screen** — found on a
+             * physical Galaxy S9 before the clinic's CA was installed. The reasoning that omitted it was that
+             * the default implementation cancels the load, so the failure would surface as « Impossible de
+             * joindre ». It does not: when the SSL handler cancels, `onReceivedError` is **not** raised for the
+             * main frame, so `mainFrameFailed` stayed false, `onPageFinished` still fired, and the shell
+             * switched to an empty WebView. A white rectangle is the one outcome AC-74 forbids.
+             *
+             * `handler.cancel()` is kept — the certificate is still refused, and `proceed()` appears nowhere in
+             * this project. What changes is only that the user is told, and told what to do about it.
+             */
+            override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: SslError) {
+                handler.cancel()
+                mainFrameFailed = true
+                showUnreachable(getString(R.string.unreachable_certificate))
+            }
+
             // `onReceivedHttpError` is deliberately NOT overridden. An HTTP status means the server answered, and
             // what it answered with is the app's own French error page — which AC-74 requires be *shown* rather
             // than replaced by a shell state. Only a transport failure is the shell's to report.
-            // `onReceivedSslError` is deliberately NOT overridden either: the default cancels the load, so an
-            // untrusted certificate becomes « Impossible de joindre » instead of a silently accepted MITM.
         }
 
         webView.webChromeClient = object : WebChromeClient() {
@@ -402,7 +454,29 @@ class MainActivity : ComponentActivity() {
         show(ShellState.Unreachable)
     }
 
+    /**
+     * The renderer is too old (see [WebViewRequirements]). Shares the update panel with the app-version state:
+     * to the user both are « something must be updated », and the difference is which package the button opens.
+     */
+    private fun showWebViewOutdated(installed: WebViewRequirements.Installed) {
+        findViewById<TextView>(R.id.update_title).setText(R.string.update_webview_title)
+        findViewById<TextView>(R.id.update_detail).text = getString(
+            R.string.update_webview_detail,
+            installed.versionName ?: "?",
+            WebViewRequirements.MINIMUM_MAJOR.toString(),
+        )
+        updateTargetPackage = installed.packageName
+        findViewById<Button>(R.id.update_open_store).apply {
+            setText(R.string.update_webview_open)
+            visibility = if (installed.packageName.isNullOrBlank()) View.GONE else View.VISIBLE
+        }
+        show(ShellState.UpdateRequired)
+    }
+
     private fun showUpdateRequired(floor: String) {
+        findViewById<TextView>(R.id.update_title).setText(R.string.update_title)
+        findViewById<Button>(R.id.update_open_store).setText(R.string.update_open_store)
+        updateTargetPackage = null
         findViewById<TextView>(R.id.update_detail).text = if (floor.isBlank()) {
             getString(R.string.update_detail_no_floor)
         } else {

@@ -32,6 +32,15 @@
     <key>NSFaceIDUsageDescription</key>
     <string>Confirmez votre identité pour reprendre votre session sans ressaisir votre mot de passe.</string>
 
+    <!-- ⚠️ **Required, and its absence is silent.** Since iOS 14 an app may not talk to a device on the local
+         network until the user grants it, and the grant prompt cannot be shown without this string — so a shell
+         built without it simply never connects to a clinic PC on the LAN, with no error, no prompt and no log:
+         « Connexion… » and then a timeout. That is the single most likely shape of a first-run failure for this
+         app, because `SelfHostedLan` is *by definition* a local-network address.
+         The Android shell needs no counterpart: Android has no equivalent permission. -->
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>L'application se connecte au serveur de votre clinique sur votre réseau pour afficher vos dossiers.</string>
+
     <!-- The web view's own `input type="file"` uses both. Without these strings the picker crashes on selection. -->
     <key>NSCameraUsageDescription</key>
     <string>Prenez une photo à joindre au dossier d'un patient.</string>
