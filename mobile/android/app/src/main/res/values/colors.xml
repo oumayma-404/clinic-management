@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The tokens the shell's own screens use, converted from `web/app/globals.css` so the states that render *before*
+  the web app loads do not look like a different product than the one that follows them.
+    primary            = oklch(0.49 0.105 188) = #00736B
+    primary-foreground = oklch(0.99 0.005 190) = #F8FDFC
+  (An XML comment may not contain a double hyphen, so the CSS custom-property prefix is dropped here.)
+-->
+<resources>
+    <color name="brand_primary">#FF00736B</color>
+    <color name="brand_on_primary">#FFF8FDFC</color>
+    <color name="shell_surface">#FFF4F6F8</color>
+    <color name="shell_ink">#FF1F2933</color>
+    <color name="shell_ink_muted">#FF52606D</color>
+    <color name="shell_danger">#FFC0392B</color>
+</resources>

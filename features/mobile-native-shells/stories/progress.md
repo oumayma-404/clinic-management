@@ -14,7 +14,7 @@ The unit of progress is the **part**, not the story. Each part boundary is a com
 | 1 | Phase 0 | The web fixes a webview makes load-bearing | **implemented** — gate green; on-device verification owed | see § Session 1 |
 | 2 | Phase 2b | The session lasts the working day | **implemented** — gate green; the felt behaviour (AC-37) owed | see § Session 2 |
 | 3 | Phase 2 | A stale app says so | **implemented** — gate green; the on-device half (a real shell below the floor) is owed | `8f42b5d` (⚠️ the `Program.cs` registration travelled in `65a72e6` — § Session 3) |
-| 4 | Phase 1 | The Android shell | **UNBLOCKED 2026-08-06 (session 5) — the toolchain was installed and R-12 re-run green.** Temurin **JDK 17.0.20** (`JAVA_HOME` set), **Android Studio 2026.1.3.7**, SDK **cmdline-tools rev 22 · platform-tools (adb 1.0.41) · platforms;android-35 · build-tools;35.0.0**, `ANDROID_HOME`/`ANDROID_SDK_ROOT` set. ⚠️ Still owed before Part 4 can be *finished*: a **physical Android phone** for story step 7's hardware walk. ⚠️ No standalone `gradle` — Studio's wizard emits the wrapper, which is the intended route. ⚠️ **Smart App Control is `Enforced`** on this machine, so a first `gradlew` run failing with `0x800711C7` is SAC, not the build | — |
+| 4 | Phase 1 | The Android shell | **implemented** (2026-08-06, session 6) — the shell builds, `lint` is clean with `warningsAsErrors`, both the debug APK and the **minified** release APK are produced. Steps 2–6 and step 9 are landed; **step 7's hardware walk is owed** (no physical Android phone), as is the bundle-identifier decision, which is Part 8's. See § Session 6 | `<pending>` |
 | 5 | Phase 1 | The iOS shell | **blocked** — macOS + Xcode + Apple Developer Program | — |
 | 6 | Phase 3 | A backgrounded phone still knows | **implemented** (2026-08-05/06, session 4) — backend + availability endpoint + settings statement. Web gate green; the **backend suite and both console verbs could not be re-run** (Smart App Control turned mid-session — § Session 4) | `999b877` |
 | 7 | Phase 4 | The phone becomes an instrument | **partly implemented** (2026-08-06, session 5) — the three **shell-free** halves are landed and gated: reachability (AC-62…AC-64), the official forms in a shell (AC-8), the upload retry (AC-77). **Steps 1, 2 and 4 are deliberately not started**, each with its reason recorded in § Session 5 | `8a28846` |
@@ -1007,3 +1007,283 @@ Recorded rather than half-built, per the story's own « never partially implemen
   half reaches them through the existing `saveFile` open path, which is what the plan's own step 3 prescribes.
 - **Step 4 (deep links)** — see F-10: the destination exists; only App Links / Universal Links registration
   remains, which is shell code.
+
+---
+
+### Session 6 — 2026-08-06 · Part 4 (Phase 1, AC-13…AC-27, AC-74, AC-76)
+
+**Scope chosen by the user:** Part 4 only. No physical Android phone this session, and an emulator was
+**declined** in favour of the build gate — the same shape Parts 1, 2, 3 and 6 landed with.
+
+#### Working tree note (start of session)
+
+The tree was **clean** at the start. Another author's work on `multi-tenant-cloud` then arrived **mid-session** and
+kept growing: three of its story documents, a new `reviews/feature-review.md`, and — by the time this part was
+staged — `api/.../Startup/AuthAttemptAccount.cs`, `Startup/RateLimiting.cs`, `Infrastructure/ClientIp.cs` and a new
+`Infrastructure/TrustedProxies.cs`. `git status` was re-read immediately before staging and **not one of those eight
+paths is in this part's commit**; every file was staged explicitly by path, and nothing of theirs was reverted,
+staged or touched.
+
+#### R-12 re-verified, not taken from the previous session's note
+
+| Tool | Found |
+|---|---|
+| JDK | Temurin **17.0.20+8**, `JAVA_HOME` persisted at User *and* Machine scope |
+| SDK platform | **android-35** |
+| Build tools | **34.0.0** (AGP 8.7's default, downloaded during the first build) + **35.0.0** |
+| Platform tools | `adb` **1.0.41** |
+| Gradle | **none on the machine** — see the note below |
+| Smart App Control | `VerifiedAndReputablePolicyState = 1` (**Enforced**) — and it never interfered: Gradle runs through the signed Temurin `java.exe` and produces artifacts rather than executing them, which is not the shape SAC blocks (unlike `dotnet vstest` on freshly-built DLLs) |
+
+⚠️ **The env vars are persisted but were absent from this session's shell**, which was started before they were
+set. Every Gradle invocation sets `JAVA_HOME`/`ANDROID_HOME` explicitly; an `android/local.properties`
+(git-ignored) carries `sdk.dir` with **forward slashes** — a Java properties file treats `\` as an escape, so the
+backslash form silently resolves to a mangled path.
+
+#### The Gradle wrapper had to be bootstrapped, and that is not a deviation
+
+There is no standalone `gradle` and no `gradle-wrapper.jar` anywhere on the machine, and Studio's project wizard —
+the route the previous session's note names — is a GUI step that cannot run here. So Gradle **8.9** was downloaded
+to the scratch directory, its **SHA-256 verified against the published checksum** (`d725d707…cecab`, matched), and
+`gradle wrapper` was run once to emit the committed `gradlew` / `gradlew.bat` / `gradle-wrapper.jar` /
+`gradle-wrapper.properties`. That is the standard, committed entry point of every Android project, and from here on
+nothing outside the repository is needed to build.
+
+⚠️ The checksum step is not ceremony: `Invoke-WebRequest` reports success on a truncated download (LEARNINGS), and
+a truncated distribution fails later in a way that reads as a build problem. It also caught a real slip — the first
+attempt compared against a **byte array** rather than a string (`-UseBasicParsing` in PowerShell 5.1) and reported
+a mismatch on a file that was in fact intact.
+
+#### Versions, and why these
+
+`AGP 8.7.3 · Gradle 8.9 · Kotlin 2.0.21 · compileSdk/targetSdk 35 · minSdk 26`. Pinned rather than latest, to the
+SDK actually installed: the current AGP is 9.x and current AndroidX needs `compileSdk 36`, which needs an AGP newer
+than any that pairs with the installed platform. `mobile/README.md` records the set as an operator instruction.
+
+`minSdk 26` (Android 8.0) buys the adaptive-icon-only path and drops every pre-26 inset branch.
+
+#### What was built
+
+| File | Role |
+|---|---|
+| `mobile/CLAUDE.md` · `mobile/README.md` · `mobile/shared/bridge.md` | The map, the operator build/signing guide, **the** bridge contract (AC-27) |
+| `MainActivity.kt` | The five states, the WebView configuration, insets, the back gesture, the launch version check |
+| `ServerConfig.kt` | The address + `SharedPreferences`; a faithful port of `desktop/ServerConfig.cs`'s `ParseAddress` |
+| `ClientRequirements.kt` | The native pre-launch read of `GET /api/meta/client-requirements` |
+| `ShellBridge.kt` | `window.__clinicShell` — `saveFile` · `print` · `onPushToken`, plus the injected wrapper |
+| `FileChooser.kt` | `onShowFileChooser` + the camera + the extension→MIME resolution |
+| `ExternalNavigation.kt` | Off-origin top-level navigations → Custom Tabs |
+| `network_security_config.xml` · `data_extraction_rules.xml` · `file_paths.xml` | TLS trust anchors, backup exclusions, the FileProvider path |
+| layout · strings · colors · themes · adaptive icon | The five panels, every string in French, the mark copied from `web/branding/icon.svg` |
+
+#### Post-change gate
+
+| Gate | Result |
+|---|---|
+| `gradlew clean lint assembleDebug assembleRelease` | **exit 0.** Lint: **« No issues found »** — 0 errors, 0 warnings, with `warningsAsErrors = true` |
+| debug APK | `app-debug.apk`, 2 343 970 bytes |
+| **minified** release APK | `app-release-unsigned.apk`, 126 324 bytes — R8 + resource shrinking exercised |
+| R8 keep rule verified | the release `classes.dex` still contains `saveFile` and the injected `__clinicShellNative` / `maxFileBytes` strings. The **class** was renamed, which is harmless: JS reaches the object by the name `addJavascriptInterface` gave it, never by class |
+| `npm run check:responsive` | **All 15 checks passed** |
+| `npx tsc --noEmit` | **0 errors** |
+| `npm run build` | **exit 0**, warning count identical to baseline (the one pre-existing `@auth0/nextjs-auth0` Edge-Runtime warning, inside `node_modules`) |
+| backend | **not run — nothing under `api/` changed.** Confirmed against `git status`, not assumed |
+
+**The lint gate was proved red before being trusted.** It is not a check that has only ever passed: the first run
+reported **16 warnings**, and after those were cleared `warningsAsErrors` surfaced **2 more** as errors
+(`MergeRootFrame`, `LabelFor`). All 18 were fixed or deliberately suppressed with a stated reason, and only then
+did the report read « No issues found ». Two of the 18 were real defects rather than style —
+`android:allowBackup="false"` alone does not exclude an Android-12+ **device-to-device transfer**, which would have
+handed a live clinical session to whatever restored it; and the `LabelFor` finding was the accessibility label
+being **both** a `labelFor` and a `hint`, which is the one combination lint rejects.
+
+Four suppressions, each with its reason in the file it sits in:
+
+- `GradleDependency` (disabled in `lint {}`) — it reports « a newer AndroidX exists », not a defect, and bumping
+  needs a `compileSdk` this project is not verified against.
+- `SetJavaScriptEnabled` — JavaScript is what the shell exists to run.
+- `AcceptsUserCertificates` — DEV-15's deliberate decision; the file states it.
+- `MergeRootFrame` — the exception lint's own text names: the root **does** carry padding, applied at runtime by
+  `applyWindowInsets`, and a `<merge>` would delete the view the inset listener pads.
+
+#### Device pass
+
+⚠️ **No pass on real hardware, and none is claimed.** No Android phone is available; an emulator was declined.
+Everything in *Owed verification (Part 4)* below is untested on a device. What *is* established is that the project
+builds, lints clean and produces both a debug and a minified release artifact — i.e. the code exists and compiles,
+which is what a session with no phone can honestly deliver.
+
+The device *contract* was nonetheless designed in rather than deferred, and the reasoning is in the files: every
+panel is inside a `ScrollView` with `fillViewport` so a ~380 dp-high landscape phone reaches the buttons; every
+button is ≥ 48 dp; every size is `sp`/`dp` and never a pixel; the two side-by-side buttons of the address panel were
+**restacked full-width** because a button bar is cramped at 320 dp (which also cleared the `ButtonStyle` finding).
+
+## Findings that changed the work (Part 4)
+
+### F-11 · AC-23 is unachievable without `configChanges`, and the plan was right to say so
+
+Android recreates an activity on rotation *and* on a Split View resize by default, which destroys the WebView and
+reloads the app — losing whatever was typed in an open dialog. `android:configChanges` therefore lists
+`orientation|screenSize|smallestScreenSize|screenLayout|density|fontScale|uiMode|keyboard|keyboardHidden|navigation|touchscreen|layoutDirection`.
+No amount of web-side work can compensate from inside.
+
+### F-12 · targetSdk 35 forces edge-to-edge, so AC-22 needed a different answer than expected
+
+An app targeting SDK 35 draws under the system bars on Android 15 whether it asks to or not, and
+`setDecorFitsSystemWindows(true)` no longer opts out. The plan's assumption — that `viewportFit=cover` plus the web
+app's `--bottom-inset` suffices — holds only if this WebView build reports the navigation bar through
+`env(safe-area-inset-bottom)`, which is **version-dependent and untestable from here**. So `applyWindowInsets`
+consumes the system-bar + cutout insets as **padding on the root** and folds the IME inset into the same bottom
+value: the viewport ends above the gesture bar on every version, and the keyboard shrinks it so the app's
+`dvh`-sized sheets keep their sticky footers reachable.
+
+### F-13 · `onReceivedHttpError` must NOT be handled — that omission *is* AC-74
+
+An HTTP status means the server answered, and what it answered with is the app's own French error page. Replacing
+that with a shell state would produce exactly the « blank app » AC-74 forbids. Only a transport failure
+(`onReceivedError`, main frame only) becomes « Impossible de joindre le serveur ». The same reasoning covers the
+native half of AC-74: the launch probe hitting a server too old to have `/api/meta/client-requirements` reads as
+« no floor » and the app loads normally.
+
+### F-14 · AC-76 cannot be implemented in a shell at all, and the login path was never the gap
+
+A WebView does not observe its page's `fetch` responses — the spec says so itself under FR-8 — so the shell cannot
+see the 403. Reading the code settled the rest: `/bff/auth/local-login` writes `local_must_change_password` and
+`middleware.ts` already holds a user on `/change-password`, so the **login** path was fine. The real gap is an admin
+resetting the password of somebody **already signed in**: no login, so no cookie, and every call from then on 403s —
+surfacing `LocalAuthEnforcementMiddleware`'s **English** sentence verbatim through `lib/errors.ts`, in a product
+whose own rule is that no English string reaches a user. Fixed in `client.ts` — see DEV-17.
+
+### F-15 · An `accept` attribute may hold extensions, and the CSV import's does
+
+`WebChromeClient.FileChooserParams.acceptTypes` passes `accept` through unchanged, so `.csv` arrives as a literal
+extension. Handing that to the picker as a `type` matches nothing: the file list comes up **empty** and the import
+looks broken rather than unsupported. `FileChooser.resolveMimeTypes` resolves extensions through `MimeTypeMap` and
+widens anything still unresolvable to the wildcard type — a worse filter but a working one.
+
+### F-16 · A wildcard MIME literal inside a KDoc comment terminates the comment
+
+The three characters `*`, `/`, `*` in a doc block close it, and Kotlin then reports 17 « Expecting member
+declaration » errors on the line *after*. Recorded because the error text points nowhere near the cause. Its XML
+sibling cost a build in the same session: an XML comment may not contain a double hyphen, and a comment quoting the
+CSS custom properties `primary` / `primary-foreground` by their `--` prefix failed `mergeDebugResources`.
+
+## Deviations (Part 4)
+
+### DEV-15: `network_security_config.xml` trusts user-installed CAs
+
+**Date:** 2026-08-06 · **Story:** Part 4 · **Category:** Technical (security-adjacent)
+**Original Plan:** silent — the plan specifies `mixedContentMode = NEVER_ALLOW` and nothing about trust anchors.
+**Actual Implementation:** a `network_security_config.xml` declaring `system` **and** `user` trust anchors, with
+`cleartextTrafficPermitted="false"`.
+**Justification:** a `SelfHostedLan` install serves a certificate the API mints itself into `.local/` on first boot,
+so the system store cannot validate it and **every** load fails — the shell would be unable to reach one of the
+three shipped topologies, the one the desktop shell exists for. The alternative that "works" — overriding
+`onReceivedSslError` to proceed — is blanket MITM acceptance and was rejected outright; `onReceivedSslError` is not
+overridden anywhere in this app, so an untrusted certificate still fails loudly into « Impossible de joindre le
+serveur de la clinique ». A user CA requires a deliberate per-device action with an OS warning, which is exactly
+what the LAN device-trust page (`mobile-tablet-responsive` P8) exists to walk an operator through.
+**Impact:** Android Lint's `AcceptsUserCertificates` is suppressed at that element with the reason in the file.
+`mobile/README.md` documents the operator step and states that a hosted deployment with a publicly-trusted
+certificate needs none of it.
+**Approved:** Yes — asked and confirmed before any code was written.
+
+### DEV-16: « Recharger » and « Changer de serveur… » hang off the back gesture, not a menu bar
+
+**Date:** 2026-08-06 · **Story:** Part 4 · **Category:** Scope
+**Original Plan:** « the five French states with « Réessayer », « Changer de serveur… », « Recharger » », mirroring
+the desktop shell's `Serveur` menu.
+**Actual Implementation:** « Réessayer » and « Changer de serveur » are buttons on the states that need them. The
+back gesture at the **root** of the app opens a « Serveur » dialog carrying **Recharger · Changer de serveur… ·
+Quitter**.
+**Justification:** the desktop shell can afford a permanent menu bar; AC-13 requires « full-screen, no browser
+chrome », so a persistent strip contradicts the criterion it would serve. Back-at-the-root was otherwise a free
+gesture that closed the app outright — turning it into a deliberate « Quitter » is the standard Android answer and
+satisfies AC-24's « navigates within the app rather than closing it » at the one place the criterion is otherwise
+silent.
+**Impact:** AC-15's « each reachable in a test » holds; the hardware walk must exercise the gesture, and the owed
+list says so.
+**Approved:** Auto — no capability is removed and no API changes; recorded because it departs from the plan's
+literal wording.
+
+### DEV-17: AC-76 is implemented in `web/lib/api/client.ts`, not in the shell
+
+**Date:** 2026-08-06 · **Story:** Part 4 · **Category:** Scope
+**Original Plan:** Part 4 step 9 assigns AC-76 to the shell, and the plan's file inventory says Part 4 modifies
+**0** files.
+**Actual Implementation:** `ApiErrorCode.MustChangePassword` + an `onMustChangePassword(listener)` hook in
+`client.ts`, a French message replacing the backend's English one, and `LocalSessionProvider` navigating to
+`/change-password`. `mobile/` implements nothing for AC-76.
+**Justification:** F-14. A WebView cannot observe its page's `fetch` responses, so the shell **cannot** see the 403
+— the plan's own spec says so under FR-8, which makes step 9 unimplementable as written and the « modifies 0 files »
+row an error rather than a constraint. `client.ts` is the single point every response passes through, it already
+carries the identical hook for the 426, and fixing it there closes the same gap for the browser.
+**Impact:** two `web/` files changed, so the frontend gate was re-run in full (green). No caller's error handling
+changes: the branch is keyed on the machine-readable `code`, and the message substitution is the only place this
+module overrides a server-sent string — stated in its own doc comment.
+**Approved:** Yes — asked, with the alternative (« shell only; record the gap ») spelled out, and confirmed.
+
+### Auto-approved deviations (trivial, Part 4)
+
+| Deviation | Classification | Reason |
+|---|---|---|
+| A sixth Kotlin file, `ClientRequirements.kt` | Trivial | The plan names five; the launch version read is a native HTTP call plus a JSON parse and does not belong inside `MainActivity`. No API surface, no dependency. |
+| `lint { warningsAsErrors = true }` | Trivial | Makes the module's only static gate hold the repo's own 0-warnings policy. Proved red first. |
+| `data_extraction_rules.xml` | Trivial | The Android-12+ half of `allowBackup="false"`, which lint named. Contained, no API. |
+| Adaptive icon at `mipmap-anydpi/` rather than `-anydpi-v26/` | Trivial | `minSdk` is 26, so the qualifier is dead weight (`ObsoleteSdkInt`). |
+| The address panel's two buttons restacked full-width | Trivial | Cleared `ButtonStyle` and is what 320 dp wants; matches the other three panels. |
+| `config_hint` string removed | Trivial | Lint accepts a `labelFor` **or** a `hint`, not both; the example address is already in the help line. |
+
+## Owed verification (Part 4)
+
+Every one of these needs a **physical Android phone**. None was available.
+
+- [ ] **AC-13** — the APK installs and opens the hosted app full-screen, no browser chrome.
+- [ ] **AC-14** — sign in, kill the app, relaunch: **still signed in**. The cookie store and the `onPause` flush are
+      in place; only hardware can show the session survived a real process death.
+- [ ] **AC-15 / AC-16** — all five states reached, all French, « unreachable » naming the address *and* the reason,
+      and « Réessayer » succeeding on an **unchanged** address once the server returns.
+- [ ] **AC-17** — the address survives a relaunch and is changeable from the « Serveur » dialog (DEV-16's gesture).
+- [ ] **AC-18** — all six file inputs open the picker; an image input offers the **camera**; the CSV import's `.csv`
+      accept resolves to a picker that actually lists files (F-15).
+- [ ] **AC-19 / AC-20** — every Part 1 delivery path lands a file through `saveFile`, and a **> 25 MB** file is
+      refused with the limit named *before* the blob is read.
+- [ ] **AC-21** — printing through the OS print service, and the output carrying document content only.
+- [ ] **AC-22** — the bottom navigation clears the gesture bar (F-12's inset padding, on real hardware).
+- [ ] **AC-23** — rotation and split-screen do **not** remount, and typed input in an open dialog survives.
+- [ ] **AC-24** — the back gesture navigates within the app; at the root it opens the « Serveur » dialog.
+- [ ] **AC-25** — « Connecter Google Agenda » leaves to a Custom Tab and the app shows the connected state on
+      return. ⚠️ See the limitation below.
+- [ ] **AC-26** — with `window.__clinicShell` **deleted at runtime**, every affected screen behaves as in a browser,
+      including `window.print()` doing nothing rather than throwing.
+- [ ] **AC-74** — a route the server does not have is an ordinary French error on that one screen.
+- [ ] **AC-76** — the change completes **inside the shell** after an admin-forced reset (the web half is landed and
+      gated; only the in-shell walk is owed).
+- [ ] The **release** artifact on hardware: this session built a minified release APK but installed nothing, so R8's
+      effect on the bridge is verified by inspecting the dex, not by using the app.
+
+### Known limitation, not an omission — AC-25's automatic return
+
+Nothing in the Custom Tabs API reports which URL a tab reached, so the OAuth callback landing back on the clinic's
+origin **inside the tab** is not observable. Only an `intent-filter` with a **verified App Link** would close the tab
+and hand the navigation back, and that needs a fixed publicly-resolvable domain — one of Part 8's four deferred
+decisions. Until then the shell reloads the page the user left as soon as it is resumed, which reaches the
+criterion's outcome (« shows the connected state ») by resume rather than by redirect. Recorded in
+`ExternalNavigation.handOffInFlight`'s own doc comment so the App Links follow-up has one obvious home.
+
+### Still owed to the story, and whose decision it is
+
+- **The bundle identifier and the display name.** `applicationId` is `com.clinicmanagement.shell`, marked
+  **provisional** in `build.gradle.kts` and in `mobile/README.md`. It **cannot be changed after the first store
+  submission** — Part 8's decision, and nothing here should be read as having settled it.
+- **Signing.** No keystore is committed and none is scripted; `mobile/README.md` carries the `keytool` and
+  `bundleRelease` commands and the warning that losing the keystore ends the listing's ability to update.
+
+### What Part 4 unblocks
+
+- **Part 7 step 2 (biometric resume, AC-57…AC-60)** was recorded as « unstarted until `mobile/shared/bridge.md`
+  exists ». It exists now, so the contract can be amended rather than invented.
+- **Part 7 steps 1, 3 and 4** (camera on hardware, the native viewer, deep links) all have their Android half's
+  home: `FileChooser`, `ShellBridge.saveFile`'s open path, and an App Links `intent-filter` respectively.
+- **Part 6's device-token criteria** now have a shell to register from — `onPushToken` is wired and inert, and the
+  delivery seam (`window.__clinicShellDeliverPushToken`) is the one line FCM has to call.

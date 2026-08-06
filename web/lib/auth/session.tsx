@@ -4,7 +4,7 @@ import type React from "react"
 import { Auth0Provider, useUser } from "@auth0/nextjs-auth0/client"
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
 import { clinicsApi } from "@/lib/api/clinics"
-import { clearCachedAccessToken } from "@/lib/api/client"
+import { clearCachedAccessToken, onMustChangePassword } from "@/lib/api/client"
 
 export type AuthMode = "cloud" | "local"
 
@@ -157,6 +157,26 @@ export function LocalSessionProvider({ children }: { children: React.ReactNode }
     return () => {
       active = false
     }
+  }, [])
+
+  /*
+   * A forced password change is a destination, not an error message (AC-76).
+   *
+   * The login path is already covered: `/bff/auth/local-login` writes `local_must_change_password` and
+   * `middleware.ts` holds the user on `/change-password` until it is gone. What that cookie cannot cover is an
+   * admin resetting the password of somebody **already signed in** — no login happens, so no cookie is written,
+   * and every call from then on 403s. Routing here rather than in `client.ts` keeps navigation out of the data
+   * layer, the same split `<ClientVersionGate>` uses for the 426.
+   *
+   * ⚠️ A full navigation, not `router.push`: the same middleware gate must run, and the in-memory access token
+   * must not survive into the new state. And it is guarded on the current path — the change-password screen
+   * itself makes calls, and a redirect to the page you are on is a reload loop.
+   */
+  useEffect(() => {
+    return onMustChangePassword(() => {
+      if (window.location.pathname.startsWith("/change-password")) return
+      window.location.href = "/change-password"
+    })
   }, [])
 
   /*

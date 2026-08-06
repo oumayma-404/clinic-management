@@ -1,0 +1,280 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The five mutually-exclusive states of AC-15, on `desktop/MainWindow.xaml`'s pattern: one WebView plus four
+  overlay panels, switched by visibility. One layout rather than five fragments for the reason § 5 of the
+  frontend rule gives for the web app — two components behind one hinge lose state, and here a second Activity
+  or a fragment swap would destroy the WebView and with it the page the user was on.
+
+  Three device rules the shell is held to, the same ones `web/` is:
+    * every panel is inside a `ScrollView` with `fillViewport`, so a landscape phone (~380 dp of height) can
+      reach the buttons. `gravity="center_vertical"` is safe here and is *not* CSS `items-center`: with
+      `fillViewport` the child is exactly its content height once it overflows, so centring becomes a no-op
+      rather than pushing the top out of the scrollable region.
+    * every button is at least 48 dp tall — Android's own floor, above the contract's 44 px.
+    * every size is `sp` or `dp`, never a pixel, so the user's font-size setting is honoured.
+-->
+<!--
+  `MergeRootFrame` is suppressed for the reason lint's own explanation names as the exception: this root **does**
+  carry padding — applied at runtime by `applyWindowInsets`, which lint cannot see — and a `<merge>` would remove
+  the very view the inset listener pads.
+
+  It carries no background: the theme's `windowBackground` already paints one and a second is overdraw. Each panel
+  below paints its own, which is what hides the WebView behind it.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/content_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    tools:ignore="MergeRootFrame">
+
+    <!--
+      Hidden until a navigation succeeds, so a failed load never flashes the WebView's own English error page
+      before the French state that replaces it.
+    -->
+    <WebView
+        android:id="@+id/web_view"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone" />
+
+    <!-- ── State: connecting ─────────────────────────────────────────────────────────────────────────── -->
+    <ScrollView
+        android:id="@+id/panel_connecting"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/shell_surface"
+        android:fillViewport="true"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:orientation="vertical"
+            android:padding="24dp">
+
+            <ProgressBar
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="20dp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:text="@string/connecting_title"
+                android:textColor="@color/shell_ink_muted"
+                android:textSize="16sp" />
+
+            <TextView
+                android:id="@+id/connecting_target"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:gravity="center"
+                android:textColor="@color/shell_ink_muted"
+                android:textSize="13sp" />
+        </LinearLayout>
+    </ScrollView>
+
+    <!-- ── State: server address (first run, and « Changer de serveur… ») ────────────────────────────── -->
+    <ScrollView
+        android:id="@+id/panel_config"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/shell_surface"
+        android:fillViewport="true"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="vertical"
+            android:padding="24dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/config_title"
+                android:textColor="@color/shell_ink"
+                android:textSize="22sp"
+                android:textStyle="bold" />
+
+            <!--
+              This subtitle *is* the field's label — `labelFor` is the Android equivalent of `<Label htmlFor>`,
+              and § 13 wants a real label rather than a placeholder standing in for one. There is deliberately no
+              `android:hint`: lint accepts a label **or** a hint and not both, and the example address is already
+              on screen in the help line below.
+            -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:labelFor="@id/config_address"
+                android:text="@string/config_subtitle"
+                android:textColor="@color/shell_ink_muted"
+                android:textSize="15sp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="@string/config_help"
+                android:textColor="@color/shell_ink_muted"
+                android:textSize="13sp" />
+
+            <EditText
+                android:id="@+id/config_address"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:autofillHints="none"
+                android:imeOptions="actionGo"
+                android:inputType="textUri"
+                android:minHeight="48dp"
+                android:textSize="16sp" />
+
+            <TextView
+                android:id="@+id/config_error"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:textColor="@color/shell_danger"
+                android:textSize="13sp"
+                android:visibility="gone" />
+
+            <!--
+              Stacked full-width rather than a side-by-side button bar: two buttons in a row are cramped at
+              320 dp, and this matches the other three panels so the shell has one button shape everywhere.
+              « Se connecter » comes first because it is the primary action on this screen.
+            -->
+            <Button
+                android:id="@+id/config_save"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:minHeight="48dp"
+                android:text="@string/config_save" />
+
+            <Button
+                android:id="@+id/config_cancel"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:minHeight="48dp"
+                android:text="@string/config_cancel" />
+        </LinearLayout>
+    </ScrollView>
+
+    <!-- ── State: unreachable ───────────────────────────────────────────────────────────────────────── -->
+    <ScrollView
+        android:id="@+id/panel_unreachable"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/shell_surface"
+        android:fillViewport="true"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="vertical"
+            android:padding="24dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/unreachable_title"
+                android:textColor="@color/shell_ink"
+                android:textSize="20sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/unreachable_detail"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:textColor="@color/shell_ink_muted"
+                android:textSize="13sp" />
+
+            <Button
+                android:id="@+id/unreachable_retry"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:minHeight="48dp"
+                android:text="@string/unreachable_retry" />
+
+            <Button
+                android:id="@+id/unreachable_change_server"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:minHeight="48dp"
+                android:text="@string/unreachable_change_server" />
+        </LinearLayout>
+    </ScrollView>
+
+    <!-- ── State: update required (the launch half of AC-33) ────────────────────────────────────────── -->
+    <ScrollView
+        android:id="@+id/panel_update"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/shell_surface"
+        android:fillViewport="true"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="vertical"
+            android:padding="24dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/update_title"
+                android:textColor="@color/shell_ink"
+                android:textSize="20sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/update_detail"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:textColor="@color/shell_ink_muted"
+                android:textSize="13sp" />
+
+            <!-- Hidden when the server published no store URL: a button that cannot go anywhere is worse than none. -->
+            <Button
+                android:id="@+id/update_open_store"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:minHeight="48dp"
+                android:text="@string/update_open_store"
+                android:visibility="gone" />
+
+            <Button
+                android:id="@+id/update_retry"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:minHeight="48dp"
+                android:text="@string/unreachable_retry" />
+
+            <Button
+                android:id="@+id/update_change_server"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:minHeight="48dp"
+                android:text="@string/unreachable_change_server" />
+        </LinearLayout>
+    </ScrollView>
+</FrameLayout>

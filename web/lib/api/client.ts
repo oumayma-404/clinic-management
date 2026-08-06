@@ -63,6 +63,18 @@ export const ApiErrorCode = {
    * Emitted by `ClientVersionMiddleware.TooOldCode`.
    */
   ClientTooOld: 'client_too_old',
+  /**
+   * This account must change its password before it may do anything else, so **every** route but
+   * `/api/auth/change-password` refuses it with 403 until it has. Not a rights failure and not a session
+   * failure: the account is fine and the fix is one screen away, which is why it is routed rather than shown
+   * (AC-76 — on the hosted topology accounts are admin-provisioned, so this is the *normal* first sign-in).
+   *
+   * ⚠️ The login path already handles it through the `local_must_change_password` cookie and `middleware.ts`.
+   * This code covers the case that cookie cannot: an admin resetting the password of somebody already signed
+   * in. Before it, every call 403'd with the middleware's own **English** sentence, which `lib/errors.ts` hands
+   * to the toast verbatim. Emitted by `LocalAuthEnforcementMiddleware`.
+   */
+  MustChangePassword: 'must_change_password',
 } as const;
 
 /** Whether the server has refused this client as too old at any point this session. See {@link onClientTooOld}. */
@@ -90,6 +102,33 @@ export function onClientTooOld(listener: ClientTooOldListener): () => void {
 export function isClientRefusedAsTooOld(): boolean {
   return clientRefusedAsTooOld;
 }
+
+type MustChangePasswordListener = () => void;
+const mustChangePasswordListeners = new Set<MustChangePasswordListener>();
+
+/**
+ * Subscribe to « this account must change its password first » (403 + {@link ApiErrorCode.MustChangePassword}).
+ * Returns an unsubscribe function.
+ *
+ * Same shape as {@link onClientTooOld} and for the same reason: the data layer reports the refusal, and the one
+ * component that owns the session decides where the user goes. `LocalSessionProvider` is the subscriber.
+ */
+export function onMustChangePassword(listener: MustChangePasswordListener): () => void {
+  mustChangePasswordListeners.add(listener);
+  return () => {
+    mustChangePasswordListeners.delete(listener);
+  };
+}
+
+/**
+ * What the user is told while being sent to the change-password screen.
+ *
+ * ⚠️ It **replaces** the body's own `error`, which is the one place this module overrides a server message. The
+ * backend sends « You must change your password before continuing. » — English, to a French-speaking dentist —
+ * and the machine-readable `code` is exactly what lets us substitute it without matching prose.
+ */
+const MUST_CHANGE_PASSWORD_MESSAGE_FR =
+  'Vous devez changer votre mot de passe avant de continuer.';
 
 /**
  * What the user is told when the request never reached the server (AC-43).
@@ -298,6 +337,12 @@ async function handleResponse<T>(response: Response): Promise<T> {
     if (response.status === 426) {
       clientRefusedAsTooOld = true;
       clientTooOldListeners.forEach((listener) => listener());
+    }
+
+    // The one refusal every screen can act on, in exactly one way: go and change the password.
+    if (errorCode === ApiErrorCode.MustChangePassword) {
+      errorMessage = MUST_CHANGE_PASSWORD_MESSAGE_FR;
+      mustChangePasswordListeners.forEach((listener) => listener());
     }
 
     throw new ApiError(response.status, errorMessage, undefined, errorCode);

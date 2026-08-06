@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Every user-facing string of the shell, in French — the language of the app it renders. There is no English
+  resource set and no default-locale fallback to one, deliberately: an untranslated string appearing on a
+  Tunisian dentist's phone is the defect, not the missing translation.
+
+  ⚠️ No string here names the « réseau local ». The same server is reached over a LAN, over Wi-Fi and over a
+  mobile network, so that wording is false everywhere but the offline-LAN install — the rule `web/`'s
+  `local-network-wording` gate enforces on the other side of the same product.
+-->
+<resources>
+    <string name="app_name">Gestion Clinique</string>
+
+    <!-- State: connecting -->
+    <string name="connecting_title">Connexion au serveur de la clinique…</string>
+
+    <!-- State: server address -->
+    <string name="config_title">Gestion Clinique</string>
+    <string name="config_subtitle">Adresse du serveur de la clinique</string>
+    <string name="config_help">Saisissez l\'adresse IP ou le nom du serveur (par ex. 192.168.1.10 ou clinic-server). Le port 5001 est utilisé si vous n\'en indiquez pas.</string>
+    <string name="config_invalid">Veuillez saisir une adresse de serveur valide.</string>
+    <string name="config_save">Se connecter</string>
+    <string name="config_cancel">Annuler</string>
+
+    <!-- State: unreachable -->
+    <string name="unreachable_title">Impossible de joindre le serveur de la clinique</string>
+    <string name="unreachable_detail">Adresse : %1$s\nDétail : %2$s\n\nVérifiez que le serveur est allumé et accessible, puis réessayez.</string>
+    <string name="unreachable_retry">Réessayer</string>
+    <string name="unreachable_change_server">Changer de serveur</string>
+
+    <!-- State: update required -->
+    <string name="update_title">Mise à jour requise</string>
+    <string name="update_detail">Ce serveur demande la version %1$s ou plus récente de l\'application. La version installée est %2$s.</string>
+    <string name="update_detail_no_floor">Ce serveur ne prend plus en charge cette version de l\'application. Mettez-la à jour pour continuer.</string>
+    <string name="update_open_store">Mettre à jour</string>
+
+    <!-- The « Serveur » actions, reached with the back gesture at the root of the app -->
+    <string name="menu_title">Serveur</string>
+    <string name="menu_reload">Recharger</string>
+    <string name="menu_change_server">Changer de serveur…</string>
+    <string name="menu_quit">Quitter</string>
+
+    <!-- Bridge: handing a file to the OS -->
+    <string name="save_file_chooser_title">Ouvrir avec</string>
+    <string name="save_file_failed">Le fichier n\'a pas pu être enregistré sur cet appareil.</string>
+    <string name="save_file_no_viewer">Aucune application de cet appareil ne peut ouvrir ce fichier.</string>
+
+    <!-- File chooser -->
+    <string name="file_chooser_title">Choisir un fichier</string>
+    <string name="file_chooser_camera_failed">L\'appareil photo n\'a pas pu être ouvert.</string>
+
+    <!-- External navigation -->
+    <string name="external_open_failed">Aucun navigateur n\'est disponible sur cet appareil pour ouvrir cette page.</string>
+</resources>

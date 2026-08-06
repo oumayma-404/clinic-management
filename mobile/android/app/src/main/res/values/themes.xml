@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      NoActionBar is AC-13: the shell shows the hosted app and nothing else — no title bar, no address bar, no
+      browser chrome. The recovery actions the desktop shell keeps in a « Serveur » menu are reached here with
+      the back gesture at the root instead, so none of them costs a permanent strip of the viewport.
+    -->
+    <style name="Theme.ClinicShell" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:colorPrimary">@color/brand_primary</item>
+        <item name="android:colorAccent">@color/brand_primary</item>
+        <item name="android:windowBackground">@color/shell_surface</item>
+        <item name="android:statusBarColor">@color/brand_primary</item>
+        <item name="android:navigationBarColor">@color/shell_surface</item>
+    </style>
+</resources>

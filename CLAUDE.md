@@ -30,6 +30,10 @@ clinic-management/
 │   ├── components/                       → CLAUDE.md  (feature components + shadcn/ui primitives)
 │   └── lib/                              → CLAUDE.md  (API client layer, hooks, realtime, utils)
 ├── desktop/                      WPF + WebView2 thin client shell (Local mode, Phase 5) → CLAUDE.md
+├── mobile/                       Native shells rendering the server's own web bundle → CLAUDE.md
+│                                   shared/bridge.md = THE `window.__clinicShell` contract
+│                                   android/         = Kotlin + WebView (built; Gradle, not CI-runnable)
+│                                   ios/             = NOT built (needs macOS + an Apple Developer membership)
 ├── packaging/                    Local/offline-LAN publish + installers (PowerShell + Inno Setup) → CLAUDE.md (+ README.md operator guide)
 ├── deploy/                       Hosted deployments (Docker + Caddy) → README.md operator guide
 │                                   docker-compose.prod.yml   = CloudBrowser  (Auth0)
@@ -646,6 +650,35 @@ Frontend talks to the API via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
   question is split on purpose** — `DeploymentProfile.PermitsOsPush` answers the deployment *kind* (so
   `SelfHostedLan` is ✗ whatever an operator configures) while `IOsPushAvailability` ANDs in the per-install FCM/APNs
   credentials, keeping `DeploymentProfile`'s « no operator setting can flip a capability » invariant intact.
+- **The clinic runs on a phone, and the phone is a shell not a second frontend (`mobile-native-shells` Part 4)**:
+  `mobile/android/` is a thin Kotlin `WebView` shell rendering the hosted server's **own** web bundle — five French
+  states (`WebPage` · `Connecting` · `ServerAddress` · `Unreachable` · `UpdateRequired`), a runtime-configurable
+  address, and `window.__clinicShell`. **`mobile/shared/bridge.md` is THE contract** (not `web/types/clinic-shell.d.ts`,
+  which describes only what the bundle consumes today), and a change to its method set edits that file **and** bumps
+  the shell's version. Phase 1's set is `saveFile` · `print` · `onPushToken`; every web-side read is a feature
+  detection, so with the object absent — every browser — behaviour is byte-identical to the pre-bridge app, which
+  AC-26 verifies by **deleting** it at runtime.
+  ⚠️ **The address is never compiled in**, because one build serves a clinic's own PC on a LAN *and* a hosted
+  backend on the internet; `ServerConfig.parseAddress` is a faithful port of `desktop/ServerConfig.cs`'s, so the two
+  clients cannot disagree about what a typed address means. `network_security_config.xml` trusts **user-installed
+  CAs** — without it the self-signed `SelfHostedLan` certificate makes that whole topology unreachable — while
+  `onReceivedSslError` is **not** overridden anywhere, so a bad certificate still fails loudly.
+  ⚠️ **Three omissions are load-bearing.** `onReceivedHttpError` is deliberately unhandled: a status means the
+  server *answered*, and what it answered with is the app's own French error page — replacing that with a shell
+  state is the blank app AC-74 forbids (same reason the launch probe reads a 404 on
+  `/api/meta/client-requirements` as « no floor »). `android:configChanges` must list every configuration the
+  activity handles or rotation destroys the WebView and AC-23 is unachievable from inside the web app. And insets
+  are consumed as **padding on the root** rather than drawn under: targetSdk 35 forces edge-to-edge on Android 15,
+  and whether a given WebView reports the navigation bar through `env(safe-area-inset-bottom)` is version-dependent.
+  ⚠️ **A WebView cannot see its page's `fetch` responses**, so anything needing a response body is `web/` work, not
+  shell work: the in-session 426 (Part 3) and the `must_change_password` 403 (AC-76) both live in
+  `web/lib/api/client.ts`. The latter's login path was never broken — the `local_must_change_password` cookie plus
+  `middleware.ts` cover it — but an **admin resetting the password of somebody already signed in** writes no cookie,
+  so every call 403'd and surfaced the middleware's **English** sentence verbatim. `onMustChangePassword` now routes
+  to `/change-password`, and it is the one place `client.ts` replaces a server-sent message.
+  ⚠️ Not CI-runnable, operator-verified (as `desktop/` is) and in **neither** the `.sln` **nor** `web/`. Android Lint
+  runs with `warningsAsErrors` as the module's only static gate. The **hardware walk is owed**, and `applicationId`
+  is **provisional** — the bundle id is one of Part 8's deferred decisions and cannot change after first submission.
 - **A stale app says so, once, instead of failing screen by screen (`mobile-native-shells` P3)**: a native shell sends
   **`X-Client-Version`**; `ClientVersionMiddleware` refuses a build below the operator's `Clients:MinimumShellVersion`
   with **426** and `code: "client_too_old"`, and `<ClientVersionGate>` turns that into one full-screen « Mise à jour

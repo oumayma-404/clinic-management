@@ -189,7 +189,13 @@ Before starting this story, ensure:
      template
 5. **Gate, then commit Part 3**
 
-### Part 4 — Phase 1: the Android shell ⚠️ EXECUTABLE, subject to R-12
+### Part 4 — Phase 1: the Android shell ✅ IMPLEMENTED (2026-08-06)
+
+> **Landed.** `mobile/` exists, the shell builds and `lint` is clean with `warningsAsErrors`; both a debug and a
+> **minified** release APK are produced. Steps 2–6 and step 9 are done. **Step 7 (the hardware walk) is owed** —
+> no physical Android phone — along with the bundle-identifier decision, which is Part 8's. Three deviations
+> (DEV-15 user-CA trust · DEV-16 the « Serveur » gesture · DEV-17 AC-76 in `client.ts`) and six findings (F-11…F-16)
+> are in `progress.md` § Session 6, with the per-AC owed list.
 
 1. **Check the tooling first — do not assume**
    - Verify a JDK and the Android SDK are present. If absent, **stop**: Part 4 becomes blocked on tooling like

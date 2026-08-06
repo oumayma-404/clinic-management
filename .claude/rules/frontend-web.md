@@ -306,10 +306,22 @@ second — `patient-file-pdf-preview.tsx` is the shape, and `document-editor-con
 Where that surface is also the **print** path, printing *through* the frame prints nothing: check the frame is really
 rendered (`offsetParent !== null`) and otherwise hand the file to the OS through `downloadBlob`, whose viewer prints.
 
+**The Android shell exists, and `mobile/shared/bridge.md` is now the bridge contract** (Part 4). `print()` and
+`onPushToken()` are implemented there, and `window.print()` inside the shell is a shim routing to the OS print
+service — so a print call site needs no shell branch of its own. Read `bridge.md` before adding a member to
+`window.__clinicShell`; a change to the set edits that file **and** bumps the shell's version.
+
 Still open, so do not write code that assumes it and do not claim it in a report: `features/mobile-native-shells`
-**Parts 4, 5 and 8** — the two native shells and `window.__clinicShell`'s `print()`/`onPushToken()`, and biometric
-resume (Part 7's AC-57…AC-60, deliberately unstarted until `mobile/shared/bridge.md` exists). `window.__clinicShell`
-is **always** feature-detected; with it absent, behaviour must be byte-identical to a plain browser.
+**Parts 5 and 8** — the iOS shell and the two store listings. `window.__clinicShell` is **always** feature-detected;
+with it absent, behaviour must be byte-identical to a plain browser, and AC-26 is verified by **deleting** the
+object at runtime.
+
+**A forced password change is a destination, not a message** (Part 4, AC-76). A 403 carrying
+`code: "must_change_password"` is surfaced through `onMustChangePassword` in `lib/api/client.ts` and
+`LocalSessionProvider` navigates to `/change-password`. It is the one place `client.ts` **replaces** a server
+message: the backend sends an English sentence and `lib/errors.ts` hands it to the toast verbatim. The login path
+was never the gap — the `local_must_change_password` cookie covers it; an admin resetting the password of somebody
+already signed in is.
 
 ⚠️ **`items-center` inside an `overflow-y-auto` box is § 11's clipping trap on the vertical axis**, and it cost a
 real defect in Part 3: `align-items: center` pushes overflow to *both* ends and the **top** overflow is outside the
