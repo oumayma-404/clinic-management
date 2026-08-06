@@ -23,8 +23,24 @@ mobile/
 │       ├── BiometricGate.kt       the OS owner check behind confirmIdentity (AC-57…AC-60, API 28+)
 │       ├── FileChooser.kt         WebChromeClient.onShowFileChooser + the camera
 │       └── ExternalNavigation.kt  off-origin top-level navigations → Custom Tabs
-└── ios/                    Swift, `WKWebView`                          (Part 5, NOT built — no Mac, no Apple account)
+└── ios/                    Swift, `WKWebView`            (Part 5, ⚠️ WRITTEN BUT NEVER COMPILED — no Mac)
+    ├── project.yml                the Xcode project as text; XcodeGen builds the .xcodeproj on CI
+    ├── README.md                  the free build→phone chain, and what free signing costs
+    └── ClinicShell/
+        ├── AppDelegate.swift      one window, no scene manifest, no storyboard
+        ├── ShellViewController.swift  the five states, the WebView, the launch version check, shake menu
+        ├── ServerConfig.swift     a faithful port of ServerConfig.kt — quirks carried, not fixed
+        ├── ClientRequirements.swift   the native pre-launch read of GET /api/meta/client-requirements
+        ├── ShellBridge.swift      window.__clinicShell over WKScriptMessageHandlerWithReply
+        ├── BiometricGate.swift    LAContext.deviceOwnerAuthentication
+        ├── ExternalNavigation.swift   off-origin top-level navigations → SFSafariViewController
+        ├── ShellPanels.swift      the shared panel shape + the brand tokens
+        └── Strings.swift          every French string, as constants
 ```
+
+⚠️ **`mobile/ios/` has never been compiled, signed or run.** `.github/workflows/ios-shell.yml` on a free
+`macos-latest` runner is the first compiler it will meet. Do not treat its presence as Part 5 being done, and read
+`mobile/ios/README.md` before touching it.
 
 ## The three things a shell must not get wrong
 
@@ -74,5 +90,16 @@ mobile/
   build commands. There is no standalone `gradle` requirement — the committed wrapper is the entry point.
 - `applicationId` is **provisional**. The bundle identifier and the display name are two of Part 8's deferred
   business decisions and an applicationId cannot be changed after the first store submission.
-- `mobile/ios/` does not exist yet. Do not write code that assumes it, and do not mark Part 5 done on a simulator —
-  a simulator does not faithfully exercise persistent cookies, print or biometrics.
+- **Do not mark Part 5 done on a simulator** — it does not faithfully exercise persistent cookies, print or
+  biometrics, which are three of the four things the iOS shell exists to provide. A green CI build proves the
+  Swift compiles and nothing more.
+- **iOS has no app icon and a provisional bundle id**, both Part 8's. And free signing carries **no APNs
+  entitlement**, so Part 6's iOS half cannot be tested on the free path at all.
+
+## The port defect worth knowing before you touch `ServerConfig` in any client
+
+`parseAddress` defaults to port **5001** when the typed address carries no explicit port, so a hosted deployment on
+443 is unreachable unless the user types `:443`. It is a defect of **all three** clients (desktop, Android, iOS)
+and is carried across deliberately — they must agree on what an address means, and fixing one alone is the
+two-answers-to-one-question defect the ports exist to avoid. Fix it in one change across all three, or not at all.
+Full note in `mobile/ios/README.md` § « Le défaut de port ».

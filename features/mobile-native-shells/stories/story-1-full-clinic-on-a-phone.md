@@ -4,7 +4,8 @@
 **Story Status:** in-progress — **Parts 1, 2, 3, 4 and 6 implemented**; **Part 7's three shell-free halves plus
 step 2 (biometric resume, AC-57…AC-60)** implemented (2026-08-06). Part 7's steps 1, 3 and 4 need a physical phone
 or are already built elsewhere. A physical Android phone is owed for Part 4's step 7 and for every on-device
-criterion listed in `progress.md`. Parts 5 and 8 remain blocked. Live part status and the per-part session log are in [`progress.md`](./progress.md).
+criterion listed in `progress.md`. **Part 5's code was written on 2026-08-06 and has never been compiled** — it
+stays blocked, on one green CI run rather than on owning a Mac (§ Session 8). Part 8 remains blocked. Live part status and the per-part session log are in [`progress.md`](./progress.md).
 **Layer:** Full ⚠️ *(deliberate departure from the single-layer rule — see Notes)*
 **Depends On:** None
 **Blocks:** None

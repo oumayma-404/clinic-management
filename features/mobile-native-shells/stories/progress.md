@@ -15,7 +15,7 @@ The unit of progress is the **part**, not the story. Each part boundary is a com
 | 2 | Phase 2b | The session lasts the working day | **implemented** — gate green; the felt behaviour (AC-37) owed | see § Session 2 |
 | 3 | Phase 2 | A stale app says so | **implemented** — gate green; the on-device half (a real shell below the floor) is owed | `8f42b5d` (⚠️ the `Program.cs` registration travelled in `65a72e6` — § Session 3) |
 | 4 | Phase 1 | The Android shell | **implemented** (2026-08-06, session 6) — the shell builds, `lint` is clean with `warningsAsErrors`, both the debug APK and the **minified** release APK are produced. Steps 2–6 and step 9 are landed; **step 7's hardware walk is owed** (no physical Android phone), as is the bundle-identifier decision, which is Part 8's. See § Session 6 | `5d247bc` |
-| 5 | Phase 1 | The iOS shell | **blocked** — macOS + Xcode + Apple Developer Program | — |
+| 5 | Phase 1 | The iOS shell | **still blocked, but the blocker narrowed** (2026-08-06, session 8) — the whole shell is **written** (10 Swift/config files + a free `macos-latest` CI workflow) and has **never been compiled, signed or run**. Two of the plan's three unblock conditions have free answers (CI for the compiler, Sideloadly on Windows for signing); the **$99 Apple Developer Program** is the one with none, and it gates the App Store, TestFlight and APNs. Next step is **one green CI run** — see § Session 8 | — |
 | 6 | Phase 3 | A backgrounded phone still knows | **implemented** (2026-08-05/06, session 4) — backend + availability endpoint + settings statement. Web gate green; the **backend suite and both console verbs could not be re-run** (Smart App Control turned mid-session — § Session 4) | `999b877` |
 | 7 | Phase 4 | The phone becomes an instrument | **partly implemented** (2026-08-06, sessions 5 + 7) — session 5 landed the three **shell-free** halves (reachability AC-62…AC-64, the official forms in a shell AC-8, the upload retry AC-77); **session 7 landed step 2, biometric resume** (AC-57…AC-60) across both halves, bridge **1.1.0**. **Steps 1 and 4 stay not started** (each needs hardware or is already built — § Session 5); step 3's native viewer needs no new method and is reached through `saveFile` | `8a28846` + `9ed3eba` |
 | 8 | Phase 5 | Two store listings | **blocked** — store accounts + 4 deferred business decisions | — |
@@ -1458,3 +1458,146 @@ and must not be hidden behind a lock the user can pass.
 - [ ] **AC-58 by deleting the bridge at runtime** — `delete window.__clinicShell`, wait out the limit, and confirm
       the browser behaviour returns byte-identical.
 - [ ] **Three attempts** — fail or dismiss three times and land on `/login` with `returnTo` intact.
+
+---
+
+### Session 8 — 2026-08-06 · Part 5, the iOS shell — written, **not** built
+
+**Scope chosen by the user:** « i just need it to work on android and iphone, do whatever u need to do », after
+establishing that no Mac is available and the budget is **zero**. The Android device walk was chosen first but the
+phone was charging, so Part 5's code was written while waiting.
+
+⚠️ **Part 5 is NOT implemented by this session.** The Swift has never been compiled, signed or run. The part stays
+**blocked**; what changed is that its blocker narrowed from « needs a Mac » to « needs one green CI run ».
+
+#### The plan said BLOCKED, and the user overrode it — with the constraint that made it possible
+
+The plan's unblock condition for Part 5 is « macOS + Xcode + Apple Developer Program ». Two of those three turn out
+to be avoidable at zero cost, which the plan did not consider:
+
+| Need | Free answer |
+|---|---|
+| a macOS compiler | **GitHub Actions `macos-latest`** — free on public repos; Codemagic's free tier for private ones |
+| authoring an `.xcodeproj` | **XcodeGen** — `project.yml` is the project, as reviewable text; the `.xcodeproj` is generated on the runner and gitignored |
+| signing + installing on the user's own iPhone | **Sideloadly / AltStore on Windows**, free Apple ID, 7-day certificate |
+| the Apple Developer Program (**$99/yr**) | **no free substitute** — so the App Store, TestFlight and APNs stay out of reach |
+
+The residual truth is narrower than « blocked »: the shell can be built and walked on the user's own iPhone for
+free; it cannot be **distributed**.
+
+#### What was written
+
+| File | Role |
+|---|---|
+| `mobile/ios/project.yml` | the Xcode project as text. `MARKETING_VERSION 1.1.0` is the single source of the shell's version, as `versionName` is on Android; `SWIFT_TREAT_WARNINGS_AS_ERRORS` makes CI the module's gate the way Lint is Android's |
+| `mobile/ios/ClinicShell/ServerConfig.swift` | faithful port of `ServerConfig.kt` — quirks **carried, not fixed** (F-17) |
+| `…/ClientRequirements.swift` | the launch probe + `isBelowFloor`, mirroring the server's `Version.TryParse` pair |
+| `…/BiometricGate.swift` | `LAContext.deviceOwnerAuthentication`, `LAError` mapped to the contract's four outcomes |
+| `…/ShellBridge.swift` | `window.__clinicShell` over `WKScriptMessageHandlerWithReply`, `QLPreviewController` for AC-61, `UIPrintInteractionController` for AC-21 |
+| `…/ExternalNavigation.swift` | off-origin top-level navigations → `SFSafariViewController` |
+| `…/ShellViewController.swift` | the five French states, the WebView, the launch floor check, the shake menu |
+| `…/ShellPanels.swift` · `…/Strings.swift` · `…/AppDelegate.swift` · `…/Info.plist` | the panel shape + brand tokens, every French string, one window, the plist |
+| `.github/workflows/ios-shell.yml` | free `macos-latest`: XcodeGen → simulator build → unsigned device build → `.ipa` artifact |
+| `mobile/ios/README.md` | the free build→phone chain, what free signing costs, and the known defects |
+
+#### Findings
+
+##### F-17 · `parseAddress` makes a hosted deployment on 443 unreachable — in **all three** clients
+
+Porting `ServerConfig` line by line surfaced it: with no explicit port the parse defaults to **5001**, so
+`clinic.example.com` becomes `https://clinic.example.com:5001`. On `SelfHostedLan` that is right; on
+`HostedMultiTenant` — reached over the internet on 443 — the app cannot connect unless the user types `:443`. The
+desktop shell has it too, harmlessly, because it is LAN-only; Android inherited it while explicitly serving **both**
+topologies, which is where it becomes a real defect.
+
+**Deliberately not fixed here.** The three clients must agree on what a typed address means (`ServerConfig.kt`'s own
+docstring says so), and fixing one alone is the two-answers-to-one-question defect the ports exist to avoid. The
+likely shape of the real fix is to probe 443 before 5001 when no port was given — the launch probe already makes a
+request, so it costs nothing. Recorded in `mobile/ios/README.md`, `mobile/CLAUDE.md` and here so it is not
+rediscovered as an iOS bug.
+
+##### F-18 · `WKUserScript` has no origin argument, and that is a security difference, not a porting detail
+
+Android scopes the bridge wrapper with `addDocumentStartJavaScript(script, setOf(origin))`. WebKit has no
+equivalent: a `WKUserScript` runs in every frame of every page the web view loads, and the message handler is
+reachable from any of them. The scope therefore had to move **inside** the injected script, which now refuses to
+install unless `window.location.origin` is in a list computed in Swift.
+
+⚠️ That list has **two** entries when the port is 443, and the reason is a trap: `window.location.origin` omits the
+default port, so a server on 443 reports `https://host` while `baseUrl` says `https://host:443`. A strict
+comparison would have left the bridge silently uninstalled on exactly the deployment that has no other way in —
+the same class of invisible failure as F-17, one layer down.
+
+##### F-19 · Six places where iOS must *not* be a transcription of Android
+
+Each is a decision, not a difference of syntax, and each is commented at its site:
+
+1. **Safe area** — Android consumes insets as padding because `env(safe-area-inset-*)` is unreliable in WebView;
+   WKWebView reports it faithfully and `layout.tsx` already sets `viewportFit: "cover"`, so iOS draws edge-to-edge.
+2. **Rotation** — Android needs `android:configChanges` or the activity dies; iOS never destroys a view controller,
+   so AC-23 holds with no code.
+3. **The recovery menu** — iOS has no system back button, so « Serveur » hangs off a **device shake**; the edge
+   swipe is `allowsBackForwardNavigationGestures`.
+4. **Failure reporting** — a rejected `Promise` on iOS vs. a native toast on Android, because a Java exception out
+   of an `@JavascriptInterface` method is invisible to JavaScript. The contract already stated this; the port is
+   the first thing to rely on it.
+5. **`webView.configuration` returns a copy**, so the `WKUserContentController` is held directly. Writing through
+   the property is the standard idiom and would probably have worked; holding the instance removes the *probably*.
+6. **AC-61 needs no new bridge method on either platform** — `QLPreviewController` is reached through `saveFile`'s
+   open path, exactly as Android's `ACTION_VIEW` is.
+
+#### Deviations
+
+##### DEV-17: Part 5 was started against the plan's BLOCKED marking
+
+**Date:** 2026-08-06 · **Story:** 1, Part 5 · **Category:** Scope
+**Original plan:** « 🔒 BLOCKED — macOS + Xcode + Apple Developer Program. Do not start. »
+**Actual implementation:** the whole shell written, with a free CI workflow, and marked **UNCOMPILED** everywhere
+it is referenced.
+**Justification:** the user directed it explicitly after being told the risk twice, and the blocker was found to be
+narrower than the plan states — two of its three conditions have free answers (see the table above). The concern
+that stands is unchanged and is recorded rather than argued away: **unverified Swift is a liability**, and this
+session's own Android work is the evidence (two invisible defects caught only by tooling).
+**Impact:** Part 5 stays `blocked` in the status table. Nothing downstream may assume iOS works. The **first** CI
+run is expected to be red, and that is the point of running it.
+**Approved:** Yes — explicitly, twice, with the trade-off stated.
+
+##### Auto-approved deviations (trivial)
+
+| Deviation | Classification | Reason |
+|-----------|----------------|--------|
+| XcodeGen instead of a committed `.xcodeproj` | Trivial | Internal to `mobile/ios/`; an `.xcodeproj` can only be authored by Xcode, which does not exist here |
+| Shake for the « Serveur » menu | Trivial | No API change, no web-side effect. iOS has no free gesture equivalent to Android's back-at-root; documented where an operator reads it |
+| `AppDelegate` with no scene manifest | Trivial | One screen for the app's whole life; a `UISceneDelegate` is a lifecycle to reason about for no gain |
+
+#### Gate
+
+| Gate | Result |
+|------|--------|
+| Swift compile | ⚠️ **NOT RUN — no compiler exists on this machine.** This is the gap, stated plainly |
+| `.github/workflows/ios-shell.yml` YAML parse | ✅ `yaml.safe_load` clean |
+| `mobile/ios/project.yml` YAML parse | ✅ clean |
+| `Info.plist` parse | ✅ `plistlib.load` clean, 17 keys, `NSFaceIDUsageDescription` present |
+| Workflow structural assertions | ✅ `runs-on: macos-latest`, 7 steps in order, artifact path + `if-no-files-found: error` |
+| Project structural assertions | ✅ `MARKETING_VERSION 1.1.0` (matches the bridge bump), `SWIFT_TREAT_WARNINGS_AS_ERRORS`, bundle id matches Android's `applicationId`, deployment target 15.0 |
+| `web/` and `api/` | not applicable — this part changes neither |
+
+**The parse-and-assert gate is the honest ceiling here**, and it is the same shape `packaging/`'s committed-script
+rule takes: where a file cannot be executed locally, parse it with the target runtime's own parser and assert the
+values the plan specifies. It catches a malformed workflow and a wrong version; it cannot catch a Swift type error.
+
+#### Owed verification (Part 5) — all of it
+
+- [ ] **A green CI run.** Nothing else on this list can begin until the Swift compiles.
+- [ ] The `.ipa` signs and installs through Sideloadly with a free Apple ID.
+- [ ] The app launches, asks for an address, and reaches a real server.
+- [ ] **AC-14** — still signed in after force-quit and cold start (the persistent `WKWebsiteDataStore`).
+- [ ] AC-13 · AC-15 · AC-22 · AC-23 · AC-24 (edge swipe) · the shake menu.
+- [ ] AC-25 — « Connecter Google Agenda » hands off to `SFSafariViewController` and the page reloads on return.
+- [ ] AC-21 / AC-61 — print through the OS, and a BS1 opening in `QLPreviewController`.
+- [ ] **AC-57…AC-60** — Face ID / passcode resume, three failures, no-enrolment fallback, and the cookie still
+      present after a success.
+- [ ] AC-26 — `delete window.__clinicShell` at runtime and walk every affected screen.
+- [ ] AC-33 — a floor above 1.1.0 produces « Mise à jour requise » at launch.
+- [ ] Reaching an offline-LAN server after installing and fully trusting the clinic's CA.
+- [ ] **Not testable on the free path at all:** OS push (no APNs entitlement), TestFlight, the App Store.

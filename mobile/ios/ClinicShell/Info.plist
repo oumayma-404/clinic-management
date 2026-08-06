@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>fr</string>
+    <key>CFBundleDisplayName</key>
+    <string>Gestion Clinique</string>
+    <key>CFBundleExecutable</key>
+    <string>$(EXECUTABLE_NAME)</string>
+    <key>CFBundleIdentifier</key>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>$(PRODUCT_NAME)</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>$(MARKETING_VERSION)</string>
+    <key>CFBundleVersion</key>
+    <string>$(CURRENT_PROJECT_VERSION)</string>
+
+    <!-- French only. There is no English resource set, deliberately: an untranslated string on a Tunisian
+         dentist's phone is the defect, not the missing translation. -->
+    <key>CFBundleLocalizations</key>
+    <array>
+        <string>fr</string>
+    </array>
+
+    <!-- Shown above the system prompt `BiometricGate` raises. Required, or the prompt crashes the app. -->
+    <key>NSFaceIDUsageDescription</key>
+    <string>Confirmez votre identité pour reprendre votre session sans ressaisir votre mot de passe.</string>
+
+    <!-- The web view's own `input type="file"` uses both. Without these strings the picker crashes on selection. -->
+    <key>NSCameraUsageDescription</key>
+    <string>Prenez une photo à joindre au dossier d'un patient.</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>Choisissez une image à joindre au dossier d'un patient.</string>
+
+    <!-- ⚠️ NO `NSAppTransportSecurity` exception, deliberately. The offline-LAN server's certificate is
+         self-signed, and the supported way to reach it is to install the clinic's CA on the device and trust it
+         in Réglages — the counterpart of Android's `network_security_config.xml`. `NSAllowsArbitraryLoads` would
+         accept ANY certificate, which is the silently-accepted MITM the shell exists to refuse. -->
+
+    <key>UILaunchScreen</key>
+    <dict>
+        <key>UIColorName</key>
+        <string></string>
+    </dict>
+    <key>UIRequiredDeviceCapabilities</key>
+    <array>
+        <string>armv7</string>
+    </array>
+    <key>UISupportedInterfaceOrientations</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+    <key>UISupportedInterfaceOrientations~ipad</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationPortraitUpsideDown</string>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+</dict>
+</plist>

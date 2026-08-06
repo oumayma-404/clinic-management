@@ -145,16 +145,30 @@ deliberately **not** a member of `__clinicShell`, so deleting the bridge cannot 
 
 | | Android | iOS |
 |---|---|---|
-| `version` · `platform` · `maxFileBytes` | ✅ | not built (Part 5) |
-| `saveFile` | ✅ | not built |
-| `print` | ✅ | not built |
-| `onPushToken` | ✅ registered, inert | not built |
-| `confirmIdentity` | ✅ API 28+, else `unavailable` | not built |
+| `version` · `platform` · `maxFileBytes` | ✅ | ⚠️ written, **never compiled** |
+| `saveFile` | ✅ | ⚠️ written — `QLPreviewController`, else the share sheet |
+| `print` | ✅ | ⚠️ written — `UIPrintInteractionController` |
+| `onPushToken` | ✅ registered, inert | ⚠️ written, inert — and free signing has no APNs entitlement |
+| `confirmIdentity` | ✅ API 28+, else `unavailable` | ⚠️ written — `LAContext.deviceOwnerAuthentication` |
+
+⚠️ **Every iOS cell says *written*, not *implemented*.** The Swift has never been compiled, signed or run — see
+`mobile/ios/README.md`. Read it as a proposal until a green CI run exists.
+
+### The two platforms answer differently, and the contract covers both
+
+| | Android | iOS |
+|---|---|---|
+| Async result | a callback id + `__clinicShellDeliverIdentityResult` | `WKScriptMessageHandlerWithReply` returns a real `Promise` |
+| A `saveFile` failure | invisible to JS — the shell toasts **natively** | **rejects**, so `download.ts`'s `catch` speaks |
+| Bridge origin scope | `addDocumentStartJavaScript(script, setOf(origin))` | ⚠️ **no such API** — the injected script checks `location.origin` itself |
+| Safe area | insets consumed as **padding** (`env()` is unreliable in WebView) | drawn **edge-to-edge**; `env()` is reliable and `layout.tsx` sets `viewportFit: "cover"` |
+| Rotation | needs `android:configChanges` or the view is destroyed | free — iOS never destroys the view controller |
+| Recovery menu | back gesture at the root | **shake** (iOS has no system back button) |
 
 The Android native object is exposed as `__clinicShellNative` and carries **three** methods (`saveFile`, `print`,
 `confirmIdentity`); `onPushToken` lives entirely in the injected wrapper because it registers a JavaScript
-callback. The **JS-visible** set is the four the table above names, which is the set this contract and FR-6 both
-state.
+callback. iOS exposes **one** message handler, `clinicShell`, that switches on a `name` field. The **JS-visible**
+set is the four the table above names on both platforms, which is the set this contract and FR-6 both state.
 
 ## Version history
 

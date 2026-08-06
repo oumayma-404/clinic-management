@@ -33,7 +33,9 @@ clinic-management/
 ├── mobile/                       Native shells rendering the server's own web bundle → CLAUDE.md
 │                                   shared/bridge.md = THE `window.__clinicShell` contract
 │                                   android/         = Kotlin + WebView (built; Gradle, not CI-runnable)
-│                                   ios/             = NOT built (needs macOS + an Apple Developer membership)
+│                                   ios/             = Swift + WKWebView ⚠️ WRITTEN, NEVER COMPILED — no Mac here,
+│                                                      so .github/workflows/ios-shell.yml (free macos-latest) is
+│                                                      the first compiler it will meet. Read mobile/ios/README.md
 ├── packaging/                    Local/offline-LAN publish + installers (PowerShell + Inno Setup) → CLAUDE.md (+ README.md operator guide)
 ├── deploy/                       Hosted deployments (Docker + Caddy) → README.md operator guide
 │                                   docker-compose.prod.yml   = CloudBrowser  (Auth0)

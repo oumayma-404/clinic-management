@@ -1,0 +1,89 @@
+# The iOS shell's only gate.
+#
+# There is no Mac on the development machine, so this workflow IS the compiler: Swift is written on Windows and
+# every error comes back here. It mirrors what Android Lint does for `mobile/android/` — the module's own gate,
+# with warnings treated as errors (`SWIFT_TREAT_WARNINGS_AS_ERRORS` in `project.yml`), because there is no test
+# runner and no other check.
+#
+# ⚠️ It builds UNSIGNED, deliberately. Signing needs an Apple identity; the free path signs on the operator's own
+# Windows machine with Sideloadly and a free Apple ID. See `mobile/ios/README.md`.
+#
+# ⚠️ GitHub's macOS runners are free for PUBLIC repositories and billed for private ones. If this repository is
+# private, either accept the cost or move this build to a free-tier alternative — the README names them.
+
+name: iOS shell
+
+on:
+  push:
+    paths:
+      - "mobile/ios/**"
+      - ".github/workflows/ios-shell.yml"
+  pull_request:
+    paths:
+      - "mobile/ios/**"
+      - ".github/workflows/ios-shell.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate the Xcode project
+        working-directory: mobile/ios
+        run: xcodegen generate
+
+      # Two builds, and the order matters: the simulator one is faster and surfaces compile errors first, so a
+      # syntax mistake does not wait on a device-SDK build to be reported.
+      - name: Build for the simulator
+        working-directory: mobile/ios
+        run: |
+          xcodebuild \
+            -project ClinicShell.xcodeproj \
+            -scheme ClinicShell \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build-sim \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Build for a device (unsigned)
+        working-directory: mobile/ios
+        run: |
+          xcodebuild \
+            -project ClinicShell.xcodeproj \
+            -scheme ClinicShell \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+      # Sideloadly and AltStore both take an .ipa, which is a zip with the .app under `Payload/`. Building it here
+      # rather than asking the operator to zip it by hand keeps one fewer manual step between CI and the phone.
+      - name: Package an unsigned .ipa
+        working-directory: mobile/ios
+        run: |
+          set -euo pipefail
+          APP="build/Build/Products/Release-iphoneos/ClinicShell.app"
+          test -d "$APP" || { echo "no .app was produced at $APP"; exit 1; }
+          rm -rf Payload ClinicShell-unsigned.ipa
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          zip -qry ClinicShell-unsigned.ipa Payload
+          ls -la ClinicShell-unsigned.ipa
+
+      - name: Upload the .ipa
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClinicShell-unsigned-ipa
+          path: mobile/ios/ClinicShell-unsigned.ipa
+          if-no-files-found: error
